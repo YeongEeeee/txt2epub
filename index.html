@@ -591,6 +591,12 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     </div>
     <input type="file" id="insTxtIn" accept=".txt" multiple hidden>
     <div id="insTxtInfo" style="display:none;margin-top:7px;font-size:12px;color:var(--green)"></div>
+    <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-size:12px;color:var(--text2);white-space:nowrap">⚙️ 챕터 정규식</span>
+      <input class="inp" id="insPattern" placeholder="비워두면 자동 감지 (예: ^(소설제목 \d+|\d+화|\d+$))" style="flex:1;min-width:200px">
+      <button class="btn btn-blue btn-sm" onclick="reloadInsToc()">🔍 목차 재확인</button>
+    </div>
+    <div class="hint" style="margin-top:6px">💡 이 파일처럼 패턴이 섞여 있을 때: <code>^(대나무숲의 관리자 \d+|\d+화|\d+$)</code></div>
     <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
       <span style="font-size:12px;color:var(--text2)">삽입 위치</span>
       <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer">
@@ -933,10 +939,25 @@ async function handleInsTxt(files){
   const sorted=[...txts].sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
   const raws=await Promise.all(sorted.map(fileToText));
   const raw=raws.join('\n\n');
-  const chapters=splitChapters(raw,'');
+  const pat=document.getElementById('insPattern').value.trim();
+  const chapters=splitChapters(raw,pat);
   E.insTxtChapters=chapters.map((ch,i)=>({idx:i,title:ch[0],body:ch[1],enabled:true}));
 
   info.textContent='✅ '+txts.length+'개 파일 · '+chapters.length+'개 챕터 감지';
+  renderInsTocList();
+  document.getElementById('insTocSec').style.display='block';
+}
+
+async function reloadInsToc(){
+  if(!E.insTxtFiles.length){alert('TXT 파일을 먼저 선택해주세요.');return;}
+  const sorted=[...E.insTxtFiles].sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
+  const raws=await Promise.all(sorted.map(fileToText));
+  const raw=raws.join('\n\n');
+  const pat=document.getElementById('insPattern').value.trim();
+  const chapters=splitChapters(raw,pat);
+  E.insTxtChapters=chapters.map((ch,i)=>({idx:i,title:ch[0],body:ch[1],enabled:true}));
+  const info=document.getElementById('insTxtInfo');
+  info.textContent='✅ '+E.insTxtFiles.length+'개 파일 · '+chapters.length+'개 챕터 감지';
   renderInsTocList();
   document.getElementById('insTocSec').style.display='block';
 }
