@@ -182,6 +182,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
   <button class="page-tab on" onclick="switchPage('convert')">📚 TXT→EPUB</button>
   <button class="page-tab" onclick="switchPage('batch')">📦 일괄변환</button>
   <button class="page-tab" onclick="switchPage('edit')">✏️ EPUB편집</button>
+  <button class="page-tab" onclick="switchPage('settings')">⚙️ 설정</button>
 </div>
 
 <div class="wrap">
@@ -242,69 +243,10 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
   </div>
 </div>
 <div class="sec">
-  <div class="sec-hdr"><span class="sec-title">⚙️ 변환 옵션</span><div class="sec-line"></div></div>
-  <div class="card">
-    <div class="toggle-row">
-      <div><label for="optItalic">👻 회상 대사 이탤릭</label><small>-, — 시작 문장 → 이탤릭체</small></div>
-      <label class="sw"><input type="checkbox" id="optItalic" checked><span class="sw-slider"></span></label>
-    </div>
-    <div class="toggle-row">
-      <div><label for="optIndent">들여쓰기</label><small>문단 첫 줄 들여쓰기</small></div>
-      <label class="sw"><input type="checkbox" id="optIndent" checked><span class="sw-slider"></span></label>
-    </div>
-  </div>
-</div>
-<div class="sec">
-  <div class="sec-hdr"><span class="sec-title">🎨 CSS 커스터마이징</span><div class="sec-line"></div></div>
-  <div class="card">
-    <div class="css-grid">
-      <div class="css-field"><label>폰트</label>
-        <select id="cssFont" onchange="updateCssPreview();saveCssSettings()">
-          <option value='"Noto Serif KR",Georgia,serif'>Noto Serif KR (기본)</option>
-          <option value='"Noto Sans KR",sans-serif'>Noto Sans KR</option>
-          <option value='"Gowun Dodum",sans-serif'>고운돋움</option>
-          <option value='"Gowun Batang",serif'>고운바탕</option>
-          <option value='"Hahmlet",serif'>함렛 (명조)</option>
-          <option value='"Black Han Sans",sans-serif'>검은고딕</option>
-          <option value='"Gaegu",cursive'>개구 (손글씨)</option>
-          <option value='"Cute Font",cursive'>귀여운글씨</option>
-          <option value='"Jua",sans-serif'>주아</option>
-          <option value='"Gugi",cursive'>구기</option>
-          <option value='Georgia,serif'>Georgia</option>
-          <option value='"Batang",serif'>바탕체</option>
-          <option value='"Malgun Gothic",sans-serif'>맑은 고딕</option>
-          <option value='"Dotum",sans-serif'>돋움체</option>
-        </select>
-      </div>
-      <div class="css-field"><label>줄간격</label>
-        <select id="cssLine" onchange="updateCssPreview();saveCssSettings()">
-          <option value="1.7">1.7</option>
-          <option value="1.9" selected>1.9 (기본)</option>
-          <option value="2.1">2.1</option>
-          <option value="2.3">2.3</option>
-        </select>
-      </div>
-      <div class="css-field"><label>글자 크기</label>
-        <select id="cssFontSize" onchange="updateCssPreview();saveCssSettings()">
-          <option value="0.9em">작게</option>
-          <option value="1em" selected>보통</option>
-          <option value="1.1em">크게</option>
-          <option value="1.2em">매우 크게</option>
-        </select>
-      </div>
-      <div class="css-field"><label>여백</label>
-        <select id="cssMargin" onchange="updateCssPreview();saveCssSettings()">
-          <option value="1em 1.2em">좁게</option>
-          <option value="1.5em 1.8em" selected>보통</option>
-          <option value="2em 2.5em">넓게</option>
-        </select>
-      </div>
-    </div>
-    <div class="css-preview" id="cssPreview">
-      <strong style="font-size:1.1em;display:block;text-align:center;margin-bottom:10px">미리보기 제목</strong>
-      <p>가나다라마바사아자차카타파하. 한글 소설 본문 미리보기입니다.</p>
-      <p style="font-style:italic;margin-top:6px">— 이것은 회상 대사입니다.</p>
-    </div>
+  <div class="sec-hdr"><span class="sec-title">⚙️ 변환 옵션 · 스타일</span><div class="sec-line"></div></div>
+  <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div id="settingsSummary" style="font-size:12px;color:var(--text2)">설정 탭에서 폰트, 줄간격, 변환 옵션을 변경할 수 있어요.</div>
+    <button class="btn btn-blue" onclick="switchPage('settings')" style="flex-shrink:0">⚙️ 설정 열기</button>
   </div>
 </div>
 <div class="sec">
@@ -444,6 +386,90 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 </div><!-- /page-edit -->
 </div><!-- /wrap -->
 
+<!-- ══ 설정 페이지 ══ -->
+<div id="page-settings" class="page">
+<div class="sec">
+  <div class="sec-hdr"><span class="sec-title">⚙️ 변환 옵션</span><div class="sec-line"></div></div>
+  <div class="card">
+    <div class="toggle-row">
+      <div><label for="optItalic">👻 회상 대사 이탤릭</label><small>-, — 시작 문장 → 이탤릭체</small></div>
+      <label class="sw"><input type="checkbox" id="optItalic" checked><span class="sw-slider"></span></label>
+    </div>
+    <div class="toggle-row">
+      <div><label for="optIndent">들여쓰기</label><small>문단 첫 줄 들여쓰기</small></div>
+      <label class="sw"><input type="checkbox" id="optIndent" checked><span class="sw-slider"></span></label>
+    </div>
+  </div>
+</div>
+<div class="sec">
+  <div class="sec-hdr"><span class="sec-title">🎨 CSS 커스터마이징</span><div class="sec-line"></div></div>
+  <div class="card">
+    <div class="css-grid">
+      <div class="css-field"><label>폰트</label>
+        <select id="cssFont" onchange="updateCssPreview();saveCssSettings()">
+          <option value='"Noto Serif KR",Georgia,serif'>Noto Serif KR (기본)</option>
+          <option value='"Noto Sans KR",sans-serif'>Noto Sans KR</option>
+          <option value='"Gowun Dodum",sans-serif'>고운돋움</option>
+          <option value='"Gowun Batang",serif'>고운바탕</option>
+          <option value='"Hahmlet",serif'>함렛 (명조)</option>
+          <option value='"Black Han Sans",sans-serif'>검은고딕</option>
+          <option value='"Gaegu",cursive'>개구 (손글씨)</option>
+          <option value='"Cute Font",cursive'>귀여운글씨</option>
+          <option value='"Jua",sans-serif'>주아</option>
+          <option value='"Gugi",cursive'>구기</option>
+          <option value='Georgia,serif'>Georgia</option>
+          <option value='"Batang",serif'>바탕체</option>
+          <option value='"Malgun Gothic",sans-serif'>맑은 고딕</option>
+          <option value='"Dotum",sans-serif'>돋움체</option>
+          <option value="var(--custom-font)" id="customFontOpt" style="display:none">📁 커스텀 폰트</option>
+        </select>
+      </div>
+      <div class="css-field"><label>줄간격</label>
+        <select id="cssLine" onchange="updateCssPreview();saveCssSettings()">
+          <option value="1.7">1.7</option>
+          <option value="1.9" selected>1.9 (기본)</option>
+          <option value="2.1">2.1</option>
+          <option value="2.3">2.3</option>
+        </select>
+      </div>
+      <div class="css-field"><label>글자 크기</label>
+        <select id="cssFontSize" onchange="updateCssPreview();saveCssSettings()">
+          <option value="0.9em">작게</option>
+          <option value="1em" selected>보통</option>
+          <option value="1.1em">크게</option>
+          <option value="1.2em">매우 크게</option>
+        </select>
+      </div>
+      <div class="css-field"><label>여백</label>
+        <select id="cssMargin" onchange="updateCssPreview();saveCssSettings()">
+          <option value="1em 1.2em">좁게</option>
+          <option value="1.5em 1.8em" selected>보통</option>
+          <option value="2em 2.5em">넓게</option>
+        </select>
+      </div>
+    </div>
+    <!-- 커스텀 폰트 업로드 -->
+    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">📁 커스텀 폰트 파일 추가</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">TTF, OTF, WOFF, WOFF2 파일을 epub에 직접 포함시켜요.</div>
+      <div class="dz" id="fontDrop" style="padding:10px">
+        <div style="font-size:12px;color:var(--text2)">🔤 폰트 파일 드래그하거나 클릭 (.ttf .otf .woff .woff2)</div>
+        <div id="fontInfo" style="font-size:11px;color:var(--green);margin-top:3px"></div>
+      </div>
+      <input type="file" id="fontIn" accept=".ttf,.otf,.woff,.woff2" hidden>
+    </div>
+    <div class="css-preview" id="cssPreview">
+      <strong style="font-size:1.1em;display:block;text-align:center;margin-bottom:10px">미리보기 제목</strong>
+      <p>가나다라마바사아자차카타파하. 한글 소설 본문 미리보기입니다.</p>
+      <p style="font-style:italic;margin-top:6px">— 이것은 회상 대사입니다.</p>
+    </div>
+  </div>
+</div>
+<div style="padding:0 0 20px;display:flex;gap:10px">
+  <button class="btn btn-accent" onclick="switchPage('convert')">← 변환으로 돌아가기</button>
+</div>
+</div><!-- /page-settings -->
+
 <div class="btm" id="btmConvert"><button class="btn btn-accent" onclick="startConvert()">✨ EPUB 만들기!</button></div>
 <div class="btm" id="btmBatch" style="display:none"><button class="btn btn-accent" onclick="startBatch()">📦 일괄 변환 시작!</button></div>
 <div class="btm" id="btmEdit" style="display:none"><button class="btn btn-accent" onclick="startEditEpub()">✏️ 편집 적용!</button></div>
@@ -462,6 +488,7 @@ const PAT_PRESETS = [
 ];
 
 const S={txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0};
+let customFontFile=null, customFontName='', customFontFace='';
 const B={txtFiles:[],coverMap:{},results:[]};
 const E={epubFile:null,epubZip:null,chapters:[],spineOrder:[],selectedChIdx:null,insTxtFiles:[],insTxtChapters:[],resultBlob:null,resultName:''};
 
@@ -473,6 +500,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   buildPatHelpers();
   setupDragDrop();
   setupEventListeners();
+  updateSettingsSummary();
 });
 
 function buildPatHelpers(){
@@ -504,6 +532,8 @@ function setupEventListeners(){
   document.getElementById('insTxtIn').onchange=e=>handleInsTxt(e.target.files);
   document.getElementById('batchTxtIn').onchange=e=>handleBatchTxt(e.target.files);
   document.getElementById('batchCoverIn').onchange=e=>handleBatchCover(e.target.files);
+  document.getElementById('fontIn').onchange=e=>handleCustomFont(e.target.files);
+  document.getElementById('fontDrop').onclick=()=>document.getElementById('fontIn').click();
   document.getElementById('coverDz').onclick=()=>document.getElementById('coverIn').click();
   document.getElementById('coverThumb').onclick=()=>document.getElementById('coverIn').click();
   document.querySelectorAll('input[name="insPos"]').forEach(r=>r.addEventListener('change',()=>{if(E.selectedChIdx!==null)selectCh(E.selectedChIdx);}));
@@ -517,6 +547,7 @@ function setupDragDrop(){
   setupDz('insTxtDrop',handleInsTxt);
   setupDz('batchTxtDrop',handleBatchTxt);
   setupDz('batchCoverDrop',handleBatchCover);
+  setupDz('fontDrop',handleCustomFont);
 }
 
 function setupDz(id,fn){
@@ -556,12 +587,24 @@ function resetAll(){
 }
 
 function switchPage(name){
-  const pages=['convert','batch','edit'];
+  const pages=['convert','batch','edit','settings'];
   document.querySelectorAll('.page-tab').forEach((t,i)=>t.classList.toggle('on',pages[i]===name));
   pages.forEach(p=>{document.getElementById('page-'+p).classList.toggle('on',p===name);});
   document.getElementById('btmConvert').style.display=name==='convert'?'flex':'none';
   document.getElementById('btmBatch').style.display=name==='batch'?'flex':'none';
   document.getElementById('btmEdit').style.display=name==='edit'?'flex':'none';
+  // 설정 탭 진입 시 현재 설정 요약 업데이트
+  if(name==='convert') updateSettingsSummary();
+}
+
+function updateSettingsSummary(){
+  const font=document.getElementById('cssFont');
+  const fontName=font?font.options[font.selectedIndex].text:'Noto Serif KR';
+  const line=document.getElementById('cssLine')?.value||'1.9';
+  const italic=document.getElementById('optItalic')?.checked?'이탤릭 ON':'이탤릭 OFF';
+  const indent=document.getElementById('optIndent')?.checked?'들여쓰기 ON':'들여쓰기 OFF';
+  const el=document.getElementById('settingsSummary');
+  if(el) el.textContent='현재: '+fontName+' · 줄간격 '+line+' · '+italic+' · '+indent;
 }
 
 // ══════════════════════════════════════════
@@ -643,6 +686,29 @@ async function fileToJpgBlob(file){
 }
 
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+
+async function handleCustomFont(files){
+  const f=files[0];if(!f)return;
+  customFontFile=f;
+  const ext=f.name.split('.').pop().toLowerCase();
+  const fontName=f.name.replace(/\.[^.]+$/,'');
+  customFontName=fontName;
+  // base64로 읽어서 @font-face에 임베드
+  const ab=await fileToAB(f);
+  const b64=btoa(String.fromCharCode(...new Uint8Array(ab)));
+  const mimeMap={'ttf':'font/truetype','otf':'font/opentype','woff':'font/woff','woff2':'font/woff2'};
+  const mime=mimeMap[ext]||'font/truetype';
+  customFontFace='@font-face{font-family:"'+fontName+'";src:url("data:'+mime+';base64,'+b64+'") format("'+ext+'");}\n';
+  // select에 커스텀 폰트 옵션 추가
+  const opt=document.getElementById('customFontOpt');
+  if(opt){opt.textContent='📁 '+fontName;opt.style.display='';opt.value='"'+fontName+'",serif';}
+  document.getElementById('cssFont').value='"'+fontName+'",serif';
+  document.getElementById('fontInfo').textContent='✅ '+f.name+' ('+( ab.byteLength/1024).toFixed(0)+'KB)';
+  document.getElementById('fontDrop').classList.add('ok');
+  updateCssPreview();
+  saveCssSettings();
+  updateSettingsSummary();
+}
 
 function sortKey(name){
   const parts=name.replace(/\.[^.]+$/,'').split(/(\d+)/);
@@ -756,13 +822,15 @@ function updateCssPreview(){
 }
 
 function buildCss(){
+  // 커스텀 폰트 @font-face 앞에 추가
   const font=document.getElementById('cssFont').value;
   const line=document.getElementById('cssLine').value;
   const size=document.getElementById('cssFontSize').value;
   const margin=document.getElementById('cssMargin').value;
   const indent=document.getElementById('optIndent').checked;
+  const fontFaceBlock=customFontFace||'';
   return `@charset "UTF-8";
-body{font-family:${font};line-height:${line};font-size:${size};margin:0;padding:${margin};word-break:keep-all;overflow-wrap:break-word}
+${fontFaceBlock}body{font-family:${font};line-height:${line};font-size:${size};margin:0;padding:${margin};word-break:keep-all;overflow-wrap:break-word}
 h1{font-size:1.3em;text-align:center;margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}
 p{margin:0;padding:0.25em 0;text-indent:${indent?'1em':'0'}}
 p.noindent{text-indent:0}
@@ -1420,6 +1488,21 @@ async function startEditEpub(){
         ncxText=ncxText.replace('</navMap>',newNavPoints+'\n</navMap>');
       }
       newZip.file(ncxFile,ncxText);
+    }
+    // nav.xhtml 업데이트 (EPUB3 리더용)
+    const navFile=Object.keys(E.epubZip.files).find(f=>f.endsWith('nav.xhtml'));
+    if(navFile){
+      let navText=await E.epubZip.file(navFile).async('text');
+      const newNavLis=newNcxItems.map(it=>'<li><a href="'+it.src+'">'+escHtml(it.title)+'</a></li>').join('\n');
+      const selFilenameNav=selHrefRel.split('/').pop();
+      const navSelMatch=navText.match(new RegExp('<li><a href="[^"]*'+selFilenameNav.replace(/\./g,'\\.')+'[^"]*">[^<]*</a></li>'));
+      if(navSelMatch){
+        if(insPos==='before') navText=navText.replace(navSelMatch[0],newNavLis+'\n'+navSelMatch[0]);
+        else navText=navText.replace(navSelMatch[0],navSelMatch[0]+'\n'+newNavLis);
+      }else{
+        navText=navText.replace('</ol>',newNavLis+'\n</ol>');
+      }
+      newZip.file(navFile,navText);
     }
     ep(92,'압축 중...');
     const blob=await newZip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:6}},
