@@ -1468,8 +1468,12 @@ async function startEditEpub(){
       opfText=opfText.replace('</spine>',newSpineRefs+'\n</spine>');
     }
     newZip.file(opfPath,opfText);
-    // NCX 업데이트
+    // NCX + nav.xhtml 목차 업데이트
     ep(82,'목차 업데이트 중...');
+    const selFilename=selHrefRel.split('/').pop();
+    const escSelFn=selFilename.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+
+    // NCX 업데이트
     const ncxFile=Object.keys(E.epubZip.files).find(f=>f.endsWith('.ncx'));
     if(ncxFile){
       let ncxText=await E.epubZip.file(ncxFile).async('text');
@@ -1479,26 +1483,30 @@ async function startEditEpub(){
         '<navLabel><text>'+escHtml(it.title)+'</text></navLabel>'+
         '<content src="'+it.src+'"/></navPoint>'
       ).join('\n');
-      const selFilename=selHrefRel.split('/').pop();
-      const ncxSelMatch=ncxText.match(new RegExp('<navPoint[^>]*>[\\s\\S]*?<content src="[^"]*'+selFilename.replace(/\./g,'\\.')+'[^"]*"/>[\\s\\S]*?</navPoint>'));
-      if(ncxSelMatch){
-        if(insPos==='before') ncxText=ncxText.replace(ncxSelMatch[0],newNavPoints+'\n'+ncxSelMatch[0]);
-        else ncxText=ncxText.replace(ncxSelMatch[0],ncxSelMatch[0]+'\n'+newNavPoints);
+      // ✅ 핵심 수정: (?:(?!</navPoint>)[\s\S])*? 로 navPoint 경계를 절대 넘지 않음
+      const ncxSafeRx=new RegExp(
+        '<navPoint[^>]*>(?:(?!</navPoint>)[\\s\\S])*?<content src="[^"]*'
+        +escSelFn+'[^"]*"/>(?:(?!</navPoint>)[\\s\\S])*?</navPoint>'
+      );
+      const ncxM=ncxText.match(ncxSafeRx);
+      if(ncxM){
+        if(insPos==='before') ncxText=ncxText.replace(ncxM[0],newNavPoints+'\n'+ncxM[0]);
+        else ncxText=ncxText.replace(ncxM[0],ncxM[0]+'\n'+newNavPoints);
       }else{
         ncxText=ncxText.replace('</navMap>',newNavPoints+'\n</navMap>');
       }
       newZip.file(ncxFile,ncxText);
     }
-    // nav.xhtml 업데이트 (EPUB3 리더용)
+
+    // nav.xhtml 업데이트 (EPUB3 리더 우선 사용)
     const navFile=Object.keys(E.epubZip.files).find(f=>f.endsWith('nav.xhtml'));
     if(navFile){
       let navText=await E.epubZip.file(navFile).async('text');
       const newNavLis=newNcxItems.map(it=>'<li><a href="'+it.src+'">'+escHtml(it.title)+'</a></li>').join('\n');
-      const selFilenameNav=selHrefRel.split('/').pop();
-      const navSelMatch=navText.match(new RegExp('<li><a href="[^"]*'+selFilenameNav.replace(/\./g,'\\.')+'[^"]*">[^<]*</a></li>'));
-      if(navSelMatch){
-        if(insPos==='before') navText=navText.replace(navSelMatch[0],newNavLis+'\n'+navSelMatch[0]);
-        else navText=navText.replace(navSelMatch[0],navSelMatch[0]+'\n'+newNavLis);
+      const navM=navText.match(new RegExp('<li><a href="[^"]*'+escSelFn+'[^"]*">[^<]*</a></li>'));
+      if(navM){
+        if(insPos==='before') navText=navText.replace(navM[0],newNavLis+'\n'+navM[0]);
+        else navText=navText.replace(navM[0],navM[0]+'\n'+newNavLis);
       }else{
         navText=navText.replace('</ol>',newNavLis+'\n</ol>');
       }
