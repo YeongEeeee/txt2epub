@@ -596,7 +596,7 @@ const PAT_PRESETS = [
 const S={txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0};
 let customFontFile=null, customFontName='', customFontFace='';
 const B={txtFiles:[],coverMap:{},results:[]};
-const E={epubFile:null,epubZip:null,chapters:[],spineOrder:[],selectedChIdx:null,insTxtFiles:[],insTxtChapters:[],resultBlob:null,resultName:''};
+const E={epubFile:null,epubZip:null,chapters:[],spineOrder:[],selectedChIdx:null,insTxtFiles:[],insTxtChapters:[],resultBlob:null,resultName:'',perChapterNcx:false};
 
 // ══════════════════════════════════════════
 // 초기화
@@ -1607,6 +1607,60 @@ epubDrop.addEventListener('dragleave',()=>epubDrop.classList.remove('over'));
 epubDrop.addEventListener('drop',e=>{e.preventDefault();epubDrop.classList.remove('over');loadEpub(e.dataTransfer.files[0]);});
 epubDrop.onclick=()=>document.getElementById('epubIn').click();
 
+// ══════════════════════════════════════════
+// EPUB 구조 감지 헬퍼
+// ══════════════════════════════════════════
+
+// OPF spine toc 속성 → manifest → href 순서로 메인 NCX를 정확히 찾음
+// bookN_toc.ncx 같은 챕터별 NCX를 잘못 잡는 버그 방지
+function findMainNcx(zipFiles, opfText, opfBase){
+  const keys=Object.keys(zipFiles);
+  // 1순위: spine toc="id" → manifest에서 해당 id의 href
+  const tocIdM=opfText.match(/<spine[^>]+toc="([^"]+)"/);
+  if(tocIdM){
+    const esc=tocIdM[1].replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const tocHrefM=opfText.match(new RegExp('<item[^>]+id="'+esc+'"[^>]+href="([^"]+)"'));
+    if(tocHrefM){
+      const full=(opfBase+tocHrefM[1]).replace(/\/\//g,'/');
+      if(keys.find(f=>f===full)) return full;
+    }
+  }
+  // 2순위: 파일명이 정확히 'toc.ncx'
+  const exact=keys.find(f=>f.endsWith('/toc.ncx')||f==='toc.ncx');
+  if(exact) return exact;
+  // 3순위: 단 하나의 .ncx만 있으면 그게 메인
+  const allNcx=keys.filter(f=>f.endsWith('.ncx'));
+  if(allNcx.length===1) return allNcx[0];
+  // 4순위: 경로 가장 짧은 .ncx (루트에 가까운 것)
+  if(allNcx.length>1) return allNcx.sort((a,b)=>a.length-b.length||a.localeCompare(b))[0];
+  return null;
+}
+
+// OPF manifest에서 nav.xhtml을 정확히 찾음
+function findNavXhtml(zipFiles, opfText, opfBase){
+  const keys=Object.keys(zipFiles);
+  // 1순위: manifest에서 properties="nav" 항목
+  const m1=opfText.match(/<item[^>]+properties="[^"]*\bnav\b[^"]*"[^>]+href="([^"]+)"/);
+  const m2=opfText.match(/<item[^>]+href="([^"]+)"[^>]+properties="[^"]*\bnav\b[^"]*"/);
+  const navHref=(m1||m2||[])[1];
+  if(navHref){
+    const full=(opfBase+navHref).replace(/\/\//g,'/');
+    if(keys.find(f=>f===full)) return full;
+  }
+  // 2순위: 파일명이 정확히 'nav.xhtml'
+  return keys.find(f=>f.endsWith('/nav.xhtml')||f==='nav.xhtml')||null;
+}
+
+// 챕터별 NCX 구조 감지 (bookN_toc.ncx 패턴)
+function detectPerChapterNcx(zipFiles, opfText, opfBase){
+  const keys=Object.keys(zipFiles);
+  const perNcx=keys.filter(f=>/book\d+_toc\.ncx/.test(f));
+  if(perNcx.length<2) return null;
+  const rel=perNcx[0].replace(opfBase,'');
+  if(!opfText.includes(`href="${rel}"`)) return null;
+  return {type:'per-chapter', opfBase};
+}
+
 async function loadEpub(file){
   if(!file||!file.name.endsWith('.epub'))return;
   E.epubFile=file;
@@ -1624,7 +1678,8 @@ async function loadEpub(file){
   const spineIds=[...opfText.matchAll(/<itemref[^>]+idref="([^"]+)"/g)].map(m=>m[1]);
   E.spineOrder=spineIds.map(id=>opfBase+manifestMap[id]).filter(Boolean);
   const titleMap={};
-  const ncxFile=Object.keys(E.epubZip.files).find(f=>f.endsWith('.ncx'));
+  const ncxFile=findMainNcx(E.epubZip.files,opfText,opfBase);
+  E.perChapterNcx=detectPerChapterNcx(E.epubZip.files,opfText,opfBase);
   if(ncxFile){
     const ncxText=await E.epubZip.file(ncxFile).async('text');
     for(const m of ncxText.matchAll(/<navPoint[^>]*>[\s\S]*?<text>([^<]+)<\/text>[\s\S]*?<content src="([^"#]+)/g)){
@@ -1632,10 +1687,24 @@ async function loadEpub(file){
       titleMap[href]=m[1].trim();
     }
   }
-  E.chapters=E.spineOrder.map((href,idx)=>({
-    idx,href,
-    title:titleMap[href]||href.split('/').pop().replace('.xhtml',''),
-  })).filter(ch=>!ch.href.includes('cover')&&!ch.href.includes('nav'));
+  // titleMap의 제목이 'Chapter N' 형식이면 실제 xhtml <h1>에서 재취득
+  const chapterNTitle=/^Chapter\s+\d+$/i;
+  E.chapters=await Promise.all(
+    E.spineOrder
+      .filter(href=>!href.includes('cover')&&!href.includes('nav'))
+      .map(async(href,idx)=>{
+        let title=titleMap[href]||'';
+        if(!title||chapterNTitle.test(title)){
+          try{
+            const raw=await E.epubZip.file(href).async('text');
+            const h1=raw.match(/<h[12][^>]*>([^<]+)<\/h[12]>/);
+            if(h1) title=h1[1].trim();
+          }catch(e){}
+        }
+        if(!title) title=href.split('/').pop().replace('.xhtml','');
+        return {idx,href,title};
+      })
+  );
   document.getElementById('epubInfo').textContent='✅ '+file.name+' ('+E.chapters.length+'개 챕터)';
   // 기본값: 마지막 챕터 뒤
   E.selectedChIdx=E.chapters.length-1;
@@ -1771,6 +1840,8 @@ async function startEditEpub(){
     let nextNum=(existingNums.length?Math.max(...existingNums):0)+1;
     const newManifestItems=[],newSpineIds=[],newNcxItems=[];
     const useItalic=true;
+    // 챕터별 NCX 구조 감지 (bookN_toc.ncx 패턴)
+    const perChNcx=E.perChapterNcx;
     function bToHtml(body){
       let html='';
       for(const line of body.split('\n')){
@@ -1781,6 +1852,16 @@ async function startEditEpub(){
       }
       return html;
     }
+    function makeChNcx(id,title,contentSrc){
+      return '<?xml version="1.0" encoding="UTF-8"?>\n'+
+        '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n'+
+        '  <head><meta name="dtb:uid" content="urn:uuid:'+id+'"/><meta name="dtb:depth" content="1"/>'+
+        '<meta name="dtb:totalPageCount" content="0"/><meta name="dtb:maxPageNumber" content="0"/></head>\n'+
+        '  <docTitle><text>'+escHtml(title)+'</text></docTitle>\n'+
+        '  <navMap>\n    <navPoint id="navPoint-1" playOrder="1">\n'+
+        '      <navLabel><text>'+escHtml(title)+'</text></navLabel>\n'+
+        '      <content src="'+contentSrc+'"/>\n    </navPoint>\n  </navMap>\n</ncx>';
+    }
     for(let i=0;i<newChapters.length;i++){
       if(i%20===0) ep(25+Math.floor(i/newChapters.length*40),'챕터 생성 중 ('+i+'/'+newChapters.length+')...');
       const[heading,body]=newChapters[i];
@@ -1789,6 +1870,13 @@ async function startEditEpub(){
       const chid='ins_ch_'+String(nextNum).padStart(4,'0');
       newZip.file(fullPath,'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml"><head>\n<title>'+escHtml(heading)+'</title>\n<link rel="stylesheet" type="text/css" href="../'+cssHref+'"/>\n</head><body>\n<h1>'+escHtml(heading)+'</h1>\n'+bToHtml(body)+'</body></html>');
       newManifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
+      // 챕터별 NCX 구조이면 개별 ncx 파일도 생성
+      if(perChNcx){
+        const ncxFname='chapter_'+String(nextNum).padStart(4,'0')+'_toc.ncx';
+        const ncxPath=opfBase+'Text/'+ncxFname;
+        newZip.file(ncxPath, makeChNcx(chid, heading, fname));
+        newManifestItems.push({id:chid+'_ncx',href:'Text/'+ncxFname,mt:'application/x-dtbncx+xml'});
+      }
       newSpineIds.push(chid);
       newNcxItems.push({id:chid,title:heading,src:'Text/'+fname});
       nextNum++;
@@ -1817,7 +1905,7 @@ async function startEditEpub(){
     const escSelFn=selFilename.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
 
     // NCX 업데이트
-    const ncxFile=Object.keys(E.epubZip.files).find(f=>f.endsWith('.ncx'));
+    const ncxFile=findMainNcx(E.epubZip.files,opfText,opfBase);
     if(ncxFile){
       let ncxText=await E.epubZip.file(ncxFile).async('text');
       const maxOrder=Math.max(...[...ncxText.matchAll(/playOrder="(\d+)"/g)].map(m=>parseInt(m[1])),0);
@@ -1842,7 +1930,7 @@ async function startEditEpub(){
     }
 
     // nav.xhtml 업데이트 (EPUB3 리더 우선 사용)
-    const navFile=Object.keys(E.epubZip.files).find(f=>f.endsWith('nav.xhtml'));
+    const navFile=findNavXhtml(E.epubZip.files,opfText,opfBase);
     if(navFile){
       let navText=await E.epubZip.file(navFile).async('text');
       const newNavLis=newNcxItems.map(it=>'<li><a href="'+it.src+'">'+escHtml(it.title)+'</a></li>').join('\n');
@@ -1942,8 +2030,8 @@ async function insertIllsToEpub(newZip, opfPath, opfBase, illEntries){
   if(!illEntries.length) return;
 
   let opfText=await newZip.file(opfPath).async('text');
-  const ncxFile=Object.keys(newZip.files).find(f=>f.endsWith('.ncx'));
-  const navFile=Object.keys(newZip.files).find(f=>f.endsWith('nav.xhtml'));
+  const ncxFile=findMainNcx(newZip.files,opfText,opfBase);
+  const navFile=findNavXhtml(newZip.files,opfText,opfBase);
   let ncxText=ncxFile?await newZip.file(ncxFile).async('text'):'';
   let navText=navFile?await newZip.file(navFile).async('text'):'';
 
