@@ -80,8 +80,9 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .hint{background:var(--yellow-bg);border-left:3px solid var(--accent2);border-radius:0 6px 6px 0;padding:7px 11px;font-size:11px;color:var(--yellow);margin-top:6px;line-height:1.6}
 /* 정규식 도우미 */
 .pat-helper{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
-.pat-chip{background:var(--bg2);border:1px solid var(--border);border-radius:99px;padding:3px 10px;font-size:11px;cursor:pointer;color:var(--text2);transition:all .15s}
+.pat-chip{background:var(--bg2);border:1px solid var(--border);border-radius:99px;padding:3px 10px;font-size:11px;cursor:pointer;color:var(--text2);transition:all .15s;user-select:none}
 .pat-chip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.pat-chip.active{background:var(--accent-bg);color:var(--accent);border-color:var(--accent);font-weight:600}
 /* 목차 패널 */
 .toc-panel{display:none;border:1.5px solid var(--border);border-radius:var(--radius);margin-top:8px;overflow:hidden;background:var(--bg2)}
 .toc-panel.show{display:block}
@@ -241,7 +242,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="row"><span class="lbl">✒️ 작가</span><input class="inp" id="author" placeholder="작가명"></div>
     <div class="row">
       <span class="lbl">⚙️ 챕터 정규식</span>
-      <input class="inp" id="pattern" placeholder="비워두면 자동 감지">
+      <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" oninput="clearChipSelection('patHelper')">
       <button class="btn btn-blue btn-sm" onclick="previewToc()">🔍 목차 확인</button>
     </div>
     <div class="pat-helper" id="patHelper">
@@ -395,7 +396,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div id="insTxtInfo" style="display:none;margin-top:7px;font-size:12px;color:var(--green)"></div>
     <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--text2);white-space:nowrap">⚙️ 챕터 정규식</span>
-      <input class="inp" id="insPattern" placeholder="비워두면 자동 감지">
+      <input class="inp" id="insPattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" oninput="clearChipSelection('insPatHelper')">
       <button class="btn btn-blue btn-sm" onclick="reloadInsToc()">🔍 재확인</button>
     </div>
     <div class="pat-helper" id="insPatHelper"></div>
@@ -608,25 +609,69 @@ window.addEventListener('DOMContentLoaded', ()=>{
   updateSettingsSummary();
 });
 
+// 패턴 헬퍼 선택 상태 (helperId → Set of vals)
+const _chipSelected={patHelper:new Set(), insPatHelper:new Set()};
+
 function buildPatHelpers(){
   ['patHelper','insPatHelper'].forEach(id=>{
     const c=document.getElementById(id); if(!c) return;
+    const targetInput=id==='patHelper'?'pattern':'insPattern';
+    // 안내 텍스트
+    const hint=document.createElement('span');
+    hint.style.cssText='font-size:11px;color:var(--text2);align-self:center;margin-right:2px';
+    hint.textContent='복수 선택 가능:';
+    c.appendChild(hint);
     PAT_PRESETS.forEach(p=>{
       const chip=document.createElement('span');
       chip.className='pat-chip';
       chip.textContent=p.label;
+      chip.dataset.val=p.val;
       chip.onclick=()=>{
-        if(id==='patHelper'){
-          document.getElementById('pattern').value=p.val;
-          previewToc();
+        const sel=_chipSelected[id];
+        if(sel.has(p.val)){
+          sel.delete(p.val);
+          chip.classList.remove('active');
         } else {
-          document.getElementById('insPattern').value=p.val;
-          reloadInsToc();
+          sel.add(p.val);
+          chip.classList.add('active');
         }
+        // 선택된 패턴들을 OR로 조합
+        const combined=buildCombinedPat(sel);
+        document.getElementById(targetInput).value=combined;
+        // 즉시 재확인
+        if(id==='patHelper') previewToc();
+        else reloadInsToc();
       };
       c.appendChild(chip);
     });
+    // 초기화 버튼
+    const clr=document.createElement('span');
+    clr.className='pat-chip';
+    clr.textContent='✕ 초기화';
+    clr.style.opacity='.6';
+    clr.onclick=()=>{
+      _chipSelected[id].clear();
+      c.querySelectorAll('.pat-chip.active').forEach(el=>el.classList.remove('active'));
+      document.getElementById(targetInput).value='';
+      if(id==='patHelper') previewToc();
+      else reloadInsToc();
+    };
+    c.appendChild(clr);
   });
+}
+
+function buildCombinedPat(selSet){
+  if(selSet.size===0) return '';
+  if(selSet.size===1) return [...selSet][0];
+  const parts=[...selSet].map(v=>v.replace(/^\^/,'').replace(/\$$/,'').replace(/^\(\?:(.+)\)$/,'$1'));
+  return '^(?:'+parts.join('|')+')';
+}
+
+function clearChipSelection(helperId){
+  // 직접 타이핑 시 칩 선택 상태만 초기화 (입력값은 유지)
+  _chipSelected[helperId]?.clear();
+  const c=document.getElementById(helperId);
+  if(c) c.querySelectorAll('.pat-chip.active').forEach(el=>el.classList.remove('active'));
 }
 
 function setupEventListeners(){
@@ -1592,9 +1637,18 @@ async function loadEpub(file){
     title:titleMap[href]||href.split('/').pop().replace('.xhtml',''),
   })).filter(ch=>!ch.href.includes('cover')&&!ch.href.includes('nav'));
   document.getElementById('epubInfo').textContent='✅ '+file.name+' ('+E.chapters.length+'개 챕터)';
+  // 기본값: 마지막 챕터 뒤
+  E.selectedChIdx=E.chapters.length-1;
+  document.querySelector('input[name="insPos"][value="after"]').checked=true;
   renderChList();
   document.getElementById('editSec').style.display='block';
   document.getElementById('insertSec').style.display='block';
+  // 삽입 위치 표시 업데이트
+  if(E.chapters.length>0){
+    const lastCh=E.chapters[E.chapters.length-1];
+    document.getElementById('insertPos').innerHTML=
+      '📍 <b>'+escHtml(lastCh.title)+'</b> <span style="color:var(--accent)">뒤</span>에 삽입 <span style="font-size:10px;color:var(--text2)">(기본값 - 클릭해서 변경)</span>';
+  }
 }
 
 function renderChList(){
@@ -1602,13 +1656,20 @@ function renderChList(){
   E.chapters.forEach((ch,i)=>{
     const d=document.createElement('div');
     const isSel=E.selectedChIdx===i;
+    const isLast=i===E.chapters.length-1;
     d.className='ch-item'+(isSel?' sel':'');
     d.innerHTML='<span class="ch-idx">'+(i+1)+'</span>'+
       '<span class="ch-title">'+escHtml(ch.title)+'</span>'+
-      '<span class="ch-badge badge-existing">기존</span>';
+      (isLast?'<span class="ch-badge" style="background:var(--green-bg);color:var(--green)">마지막</span>':
+               '<span class="ch-badge badge-existing">기존</span>');
     d.onclick=()=>selectCh(i);
     c.appendChild(d);
   });
+  // 선택된 항목으로 스크롤
+  if(E.selectedChIdx!==null){
+    const sel=c.children[E.selectedChIdx];
+    if(sel) setTimeout(()=>sel.scrollIntoView({block:'nearest'}),50);
+  }
 }
 
 function selectCh(i){
@@ -1669,7 +1730,7 @@ function updateInsTocCount(){
 async function startEditEpub(){
   if(!E.epubZip){alert('EPUB 파일을 먼저 불러와주세요.');return;}
   if(!E.insTxtFiles.length){alert('삽입할 TXT 파일을 선택해주세요.');return;}
-  if(E.selectedChIdx===null){alert('삽입 위치를 목차에서 선택해주세요.');return;}
+  // selectedChIdx는 epub 로드 시 마지막 챕터로 기본 설정됨
   document.getElementById('editProgWrap').classList.add('show');
   document.getElementById('editResultBox').classList.remove('show');
   document.getElementById('editErrBox').classList.remove('show');
