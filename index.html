@@ -179,7 +179,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 @media(max-width:580px){.wrap{padding:14px 10px 90px}.css-grid{grid-template-columns:1fr}.hdr-sub{display:none}.btn-accent{width:100%}.row{flex-wrap:wrap}.lbl{width:100%}}
 /* 툴팁 */
 [data-tip]{position:relative}
-[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:rgba(0,0,0,.82);color:#fff;font-size:11px;padding:5px 9px;border-radius:7px;white-space:pre;pointer-events:none;z-index:999;line-height:1.6;max-width:220px;text-align:left}
+[data-tip]{position:relative!important}[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);background:rgba(20,20,20,.92);color:#fff;font-size:11px;padding:6px 10px;border-radius:8px;white-space:pre-line;pointer-events:none;z-index:1000;line-height:1.7;max-width:240px;text-align:left;box-shadow:0 3px 12px rgba(0,0,0,.3)}
 [data-tip]:hover::before{content:'';position:absolute;bottom:calc(100% + 1px);left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:rgba(0,0,0,.82);pointer-events:none;z-index:999}
 /* UI 가시성 개선 */
 .sec-hdr{margin-bottom:6px}
@@ -329,9 +329,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="row">
       <span class="lbl">⚙️ 챕터 정규식</span>
       <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" oninput="clearChipSelection('patHelper')">
-      <button class="btn btn-blue btn-sm" onclick="previewToc()" data-tip="TXT 파일에서 챕터를
-자동 감지해요">🔍 목차 확인</button><button class="btn btn-ghost btn-sm" onclick="autoSplitByInterval()" data-tip="패턴 감지 실패 시
-줄 간격으로 자동 분할">⚡ 간격 분할</button>
+      <button class="btn btn-blue btn-sm" onclick="previewToc()" data-tip="TXT 파일에서 챕터를&#10;자동 감지해요">🔍 목차 확인</button><button class="btn btn-ghost btn-sm" onclick="autoSplitByInterval()" data-tip="패턴 감지 실패 시&#10;줄 간격으로 자동 분할">⚡ 간격 분할</button>
     </div>
     <div class="pat-helper" id="patHelper">
       <span style="font-size:11px;color:var(--text2);align-self:center">빠른 선택:</span>
@@ -389,8 +387,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
   <div id="resultStats" style="display:flex;justify-content:center;gap:16px;margin:8px 0 12px;flex-wrap:wrap"></div>
   <p id="resultMsg" style="font-size:11px;margin-bottom:10px"></p>
   <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-    <button class="btn btn-blue" onclick="showPreview()" data-tip="변환된 epub 내용을
-인앱에서 미리보기">👁 미리보기</button>
+    <button class="btn btn-blue" onclick="showPreview()" data-tip="변환된 epub 내용을&#10;인앱에서 미리보기">👁 미리보기</button>
     <button class="btn btn-green" onclick="downloadEpub()">⬇ EPUB 다운로드</button>
   </div>
 </div>
@@ -731,15 +728,12 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 </div>
 </div><!-- /page-settings -->
 
-<div class="btm" id="btmConvert"><button class="btn btn-accent" onclick="startConvert()" data-tip="TXT → EPUB3 변환 시작
-표지·삽화·목차 포함">✨ EPUB 만들기!</button></div>
+<div class="btm" id="btmConvert"><button class="btn btn-accent" onclick="startConvert()" data-tip="TXT → EPUB3 변환 시작&#10;표지·삽화·목차 포함">✨ EPUB 만들기!</button></div>
 <div class="btm" id="btmBatch" style="display:none;flex-direction:column;gap:6px;padding:8px 16px">
   <div id="batchSettingSummary" style="font-size:11px;color:var(--text2);text-align:center"></div>
-  <button class="btn btn-accent" onclick="startBatch()" data-tip="선택한 TXT 파일들을
-각각 epub으로 변환 후 ZIP 다운로드">📦 일괄 변환 시작!</button>
+  <button class="btn btn-accent" onclick="startBatch()" data-tip="선택한 TXT 파일들을&#10;각각 epub으로 변환 후 ZIP 다운로드">📦 일괄 변환 시작!</button>
 </div>
-<div class="btm" id="btmEdit" style="display:none"><button class="btn btn-accent" onclick="startEditEpub()" data-tip="기존 epub에 새 챕터 삽입
-목차(NCX/nav) 자동 업데이트">✏️ 편집 적용!</button></div>
+<div class="btm" id="btmEdit" style="display:none"><button class="btn btn-accent" onclick="startEditEpub()" data-tip="기존 epub에 새 챕터 삽입&#10;목차(NCX/nav) 자동 업데이트">✏️ 편집 적용!</button></div>
 
 <script>
 // ══════════════════════════════════════════
@@ -755,6 +749,7 @@ const PAT_PRESETS = [
   {label:'=== [제N화] ===', val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$'},
   {label:'N부 M화',         val:'^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$'},
   {label:'N. 제목',         val:'^\\d+\\.\\s+.{1,60}$'},
+  {label:'#N. 제목',        val:'^#\\d+\\.\\s+.{1,60}$'},
 ];
 
 const S={txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0,_rawTextFull:[],_detectedPat:null,_detectedName:''};
@@ -1064,29 +1059,60 @@ async function fileToText(file){
   });
 }
 
-async function sampleLines(file, maxLines=600){
-  const text=await fileToText(file);
-  const lines=text.split('\n');
-  if(lines.length<=maxLines) return text;
+// 파일을 스트리밍 방식으로 부분 읽기 (대용량 파일 UI 블로킹 방지)
+async function readFileSlice(file, start, end){
+  return new Promise((res,rej)=>{
+    const slice=file.slice(start,end);
+    const r=new FileReader();
+    r.onload=e=>res(e.target.result);
+    r.onerror=rej;
+    r.readAsText(slice,'utf-8');
+  });
+}
 
-  // 전략 1: 앞/중간/뒤 균등 샘플 (기본)
-  const third=Math.floor(maxLines/3);
-  const mid=Math.floor(lines.length/2);
-  const head=lines.slice(0,third);
-  const center=lines.slice(mid-Math.floor(third/2),mid+Math.floor(third/2));
-  const tail=lines.slice(-third);
-  const uniform=[...head,'...',...center,'...',...tail].join('\n');
+async function sampleLines(file){
+  const size=file.size;
 
-  // 전략 2: 짧은 줄 우선 추출 (챕터 헤더는 보통 1~25자로 짧음)
-  // 파일 전체에서 짧은 줄만 모아서 bestPat에 넘겨주면 간격이 넓어도 감지 가능
-  const shortLines=lines
-    .map((l,i)=>({l:l.trim(),i}))
-    .filter(({l})=>l.length>=1&&l.length<=25)
-    .map(({l})=>l);
-  const shortSample=shortLines.join('\n');
+  // 소용량(3MB 이하): 전체 읽기
+  if(size<=3*1024*1024){
+    const text=await fileToText(file);
+    const lines=text.split('\n');
+    const shortLines=lines.filter(l=>l.trim().length>=1&&l.trim().length<=25).map(l=>l.trim());
+    if(lines.length<=600) return text;
+    const third=200,mid=Math.floor(lines.length/2);
+    const uniform=[...lines.slice(0,third),'...',...lines.slice(mid-100,mid+100),'...',...lines.slice(-third)].join('\n');
+    return uniform+'\n'+shortLines.join('\n');
+  }
 
-  // 두 샘플을 합쳐서 반환 (bestPat은 중복 줄이 있어도 cnt 기반이므로 무방)
-  return uniform+'\n'+shortSample;
+  // 대용량(3MB 초과): 앞/중간/뒤 슬라이스 + 짧은줄 전용 패스
+  const CHUNK=256*1024; // 256KB씩
+  const chunks=[];
+
+  // 앞 256KB
+  chunks.push(await readFileSlice(file,0,CHUNK));
+  // 중간 256KB
+  const mid=Math.floor(size/2);
+  chunks.push(await readFileSlice(file,mid,mid+CHUNK));
+  // 뒤 256KB
+  chunks.push(await readFileSlice(file,Math.max(0,size-CHUNK),size));
+
+  // 각 청크에서 짧은 줄 추출 (1~25자)
+  const shortLines=[];
+  for(const chunk of chunks){
+    const lines=chunk.split('\n');
+    for(const l of lines){
+      const t=l.trim();
+      if(t.length>=1&&t.length<=25) shortLines.push(t);
+    }
+  }
+
+  // 균등 샘플 (앞+중+뒤 첫 100줄씩)
+  const uniformLines=[];
+  for(const chunk of chunks){
+    uniformLines.push(...chunk.split('\n').slice(0,100));
+  }
+
+  return uniformLines.join('\n')+'\n'+[...new Set(shortLines)].join('\n');
 }
 // 하위 호환
 async function readFirst200(file){ return sampleLines(file); }
@@ -1160,6 +1186,7 @@ const PATS=[
   [/^.{1,60}\s*\(\d+\)\s*$/,                       '소설제목(숫자)'],
   [/^(?:chapter|part|ch)\s*\d+(?:\s*.+)?$/i,       'Chapter/Part'],
   [/^[1-9]부\s+(?:\d+화|프롤로그)(?:\s*.+)?$/,     'N부 M화'],
+  [/^#\d+\.\s+.{1,60}$/,                           '#N. 제목'],
   [/^(?:제\s*\d+\s*장|第\s*\d+\s*章)(?:\s*.+)?$/,  '장 번호'],
   [/^(?:프롤로그|에필로그|외전|후일담|prologue|epilogue)(?:\s*.+)?$/i, '프롤로그류'],
   [/^(?:서장|종장)(?:\s*.+)?$/,                     '서장/종장'],
@@ -1210,10 +1237,11 @@ function bestPat(raw){
     const cnt=lines.filter(l=>l.trim()&&fb.test(l.trim())).length;
     if(cnt>bestCnt){bestCnt=cnt;best=fb;bestName='숫자만';}
   }
-  // 혼합 패턴 감지
+  // 혼합 패턴 감지 (중복 제거 후 cnt 계산)
   if(mixed.length>1){
     const combined=new RegExp(mixed.map(m=>m.rx.source).join('|'),'i');
-    const combinedCnt=lines.filter(l=>l.trim()&&combined.test(l.trim())).length;
+    const uniqueMatches=[...new Set(lines.filter(l=>l.trim()&&combined.test(l.trim())).map(l=>l.trim()))];
+    const combinedCnt=uniqueMatches.length;
     if(combinedCnt>bestCnt){
       return {rx:combined, name:'혼합('+mixed.map(m=>m.name).join('+')+') [자동]', cnt:combinedCnt, isMixed:true, mixedParts:mixed};
     }
@@ -1230,9 +1258,14 @@ function splitChapters(raw,customPat){
   if(!rx) return[['본문',raw.trim()]];
   const lines=raw.split('\n'),chapters=[];
   let cur=null,body=[];
+  // 중복 헤더 방지 (같은 제목 연속 등장 시 하나만)
+  const seenHeadings=new Set();
   for(const line of lines){
     const t=line.trim();
     if(t&&rx.test(t)){
+      // 중복 제목이면 본문에 합침
+      if(seenHeadings.has(t)){body.push(line);continue;}
+      seenHeadings.add(t);
       if(cur===null&&body.length>0) chapters.push(['서문',body.join('\n').trim()]);
       else if(cur!==null) chapters.push([cur,body.join('\n').trim()]);
       cur=t;body=[];
@@ -1851,10 +1884,17 @@ async function getCachedChapters(){
   const cacheKey=key+pat;
   if(_chaptersCache&&_chaptersCacheKey===cacheKey) return _chaptersCache;
 
-  const raw=await fileToText(S.txtFiles[0]);
-  _chaptersCache=splitChapters(raw,pat);
-  _chaptersCacheKey=cacheKey;
-  return _chaptersCache;
+  // 10MB 초과 파일은 전체 로드 경고 없이 진행 (필요함)
+  // 단, Worker 없이는 UI 블로킹 불가피 → try/catch로 실패 방지
+  try{
+    const raw=await fileToText(S.txtFiles[0]);
+    _chaptersCache=splitChapters(raw,pat);
+    _chaptersCacheKey=cacheKey;
+  }catch(e){
+    console.warn('getCachedChapters 실패:',e);
+    _chaptersCache=[];
+  }
+  return _chaptersCache||[];
 }
 
 
@@ -1864,8 +1904,8 @@ async function getCachedChapters(){
 async function previewToc(){
   if(!S.txtFiles.length){alert('TXT 파일을 먼저 선택해주세요.');return;}
   const text=await sampleLines(S.txtFiles[0]);
-  // 전체 파일도 미리 로드 (미리보기용)
-  fileToText(S.txtFiles[0]).then(full=>{_fullRawLines=full.split('\n');});
+  // 전체 파일 로드 (미리보기용) - 에러 방지
+  fileToText(S.txtFiles[0]).then(full=>{_fullRawLines=full.split('\n');}).catch(e=>console.warn('fulltext load:',e));
   const pat=document.getElementById('pattern').value.trim();
   let found=[],patLabel='';
   if(pat){
@@ -2643,6 +2683,7 @@ function buildPatPresetPanel(idx){
     {label:'숫자만',           val:'^\\d+$',                               ex:'1, 2, 3'},
     {label:'소설(숫자)',       val:'^.{1,60}\\s*\\(\\d+\\)\\s*$',          ex:'제목 (1), 작품명 (2)'},
     {label:'N. 제목',         val:'^\\d+\\.\\s+.{1,60}$',                  ex:'1. 프롤로그, 2. 시작'},
+    {label:'#N. 제목',        val:'^#\\d+\\.\\s+.{1,60}$',                 ex:'#1. 챕터, #2. 제목'},
     {label:'N부 M화',         val:'^[1-9]부\\s+(?:\\d+화|프롤로그)',        ex:'1부 1화, 2부 프롤로그'},
     {label:'=== [제N화] ===', val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]',      ex:'=== [제 1 화] ==='},
     {label:'Chapter N',       val:'^(?:chapter|part|ch)\\s*\\d+',          ex:'Chapter 1, Part 2'},
@@ -2752,10 +2793,7 @@ async function downloadBatchZip(){
 // EPUB 편집
 // ══════════════════════════════════════════
 const epubDrop=document.getElementById('epubDrop');
-epubDrop.addEventListener('dragover',e=>{e.preventDefault();epubDrop.classList.add('over');});
-epubDrop.addEventListener('dragleave',()=>epubDrop.classList.remove('over'));
-epubDrop.addEventListener('drop',e=>{e.preventDefault();epubDrop.classList.remove('over');loadEpub(e.dataTransfer.files[0]);});
-epubDrop.onclick=()=>document.getElementById('epubIn').click();
+// epubDrop은 setupDz에서 처리
 
 // ══════════════════════════════════════════
 // EPUB 구조 감지 헬퍼
