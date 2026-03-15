@@ -911,52 +911,50 @@ function clearChipSelection(helperId){
 }
 
 function setupEventListeners(){
-  // hidden input onchange
-  document.getElementById('txtIn').onchange=e=>handleTxt(e.target.files);
-  document.getElementById('illIn').onchange=e=>handleIll(e.target.files);
-  document.getElementById('coverIn').onchange=e=>handleCover(e.target.files);
-  document.getElementById('epubIn').onchange=e=>loadEpub(e.target.files[0]);
-  document.getElementById('insTxtIn').onchange=e=>handleInsTxt(e.target.files);
-  document.getElementById('insIllIn').onchange=e=>handleInsIll(e.target.files);
-  document.getElementById('batchTxtIn').onchange=e=>handleBatchTxt(e.target.files);
-  document.getElementById('batchCoverIn').onchange=e=>handleBatchCover(e.target.files);
-  document.getElementById('fontIn').onchange=e=>handleCustomFont(e.target.files);
-  document.getElementById('editIllIn').onchange=e=>handleEditIll(e.target.files);
-  // 클릭 → input 열기 (coverDz는 setupDz에서 제외, 여기서만 처리)
-  document.getElementById('coverDz').onclick=()=>document.getElementById('coverIn').click();
+  // file input onchange (드래그존 onclick과 같은 핸들러 연결)
+  document.getElementById('txtIn').onchange        =e=>handleTxt(e.target.files);
+  document.getElementById('illIn').onchange        =e=>handleIll(e.target.files);
+  document.getElementById('coverIn').onchange      =e=>handleCover(e.target.files);
+  document.getElementById('epubIn').onchange       =e=>loadEpub(e.target.files[0]);
+  document.getElementById('insTxtIn').onchange     =e=>handleInsTxt(e.target.files);
+  document.getElementById('insIllIn').onchange     =e=>handleInsIll(e.target.files);
+  document.getElementById('editIllIn').onchange    =e=>handleEditIll(e.target.files);
+  document.getElementById('batchTxtIn').onchange   =e=>handleBatchTxt(e.target.files);
+  document.getElementById('batchCoverIn').onchange =e=>handleBatchCover(e.target.files);
+  document.getElementById('fontIn').onchange       =e=>handleCustomFont(e.target.files);
+  // 표지 썸네일 클릭 (드래그존이 아닌 별도 버튼)
   document.getElementById('coverThumb').onclick=()=>document.getElementById('coverIn').click();
-  // editIllDrop 드래그존 (EPUB편집 탭)
-  setupDz('editIllDrop',handleEditIll);
   // editIllMode 라디오
   document.querySelectorAll('input[name="editIllMode"]').forEach(r=>r.addEventListener('change',e=>{
     document.getElementById('editIllManual').style.display=e.target.value==='manual'?'block':'none';
   }));
   // 삽입 위치 라디오
-  document.querySelectorAll('input[name="insPos"]').forEach(r=>r.addEventListener('change',()=>{if(E.selectedChIdx!==null)selectCh(E.selectedChIdx);}));
+  document.querySelectorAll('input[name="insPos"]').forEach(r=>r.addEventListener('change',()=>{
+    if(E.selectedChIdx!==null)selectCh(E.selectedChIdx);
+  }));
 }
 
 function setupDragDrop(){
-  setupDz('txtDz',handleTxt);
-  setupDz('coverDz',handleCover);
-  setupDz('illDz',handleIll);
-  setupDz('epubDrop',files=>loadEpub(files[0]));
-  setupDz('insTxtDrop',handleInsTxt);
-  setupDz('insIllDrop',handleInsIll);
-  setupDz('batchTxtDrop',handleBatchTxt);
-  setupDz('batchCoverDrop',handleBatchCover);
-  setupDz('fontDrop',handleCustomFont);
+  // (dragzone ID, drop handler, file input ID)
+  setupDz('txtDz',         handleTxt,                   'txtIn');
+  setupDz('coverDz',       handleCover,                 'coverIn');
+  setupDz('illDz',         handleIll,                   'illIn');
+  setupDz('epubDrop',      files=>loadEpub(files[0]),   'epubIn');
+  setupDz('insTxtDrop',    handleInsTxt,                'insTxtIn');
+  setupDz('insIllDrop',    handleInsIll,                'insIllIn');
+  setupDz('editIllDrop',   handleEditIll,               'editIllIn');
+  setupDz('batchTxtDrop',  handleBatchTxt,              'batchTxtIn');
+  setupDz('batchCoverDrop',handleBatchCover,            'batchCoverIn');
+  setupDz('fontDrop',      handleCustomFont,            'fontIn');
 }
 
-function setupDz(id,fn){
+function setupDz(id,fn,inputId){
   const el=document.getElementById(id);
   if(!el) return;
   el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('over');});
   el.addEventListener('dragleave',()=>el.classList.remove('over'));
   el.addEventListener('drop',e=>{e.preventDefault();el.classList.remove('over');fn(e.dataTransfer.files);});
-  if(id!=='coverDz') el.onclick=()=>{
-    const map={'txtDz':'txtIn','illDz':'illIn','epubDrop':'epubIn','insTxtDrop':'insTxtIn','insIllDrop':'insIllIn','batchTxtDrop':'batchTxtIn','batchCoverDrop':'batchCoverIn','fontDrop':'fontIn','editIllDrop':'editIllIn'};
-    const inp=document.getElementById(map[id]); if(inp) inp.click();
-  };
+  if(inputId) el.onclick=()=>{const inp=document.getElementById(inputId);if(inp)inp.click();};
 }
 
 // ══════════════════════════════════════════
@@ -996,7 +994,7 @@ function switchPage(name){
 
 function updateSettingsSummary(){
   const font=document.getElementById('cssFont');
-  const fontName=font?font.options[font.selectedIndex].text:'Noto Serif KR';
+  const fontName=font&&font.options&&font.options[font.selectedIndex]?font.options[font.selectedIndex].text:'Noto Serif KR';
   const line=document.getElementById('cssLine')?.value||'1.9';
   const italic=document.getElementById('optItalic')?.checked?'이탤릭 ON':'이탤릭 OFF';
   const indent=document.getElementById('optIndent')?.checked?'들여쓰기 ON':'들여쓰기 OFF';
@@ -1859,7 +1857,7 @@ async function kwSearch(id){
 
     html+=
       '<div class="mill-kw-item" id="mkwi_'+id+'_'+ci+'" style="'+rowStyle+'" '+
-           'onclick="selectKwResult('+id+',''+escAttr(heading)+'','+ci+')">'+
+           'onclick="selectKwResult('+id+',\''+escAttr(heading)+'\','+ci+')">'+
         '<div style="display:flex;flex-direction:column;min-width:34px;align-items:center;gap:1px">'+
           '<span style="font-size:12px">'+roleIcon+'</span>'+
           '<span style="font-size:9px;color:var(--text2)">'+roleLabel+'</span>'+
@@ -3199,6 +3197,26 @@ function renderEditIllTags(){
   });
 }
 function removeEditIll(i){EI.files.splice(i,1);renderEditIllTags();}
+
+function addInsManualIll(){
+  // EPUB편집 탭의 수동 삽화 행 추가 (TXT→EPUB의 addManualIll과 동일 구조)
+  const id=S.manualCnt++;
+  const c=document.getElementById('insManualIlls');
+  const r=document.createElement('div');
+  r.className='mill-row';r.id='mr'+id;
+  r.innerHTML=
+    '<div class="mill-row-top">'+
+      '<input placeholder="파일명 (예: 16.jpg)" id="mp'+id+'" style="flex:2;min-width:100px" oninput="onManualIllName('+id+')">'+
+      '<button class="btn btn-ghost btn-sm" onclick="browseManual('+id+')">찾기</button>'+
+      '<input type="number" placeholder="화 번호" id="mc'+id+'" style="width:90px" min="1" oninput="loadIllRange('+id+')">'+
+      '<select id="mpos'+id+'"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
+      '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" onclick="document.getElementById(\'mr'+id+'\').remove()">✕</button>'+
+    '</div>'+
+    '<div class="mill-preview" id="mpv'+id+'">'+
+      '<div style="font-size:11px;color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>'+
+    '</div>';
+  c.appendChild(r);
+}
 
 function addEditIllRow(){
   const id=EI.manualRows++;
