@@ -149,6 +149,15 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .batch-status{font-size:11px;color:var(--text2);margin-top:2px}
 .batch-prog{height:4px;background:var(--border);border-radius:99px;overflow:hidden;margin-top:6px}
 .batch-prog-bar{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:99px;transition:width .3s;width:0}
+.batch-toc-btn{font-size:10px;padding:2px 7px;border-radius:4px;border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;margin-left:auto}
+.batch-toc-btn:hover{border-color:var(--accent);color:var(--accent)}
+.batch-toc-panel{display:none;margin-top:8px;padding:8px;background:var(--bg2);border-radius:7px;border:1px solid var(--border)}
+.batch-toc-panel.show{display:block}
+.batch-toc-list{max-height:160px;overflow-y:auto;font-size:11px}
+.batch-toc-row{display:flex;gap:6px;padding:2px 0;border-bottom:1px solid var(--border)}
+.batch-toc-row:last-child{border:none}
+.batch-toc-num{color:var(--text2);min-width:32px}
+.batch-toc-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* 토글 */
 .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border)}
 .toggle-row:last-child{border:none}
@@ -808,41 +817,48 @@ const _encCache=new Map();
 
 async function detectEncoding(file){
   const ab=await fileToAB(file);
-  const bytes=new Uint8Array(ab.slice(0,8192));
+  // 샘플 크기 64KB (8KB → 64KB: 경계 잘림 문제 해소)
+  const bytes=new Uint8Array(ab.slice(0,65536));
 
   // BOM 체크
   if(bytes[0]===0xEF&&bytes[1]===0xBB&&bytes[2]===0xBF) return 'utf-8';
   if(bytes[0]===0xFF&&bytes[1]===0xFE) return 'utf-16le';
   if(bytes[0]===0xFE&&bytes[1]===0xFF) return 'utf-16be';
 
-  // UTF-8 유효성 검사
+  // UTF-8 유효성 검사 (오류율 기반)
   let utf8Errors=0, totalMultibyte=0;
   let i=0;
-  while(i<bytes.length){
+  // 마지막 3바이트는 잘림 방지를 위해 제외
+  const limit=bytes.length-3;
+  while(i<limit){
     const b=bytes[i];
     if(b<0x80){i++;continue;}
     if(b>=0xC2&&b<=0xDF){
-      if(i+1<bytes.length&&(bytes[i+1]&0xC0)===0x80){totalMultibyte++;i+=2;continue;}
+      if((bytes[i+1]&0xC0)===0x80){totalMultibyte++;i+=2;continue;}
     } else if(b>=0xE0&&b<=0xEF){
-      if(i+2<bytes.length&&(bytes[i+1]&0xC0)===0x80&&(bytes[i+2]&0xC0)===0x80){totalMultibyte++;i+=3;continue;}
+      if((bytes[i+1]&0xC0)===0x80&&(bytes[i+2]&0xC0)===0x80){totalMultibyte++;i+=3;continue;}
     } else if(b>=0xF0&&b<=0xF4){
-      if(i+3<bytes.length&&(bytes[i+1]&0xC0)===0x80&&(bytes[i+2]&0xC0)===0x80&&(bytes[i+3]&0xC0)===0x80){totalMultibyte++;i+=4;continue;}
+      if(i+3<limit&&(bytes[i+1]&0xC0)===0x80&&(bytes[i+2]&0xC0)===0x80&&(bytes[i+3]&0xC0)===0x80){totalMultibyte++;i+=4;continue;}
     }
     utf8Errors++;i++;
   }
 
-  if(utf8Errors===0) return 'utf-8';
+  // 오류율 0.1% 미만 → UTF-8 확정
+  // (경계 잘림 등 극소수 오류는 무시)
+  const errorRate=utf8Errors/Math.max(totalMultibyte,1);
+  if(errorRate<0.001) return 'utf-8';
 
-  // EUC-KR / CP949 패턴 검사
-  let euckrPairs=0, invalidPairs=0;
-  for(let j=0;j<bytes.length-1;j++){
-    const b1=bytes[j],b2=bytes[j+1];
-    if(b1>=0xA1&&b1<=0xFE&&b2>=0xA1&&b2<=0xFE){euckrPairs++;j++;}
-    else if(b1>=0x81&&b1<=0xFE&&b2>=0x40&&b2<=0xFE&&b2!==0x7F){euckrPairs++;j++;}
-    else if(b1>0x7F) invalidPairs++;
-  }
+  // EUC-KR / CP949 판정:
+  // 실제 디코딩 후 깨진 문자(\uFFFD) 수로 비교 (가장 정확)
+  const sampleBlob=new Blob([bytes]);
+  const [utf8Result, eucResult]=await Promise.all([
+    new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>res('');r.readAsText(sampleBlob,'utf-8');}),
+    new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>res('');r.readAsText(sampleBlob,'euc-kr');}),
+  ]);
+  const utf8Bad=(utf8Result.match(/\ufffd/g)||[]).length;
+  const eucBad=(eucResult.match(/\ufffd/g)||[]).length;
 
-  return euckrPairs>invalidPairs ? 'euc-kr' : 'utf-8';
+  return utf8Bad<=eucBad ? 'utf-8' : 'euc-kr';
 }
 
 async function fileToText(file){
@@ -1894,7 +1910,6 @@ function renderBatchList(){
     let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
     if(m){author=m[1].trim();title=m[2].trim();}
     else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
-    // 표지 매핑: 정확 일치 → 퍼지(커버 stem이 txt stem에 포함) → URL 표지
     const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
     const d=document.createElement('div');d.className='batch-item';d.id='bi_'+i;
     const thumbHtml=cover
@@ -1902,12 +1917,74 @@ function renderBatchList(){
       :'<div class="batch-thumb" onclick="batchPickCover('+i+')" title="표지 지정">+</div>';
     d.innerHTML='<div class="batch-header">'+thumbHtml+
       '<div style="flex:1;min-width:0"><div class="batch-title">'+escHtml(title)+'</div>'+
-      '<div class="batch-status" id="bst_'+i+'">'+(author?'✒️ '+escHtml(author):'')+'</div></div></div>'+
+      '<div style="display:flex;align-items:center;gap:6px"><div class="batch-status" id="bst_'+i+'">'+(author?'✒️ '+escHtml(author):'')+'</div>'+
+      '<button class="batch-toc-btn" onclick="showBatchToc('+i+',this)" title="목차 미리보기">📋 목차 확인</button></div>'+
+      '</div></div>'+
+      '<div class="batch-toc-panel" id="btp_'+i+'"></div>'+
       '<div class="batch-prog"><div class="batch-prog-bar" id="bpb_'+i+'" style="width:0"></div></div>';
     c.appendChild(d);
     if(cover){const r=new FileReader();r.onload=e=>{const img=document.getElementById('bthumb_'+i);if(img)img.src=e.target.result;};r.readAsDataURL(cover);}
   });
 }
+
+async function showBatchToc(idx, btn){
+  const panel=document.getElementById('btp_'+idx);
+  // 토글
+  if(panel.classList.contains('show')){panel.classList.remove('show');btn.textContent='📋 목차 확인';return;}
+
+  btn.textContent='⏳ 분석 중...';btn.disabled=true;
+  try{
+    const file=B.txtFiles[idx];
+    const text=await sampleLines(file);
+    const pat=document.getElementById('batchPattern')?.value.trim();
+    let chapters=[];
+    if(pat){
+      try{
+        const rx=new RegExp(pat,'i');
+        text.split('\n').forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))chapters.push({line:i+1,title:l.trim()});});
+      }catch(e){}
+    }
+    if(!chapters.length){
+      const {rx,name,cnt}=bestPat(text);
+      if(rx) text.split('\n').forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))chapters.push({line:i+1,title:l.trim()});});
+    }
+
+    panel.innerHTML='';
+    if(!chapters.length){
+      panel.innerHTML='<div style="font-size:11px;color:var(--accent);padding:4px">⚠️ 챕터를 감지하지 못했어요. 정규식을 직접 입력해보세요.</div>';
+    } else {
+      const info=document.createElement('div');
+      info.style.cssText='font-size:11px;color:var(--text2);margin-bottom:6px;display:flex;justify-content:space-between';
+      info.innerHTML='<span>총 <b>'+chapters.length+'</b>개 챕터 감지됨</span><span style="color:var(--text3)">샘플 기준</span>';
+      panel.appendChild(info);
+
+      const list=document.createElement('div');
+      list.className='batch-toc-list';
+      // 처음 5개 + 마지막 5개
+      const show=chapters.length<=12?chapters:[...chapters.slice(0,5),null,...chapters.slice(-5)];
+      show.forEach((ch,j)=>{
+        const row=document.createElement('div');
+        if(!ch){
+          row.style.cssText='text-align:center;color:var(--text3);font-size:10px;padding:3px';
+          row.textContent='··· '+(chapters.length-10)+'개 더 ···';
+        } else {
+          row.className='batch-toc-row';
+          row.innerHTML='<span class="batch-toc-num">'+ch.line+'줄</span><span class="batch-toc-title">'+escHtml(ch.title)+'</span>';
+        }
+        list.appendChild(row);
+      });
+      panel.appendChild(list);
+    }
+    panel.classList.add('show');
+    btn.textContent='📋 목차 닫기';
+  } catch(e){
+    panel.innerHTML='<div style="font-size:11px;color:var(--accent)">오류: '+e.message+'</div>';
+    panel.classList.add('show');
+    btn.textContent='📋 목차 확인';
+  }
+  btn.disabled=false;
+}
+
 
 function batchPickCover(idx){
   const inp=document.createElement('input');inp.type='file';inp.accept='.jpg,.jpeg,.png,.webp';
