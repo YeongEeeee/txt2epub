@@ -741,7 +741,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 // 상수 & 상태
 // ══════════════════════════════════════════
 const PAT_PRESETS = [
-  {label:'화 번호',          val:'^(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
+  {label:'화 번호 (#N화 포함)', val:'^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
   {label:'소설(숫자)',       val:'^.{1,60}\\s*\\(\\d+\\)\\s*$'},
   {label:'숫자만',           val:'^\\d+$'},
   {label:'Chapter N',       val:'^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$'},
@@ -751,11 +751,12 @@ const PAT_PRESETS = [
   {label:'N부 M화',         val:'^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$'},
   {label:'N. 제목',         val:'^\\d+\\.\\s+.{1,60}$'},
   {label:'#N. 제목',        val:'^#\\d+\\.\\s+.{1,60}$'},
+  {label:'소설명+N화',       val:'^.{2,15}\\s+\\d+화$'},
 ];
 
 const S={txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0,_rawTextFull:[],_detectedPat:null,_detectedName:''};
 let customFontFile=null, customFontName='', customFontFace='';
-const B={txtFiles:[],coverMap:{},results:[],urlCoverFile:null,patterns:{}};
+const B={txtFiles:[],coverMap:{},results:[],urlCoverFile:null,patterns:{},sampleTexts:{},totalChs:{}};
 const E={epubFile:null,epubZip:null,chapters:[],spineOrder:[],selectedChIdx:null,insTxtFiles:[],insTxtChapters:[],resultBlob:null,resultName:'',perChapterNcx:false};
 
 // ══════════════════════════════════════════
@@ -1192,7 +1193,7 @@ function sortKey(name){
 // ══════════════════════════════════════════
 const PATS=[
   [/^={2,}\s*\[제\s*\d+\s*화\]\s*={0,}$/i,       '=== [제N화] ==='],
-  [/^(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,              '화 번호'],
+  [/^#?(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,           '화 번호'],
   [/^.{1,60}\s*\(\d+\)\s*$/,                       '소설제목(숫자)'],
   [/^(?:chapter|part|ch)\s*\d+(?:\s*.+)?$/i,       'Chapter/Part'],
   [/^[1-9]부\s+(?:\d+화|프롤로그)(?:\s*.+)?$/,     'N부 M화'],
@@ -1206,6 +1207,25 @@ const PATS=[
 
 // N. 제목 패턴: 줄 간격 필터 포함 (본문 내 번호 목록과 구별)
 // 앞뒤 줄 간격이 모두 minGap 이상인 것만 챕터로 인정
+function checkTitleWaPattern(lines){
+  // "소설 제목 N화" 형식 체크 (이고깽 이후 천 년 1화 등)
+  // 단순 N화 패턴은 이미 PATS에 있으므로 여기서는 앞에 텍스트가 붙은 형태만
+  const rx=/^.{2,15}\s+\d+화$/;
+  const matched=[];
+  const positions=[];
+  lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim())){matched.push({i,t:l.trim()});positions.push(i);}});
+  if(matched.length<3) return {cnt:0,rx:null};
+  // 간격 기반 필터: 앞뒤 모두 50줄 이상
+  const minGap=50;
+  const real=matched.filter(({i},j)=>{
+    const pg=i-(positions[j-1]??-999);
+    const ng=(positions[j+1]??i+999)-i;
+    return Math.min(pg,ng)>=minGap;
+  });
+  if(real.length<3) return {cnt:0,rx:null};
+  return {cnt:real.length, rx:/^.{2,15}\s+\d+화$/};
+}
+
 function checkNDotPattern(lines){
   const rx=/^\d+\.\s+.{1,60}$/;
   const matched=[];
@@ -1240,6 +1260,12 @@ function bestPat(raw){
   if(nDot.cnt>bestCnt){
     bestCnt=nDot.cnt; best=nDot.rx; bestName='N. 제목';
     mixed.push({rx:nDot.rx,name:'N. 제목',cnt:nDot.cnt});
+  }
+  // 소설명+N화 패턴 - 간격 검증 포함
+  const titleWa=checkTitleWaPattern(lines);
+  if(titleWa.cnt>bestCnt){
+    bestCnt=titleWa.cnt; best=titleWa.rx; bestName='소설명+N화';
+    mixed.push({rx:titleWa.rx,name:'소설명+N화',cnt:titleWa.cnt});
   }
   // 숫자만 폴백
   if(bestCnt<3){
@@ -1887,6 +1913,21 @@ function escAttr(s){return s.replace(/'/g,"\\'").replace(/"/g,'&quot;');}
 
 // 챕터 목록 캐시 (변환 전 빠른 미리보기용)
 let _chaptersCache=null, _chaptersCacheKey='';
+
+// 파일명에서 총 화수 추출 (예: "소설_1-277" → 277, "소설_1234화" → 1234)
+function extractTotalFromFilename(filename){
+  const stem=filename.replace(/\.[^.]+$/,'');
+  // "N-M" 형태: 마지막 숫자 M이 총 화수
+  let m=stem.match(/-(\d+)[^\d]*(?:완|完|edit|_|$)/i);
+  if(m) return parseInt(m[1]);
+  m=stem.match(/[_-](\d+)[_-]\d+/);
+  if(m) return null; // 범위 불명확
+  m=stem.match(/(\d{2,4})화/);
+  if(m) return parseInt(m[1]);
+  m=stem.match(/[_-](\d{2,4})[^\d]*$/);
+  if(m) return parseInt(m[1]);
+  return null;
+}
 async function getCachedChapters(){
   if(!S.txtFiles.length) return [];
   const key=S.txtFiles.map(f=>f.name+f.size).join('|');
@@ -2550,7 +2591,9 @@ function handleBatchTxt(files){
   const txts=Array.from(files).filter(f=>f.name.endsWith('.txt'));
   if(!txts.length)return;
   B.txtFiles=txts.sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
-  B.patterns={}; // 파일 변경 시 개별 패턴 초기화
+  B.patterns={};
+  B.sampleTexts={};
+  B.totalChs={};
   const dz=document.getElementById('batchTxtDrop');
   dz.classList.add('ok');
   dz.querySelector('.dz-text').textContent='✅ '+txts.length+'개 파일 선택됨';
@@ -2620,56 +2663,73 @@ async function showBatchToc(idx, btn){
   try{
     const file=B.txtFiles[idx];
     const text=await sampleLines(file);
+    const allLines=text.split('\n');
+
+    // 파일명에서 총 화수 추출 (80% 기준)
+    const totalCh=extractTotalFromFilename(file.name)||0;
+
+    // sampleText와 totalCh 캐시 저장
+    B.sampleTexts[idx]=text;
+    B.totalChs[idx]=totalCh;
     // 파일별 개별 패턴 우선, 없으면 공통 패턴
     const pat=(B.patterns[idx]||document.getElementById('batchPattern')?.value||'').trim();
-    let chapters=[], detectedName='';
+    let chapters=[], detectedName='', detectedPct=0;
     if(pat){
       try{
         const rx=new RegExp(pat,'i');
-        text.split('\n').forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))chapters.push({line:i+1,title:l.trim()});});
+        allLines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))chapters.push({line:i+1,title:l.trim()});});
         detectedName='지정 패턴';
+        detectedPct=totalCh>0?chapters.length/totalCh*100:100;
       }catch(e){}
     }
     if(!chapters.length){
       const {rx,name,cnt}=bestPat(text);
       detectedName=name||'';
       if(rx){
-        // 자동 감지된 패턴을 이 파일의 패턴으로 저장
-        B.patterns[idx]=rx.source;
-        text.split('\n').forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))chapters.push({line:i+1,title:l.trim()});});
+        allLines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))chapters.push({line:i+1,title:l.trim()});});
+        detectedPct=totalCh>0?chapters.length/totalCh*100:100;
+        // 80% 이상이면 패턴 저장
+        if(detectedPct>=80||totalCh===0) B.patterns[idx]=rx.source;
       }
     }
+
     // 중복 제거
     const seen=new Set();
     chapters=chapters.filter(c=>{if(seen.has(c.title))return false;seen.add(c.title);return true;});
 
+    // 80% 미만이면 실패 처리
+    const isGood=(detectedPct>=80||totalCh===0)&&chapters.length>=3;
+
     panel.innerHTML='';
     const HEAD=5, TAIL=5;
 
-    if(!chapters.length){
-      // 감지 실패: 패턴 선택 패널 바로 표시
+    if(!isGood){
+      // 실패: 패턴 패널 표시 + 현황
+      let failMsg='';
+      if(chapters.length<3) failMsg='챕터를 감지하지 못했어요.';
+      else failMsg=`${chapters.length}개 감지 (파일 ${totalCh}화 기준 ${detectedPct.toFixed(0)}% - 80% 미달)`;
+
       panel.innerHTML=
         '<div style="font-size:11px;color:var(--accent);padding:4px;margin-bottom:6px">'+
-          '⚠️ 챕터를 감지하지 못했어요. 아래에서 패턴을 선택해주세요.'+
+          '⚠️ '+failMsg+' 아래에서 패턴을 선택해주세요.'+
         '</div>'+
-        buildPatPresetPanel(idx);
+        buildPatPresetPanel(idx,text,totalCh);
     } else {
       // 성공: 챕터 목록 + 패턴 변경 버튼
+      const pctStr=totalCh>0?` · ${detectedPct.toFixed(0)}% (${totalCh}화 기준)`:'';
       const info=document.createElement('div');
       info.style.cssText='font-size:11px;color:var(--text2);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center';
       info.innerHTML=
-        '<span>총 <b style="color:var(--accent)">'+chapters.length+'</b>개 챕터'+(detectedName?' · '+detectedName:'')+'</span>'+
+        `<span>총 <b style="color:var(--accent)">${chapters.length}</b>개 챕터${pctStr}${detectedName?' · '+detectedName:''}</span>`+
         '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="toggleBatchPreset('+idx+')">✏️ 패턴 변경</button>';
       panel.appendChild(info);
 
-      // 패턴 선택 패널 (기본 숨김)
       const presetDiv=document.createElement('div');
       presetDiv.id='bpreset_'+idx;
       presetDiv.style.display='none';
-      presetDiv.innerHTML=buildPatPresetPanel(idx);
+      presetDiv.innerHTML=buildPatPresetPanel(idx,text,totalCh);
       panel.appendChild(presetDiv);
 
-      // 챕터 목록
       const list=document.createElement('div');
       list.className='batch-toc-list';
       const show=chapters.length<=HEAD+TAIL
@@ -2700,33 +2760,51 @@ async function showBatchToc(idx, btn){
 
 function toggleBatchPreset(idx){
   const d=document.getElementById('bpreset_'+idx);
-  if(d) d.style.display=d.style.display==='none'?'block':'none';
+  if(!d) return;
+  const isHidden = d.style.display==='none';
+  if(isHidden){
+    // 열 때 항상 최신 개수로 재렌더
+    d.innerHTML=buildPatPresetPanel(idx, B.sampleTexts[idx]||'', B.totalChs[idx]||0);
+    d.style.display='block';
+  } else {
+    d.style.display='none';
+  }
 }
 
-function buildPatPresetPanel(idx){
+function buildPatPresetPanel(idx, sampleText, totalCh){
   const curPat = B.patterns[idx] || '';
+  const lines = sampleText ? sampleText.split('\n') : [];
+  const tc = totalCh || 0;
+
+  // 각 패턴별 매칭 개수 계산
+  function countPat(val){
+    try{
+      const rx=new RegExp(val,'i');
+      const cnt=lines.filter(l=>l.trim()&&rx.test(l.trim())).length;
+      return cnt;
+    }catch(e){return 0;}
+  }
+
   const PRESETS = [
-    // [라벨, 정규식 값, 설명, 예시들]
-    ['화 번호',        '^(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$',         '숫자+화 형식 (제N화, N화 제목)',    ['1화','제2화','3화 서막']],
-    ['숫자만',         '^\\d+$',                                      '줄에 숫자만 단독으로 있는 경우',     ['1','2','100']],
-    ['소설(숫자)',     '^.{1,60}\\s*\\(\\d+\\)\\s*$',                 '제목 끝에 (N) 형식',                ['서막 (1)','1화 제목 (2)']],
-    ['#N. 제목',      '^#\\d+\\.\\s+.{1,60}$',                       '샵+숫자+점 형식',                   ['#1. 시작','#42. 결말']],
-    ['N. 제목',       '^\\d+\\.\\s+.{1,60}$',                        '숫자+점 형식 (간격 50줄 이상)',      ['1. 프롤로그','2. 시작']],
-    ['N부 M화',       '^[1-9]부\\s+(?:\\d+화|프롤로그)',              'N부 M화 복합 형식',                  ['1부 1화','2부 프롤로그']],
-    ['=== [제N화] ===','^={2,}\\s*\\[제\\s*\\d+\\s*화\\]',           '이중등호+대괄호 형식',               ['=== [제 1 화] ===']],
-    ['Chapter N',     '^(?:chapter|part|ch)\\s*\\d+',                '영어 Chapter/Part 형식',             ['Chapter 1','Part 2','ch3']],
-    ['프롤로그/외전',  '^(?:프롤로그|에필로그|외전|후일담)',           '특수 챕터 (외전·에필로그 등)',        ['외전 1화','에필로그']],
-    ['# 제목',        '^#{1,3}\\s*.+$',                               '마크다운 헤딩 형식',                 ['# 제목','## 소제목']],
-    ['【제목】',       '^【.+】.*$',                                   '꺾쇠 괄호 제목 형식',                ['【1화】시작']],
+    ['화 번호',        '^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$',       '숫자+화 형식 (#N화, 제N화, N화 제목)'],
+    ['숫자만',         '^\\d+$',                                      '줄에 숫자만 단독으로 있는 경우'],
+    ['소설(숫자)',     '^.{1,60}\\s*\\(\\d+\\)\\s*$',                 '제목 끝에 (N) 형식'],
+    ['소설명+N화',    '^.{2,15}\\s+\\d+화$',                          '소설 제목+N화 형식 (이고깽 이후 천 년 1화 등)'],
+    ['#N. 제목',      '^#\\d+\\.\\s+.{1,60}$',                       '#숫자+점 형식 (#1. 시작)'],
+    ['N. 제목',       '^\\d+\\.\\s+.{1,60}$',                        '숫자+점 형식 (1. 프롤로그)'],
+    ['장 번호',       '^(?:제\\s*\\d+\\s*장|第\\s*\\d+\\s*章)',        '제N장 형식 (주만 변연물어 등)'],
+    ['N부 M화',       '^[1-9]부\\s+(?:\\d+화|프롤로그)',              'N부 M화 복합 형식'],
+    ['=== [제N화] ===','^={2,}\\s*\\[제\\s*\\d+\\s*화\\]',           '이중등호+대괄호 형식'],
+    ['Chapter N',     '^(?:chapter|part|ch)\\s*\\d+',                '영어 Chapter/Part 형식'],
+    ['프롤로그/외전',  '^(?:프롤로그|에필로그|외전|후일담)',           '외전·에필로그 등 특수 챕터'],
+    ['# 제목',        '^#{1,3}\\s*.+$',                               '마크다운 헤딩 형식'],
   ];
 
-  // 현재 패턴에 해당하는 프리셋 체크 상태 계산
+  // 현재 패턴에서 체크 상태 계산
   const checkedVals = new Set();
   if(curPat){
-    // OR 분해: ^(?:A|B|C) 형태 분해 시도
     const orMatch = curPat.match(/^\^\(\?:(.+)\)$/);
     if(orMatch){
-      // 각 부분이 프리셋과 매칭되는지
       const parts = orMatch[1].split('|');
       PRESETS.forEach(([,val])=>{
         const stripped = val.replace(/^\^/,'').replace(/\$$/,'');
@@ -2740,44 +2818,45 @@ function buildPatPresetPanel(idx){
   let html =
     '<div style="margin-top:6px;padding:8px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">' +
     '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:8px">📐 챕터 패턴 선택</div>' +
-    // 전체 선택/해제
-    '<div style="display:flex;gap:6px;margin-bottom:8px">' +
+    '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">' +
       '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="batchPresetCheckAll('+idx+',true)">전체 선택</button>' +
       '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="batchPresetCheckAll('+idx+',false)">전체 해제</button>' +
       '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="batchPresetAuto('+idx+')">🔍 자동 감지</button>' +
     '</div>' +
     '<div id="bpck_list_'+idx+'" style="display:flex;flex-direction:column;gap:4px">';
 
-  PRESETS.forEach(([label, val, desc, examples], pi)=>{
+  PRESETS.forEach(([label, val, desc])=>{
     const checked = checkedVals.has(val) ? 'checked' : '';
-    const exStr = examples.join(', ');
+    const cnt = countPat(val);
+    const pct = tc>0 ? (cnt/tc*100).toFixed(0) : null;
+    const pctStr = pct!==null ? ` (${cnt}개 / ${pct}%${parseFloat(pct)>=80?' ⭐':''})` : (cnt>0?` (${cnt}개)`:'');
+    const goodBg = pct!==null&&parseFloat(pct)>=80 ? 'background:var(--green-bg);border-color:var(--green)' : '';
+
     html +=
-      '<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 6px;border-radius:5px;cursor:pointer;border:1px solid var(--border);background:var(--bg2)"' +
-             'title="예시: '+exStr+'">' +
-        '<input type="checkbox" class="bpck_'+idx+'" data-val="'+escHtml(val)+'" '+checked+
-               ' onchange="applyBatchPreset('+idx+')" style="margin-top:2px;flex-shrink:0">' +
-        '<div style="min-width:0">' +
-          '<div style="font-size:12px;font-weight:600;display:flex;gap:6px;align-items:center">' +
+      `<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 6px;border-radius:5px;cursor:pointer;border:1px solid var(--border);background:var(--bg2);${goodBg}">` +
+        `<input type="checkbox" class="bpck_${idx}" data-val="${escHtml(val)}" ${checked}` +
+               ` onchange="applyBatchPreset(${idx})" style="margin-top:2px;flex-shrink:0">` +
+        '<div style="min-width:0;flex:1">' +
+          '<div style="font-size:12px;font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
             escHtml(label) +
-            '<span style="font-size:10px;color:var(--text2);font-weight:400">'+escHtml(desc)+'</span>' +
+            `<span style="font-size:11px;color:${parseFloat(pct)>=80?'var(--green)':'var(--accent)'};font-weight:700">${pctStr}</span>` +
+            `<span style="font-size:10px;color:var(--text2);font-weight:400">${escHtml(desc)}</span>` +
           '</div>' +
-          '<div style="font-size:10px;color:var(--accent);margin-top:1px">예) '+escHtml(exStr)+'</div>' +
         '</div>' +
       '</label>';
   });
 
   html +=
     '</div>' +
-    // 직접 입력
     '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">' +
       '<div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px">직접 입력 (정규식)</div>' +
       '<div style="display:flex;gap:6px">' +
-        '<input class="inp" id="bpat_direct_'+idx+'" placeholder="직접 입력하거나 위에서 선택" ' +
-               'value="'+escHtml(curPat)+'" style="flex:1;font-size:11px" oninput="applyBatchPreset('+idx+')">' +
-        '<button class="btn btn-blue btn-sm" onclick="confirmBatchPreset('+idx+')">✅ 적용</button>' +
+        `<input class="inp" id="bpat_direct_${idx}" placeholder="직접 입력하거나 위에서 선택" ` +
+               `value="${escHtml(curPat)}" style="flex:1;font-size:11px" oninput="applyBatchPreset(${idx})">` +
+        `<button class="btn btn-blue btn-sm" onclick="confirmBatchPreset(${idx})">✅ 적용</button>` +
       '</div>' +
-      '<div id="bpat_preview_'+idx+'" style="font-size:10px;color:var(--text2);margin-top:4px">' +
-        (curPat?'현재: '+escHtml(curPat):'(자동 감지 - 파일별로 최적 패턴 자동 선택)') +
+      `<div id="bpat_preview_${idx}" style="font-size:10px;color:var(--text2);margin-top:4px">` +
+        (curPat?'현재: '+escHtml(curPat):'(자동 감지)') +
       '</div>' +
     '</div>' +
     '</div>';
@@ -2792,36 +2871,48 @@ function batchPresetCheckAll(idx, checked){
 async function batchPresetAuto(idx){
   const file = B.txtFiles[idx];
   if(!file) return;
-  const btn = document.querySelector('#bi_'+idx+' .batch-toc-btn');
-  // 개별 패턴 초기화 후 자동 감지
   delete B.patterns[idx];
+  delete B.sampleTexts[idx];
+  const btn = document.querySelector('#bi_'+idx+' .batch-toc-btn');
   const panel = document.getElementById('btp_'+idx);
   panel.classList.remove('show');
-  if(btn) await showBatchToc(idx, btn);
+  if(btn){
+    btn.textContent='📋 목차 확인';
+    await showBatchToc(idx, btn);
+  }
 }
 
 function applyBatchPreset(idx){
   const checks=[...document.querySelectorAll('.bpck_'+idx+':checked')].map(c=>c.dataset.val);
-  const direct=document.getElementById('bpat_direct_'+idx)?.value.trim();
+  const directEl=document.getElementById('bpat_direct_'+idx);
+  const direct=directEl?.value.trim();
   let combined='';
   if(direct) combined=direct;
   else if(checks.length===1) combined=checks[0];
   else if(checks.length>1) combined='^(?:'+checks.map(v=>v.replace(/^\^/,'').replace(/\$$/,'')).join('|')+')';
-  // 이 파일의 개별 패턴으로 저장 (공통 패턴은 건드리지 않음)
+  // 체크박스 선택 시 직접 입력 필드도 업데이트
+  if(!direct && combined && directEl) directEl.value=combined;
+  // 이 파일의 개별 패턴으로 저장
   if(combined) B.patterns[idx]=combined;
-  // 패턴 미리보기 텍스트 갱신
   const prev=document.getElementById('bpat_preview_'+idx);
   if(prev) prev.textContent=combined?'현재: '+combined:'(자동 감지)';
 }
 
 async function confirmBatchPreset(idx){
-  const pat=B.patterns[idx]||document.getElementById('batchPattern')?.value.trim();
+  // 직접 입력 필드 먼저 확인
+  const directEl=document.getElementById('bpat_direct_'+idx);
+  const direct=directEl?.value.trim();
+  const pat=direct||B.patterns[idx]||document.getElementById('batchPattern')?.value.trim();
   if(!pat){alert('패턴을 선택하거나 직접 입력해주세요.');return;}
   B.patterns[idx]=pat;
+  // 버튼 텍스트 업데이트 후 재분석
   const btn=document.querySelector('#bi_'+idx+' .batch-toc-btn');
   const panel=document.getElementById('btp_'+idx);
   panel.classList.remove('show');
-  if(btn) await showBatchToc(idx, btn);
+  if(btn){
+    btn.textContent='📋 목차 확인';
+    await showBatchToc(idx, btn);
+  }
 }
 
 function batchPickCover(idx){
