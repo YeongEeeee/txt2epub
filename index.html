@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>📚 TXT → EPUB3 변환기</title>
+<title>📚 NovelEPUB — TXT to EPUB3 변환기</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&family=Noto+Serif+KR:wght@400;700&family=Gowun+Dodum&family=Gowun+Batang&family=Hahmlet:wght@400;700&family=Nanum+Myeongjo:wght@400;700&family=Nanum+Gothic:wght@400;700&family=Nanum+Gothic+Coding&family=Black+Han+Sans&family=Do+Hyeon&family=Gaegu&family=Cute+Font&family=Jua&family=Gugi&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
@@ -68,9 +68,11 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .dz-text{font-size:13px;color:var(--text2)}
 .dz-sub{font-size:11px;color:var(--text2);opacity:.65;margin-top:3px}
 /* 표지 */
-.cover-wrap{display:flex;gap:14px;align-items:flex-start}
-.cover-thumb{width:68px;height:94px;background:var(--bg2);border:1.5px solid var(--border);border-radius:6px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text2)}
+.cover-wrap{display:flex;gap:16px;align-items:flex-start}
+.cover-thumb{width:108px;height:152px;background:var(--bg2);border:2px solid var(--border);border-radius:8px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--text2);box-shadow:0 2px 8px rgba(0,0,0,.1);cursor:pointer;transition:border-color .2s}
+.cover-thumb:hover{border-color:var(--accent)}
 .cover-thumb img{width:100%;height:100%;object-fit:cover}
+.cover-right{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
 /* 태그 */
 .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:7px}
 .tag{background:var(--blue-bg);color:var(--blue);border-radius:6px;padding:3px 9px;font-size:11px;display:flex;align-items:center;gap:4px}
@@ -92,12 +94,30 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .ttab{flex:1;padding:8px;font-size:12px;font-weight:600;text-align:center;cursor:pointer;color:var(--text2);border:none;background:none;font-family:inherit}
 .ttab.on{color:var(--accent);box-shadow:inset 0 -2px var(--accent)}
 .toc-body{padding:10px;max-height:280px;overflow-y:auto;font-size:12px}
-.toc-item{display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:5px;cursor:pointer;user-select:none}
+.toc-item{display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:5px;cursor:default;user-select:none;transition:background .15s}
 .toc-item:hover{background:var(--bg)}
 .toc-item.off{opacity:.35;text-decoration:line-through}
+.toc-item.drag-over{border-top:2px solid var(--accent)}
+.toc-item.dragging{opacity:.35;background:var(--accent-bg)}
+.toc-drag-handle{cursor:grab;color:var(--text2);opacity:.35;font-size:14px;flex-shrink:0;user-select:none;transition:opacity .15s}
+.toc-drag-handle:hover{opacity:.85}
+.toc-title-edit{flex:1;border:1px solid transparent;background:transparent;color:var(--text);font-size:12px;font-family:inherit;outline:none;padding:1px 4px;border-radius:3px;min-width:0;cursor:text}
+.toc-title-edit:focus,.toc-title-edit:hover{background:var(--bg);border-color:var(--border)}
+.toc-title-edit:focus{border-color:var(--accent)}
 .toc-chk{width:14px;height:14px;flex-shrink:0;accent-color:var(--accent)}
-.toc-num{color:var(--text2);min-width:38px;font-size:11px}
+.toc-num{color:var(--text2);min-width:38px;font-size:11px;flex-shrink:0}
 .toc-raw{font-family:monospace;white-space:pre;font-size:11px;color:var(--text2);overflow-x:auto}
+/* 변환 히스토리 */
+.hist-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;background:var(--bg);border:1.5px solid var(--border);margin-bottom:6px;transition:border-color .15s;cursor:pointer}
+.hist-item:hover{border-color:var(--accent)}
+.hist-thumb{width:36px;height:50px;background:var(--border);border-radius:4px;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:18px}
+.hist-thumb img{width:100%;height:100%;object-fit:cover}
+.hist-info{flex:1;min-width:0}
+.hist-title{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--text)}
+.hist-meta{font-size:10px;color:var(--text2);margin-top:2px}
+.hist-del{background:none;border:none;color:var(--text2);cursor:pointer;font-size:14px;padding:2px 5px;border-radius:4px;opacity:.5;flex-shrink:0}
+.hist-del:hover{opacity:1;color:var(--accent)}
+.hist-empty{text-align:center;padding:20px;font-size:12px;color:var(--text2);opacity:.6}
 .toc-empty{color:var(--accent);text-align:center;padding:20px;font-size:13px}
 /* CSS 커스터마이징 */
 .css-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -273,7 +293,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 <body>
 <!-- 헤더 -->
 <div class="hdr">
-  <div class="hdr-title">📚 TXT → EPUB3 변환기</div>
+  <div class="hdr-title">📚 NovelEPUB<span class="hdr-sub">TXT → EPUB3 변환기</span></div>
   <div class="hdr-right">
     <button class="ibtn" id="themeBtn" onclick="toggleTheme()">🌙</button>
     <button class="ibtn" onclick="resetAll()">🔄</button>
@@ -284,6 +304,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
   <button class="page-tab on" onclick="switchPage('convert')">📚 TXT→EPUB</button>
   <button class="page-tab" onclick="switchPage('batch')">📦 일괄변환</button>
   <button class="page-tab" onclick="switchPage('edit')">✏️ EPUB편집</button>
+  <button class="page-tab" onclick="switchPage('history')">🕘 히스토리</button>
   <button class="page-tab" onclick="switchPage('settings')">⚙️ 설정</button>
 </div>
 
@@ -302,8 +323,10 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div id="txtInfo" style="display:none;margin-top:7px;font-size:12px;color:var(--green)"></div>
     <div style="height:12px"></div>
     <div class="cover-wrap">
-      <div class="cover-thumb" id="coverThumb">표지</div>
-      <div style="flex:1">
+      <div class="cover-thumb" id="coverThumb" title="클릭해서 표지 변경">
+        <span style="display:flex;flex-direction:column;align-items:center;gap:4px"><span style="font-size:22px">🖼</span><span>표지</span></span>
+      </div>
+      <div class="cover-right">
         <div class="dz" id="coverDz" style="padding:10px">
           <div style="font-size:12px;color:var(--text2)">🖼 표지 이미지 드래그 또는 클릭</div>
           <div id="coverName" style="font-size:11px;color:var(--green);margin-top:3px"></div>
@@ -335,7 +358,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="pat-helper" id="patHelper">
       <span style="font-size:11px;color:var(--text2);align-self:center">빠른 선택:</span>
     </div>
-    <div class="hint">💡 혼합 패턴 예시: <code>^(소설명 \d+|\d+화|\d+$)</code></div>
+    <div class="hint">💡 혼합 패턴 예시: <code>^(소설명 \d+|\d+화|\d+$)</code> · <code>[ 파일명.txt ]</code> 형식: <code>^\[\s*.+\.txt\s*\]\s*$</code> · 정규식 문법은 아래 <strong>정규식 수정</strong> 탭 참고</div>
     <div class="toc-panel" id="tocPanel">
       <div class="toc-tabs">
         <button class="ttab on" onclick="tocTab(0)">감지된 목차</button>
@@ -352,6 +375,32 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
         <div style="display:flex;gap:8px;padding:4px 0">
           <input class="inp" id="patEdit" placeholder="새 정규식">
           <button class="btn btn-accent btn-sm" onclick="applyPat()">적용 후 재확인</button>
+        </div>
+        <div style="margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;line-height:1.9;color:var(--text2)">
+          <div style="font-weight:700;color:var(--text);margin-bottom:6px;font-size:12px">📖 정규식 작성 가이드</div>
+          <table style="border-collapse:collapse;width:100%">
+            <tr style="border-bottom:1px solid var(--border)">
+              <td style="padding:4px 8px 4px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top">기호</td>
+              <td style="padding:4px 0;color:var(--text2)">설명</td>
+              <td style="padding:4px 0 4px 12px;font-family:monospace;color:var(--accent);white-space:nowrap">예시</td>
+            </tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>^</code> <code>$</code></td><td style="padding:3px 0">줄의 시작 / 끝 — 반드시 한 줄 전체가 일치해야 할 때 사용</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">^1화$</td></tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>\d</code></td><td style="padding:3px 0">숫자 한 글자 (0–9)</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">\d → 1, 9</td></tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>\d+</code></td><td style="padding:3px 0">숫자 한 자리 이상 연속</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">\d+ → 1, 42, 450</td></tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>.+</code></td><td style="padding:3px 0">아무 문자 1자 이상 (한글·영문·특수문자 모두 포함)</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">.+ → 무엇이든</td></tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>.*</code></td><td style="padding:3px 0">아무 문자 0자 이상 (없어도 OK)</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">1화.*</td></tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>\s*</code></td><td style="padding:3px 0">공백 0개 이상 (스페이스·탭 무시할 때)</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">제\s*\d+화</td></tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>(?:A|B)</code></td><td style="padding:3px 0">A 또는 B — 여러 패턴 중 하나</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">(?:1화|Chapter)</td></tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>\[</code> <code>\]</code></td><td style="padding:3px 0">대괄호 문자 그대로 매칭 (특수문자는 <code>\</code> 앞에)</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">\[.+\.txt\]</td></tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>{2,15}</code></td><td style="padding:3px 0">앞 요소가 2자 이상 15자 이하</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">.{2,15}\s+\d+화</td></tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top">한글</td><td style="padding:3px 0">한글은 그대로 씀 — 이스케이프 불필요</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">^제\d+화</td></tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top">영문</td><td style="padding:3px 0">영문 그대로 씀, 끝에 <code>i</code> 플래그로 대소문자 무시</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">^chapter\s*\d+</td></tr>
+            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top">숫자</td><td style="padding:3px 0">숫자 그대로 쓰거나 <code>\d</code> 사용</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">^1화, ^\d+화</td></tr>
+          </table>
+          <div style="margin-top:8px;padding:7px 10px;background:var(--yellow-bg);border-radius:6px;color:var(--yellow);border-left:3px solid var(--accent2)">
+            💡 <strong>이 파일 패턴 예시</strong>: <code style="color:var(--accent)">^\[\s*.+\.txt\s*\]\s*$</code> → <code style="color:var(--text2)">[ 0001_어떤 길은 나를 통했다.txt ]</code> 형식 인식<br>
+            혼합 예: <code style="color:var(--accent)">^(?:\[\s*.+\.txt\s*\]|\d+화).*$</code> → 두 패턴 동시 지원
+          </div>
         </div>
       </div>
     </div>
@@ -581,6 +630,20 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 </div><!-- /page-edit -->
 </div><!-- /wrap -->
 
+<!-- ══ 히스토리 페이지 ══ -->
+<div id="page-history" class="page">
+<div class="sec">
+  <div class="sec-hdr"><span class="sec-title">🕘 변환 히스토리</span><div class="sec-line"></div></div>
+  <div class="card">
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+      <span>최근 변환한 EPUB 목록이에요. 클릭하면 다시 다운로드할 수 있어요.</span>
+      <button class="btn btn-ghost btn-sm" onclick="clearAllHistory()" style="white-space:nowrap">🗑 전체 삭제</button>
+    </div>
+    <div id="histList"></div>
+  </div>
+</div>
+</div><!-- /page-history -->
+
 <!-- ══ 설정 페이지 ══ -->
 <div id="page-settings" class="page">
 <div class="sec">
@@ -588,11 +651,11 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
   <div class="card">
     <div class="toggle-row">
       <div><label for="optItalic">👻 회상 대사 이탤릭</label><small>-, — 시작 문장 → 이탤릭체</small></div>
-      <label class="sw"><input type="checkbox" id="optItalic" checked><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="optItalic" checked onchange="saveExtraSettings()"><span class="sw-slider"></span></label>
     </div>
     <div class="toggle-row">
       <div><label for="optIndent">들여쓰기</label><small>문단 첫 줄 들여쓰기</small></div>
-      <label class="sw"><input type="checkbox" id="optIndent" checked><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="optIndent" checked onchange="saveExtraSettings()"><span class="sw-slider"></span></label>
     </div>
     <div class="toggle-row">
       <div><label for="optEmptyLine">빈 줄 보존</label><small>단락 사이 빈 줄을 그대로 유지해요</small></div>
@@ -741,6 +804,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 // 상수 & 상태
 // ══════════════════════════════════════════
 const PAT_PRESETS = [
+  {label:'[ 파일명.txt ] 형식', val:'^\\[\\s*.+\\.txt\\s*\\]\\s*$'},
   {label:'화 번호 (#N화 포함)', val:'^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
   {label:'소설(숫자)',       val:'^.{1,60}\\s*\\(\\d+\\)\\s*$'},
   {label:'숫자만',           val:'^\\d+$'},
@@ -985,13 +1049,14 @@ function resetAll(){
 }
 
 function switchPage(name){
-  const pages=['convert','batch','edit','settings'];
+  const pages=['convert','batch','edit','history','settings'];
   document.querySelectorAll('.page-tab').forEach((t,i)=>t.classList.toggle('on',pages[i]===name));
   pages.forEach(p=>{document.getElementById('page-'+p).classList.toggle('on',p===name);});
   document.getElementById('btmConvert').style.display=name==='convert'?'flex':'none';
   document.getElementById('btmBatch').style.display=name==='batch'?'flex':'none';
   document.getElementById('btmEdit').style.display=name==='edit'?'flex':'none';
   if(name==='convert'||name==='batch') updateSettingsSummary();
+  if(name==='history') renderHistory();
 }
 
 function updateSettingsSummary(){
@@ -1084,46 +1149,38 @@ async function readFileSlice(file, start, end){
 async function sampleLines(file){
   const size=file.size;
 
-  // 소용량(3MB 이하): 전체 읽기
-  if(size<=3*1024*1024){
+  // 소용량(5MB 이하): 전체 읽기
+  if(size<=5*1024*1024){
     const text=await fileToText(file);
-    const lines=text.split('\n');
-    const shortLines=lines.filter(l=>l.trim().length>=1&&l.trim().length<=25).map(l=>l.trim());
-    if(lines.length<=600) return text;
-    const third=200,mid=Math.floor(lines.length/2);
-    const uniform=[...lines.slice(0,third),'...',...lines.slice(mid-100,mid+100),'...',...lines.slice(-third)].join('\n');
-    return uniform+'\n'+shortLines.join('\n');
+    return text; // 전체 반환 — 패턴 감지 정확도 최우선
   }
 
-  // 대용량(3MB 초과): 앞/중간/뒤 슬라이스 + 짧은줄 전용 패스
-  const CHUNK=256*1024; // 256KB씩
+  // 대용량(5MB 초과): 앞/1/4/중/3/4/뒤 슬라이스 + 짧은줄 전용 패스
+  const CHUNK=384*1024; // 384KB씩
   const chunks=[];
+  chunks.push(await readFileSlice(file, 0, CHUNK));
+  chunks.push(await readFileSlice(file, Math.floor(size*0.25), Math.floor(size*0.25)+CHUNK));
+  chunks.push(await readFileSlice(file, Math.floor(size*0.5),  Math.floor(size*0.5)+CHUNK));
+  chunks.push(await readFileSlice(file, Math.floor(size*0.75), Math.floor(size*0.75)+CHUNK));
+  chunks.push(await readFileSlice(file, Math.max(0,size-CHUNK), size));
 
-  // 앞 256KB
-  chunks.push(await readFileSlice(file,0,CHUNK));
-  // 중간 256KB
-  const mid=Math.floor(size/2);
-  chunks.push(await readFileSlice(file,mid,mid+CHUNK));
-  // 뒤 256KB
-  chunks.push(await readFileSlice(file,Math.max(0,size-CHUNK),size));
-
-  // 각 청크에서 짧은 줄 추출 (1~25자)
-  const shortLines=[];
+  // 각 청크에서 헤더 후보 줄 추출
+  // [ 파일명.txt ] 형태는 최대 ~60자이므로 기준 확장 (1~80자)
+  const headerCandidates=[];
   for(const chunk of chunks){
-    const lines=chunk.split('\n');
-    for(const l of lines){
+    for(const l of chunk.split('\n')){
       const t=l.trim();
-      if(t.length>=1&&t.length<=25) shortLines.push(t);
+      if(t.length>=1&&t.length<=80) headerCandidates.push(t);
     }
   }
 
-  // 균등 샘플 (앞+중+뒤 첫 100줄씩)
+  // 균등 샘플 (각 청크 앞 150줄씩)
   const uniformLines=[];
   for(const chunk of chunks){
-    uniformLines.push(...chunk.split('\n').slice(0,100));
+    uniformLines.push(...chunk.split('\n').slice(0,150));
   }
 
-  return uniformLines.join('\n')+'\n'+[...new Set(shortLines)].join('\n');
+  return uniformLines.join('\n')+'\n'+[...new Set(headerCandidates)].join('\n');
 }
 // 하위 호환
 async function readFirst200(file){ return sampleLines(file); }
@@ -1192,6 +1249,7 @@ function sortKey(name){
 // 챕터 패턴 & 분리
 // ══════════════════════════════════════════
 const PATS=[
+  [/^\[\s*.+\.txt\s*\]\s*$/i,                         '[ 파일명.txt ] 형식'],
   [/^={2,}\s*\[제\s*\d+\s*화\]\s*={0,}$/i,       '=== [제N화] ==='],
   [/^#?(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,           '화 번호'],
   [/^.{1,60}\s*\(\d+\)\s*$/,                       '소설제목(숫자)'],
@@ -1207,16 +1265,12 @@ const PATS=[
 
 // N. 제목 패턴: 줄 간격 필터 포함 (본문 내 번호 목록과 구별)
 // 앞뒤 줄 간격이 모두 minGap 이상인 것만 챕터로 인정
-function checkTitleWaPattern(lines){
-  // "소설 제목 N화" 형식 체크 (이고깽 이후 천 년 1화 등)
-  // 단순 N화 패턴은 이미 PATS에 있으므로 여기서는 앞에 텍스트가 붙은 형태만
+function checkTitleWaPattern(lines, minGap=50){
   const rx=/^.{2,15}\s+\d+화$/;
   const matched=[];
   const positions=[];
   lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim())){matched.push({i,t:l.trim()});positions.push(i);}});
   if(matched.length<3) return {cnt:0,rx:null};
-  // 간격 기반 필터: 앞뒤 모두 50줄 이상
-  const minGap=50;
   const real=matched.filter(({i},j)=>{
     const pg=i-(positions[j-1]??-999);
     const ng=(positions[j+1]??i+999)-i;
@@ -1226,21 +1280,18 @@ function checkTitleWaPattern(lines){
   return {cnt:real.length, rx:/^.{2,15}\s+\d+화$/};
 }
 
-function checkNDotPattern(lines){
+function checkNDotPattern(lines, minGap=50){
   const rx=/^\d+\.\s+.{1,60}$/;
   const matched=[];
   const positions=[];
   lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim())){matched.push({i,t:l.trim()});positions.push(i);}});
   if(matched.length<3) return {cnt:0,rx:null};
-  // 간격 기반 필터: 앞뒤 모두 50줄 이상이어야 진짜 챕터
-  const minGap=50;
   const real=matched.filter(({i},j)=>{
     const pg=i-(positions[j-1]??-999);
     const ng=(positions[j+1]??i+999)-i;
     return Math.min(pg,ng)>=minGap;
   });
   if(real.length<3) return {cnt:0,rx:null};
-  // 번호가 1에서 시작하는지 확인
   const firstNum=parseInt(real[0].t.match(/^(\d+)\./)[1]);
   if(firstNum>5) return {cnt:0,rx:null};
   return {cnt:real.length, rx:/^\d+\.\s+.{1,60}$/};
@@ -1248,41 +1299,65 @@ function checkNDotPattern(lines){
 
 function bestPat(raw){
   const lines=raw.split('\n');
-  let best=null,bestCnt=0,bestName='';
+  const totalLines=lines.length;
+  let best=null,bestScore=0,bestName='';
   const mixed=[];
+
+  // 빈 줄에 둘러싸인 줄 집합 (앞뒤 1~2줄 모두 빈줄이면 헤더 가능성 높음)
+  const blankWrapped=new Set();
+  for(let i=1;i<lines.length-1;i++){
+    const prevBlank=!lines[i-1].trim();
+    const nextBlank=!lines[i+1].trim();
+    const prev2Blank=i>=2&&!lines[i-2].trim();
+    const next2Blank=i<lines.length-2&&!lines[i+2].trim();
+    if(lines[i].trim()&&(prevBlank||prev2Blank)&&(nextBlank||next2Blank)) blankWrapped.add(i);
+  }
+
   for(const[rx,name]of PATS){
-    const cnt=lines.filter(l=>l.trim()&&rx.test(l.trim())).length;
-    if(cnt>=3) mixed.push({rx,name,cnt});
-    if(cnt>bestCnt){bestCnt=cnt;best=rx;bestName=name;}
+    const matchedIdxs=[];
+    lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim())) matchedIdxs.push(i);});
+    const cnt=matchedIdxs.length;
+    if(cnt<3) continue;
+    // 가중치 점수: 빈줄 둘러싸인 경우 2배, 아니면 1배
+    const score=matchedIdxs.reduce((acc,i)=>acc+(blankWrapped.has(i)?2:1),0);
+    mixed.push({rx,name,cnt,score});
+    if(score>bestScore){bestScore=score;best=rx;bestName=name;}
   }
-  // N. 제목 패턴 - 간격 검증 포함
-  const nDot=checkNDotPattern(lines);
-  if(nDot.cnt>bestCnt){
-    bestCnt=nDot.cnt; best=nDot.rx; bestName='N. 제목';
-    mixed.push({rx:nDot.rx,name:'N. 제목',cnt:nDot.cnt});
+
+  // 동적 minGap: 전체 줄 수에 비례 (최소 30, 최대 200)
+  const dynGap=Math.max(30, Math.min(200, Math.floor(totalLines/50)));
+
+  // N. 제목 패턴 (간격 검증)
+  const nDot=checkNDotPattern(lines,dynGap);
+  if(nDot.cnt>0&&nDot.cnt>=bestScore){
+    bestScore=nDot.cnt; best=nDot.rx; bestName='N. 제목';
+    mixed.push({rx:nDot.rx,name:'N. 제목',cnt:nDot.cnt,score:nDot.cnt});
   }
-  // 소설명+N화 패턴 - 간격 검증 포함
-  const titleWa=checkTitleWaPattern(lines);
-  if(titleWa.cnt>bestCnt){
-    bestCnt=titleWa.cnt; best=titleWa.rx; bestName='소설명+N화';
-    mixed.push({rx:titleWa.rx,name:'소설명+N화',cnt:titleWa.cnt});
+  // 소설명+N화 패턴 (간격 검증)
+  const titleWa=checkTitleWaPattern(lines,dynGap);
+  if(titleWa.cnt>0&&titleWa.cnt>=bestScore){
+    bestScore=titleWa.cnt; best=titleWa.rx; bestName='소설명+N화';
+    mixed.push({rx:titleWa.rx,name:'소설명+N화',cnt:titleWa.cnt,score:titleWa.cnt});
   }
-  // 숫자만 폴백
-  if(bestCnt<3){
+  // 숫자만 폴백 (다른 패턴 없을 때만)
+  if(bestScore<3){
     const fb=/^\d+$/;
     const cnt=lines.filter(l=>l.trim()&&fb.test(l.trim())).length;
-    if(cnt>bestCnt){bestCnt=cnt;best=fb;bestName='숫자만';}
+    if(cnt>=3){bestScore=cnt;best=fb;bestName='숫자만';}
   }
-  // 혼합 패턴 감지 (중복 제거 후 cnt 계산)
-  if(mixed.length>1){
-    const combined=new RegExp(mixed.map(m=>m.rx.source).join('|'),'i');
+
+  // 혼합 패턴 감지 — 소스 기준 중복 제거 후 결합
+  const seen=new Set();
+  const uniq=mixed.filter(m=>{if(seen.has(m.rx.source))return false;seen.add(m.rx.source);return true;});
+  if(uniq.length>1){
+    const combined=new RegExp('(?:'+uniq.map(m=>m.rx.source).join('|')+')','i');
     const uniqueMatches=[...new Set(lines.filter(l=>l.trim()&&combined.test(l.trim())).map(l=>l.trim()))];
     const combinedCnt=uniqueMatches.length;
-    if(combinedCnt>bestCnt){
-      return {rx:combined, name:'혼합('+mixed.map(m=>m.name).join('+')+') [자동]', cnt:combinedCnt, isMixed:true, mixedParts:mixed};
+    if(combinedCnt>bestScore){
+      return {rx:combined,name:'혼합('+uniq.map(m=>m.name).join('+')+') [자동]',cnt:combinedCnt,isMixed:true,mixedParts:uniq};
     }
   }
-  return {rx:best,name:bestName,cnt:bestCnt};
+  return {rx:best,name:bestName,cnt:bestScore};
 }
 
 function splitChapters(raw,customPat){
@@ -1292,20 +1367,34 @@ function splitChapters(raw,customPat){
   }
   if(!rx){const r=bestPat(raw);rx=r.rx;}
   if(!rx) return[['본문',raw.trim()]];
-  const lines=raw.split('\n'),chapters=[];
+
+  const rawLines=raw.split('\n');
+  const chapters=[];
   let cur=null,body=[];
-  // 중복 헤더 방지 (같은 제목 연속 등장 시 하나만)
   const seenHeadings=new Set();
-  for(const line of lines){
+
+  // 구분선 패턴 (챕터 앞뒤 장식선)
+  const sepRx=/^[-=*─━~·.‒—]{3,}\s*$|^[─━═]{2,}$/;
+
+  for(let li=0;li<rawLines.length;li++){
+    const line=rawLines[li];
     const t=line.trim();
+
     if(t&&rx.test(t)){
-      // 중복 제목이면 본문에 합침
       if(seenHeadings.has(t)){body.push(line);continue;}
       seenHeadings.add(t);
+      // 직전 body 끝 구분선/빈줄 제거
+      while(body.length&&(sepRx.test(body[body.length-1].trim())||body[body.length-1].trim()==='')) body.pop();
       if(cur===null&&body.length>0) chapters.push(['서문',body.join('\n').trim()]);
       else if(cur!==null) chapters.push([cur,body.join('\n').trim()]);
-      cur=t;body=[];
-    }else{body.push(line);}
+      cur=t; body=[];
+      // 챕터 헤더 직후 구분선만 스킵 (빈줄은 본문에 포함)
+      let ni=li+1;
+      while(ni<rawLines.length&&sepRx.test(rawLines[ni].trim())) ni++;
+      if(ni>li+1) li=ni-1;
+    }else{
+      body.push(line);
+    }
   }
   if(cur!==null) chapters.push([cur,body.join('\n').trim()]);
   else if(body.length>0) chapters.push(['본문',body.join('\n').trim()]);
@@ -1313,10 +1402,14 @@ function splitChapters(raw,customPat){
 }
 
 function extractChNum(h){
-  let m=h.match(/\((\d+)\)/);if(m)return parseInt(m[1]);
+  // [ 0002_1화. 제목.txt ] 형태 — 대괄호 안 숫자 추출
+  let m=h.match(/^\[\s*\d*_?(\d+)\s*화/i);if(m)return parseInt(m[1]);
+  m=h.match(/\((\d+)\)/);if(m)return parseInt(m[1]);
   m=h.match(/(\d+)\s*화/);if(m)return parseInt(m[1]);
   m=h.match(/^(\d+)$/);if(m)return parseInt(m[1]);
   m=h.match(/(?:chapter|part|ch)\s*(\d+)/i);if(m)return parseInt(m[1]);
+  // [ 0002_제목.txt ] — 앞자리 0 패딩 숫자
+  m=h.match(/^\[\s*0*(\d+)[_\s]/);if(m)return parseInt(m[1]);
   return null;
 }
 
@@ -1346,6 +1439,8 @@ function saveExtraSettings(){
       lang:document.getElementById('optLang')?.value||'ko',
       publisher:document.getElementById('optPublisher')?.value||'',
       compression:document.getElementById('optCompression')?.value||'6',
+      italic:document.getElementById('optItalic')?.checked,
+      indent:document.getElementById('optIndent')?.checked,
     }));
   }catch(e){}
 }
@@ -1358,11 +1453,12 @@ function loadExtraSettings(){
     if(s.darkCover!=null) document.getElementById('optDarkCover').checked=s.darkCover;
     if(s.autoPreview!=null) document.getElementById('optAutoPreview').checked=s.autoPreview;
     if(s.showLineNum!=null) document.getElementById('optShowLineNum').checked=s.showLineNum;
+    if(s.italic!=null) document.getElementById('optItalic').checked=s.italic;
+    if(s.indent!=null) document.getElementById('optIndent').checked=s.indent;
     if(s.defaultPat) document.getElementById('optDefaultPat').value=s.defaultPat;
     if(s.lang) document.getElementById('optLang').value=s.lang;
     if(s.publisher) document.getElementById('optPublisher').value=s.publisher;
     if(s.compression) document.getElementById('optCompression').value=s.compression;
-    // 기본 정규식이 설정돼 있으면 패턴 입력란에 반영
     if(s.defaultPat) document.getElementById('pattern').value=s.defaultPat;
   }catch(e){}
 }
@@ -1409,7 +1505,8 @@ ${fontFaceBlock}body{font-family:${font};line-height:${line};font-size:${size};m
 h1{font-size:1.3em;text-align:center;margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}
 p{margin:0;padding:0.25em 0;text-indent:${indent?'1em':'0'}}
 p.noindent{text-indent:0}
-em.flashback{font-style:italic}
+em.flashback{font-style:italic;opacity:.85}
+p.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}
 .illust-page{display:flex;align-items:center;justify-content:center;min-height:80vh;text-align:center;padding:0}
 .illust-page img{max-width:100%;max-height:90vh;height:auto;display:block;margin:0 auto}
 `;
@@ -1954,31 +2051,47 @@ async function getCachedChapters(){
 // ══════════════════════════════════════════
 async function previewToc(){
   if(!S.txtFiles.length){alert('TXT 파일을 먼저 선택해주세요.');return;}
-  const text=await sampleLines(S.txtFiles[0]);
-  // 전체 파일 로드 (미리보기용) - 에러 방지
-  fileToText(S.txtFiles[0]).then(full=>{_fullRawLines=full.split('\n');}).catch(e=>console.warn('fulltext load:',e));
+
+  // 전체 파일 텍스트 로드 (패턴 감지 + 미리보기 모두 전체 기준)
+  let text;
+  try{
+    text=await fileToText(S.txtFiles[0]);
+  }catch(e){
+    // 로드 실패 시 샘플로 폴백
+    text=await sampleLines(S.txtFiles[0]);
+  }
+  _fullRawLines=text.split('\n');
+
   const pat=document.getElementById('pattern').value.trim();
   let found=[],patLabel='';
   if(pat){
     try{
       const rx=new RegExp(pat,'i');
       S._detectedPat=rx;S._detectedName='입력';
-      const lines=text.split('\n');
-      lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))found.push({line:i+1,title:l.trim()});});
+      _fullRawLines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))found.push({line:i+1,title:l.trim()});});
       patLabel='입력 패턴: '+pat+' ('+found.length+'개 매칭)';
-    }catch(e){patLabel='정규식 오류: '+e.message;}
+    }catch(e){patLabel='⚠️ 정규식 오류: '+e.message;}
   }else{
     const{rx,name,cnt,isMixed}=bestPat(text);
     patLabel='자동 선택: '+name+' ('+cnt+'개 매칭)'+(isMixed?' ⚠️ 혼합 패턴':'');
     if(rx){
       S._detectedPat=rx;S._detectedName=name;
-      const lines=text.split('\n');lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))found.push({line:i+1,title:l.trim()});});
-    } else {
+      _fullRawLines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))found.push({line:i+1,title:l.trim()});});
+    }else{
       S._detectedPat=null;S._detectedName='';
     }
   }
-  S.tocItems=found.map(f=>({...f,enabled:true}));
+
+  // 최소 본문 글자 수 필터: 챕터 본문이 50자 미만이면 오감지 표시
+  found=found.map((f,fi)=>{
+    const nextLine=found[fi+1]?found[fi+1].line-1:_fullRawLines.length;
+    const bodyLen=_fullRawLines.slice(f.line,nextLine).join('').replace(/\s/g,'').length;
+    return {...f,enabled:true,suspicious:bodyLen<50&&fi<found.length-1};
+  });
+
+  S.tocItems=found;
   renderTocItems();
+
   // 감지 실패 시 자동 간격 분할 버튼 노출
   if(!found.length){
     const c=document.getElementById('tb0');
@@ -1989,42 +2102,113 @@ async function previewToc(){
       '</div>'
     );
   }
-  const rawLines=text.split('\n');
-  document.getElementById('tb2').innerHTML='<pre class="toc-raw">'+rawLines.map((l,i)=>String(i+1).padStart(3,' ')+' | '+l).join('\n')+'</pre>';
+
+  document.getElementById('tb2').innerHTML='<pre class="toc-raw">'+_fullRawLines.map((l,i)=>String(i+1).padStart(4,' ')+' | '+escHtml(l)).join('\n')+'</pre>';
   document.getElementById('patEdit').value=pat;
-  S._rawTextFull=rawLines;  // 미리보기용 전체 텍스트 저장
+  S._rawTextFull=_fullRawLines;
   document.getElementById('tocPanel').classList.add('show');
   tocTab(0);
   document.getElementById('tb0').insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+patLabel+'</div>');
-  // 패턴 감지 성공 시 간격 분할 버튼을 회색으로
   refreshDetectedChip();
   const splitBtn=document.querySelector('button[onclick="autoSplitByInterval()"]');
   if(splitBtn){
-    if(found.length>0){
-      splitBtn.style.opacity='0.4';
-      splitBtn.title='패턴 자동 감지 성공 — 간격 분할 불필요 (강제 실행하려면 클릭)';
-    } else {
-      splitBtn.style.opacity='1';
-      splitBtn.style.color='var(--blue)';
-      splitBtn.title='패턴 감지 실패 — 줄 간격으로 자동 분할';
-    }
+    if(found.length>0){splitBtn.style.opacity='0.4';splitBtn.title='패턴 자동 감지 성공 — 간격 분할 불필요';}
+    else{splitBtn.style.opacity='1';splitBtn.style.color='var(--blue)';splitBtn.title='패턴 감지 실패 — 줄 간격으로 자동 분할';}
   }
 }
 
 function renderTocItems(){
+  let _tocDragSrc=null; // 드래그 소스 인덱스 (renderTocItems 스코프)
   const c=document.getElementById('tb0');c.innerHTML='';
   if(!S.tocItems.length){c.innerHTML='<div class="toc-empty">⚠️ 챕터가 감지되지 않았습니다.</div>';return;}
 
   const total=S.tocItems.length;
-  // 처음 5개 + 마지막 5개는 항상 표시, 나머지는 축소
   const HEAD=5, TAIL=5;
   const alwaysShow=new Set();
   for(let i=0;i<Math.min(HEAD,total);i++) alwaysShow.add(i);
   for(let i=Math.max(0,total-TAIL);i<total;i++) alwaysShow.add(i);
 
+  // ── 드래그 상태 ──
+  let _dragSrcIdx=null;
+
+  function buildTocRow(item, i, isHidden){
+    const d=document.createElement('div');
+    d.className='toc-item'+(item.enabled?'':' off');
+    d.dataset.idx=i;
+    if(isHidden) d.style.display='none';
+    d.draggable=true;
+
+    // 드래그 핸들
+    const handle=document.createElement('span');
+    handle.className='toc-drag-handle';
+    handle.textContent='⠿';
+    handle.title='드래그해서 순서 변경';
+
+    // 체크박스
+    const chk=document.createElement('input');
+    chk.type='checkbox'; chk.className='toc-chk'; chk.checked=item.enabled;
+    chk.addEventListener('change',e=>{e.stopPropagation();S.tocItems[i].enabled=e.target.checked;d.classList.toggle('off',!e.target.checked);updateTocStat();});
+
+    // 줄 번호
+    const num=document.createElement('span');
+    num.className='toc-num'; num.textContent=item.line+'줄';
+
+    // 제목 인라인 편집 input
+    const titleInp=document.createElement('input');
+    titleInp.className='toc-title-edit';
+    titleInp.value=item.title;
+    titleInp.title='클릭해서 제목 편집';
+    titleInp.addEventListener('click',e=>e.stopPropagation());
+    titleInp.addEventListener('change',e=>{
+      S.tocItems[i].title=e.target.value.trim()||item.title;
+    });
+    titleInp.addEventListener('keydown',e=>{
+      if(e.key==='Enter'){e.target.blur();}
+      if(e.key==='Escape'){e.target.value=S.tocItems[i].title;e.target.blur();}
+    });
+
+    // 오감지 배지
+    if(item.suspicious){
+      const badge=document.createElement('span');
+      badge.style.cssText='font-size:9px;background:#fff3cd;color:#856404;border-radius:3px;padding:1px 5px;flex-shrink:0;white-space:nowrap';
+      badge.textContent='⚠ 본문 짧음';
+      badge.title='이 챕터의 본문이 매우 짧아 오감지일 수 있어요';
+      d.appendChild(handle);d.appendChild(chk);d.appendChild(num);d.appendChild(titleInp);d.appendChild(badge);
+    } else {
+      d.appendChild(handle);d.appendChild(chk);d.appendChild(num);d.appendChild(titleInp);
+    }
+
+    // 드래그 이벤트 — 상위 스코프 _tocDragSrc 사용
+    d.addEventListener('dragstart',e=>{
+      dragSrcI=i; _tocDragSrc=i;
+      d.classList.add('dragging');
+      e.dataTransfer.effectAllowed='move';
+    });
+    d.addEventListener('dragend',()=>{
+      d.classList.remove('dragging');
+      document.querySelectorAll('.toc-item.drag-over').forEach(el=>el.classList.remove('drag-over'));
+    });
+    d.addEventListener('dragover',e=>{
+      e.preventDefault();
+      if(_tocDragSrc===null||_tocDragSrc===i) return;
+      document.querySelectorAll('.toc-item.drag-over').forEach(el=>el.classList.remove('drag-over'));
+      d.classList.add('drag-over');
+    });
+    d.addEventListener('drop',e=>{
+      e.preventDefault();
+      const src=_tocDragSrc;
+      if(src===null||src===i){_tocDragSrc=null;return;}
+      const moved=S.tocItems.splice(src,1)[0];
+      const dest=src<i?i-1:i;
+      S.tocItems.splice(dest,0,moved);
+      _tocDragSrc=null;
+      renderTocItems();
+    });
+    return d;
+  }
+
   let collapsed=false;
   S.tocItems.forEach((item,i)=>{
-    // 중간 구간 시작 시 접힘 표시
     if(total>HEAD+TAIL&&i===HEAD&&!collapsed){
       collapsed=true;
       const mid=total-HEAD-TAIL;
@@ -2033,30 +2217,30 @@ function renderTocItems(){
       midDiv.id='toc-collapse-btn';
       midDiv.innerHTML='··· 중간 <b>'+mid+'</b>개 ··· <span style="color:var(--accent);font-size:10px">(클릭해서 펼치기)</span>';
       midDiv.onclick=()=>{
-        document.getElementById('toc-collapse-btn').remove();
-        document.querySelectorAll('.toc-item-hidden').forEach(el=>el.classList.remove('toc-item-hidden'));
+        document.getElementById('toc-collapse-btn')?.remove();
+        c.querySelectorAll('[style*="display: none"]').forEach(el=>el.style.display='');
       };
       c.appendChild(midDiv);
     }
-    const d=document.createElement('div');
     const isEdge=alwaysShow.has(i);
-    // 처음/마지막 5개는 항상 표시, 중간은 숨김
-    d.className='toc-item'+(item.enabled?'':' off')+((!isEdge&&total>HEAD+TAIL)?' toc-item-hidden':'');
-    if(!isEdge&&total>HEAD+TAIL) d.style.display='none';
-    // 처음/마지막 배지
-    let edgeBadge='';
-    if(i<HEAD&&total>HEAD+TAIL) edgeBadge='<span style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 4px;margin-left:4px">처음</span>';
-    if(i>=total-TAIL&&total>HEAD+TAIL) edgeBadge='<span style="font-size:9px;background:var(--green-bg);color:var(--green);border-radius:3px;padding:1px 4px;margin-left:4px">마지막</span>';
-    d.innerHTML='<input type="checkbox" class="toc-chk" '+(item.enabled?'checked':'')+' onchange="toggleTocItem('+i+',this.checked)"><span class="toc-num">'+item.line+'줄</span><span>'+escHtml(item.title)+edgeBadge+'</span>';
-    c.appendChild(d);
+    const isHidden=!isEdge&&total>HEAD+TAIL;
+    c.appendChild(buildTocRow(item,i,isHidden));
   });
 
   const stat=document.createElement('div');
+  stat.id='toc-stat';
   stat.style.cssText='margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+  c.appendChild(stat);
+  updateTocStat();
+}
+
+function updateTocStat(){
+  const stat=document.getElementById('toc-stat'); if(!stat) return;
+  const total=S.tocItems.length;
+  const active=S.tocItems.filter(t=>t.enabled).length;
   stat.innerHTML='<button class="btn btn-ghost btn-sm" onclick="toggleAllToc(true)">전체 선택</button>'+
     '<button class="btn btn-ghost btn-sm" onclick="toggleAllToc(false)">전체 해제</button>'+
-    '<span style="font-size:11px;color:var(--text2);margin-left:auto">총 '+total+'개 · 활성 '+S.tocItems.filter(t=>t.enabled).length+'개</span>';
-  c.appendChild(stat);
+    '<span style="font-size:11px;color:var(--text2);margin-left:auto">총 '+total+'개 · 활성 '+active+'개</span>';
 }
 function toggleTocItem(i,v){S.tocItems[i].enabled=v;renderTocItems();}
 function toggleAllToc(v){S.tocItems.forEach(t=>t.enabled=v);renderTocItems();}
@@ -2068,6 +2252,75 @@ function tocTab(n){
   if(n===1) renderTocPreview();
 }
 function applyPat(){document.getElementById('pattern').value=document.getElementById('patEdit').value;previewToc();}
+
+// ══════════════════════════════════════════
+// 변환 히스토리 (in-memory + localStorage 메타)
+// ══════════════════════════════════════════
+// blob은 메모리, 메타만 localStorage에 저장
+const _histBlobs={}; // key → Blob
+
+function saveHistory(entry){
+  const key='hist_'+Date.now();
+  _histBlobs[key]=entry.blob;
+  // 메타 저장 (최대 20건)
+  let metas=loadHistMetas();
+  metas.unshift({key,title:entry.title,author:entry.author,chapterCount:entry.chapterCount,sizeMB:entry.sizeMB,elapsed:entry.elapsed,date:entry.date,name:entry.name});
+  if(metas.length>20) metas=metas.slice(0,20);
+  try{localStorage.setItem('epub_history',JSON.stringify(metas));}catch(e){}
+}
+
+function loadHistMetas(){
+  try{return JSON.parse(localStorage.getItem('epub_history')||'[]');}catch(e){return [];}
+}
+
+function renderHistory(){
+  const c=document.getElementById('histList'); if(!c) return;
+  const metas=loadHistMetas();
+  if(!metas.length){
+    c.innerHTML='<div class="hist-empty">📭 아직 변환 기록이 없어요.<br>TXT→EPUB 탭에서 변환하면 여기에 저장돼요.</div>';
+    return;
+  }
+  c.innerHTML='';
+  metas.forEach(m=>{
+    const row=document.createElement('div');
+    row.className='hist-item';
+    const hasBlob=!!_histBlobs[m.key];
+    row.innerHTML=
+      '<div class="hist-thumb">📚</div>'+
+      '<div class="hist-info">'+
+        '<div class="hist-title">'+escHtml(m.title)+(m.author?'<span style="font-weight:400;color:var(--text2);font-size:11px"> / '+escHtml(m.author)+'</span>':'')+'</div>'+
+        '<div class="hist-meta">'+m.date+' · '+m.chapterCount+'화 · '+m.sizeMB+'MB · '+m.elapsed+'초'+(hasBlob?'':' · <span style="color:var(--accent)">⚠ 페이지 새로고침 후 재다운로드 불가</span>')+'</div>'+
+      '</div>'+
+      (hasBlob?'<button class="btn btn-green btn-sm" onclick="histDownload(\''+m.key+'\',\''+escHtml(m.name)+'\')">⬇ 다운로드</button>':
+               '<span style="font-size:11px;color:var(--text2);white-space:nowrap">세션 만료</span>')+
+      '<button class="hist-del" onclick="deleteHistory(\''+m.key+'\')" title="기록 삭제">✕</button>';
+    c.appendChild(row);
+  });
+}
+
+function histDownload(key,name){
+  const blob=_histBlobs[key];
+  if(!blob){alert('이 파일은 페이지가 새로고침되어 더 이상 다운로드할 수 없어요.\n변환을 다시 실행해주세요.');return;}
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=name;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+function deleteHistory(key){
+  delete _histBlobs[key];
+  let metas=loadHistMetas().filter(m=>m.key!==key);
+  try{localStorage.setItem('epub_history',JSON.stringify(metas));}catch(e){}
+  renderHistory();
+}
+
+function clearAllHistory(){
+  if(!confirm('모든 변환 기록을 삭제할까요?')) return;
+  loadHistMetas().forEach(m=>delete _histBlobs[m.key]);
+  try{localStorage.removeItem('epub_history');}catch(e){}
+  renderHistory();
+}
 
 // ══════════════════════════════════════════
 // 챕터 미리보기 탭
@@ -2246,6 +2499,7 @@ function setProgress(pct,msg){
 // EPUB 빌더 (공통 - startConvert & 일괄 변환 공유)
 // ══════════════════════════════════════════
 async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=true},onProgress){
+  const showChTitle=document.getElementById('optChTitle')?.checked!==false;
   const zip=new JSZip();
   zip.file('mimetype','application/epub+zip');
   zip.folder('META-INF').file('container.xml',
@@ -2284,11 +2538,25 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
 
   function bodyToHtml(body){
     let html='';
+    let blankRun=0;
     for(const line of body.split('\n')){
       const t=line.trim();
-      if(!t){html+='<p>&#160;</p>\n';continue;}
-      if(useItalic&&/^[-\u2014]/.test(t)) html+='<p class="noindent"><em class="flashback">'+escHtml(t)+'</em></p>\n';
-      else html+='<p>'+escHtml(t)+'</p>\n';
+      if(!t){
+        blankRun++;
+        // 연속 빈줄 최대 2개까지만 출력 (과도한 여백 방지)
+        if(blankRun<=2) html+='<p>&#160;</p>\n';
+        continue;
+      }
+      blankRun=0;
+      // 회상/대화 이탤릭 (—, -, ─ 로 시작하는 줄)
+      if(useItalic&&/^[-\u2014\u2012\u2013─]/.test(t)){
+        html+='<p class="noindent"><em class="flashback">'+escHtml(t)+'</em></p>\n';
+      // 시스템창/게임 메시지: 【】, [], ≪≫, ❰❱ 로 감싼 줄
+      } else if(/^(?:【|〔|\[|≪|❰)/.test(t)&&/(?:】|〕|\]|≫|❱)\s*$/.test(t)){
+        html+='<p class="noindent sysmsg"><em>'+escHtml(t)+'</em></p>\n';
+      } else {
+        html+='<p>'+escHtml(t)+'</p>\n';
+      }
     }
     return html;
   }
@@ -2324,7 +2592,7 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
 
     const fname='chapter_'+String(idx).padStart(4,'0')+'.xhtml';
     const chid='ch_'+String(idx).padStart(4,'0');
-    textFolder.file(fname,xhtmlPage(heading,'<h1>'+escHtml(heading)+'</h1>\n'+bodyToHtml(body)));
+    textFolder.file(fname,xhtmlPage(heading,(showChTitle?'<h1>'+escHtml(heading)+'</h1>\n':'')+bodyToHtml(body)));
     manifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
     if(heading!=='서문') spineItems.push(chid);
 
@@ -2441,6 +2709,16 @@ async function startConvert(){
     ]);
     // 미리보기/분리용 챕터 저장
     _previewChapters=chapters;
+    // ── 히스토리 저장 ──
+    saveHistory({
+      title,author,
+      chapterCount:chapters.filter(([h])=>h!=='서문').length,
+      sizeMB:(blob.size/1024/1024).toFixed(1),
+      elapsed,
+      date:new Date().toLocaleString('ko-KR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
+      name:S.epubName,
+      blob
+    });
     document.getElementById('splitSec').style.display='block';
     document.getElementById('resultBox').classList.add('show');
   }catch(e){
@@ -2662,7 +2940,10 @@ async function showBatchToc(idx, btn){
   btn.textContent='⏳ 분석 중...';btn.disabled=true;
   try{
     const file=B.txtFiles[idx];
-    const text=await sampleLines(file);
+    // 전체 파일 텍스트 로드 (정확한 목차 감지)
+    let text;
+    try{ text=await fileToText(file); }
+    catch(e){ text=await sampleLines(file); }
     const allLines=text.split('\n');
 
     // 파일명에서 총 화수 추출 (80% 기준)
@@ -2786,6 +3067,7 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
   }
 
   const PRESETS = [
+    ['[ 파일명.txt ] 형식','^\\.\\s*.+\\.txt\\s*\\]\\s*$',            '[ 0001_제목.txt ] 분리 파일 합본 형식'],
     ['화 번호',        '^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$',       '숫자+화 형식 (#N화, 제N화, N화 제목)'],
     ['숫자만',         '^\\d+$',                                      '줄에 숫자만 단독으로 있는 경우'],
     ['소설(숫자)',     '^.{1,60}\\s*\\(\\d+\\)\\s*$',                 '제목 끝에 (N) 형식'],
