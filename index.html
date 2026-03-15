@@ -177,6 +177,27 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
 @media(max-width:580px){.wrap{padding:14px 10px 90px}.css-grid{grid-template-columns:1fr}.hdr-sub{display:none}.btn-accent{width:100%}.row{flex-wrap:wrap}.lbl{width:100%}}
+/* 툴팁 */
+[data-tip]{position:relative}
+[data-tip]:hover::after{content:attr(data-tip);position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);background:rgba(0,0,0,.82);color:#fff;font-size:11px;padding:5px 9px;border-radius:7px;white-space:pre;pointer-events:none;z-index:999;line-height:1.6;max-width:220px;text-align:left}
+[data-tip]:hover::before{content:'';position:absolute;bottom:calc(100% + 1px);left:50%;transform:translateX(-50%);border:5px solid transparent;border-top-color:rgba(0,0,0,.82);pointer-events:none;z-index:999}
+/* UI 가시성 개선 */
+.sec-hdr{margin-bottom:6px}
+.sec-title{font-size:13px;font-weight:700;color:var(--text);letter-spacing:-.2px}
+.card{border-radius:var(--radius);background:var(--panel);border:1.5px solid var(--border);padding:14px}
+.dz{border-radius:var(--radius);border:2px dashed var(--border);background:var(--bg2)}
+.dz.ok{border-color:var(--green);background:var(--green-bg)}
+.dz.over{border-color:var(--accent);background:var(--accent-bg)}
+/* 설정 섹션 카드 구분 */
+.settings-group{background:var(--bg2);border-radius:var(--radius);padding:14px;margin-bottom:10px;border:1px solid var(--border)}
+.settings-group-title{font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px;display:flex;align-items:center;gap:6px}
+/* 배지 강조 */
+.badge-new{display:inline-block;background:var(--accent);color:#fff;border-radius:4px;padding:1px 5px;font-size:9px;font-weight:700;margin-left:5px;vertical-align:middle}
+/* 토글 행 */
+.toggle-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid var(--border)}
+.toggle-row:last-child{border:none}
+.toggle-row label{font-size:12px;font-weight:600;cursor:pointer}
+.toggle-row small{display:block;font-size:10px;color:var(--text2);margin-top:1px}
 /* 수동 삽화 미리보기 */
 .mill-row{flex-direction:column;gap:0}
 .mill-row-top{display:flex;flex-wrap:wrap;gap:7px;align-items:center;width:100%}
@@ -251,7 +272,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 <body>
 <!-- 헤더 -->
 <div class="hdr">
-  <div class="hdr-title">📚 TXT → EPUB3 변환기<span class="hdr-sub">브라우저에서 직접 변환</span></div>
+  <div class="hdr-title">📚 TXT → EPUB3 변환기</div>
   <div class="hdr-right">
     <button class="ibtn" id="themeBtn" onclick="toggleTheme()">🌙</button>
     <button class="ibtn" onclick="resetAll()">🔄</button>
@@ -308,7 +329,9 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="row">
       <span class="lbl">⚙️ 챕터 정규식</span>
       <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" oninput="clearChipSelection('patHelper')">
-      <button class="btn btn-blue btn-sm" onclick="previewToc()">🔍 목차 확인</button><button class="btn btn-ghost btn-sm" onclick="autoSplitByInterval()" title="패턴 감지 실패 시 줄 간격으로 자동 분할">⚡ 간격 분할</button>
+      <button class="btn btn-blue btn-sm" onclick="previewToc()" data-tip="TXT 파일에서 챕터를
+자동 감지해요">🔍 목차 확인</button><button class="btn btn-ghost btn-sm" onclick="autoSplitByInterval()" data-tip="패턴 감지 실패 시
+줄 간격으로 자동 분할">⚡ 간격 분할</button>
     </div>
     <div class="pat-helper" id="patHelper">
       <span style="font-size:11px;color:var(--text2);align-self:center">빠른 선택:</span>
@@ -366,7 +389,8 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
   <div id="resultStats" style="display:flex;justify-content:center;gap:16px;margin:8px 0 12px;flex-wrap:wrap"></div>
   <p id="resultMsg" style="font-size:11px;margin-bottom:10px"></p>
   <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-    <button class="btn btn-blue" onclick="showPreview()">👁 미리보기</button>
+    <button class="btn btn-blue" onclick="showPreview()" data-tip="변환된 epub 내용을
+인앱에서 미리보기">👁 미리보기</button>
     <button class="btn btn-green" onclick="downloadEpub()">⬇ EPUB 다운로드</button>
   </div>
 </div>
@@ -572,6 +596,18 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       <div><label for="optIndent">들여쓰기</label><small>문단 첫 줄 들여쓰기</small></div>
       <label class="sw"><input type="checkbox" id="optIndent" checked><span class="sw-slider"></span></label>
     </div>
+    <div class="toggle-row">
+      <div><label for="optEmptyLine">빈 줄 보존</label><small>단락 사이 빈 줄을 그대로 유지해요</small></div>
+      <label class="sw"><input type="checkbox" id="optEmptyLine" checked onchange="saveExtraSettings()"><span class="sw-slider"></span></label>
+    </div>
+    <div class="toggle-row">
+      <div><label for="optChTitle">챕터 제목 표시</label><small>각 챕터 시작에 h1 제목 표시</small></div>
+      <label class="sw"><input type="checkbox" id="optChTitle" onchange="saveExtraSettings()" checked><span class="sw-slider"></span></label>
+    </div>
+    <div class="toggle-row">
+      <div><label for="optDarkCover">다크 커버 배경</label><small>표지 이미지 없을 때 배경색 어둡게</small></div>
+      <label class="sw"><input type="checkbox" id="optDarkCover" onchange="saveExtraSettings()"><span class="sw-slider"></span></label>
+    </div>
   </div>
 </div>
 <div class="sec">
@@ -646,17 +682,64 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     </div>
   </div>
 </div>
+<div class="sec">
+  <div class="sec-hdr"><span class="sec-title">📋 목차 감지 설정</span><div class="sec-line"></div></div>
+  <div class="card">
+    <div class="toggle-row">
+      <div><label for="optAutoPreview">파일 선택 시 목차 자동 확인</label><small>TXT 파일 드롭 즉시 목차 감지 실행</small></div>
+      <label class="sw"><input type="checkbox" id="optAutoPreview" onchange="saveExtraSettings()"><span class="sw-slider"></span></label>
+    </div>
+    <div class="toggle-row">
+      <div><label for="optShowLineNum">줄 번호 표시</label><small>목차 패널에 줄 번호 표시</small></div>
+      <label class="sw"><input type="checkbox" id="optShowLineNum" onchange="saveExtraSettings()" checked><span class="sw-slider"></span></label>
+    </div>
+    <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
+      <div style="flex:1"><label style="font-size:12px;font-weight:600">기본 챕터 정규식</label><small style="display:block;font-size:10px;color:var(--text2)">비워두면 자동 감지. 매번 같은 패턴 쓴다면 여기에 저장</small></div>
+      <input class="inp" id="optDefaultPat" placeholder="자동 감지" style="max-width:220px;font-size:12px" oninput="saveExtraSettings()">
+    </div>
+  </div>
+</div>
+<div class="sec">
+  <div class="sec-hdr"><span class="sec-title">📤 출력 설정</span><div class="sec-line"></div></div>
+  <div class="card">
+    <div class="row" style="padding:4px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
+      <span style="font-size:12px;font-weight:600;flex:1">EPUB 메타 언어</span>
+      <select id="optLang" onchange="saveExtraSettings()" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text)">
+        <option value="ko" selected>한국어 (ko)</option>
+        <option value="en">영어 (en)</option>
+        <option value="ja">일본어 (ja)</option>
+        <option value="zh">중국어 (zh)</option>
+      </select>
+    </div>
+    <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
+      <span style="font-size:12px;font-weight:600;flex:1">출판사(publisher) 태그</span>
+      <input class="inp" id="optPublisher" placeholder="비워두면 미포함" style="max-width:180px;font-size:12px" oninput="saveExtraSettings()">
+    </div>
+    <div class="row" style="padding:8px 0;gap:8px;align-items:center">
+      <span style="font-size:12px;font-weight:600;flex:1">EPUB 압축 수준</span>
+      <select id="optCompression" onchange="saveExtraSettings()" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text)">
+        <option value="1">빠름 (낮은 압축)</option>
+        <option value="6" selected>보통 (권장)</option>
+        <option value="9">최대 압축 (느림)</option>
+      </select>
+    </div>
+  </div>
+</div>
 <div style="padding:0 0 20px;display:flex;gap:10px">
   <button class="btn btn-accent" onclick="switchPage('convert')">← 변환으로 돌아가기</button>
+  <button class="btn btn-ghost" onclick="resetAllSettings()">🔄 설정 초기화</button>
 </div>
 </div><!-- /page-settings -->
 
-<div class="btm" id="btmConvert"><button class="btn btn-accent" onclick="startConvert()">✨ EPUB 만들기!</button></div>
+<div class="btm" id="btmConvert"><button class="btn btn-accent" onclick="startConvert()" data-tip="TXT → EPUB3 변환 시작
+표지·삽화·목차 포함">✨ EPUB 만들기!</button></div>
 <div class="btm" id="btmBatch" style="display:none;flex-direction:column;gap:6px;padding:8px 16px">
   <div id="batchSettingSummary" style="font-size:11px;color:var(--text2);text-align:center"></div>
-  <button class="btn btn-accent" onclick="startBatch()">📦 일괄 변환 시작!</button>
+  <button class="btn btn-accent" onclick="startBatch()" data-tip="선택한 TXT 파일들을
+각각 epub으로 변환 후 ZIP 다운로드">📦 일괄 변환 시작!</button>
 </div>
-<div class="btm" id="btmEdit" style="display:none"><button class="btn btn-accent" onclick="startEditEpub()">✏️ 편집 적용!</button></div>
+<div class="btm" id="btmEdit" style="display:none"><button class="btn btn-accent" onclick="startEditEpub()" data-tip="기존 epub에 새 챕터 삽입
+목차(NCX/nav) 자동 업데이트">✏️ 편집 적용!</button></div>
 
 <script>
 // ══════════════════════════════════════════
@@ -664,7 +747,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 // ══════════════════════════════════════════
 const PAT_PRESETS = [
   {label:'화 번호',          val:'^(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
-  {label:'소설(숫자)',       val:'^.{1,30}\\s*\\(\\d+\\)\\s*$'},
+  {label:'소설(숫자)',       val:'^.{1,60}\\s*\\(\\d+\\)\\s*$'},
   {label:'숫자만',           val:'^\\d+$'},
   {label:'Chapter N',       val:'^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$'},
   {label:'# 제목',          val:'^#{1,3}\\s*.+$'},
@@ -684,6 +767,7 @@ const E={epubFile:null,epubZip:null,chapters:[],spineOrder:[],selectedChIdx:null
 // ══════════════════════════════════════════
 window.addEventListener('DOMContentLoaded', ()=>{
   loadCssSettings();
+  loadExtraSettings();
   buildPatHelpers();
   setupDragDrop();
   setupEventListeners();
@@ -1073,7 +1157,7 @@ function sortKey(name){
 const PATS=[
   [/^={2,}\s*\[제\s*\d+\s*화\]\s*={0,}$/i,       '=== [제N화] ==='],
   [/^(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,              '화 번호'],
-  [/^.{1,30}\s*\(\d+\)\s*$/,                       '소설제목(숫자)'],
+  [/^.{1,60}\s*\(\d+\)\s*$/,                       '소설제목(숫자)'],
   [/^(?:chapter|part|ch)\s*\d+(?:\s*.+)?$/i,       'Chapter/Part'],
   [/^[1-9]부\s+(?:\d+화|프롤로그)(?:\s*.+)?$/,     'N부 M화'],
   [/^(?:제\s*\d+\s*장|第\s*\d+\s*章)(?:\s*.+)?$/,  '장 번호'],
@@ -1181,6 +1265,46 @@ function saveCssSettings(){
   }catch(e){}
 }
 
+function saveExtraSettings(){
+  try{
+    localStorage.setItem('epub_extra',JSON.stringify({
+      emptyLine:document.getElementById('optEmptyLine')?.checked,
+      chTitle:document.getElementById('optChTitle')?.checked,
+      darkCover:document.getElementById('optDarkCover')?.checked,
+      autoPreview:document.getElementById('optAutoPreview')?.checked,
+      showLineNum:document.getElementById('optShowLineNum')?.checked,
+      defaultPat:document.getElementById('optDefaultPat')?.value||'',
+      lang:document.getElementById('optLang')?.value||'ko',
+      publisher:document.getElementById('optPublisher')?.value||'',
+      compression:document.getElementById('optCompression')?.value||'6',
+    }));
+  }catch(e){}
+}
+
+function loadExtraSettings(){
+  try{
+    const s=JSON.parse(localStorage.getItem('epub_extra')||'{}');
+    if(s.emptyLine!=null) document.getElementById('optEmptyLine').checked=s.emptyLine;
+    if(s.chTitle!=null) document.getElementById('optChTitle').checked=s.chTitle;
+    if(s.darkCover!=null) document.getElementById('optDarkCover').checked=s.darkCover;
+    if(s.autoPreview!=null) document.getElementById('optAutoPreview').checked=s.autoPreview;
+    if(s.showLineNum!=null) document.getElementById('optShowLineNum').checked=s.showLineNum;
+    if(s.defaultPat) document.getElementById('optDefaultPat').value=s.defaultPat;
+    if(s.lang) document.getElementById('optLang').value=s.lang;
+    if(s.publisher) document.getElementById('optPublisher').value=s.publisher;
+    if(s.compression) document.getElementById('optCompression').value=s.compression;
+    // 기본 정규식이 설정돼 있으면 패턴 입력란에 반영
+    if(s.defaultPat) document.getElementById('pattern').value=s.defaultPat;
+  }catch(e){}
+}
+
+function resetAllSettings(){
+  if(!confirm('모든 설정을 초기화할까요?')) return;
+  localStorage.removeItem('epub_css');
+  localStorage.removeItem('epub_extra');
+  location.reload();
+}
+
 function loadCssSettings(){
   try{
     const saved=JSON.parse(localStorage.getItem('epub_css')||'{}');
@@ -1235,6 +1359,7 @@ function handleTxt(files){
   const names=txts.map(f=>f.name);
   info.textContent='✅ '+txts.length+'개: '+names.slice(0,3).join(', ')+(txts.length>3?' 외 '+(txts.length-3)+'개':'');
   // 첫 파일 인코딩 비동기 감지 후 배지 표시
+  if(document.getElementById('optAutoPreview')?.checked) setTimeout(()=>previewToc(),300);
   detectEncoding(txts[0]).then(enc=>{
     const badge=enc.toUpperCase().replace('-','');
     const badgeEl=document.createElement('span');
@@ -1798,13 +1923,49 @@ async function previewToc(){
 function renderTocItems(){
   const c=document.getElementById('tb0');c.innerHTML='';
   if(!S.tocItems.length){c.innerHTML='<div class="toc-empty">⚠️ 챕터가 감지되지 않았습니다.</div>';return;}
+
+  const total=S.tocItems.length;
+  // 처음 5개 + 마지막 5개는 항상 표시, 나머지는 축소
+  const HEAD=5, TAIL=5;
+  const alwaysShow=new Set();
+  for(let i=0;i<Math.min(HEAD,total);i++) alwaysShow.add(i);
+  for(let i=Math.max(0,total-TAIL);i<total;i++) alwaysShow.add(i);
+
+  let collapsed=false;
   S.tocItems.forEach((item,i)=>{
+    // 중간 구간 시작 시 접힘 표시
+    if(total>HEAD+TAIL&&i===HEAD&&!collapsed){
+      collapsed=true;
+      const mid=total-HEAD-TAIL;
+      const midDiv=document.createElement('div');
+      midDiv.style.cssText='text-align:center;padding:4px;font-size:11px;color:var(--text2);border:1px dashed var(--border);border-radius:5px;margin:3px 0;cursor:pointer';
+      midDiv.id='toc-collapse-btn';
+      midDiv.innerHTML='··· 중간 <b>'+mid+'</b>개 ··· <span style="color:var(--accent);font-size:10px">(클릭해서 펼치기)</span>';
+      midDiv.onclick=()=>{
+        document.getElementById('toc-collapse-btn').remove();
+        document.querySelectorAll('.toc-item-hidden').forEach(el=>el.classList.remove('toc-item-hidden'));
+      };
+      c.appendChild(midDiv);
+    }
     const d=document.createElement('div');
-    d.className='toc-item'+(item.enabled?'':' off');
-    d.innerHTML='<input type="checkbox" class="toc-chk" '+(item.enabled?'checked':'')+' onchange="toggleTocItem('+i+',this.checked)"><span class="toc-num">'+item.line+'줄</span><span>'+item.title+'</span>';
+    const isEdge=alwaysShow.has(i);
+    // 처음/마지막 5개는 항상 표시, 중간은 숨김
+    d.className='toc-item'+(item.enabled?'':' off')+((!isEdge&&total>HEAD+TAIL)?' toc-item-hidden':'');
+    if(!isEdge&&total>HEAD+TAIL) d.style.display='none';
+    // 처음/마지막 배지
+    let edgeBadge='';
+    if(i<HEAD&&total>HEAD+TAIL) edgeBadge='<span style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 4px;margin-left:4px">처음</span>';
+    if(i>=total-TAIL&&total>HEAD+TAIL) edgeBadge='<span style="font-size:9px;background:var(--green-bg);color:var(--green);border-radius:3px;padding:1px 4px;margin-left:4px">마지막</span>';
+    d.innerHTML='<input type="checkbox" class="toc-chk" '+(item.enabled?'checked':'')+' onchange="toggleTocItem('+i+',this.checked)"><span class="toc-num">'+item.line+'줄</span><span>'+escHtml(item.title)+edgeBadge+'</span>';
     c.appendChild(d);
   });
-  c.insertAdjacentHTML('beforeend','<div style="margin-top:8px;display:flex;gap:6px"><button class="btn btn-ghost btn-sm" onclick="toggleAllToc(true)">전체 선택</button><button class="btn btn-ghost btn-sm" onclick="toggleAllToc(false)">전체 해제</button></div>');
+
+  const stat=document.createElement('div');
+  stat.style.cssText='margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+  stat.innerHTML='<button class="btn btn-ghost btn-sm" onclick="toggleAllToc(true)">전체 선택</button>'+
+    '<button class="btn btn-ghost btn-sm" onclick="toggleAllToc(false)">전체 해제</button>'+
+    '<span style="font-size:11px;color:var(--text2);margin-left:auto">총 '+total+'개 · 활성 '+S.tocItems.filter(t=>t.enabled).length+'개</span>';
+  c.appendChild(stat);
 }
 function toggleTocItem(i,v){S.tocItems[i].enabled=v;renderTocItems();}
 function toggleAllToc(v){S.tocItems.forEach(t=>t.enabled=v);renderTocItems();}
@@ -2106,7 +2267,7 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
 
   // OPF
   const coverInfo=coverFile&&imgStore.has(coverFile)?imgStore.get(coverFile):null;
-  let opf='<?xml version="1.0" encoding="utf-8"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">\n<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n<dc:title>'+escHtml(title)+'</dc:title>\n<dc:creator>'+escHtml(author)+'</dc:creator>\n<dc:language>ko</dc:language>\n<dc:identifier id="uid">'+uid+'</dc:identifier>\n<dc:date>'+today+'</dc:date>\n<dc:publisher>TXT2EPUB 변환기</dc:publisher>\n'+(coverInfo?'<meta name="cover" content="cover_img"/>':'')+'\n</metadata>\n<manifest>\n<item id="css" href="style.css" media-type="text/css"/>\n<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\n';
+  let opf='<?xml version="1.0" encoding="utf-8"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">\n<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n<dc:title>'+escHtml(title)+'</dc:title>\n<dc:creator>'+escHtml(author)+'</dc:creator>\n<dc:language>'+(document.getElementById('optLang')?.value||'ko')+'</dc:language>\n<dc:identifier id="uid">'+uid+'</dc:identifier>\n<dc:date>'+today+'</dc:date>\n<dc:publisher>TXT2EPUB 변환기</dc:publisher>\n'+(coverInfo?'<meta name="cover" content="cover_img"/>':'')+'\n</metadata>\n<manifest>\n<item id="css" href="style.css" media-type="text/css"/>\n<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\n';
   manifestItems.forEach(it=>opf+='<item id="'+it.id+'" href="'+it.href+'" media-type="'+it.mt+'"/>\n');
   if(coverInfo) opf+='<item id="cover_img" href="Images/'+coverInfo.filename+'" media-type="'+coverInfo.mt+'" properties="cover-image"/>\n';
   for(const[f,info]of imgStore){if(f===coverFile)continue;opf+='<item id="imgf_'+info.filename.replace(/\W/g,'_')+'" href="Images/'+info.filename+'" media-type="'+info.mt+'"/>\n';}
@@ -2116,7 +2277,7 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
   oebps.file('content.opf',opf);
 
   onProgress&&onProgress(92,'압축 중...');
-  return zip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:6}},
+  return zip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:parseInt(document.getElementById('optCompression')?.value||'6')}},
     meta=>onProgress&&onProgress(92+Math.floor(meta.percent*0.07),'압축 중 '+Math.floor(meta.percent)+'%...'));
 }
 
@@ -2480,7 +2641,7 @@ function buildPatPresetPanel(idx){
   const presets=[
     {label:'화 번호',          val:'^(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$',  ex:'1화, 제2화, 3화 제목'},
     {label:'숫자만',           val:'^\\d+$',                               ex:'1, 2, 3'},
-    {label:'소설(숫자)',       val:'^.{1,30}\\s*\\(\\d+\\)\\s*$',          ex:'제목 (1), 작품명 (2)'},
+    {label:'소설(숫자)',       val:'^.{1,60}\\s*\\(\\d+\\)\\s*$',          ex:'제목 (1), 작품명 (2)'},
     {label:'N. 제목',         val:'^\\d+\\.\\s+.{1,60}$',                  ex:'1. 프롤로그, 2. 시작'},
     {label:'N부 M화',         val:'^[1-9]부\\s+(?:\\d+화|프롤로그)',        ex:'1부 1화, 2부 프롤로그'},
     {label:'=== [제N화] ===', val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]',      ex:'=== [제 1 화] ==='},
@@ -2939,7 +3100,7 @@ async function startEditEpub(){
       if(illEntries.length>0) await insertIllsToEpub(newZip,opfPath,opfBase,illEntries);
     }
     ep(92,'압축 중...');
-    const blob=await newZip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:6}},
+    const blob=await newZip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:parseInt(document.getElementById('optCompression')?.value||'6')}},
       meta=>ep(92+Math.floor(meta.percent*0.07),'압축 중 '+Math.floor(meta.percent)+'%...'));
     E.resultBlob=blob;
     E.resultName=E.epubFile.name.replace('.epub','')+'_편집.epub';
