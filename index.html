@@ -166,6 +166,13 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
 @media(max-width:580px){.wrap{padding:14px 10px 90px}.css-grid{grid-template-columns:1fr}.hdr-sub{display:none}.btn-accent{width:100%}.row{flex-wrap:wrap}.lbl{width:100%}}
+/* 목차 미리보기 탭 추가 */
+.toc-preview-item{padding:7px 10px;border-radius:7px;background:var(--bg);margin-bottom:4px;border:1.5px solid transparent;cursor:pointer;transition:border-color .15s}
+.toc-preview-item:hover{border-color:var(--border)}
+.toc-preview-item.active{border-color:var(--accent);background:var(--accent-bg)}
+.toc-preview-body{font-size:11px;color:var(--text2);line-height:1.7;margin-top:6px;white-space:pre-wrap;max-height:200px;overflow-y:auto;border-top:1px solid var(--border);padding-top:6px}
+.toc-split-badge{display:inline-block;background:var(--blue-bg,#e8f0fe);color:var(--blue,#1a73e8);border-radius:4px;padding:1px 7px;font-size:10px;font-weight:600;margin-left:6px}
+.toc-auto-badge{display:inline-block;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:600;margin-left:6px}
 /* 표지 검색 */
 .cover-search-row{display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap}
 .cover-url-row{display:flex;gap:6px;margin-top:6px;align-items:center}
@@ -261,7 +268,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="row">
       <span class="lbl">⚙️ 챕터 정규식</span>
       <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" oninput="clearChipSelection('patHelper')">
-      <button class="btn btn-blue btn-sm" onclick="previewToc()">🔍 목차 확인</button>
+      <button class="btn btn-blue btn-sm" onclick="previewToc()">🔍 목차 확인</button><button class="btn btn-ghost btn-sm" onclick="autoSplitByInterval()" title="패턴 감지 실패 시 줄 간격으로 자동 분할">⚡ 간격 분할</button>
     </div>
     <div class="pat-helper" id="patHelper">
       <span style="font-size:11px;color:var(--text2);align-self:center">빠른 선택:</span>
@@ -270,12 +277,16 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="toc-panel" id="tocPanel">
       <div class="toc-tabs">
         <button class="ttab on" onclick="tocTab(0)">감지된 목차</button>
-        <button class="ttab" onclick="tocTab(1)">원본 텍스트</button>
-        <button class="ttab" onclick="tocTab(2)">정규식 수정</button>
+        <button class="ttab" onclick="tocTab(1)">챕터 미리보기</button>
+        <button class="ttab" onclick="tocTab(2)">원본 텍스트</button>
+        <button class="ttab" onclick="tocTab(3)">정규식 수정</button>
       </div>
       <div class="toc-body" id="tb0"></div>
-      <div class="toc-body" id="tb1" style="display:none"></div>
-      <div class="toc-body" id="tb2" style="display:none">
+      <div class="toc-body" id="tb1" style="display:none">
+        <div id="tocPreviewList"></div>
+      </div>
+      <div class="toc-body" id="tb2" style="display:none"></div>
+      <div class="toc-body" id="tb3" style="display:none">
         <div style="display:flex;gap:8px;padding:4px 0">
           <input class="inp" id="patEdit" placeholder="새 정규식">
           <button class="btn btn-accent btn-sm" onclick="applyPat()">적용 후 재확인</button>
@@ -612,15 +623,18 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 // 상수 & 상태
 // ══════════════════════════════════════════
 const PAT_PRESETS = [
-  {label:'화 번호',    val:'^(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
-  {label:'소설(숫자)', val:'^.{1,30}\\s*\\(\\d+\\)\\s*$'},
-  {label:'숫자만',     val:'^\\d+$'},
-  {label:'Chapter N', val:'^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$'},
-  {label:'# 제목',    val:'^#{1,3}\\s*.+$'},
-  {label:'【제목】',   val:'^【.+】.*$'},
+  {label:'화 번호',          val:'^(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
+  {label:'소설(숫자)',       val:'^.{1,30}\\s*\\(\\d+\\)\\s*$'},
+  {label:'숫자만',           val:'^\\d+$'},
+  {label:'Chapter N',       val:'^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$'},
+  {label:'# 제목',          val:'^#{1,3}\\s*.+$'},
+  {label:'【제목】',         val:'^【.+】.*$'},
+  {label:'=== [제N화] ===', val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$'},
+  {label:'N부 M화',         val:'^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$'},
+  {label:'N. 제목',         val:'^\\d+\\.\\s+.{1,60}$'},
 ];
 
-const S={txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0};
+const S={txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0,_rawTextFull:[]};
 let customFontFile=null, customFontName='', customFontFace='';
 const B={txtFiles:[],coverMap:{},results:[],urlCoverFile:null};
 const E={epubFile:null,epubZip:null,chapters:[],spineOrder:[],selectedChIdx:null,insTxtFiles:[],insTxtChapters:[],resultBlob:null,resultName:'',perChapterNcx:false};
@@ -921,15 +935,39 @@ function sortKey(name){
 // 챕터 패턴 & 분리
 // ══════════════════════════════════════════
 const PATS=[
-  [/^(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,'화 번호'],
-  [/^.{1,30}\s*\(\d+\)\s*$/,'소설제목(숫자)'],
-  [/^(?:chapter|part|ch)\s*\d+(?:\s*.+)?$/i,'Chapter/Part'],
-  [/^(?:제\s*\d+\s*장|第\s*\d+\s*章)(?:\s*.+)?$/,'장 번호'],
-  [/^(?:프롤로그|에필로그|외전|후일담|prologue|epilogue)(?:\s*.+)?$/i,'프롤로그류'],
-  [/^(?:서장|종장)(?:\s*.+)?$/,'서장/종장'],
-  [/^【.+】.*$/,'타이틀'],
-  [/^#{1,3}\s*.+$/,'# 제목'],
+  [/^={2,}\s*\[제\s*\d+\s*화\]\s*={0,}$/i,       '=== [제N화] ==='],
+  [/^(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,              '화 번호'],
+  [/^.{1,30}\s*\(\d+\)\s*$/,                       '소설제목(숫자)'],
+  [/^(?:chapter|part|ch)\s*\d+(?:\s*.+)?$/i,       'Chapter/Part'],
+  [/^[1-9]부\s+(?:\d+화|프롤로그)(?:\s*.+)?$/,     'N부 M화'],
+  [/^(?:제\s*\d+\s*장|第\s*\d+\s*章)(?:\s*.+)?$/,  '장 번호'],
+  [/^(?:프롤로그|에필로그|외전|후일담|prologue|epilogue)(?:\s*.+)?$/i, '프롤로그류'],
+  [/^(?:서장|종장)(?:\s*.+)?$/,                     '서장/종장'],
+  [/^【.+】.*$/,                                    '타이틀'],
+  [/^#{1,3}\s*.+$/,                                 '# 제목'],
 ];
+
+// N. 제목 패턴: 줄 간격 필터 포함 (본문 내 번호 목록과 구별)
+// 앞뒤 줄 간격이 모두 minGap 이상인 것만 챕터로 인정
+function checkNDotPattern(lines){
+  const rx=/^\d+\.\s+.{1,60}$/;
+  const matched=[];
+  const positions=[];
+  lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim())){matched.push({i,t:l.trim()});positions.push(i);}});
+  if(matched.length<3) return {cnt:0,rx:null};
+  // 간격 기반 필터: 앞뒤 모두 50줄 이상이어야 진짜 챕터
+  const minGap=50;
+  const real=matched.filter(({i},j)=>{
+    const pg=i-(positions[j-1]??-999);
+    const ng=(positions[j+1]??i+999)-i;
+    return Math.min(pg,ng)>=minGap;
+  });
+  if(real.length<3) return {cnt:0,rx:null};
+  // 번호가 1에서 시작하는지 확인
+  const firstNum=parseInt(real[0].t.match(/^(\d+)\./)[1]);
+  if(firstNum>5) return {cnt:0,rx:null};
+  return {cnt:real.length, rx:/^\d+\.\s+.{1,60}$/};
+}
 
 function bestPat(raw){
   const lines=raw.split('\n');
@@ -939,6 +977,12 @@ function bestPat(raw){
     const cnt=lines.filter(l=>l.trim()&&rx.test(l.trim())).length;
     if(cnt>=3) mixed.push({rx,name,cnt});
     if(cnt>bestCnt){bestCnt=cnt;best=rx;bestName=name;}
+  }
+  // N. 제목 패턴 - 간격 검증 포함
+  const nDot=checkNDotPattern(lines);
+  if(nDot.cnt>bestCnt){
+    bestCnt=nDot.cnt; best=nDot.rx; bestName='N. 제목';
+    mixed.push({rx:nDot.rx,name:'N. 제목',cnt:nDot.cnt});
   }
   // 숫자만 폴백
   if(bestCnt<3){
@@ -1268,6 +1312,8 @@ function browseManual(id){
 async function previewToc(){
   if(!S.txtFiles.length){alert('TXT 파일을 먼저 선택해주세요.');return;}
   const text=await sampleLines(S.txtFiles[0]);
+  // 전체 파일도 미리 로드 (미리보기용)
+  fileToText(S.txtFiles[0]).then(full=>{_fullRawLines=full.split('\n');});
   const pat=document.getElementById('pattern').value.trim();
   let found=[],patLabel='';
   if(pat){
@@ -1284,9 +1330,20 @@ async function previewToc(){
   }
   S.tocItems=found.map(f=>({...f,enabled:true}));
   renderTocItems();
+  // 감지 실패 시 자동 간격 분할 버튼 노출
+  if(!found.length){
+    const c=document.getElementById('tb0');
+    c.insertAdjacentHTML('beforeend',
+      '<div style="margin-top:12px;padding:12px;background:var(--bg2);border-radius:8px;border:1.5px dashed var(--border);text-align:center">'+
+      '<div style="font-size:12px;color:var(--text2);margin-bottom:8px">패턴을 찾지 못했어요.<br>총 화수를 입력하면 줄 간격으로 자동 분할할 수 있어요.</div>'+
+      '<button class="btn btn-blue btn-sm" onclick="autoSplitByInterval()">⚡ 자동 간격 분할</button>'+
+      '</div>'
+    );
+  }
   const rawLines=text.split('\n');
-  document.getElementById('tb1').innerHTML='<pre class="toc-raw">'+rawLines.map((l,i)=>String(i+1).padStart(3,' ')+' | '+l).join('\n')+'</pre>';
+  document.getElementById('tb2').innerHTML='<pre class="toc-raw">'+rawLines.map((l,i)=>String(i+1).padStart(3,' ')+' | '+l).join('\n')+'</pre>';
   document.getElementById('patEdit').value=pat;
+  S._rawTextFull=rawLines;  // 미리보기용 전체 텍스트 저장
   document.getElementById('tocPanel').classList.add('show');
   tocTab(0);
   document.getElementById('tb0').insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+patLabel+'</div>');
@@ -1309,9 +1366,139 @@ let tocTabActive=0;
 function tocTab(n){
   tocTabActive=n;
   document.querySelectorAll('.ttab').forEach((t,i)=>t.classList.toggle('on',i===n));
-  [0,1,2].forEach(i=>document.getElementById('tb'+i).style.display=i===n?'':'none');
+  [0,1,2,3].forEach(i=>document.getElementById('tb'+i).style.display=i===n?'':'none');
+  if(n===1) renderTocPreview();
 }
 function applyPat(){document.getElementById('pattern').value=document.getElementById('patEdit').value;previewToc();}
+
+// ══════════════════════════════════════════
+// 챕터 미리보기 탭
+// ══════════════════════════════════════════
+let _previewActiveIdx=-1;
+let _fullRawLines=[];  // 전체 파일 원본 줄 (미리보기용)
+
+async function renderTocPreview(){
+  const c=document.getElementById('tocPreviewList');
+  if(!c) return;
+  const enabled=S.tocItems.filter(t=>t.enabled);
+  if(!enabled.length){c.innerHTML='<div class="toc-empty">감지된 목차가 없어요.<br>정규식 탭에서 패턴을 수정하거나 자동 간격 분할을 시도해보세요.</div>';return;}
+
+  // 전체 파일 텍스트 로드 (캐시)
+  if(!_fullRawLines.length&&S.txtFiles.length){
+    const raw=await fileToText(S.txtFiles[0]);
+    _fullRawLines=raw.split('\n');
+  }
+
+  c.innerHTML='';
+  const hint=document.createElement('div');
+  hint.style.cssText='font-size:11px;color:var(--text2);margin-bottom:8px';
+  hint.textContent='챕터를 클릭하면 해당 챕터 본문 앞부분을 미리볼 수 있어요.';
+  c.appendChild(hint);
+
+  enabled.forEach((item,idx)=>{
+    const div=document.createElement('div');
+    div.className='toc-preview-item'+(idx===_previewActiveIdx?' active':'');
+    div.innerHTML=
+      '<div style="display:flex;align-items:center;gap:6px">'+
+      '<span style="font-size:10px;color:var(--text2);min-width:36px">'+item.line+'줄</span>'+
+      '<span style="font-size:12px;font-weight:600;flex:1">'+escHtml(item.title)+'</span>'+
+      '</div>'+
+      (idx===_previewActiveIdx?'<div class="toc-preview-body" id="tpb_'+idx+'"></div>':'');
+    div.onclick=()=>{
+      _previewActiveIdx=(_previewActiveIdx===idx)?-1:idx;
+      renderTocPreview();
+      if(_previewActiveIdx>=0){
+        // 본문 앞 30줄 표시
+        const lineIdx=item.line;  // 1-based
+        const nextItem=enabled[idx+1];
+        const nextLineIdx=nextItem?nextItem.line-1:_fullRawLines.length;
+        const bodyLines=_fullRawLines.slice(lineIdx, Math.min(lineIdx+40, nextLineIdx));
+        const preview=bodyLines.filter(l=>l.trim()).slice(0,15).join('\n');
+        setTimeout(()=>{
+          const el=document.getElementById('tpb_'+idx);
+          if(el) el.textContent=preview||'(본문 없음)';
+        },50);
+      }
+    };
+    c.appendChild(div);
+  });
+
+  // 전체 통계
+  const stat=document.createElement('div');
+  stat.style.cssText='margin-top:10px;font-size:11px;color:var(--text2);border-top:1px solid var(--border);padding-top:8px;text-align:center';
+  stat.textContent='총 '+enabled.length+'개 챕터 · 파일 '+(_fullRawLines.length||'?')+'줄';
+  c.appendChild(stat);
+}
+
+// ══════════════════════════════════════════
+// 패턴 미감지 시 자동 간격 분할
+// ══════════════════════════════════════════
+async function autoSplitByInterval(){
+  if(!S.txtFiles.length){alert('TXT 파일을 먼저 선택해주세요.');return;}
+  const raw=await fileToText(S.txtFiles[0]);
+  const lines=raw.split('\n');
+  const totalLines=lines.length;
+
+  // 총 화수 입력 받기
+  const input=prompt(
+    '총 화수를 입력하세요.\n\n'+
+    '파일 총 줄 수: '+totalLines+'줄\n'+
+    '(비워두면 자동 추정)',
+    ''
+  );
+  if(input===null) return;  // 취소
+
+  let totalChapters;
+  if(input.trim()){
+    totalChapters=parseInt(input.trim());
+    if(isNaN(totalChapters)||totalChapters<1){alert('올바른 숫자를 입력해주세요.');return;}
+  } else {
+    // 자동 추정: 평균 200~400줄로 나누기
+    totalChapters=Math.round(totalLines/300);
+    if(totalChapters<1) totalChapters=1;
+  }
+
+  const interval=Math.floor(totalLines/totalChapters);
+  const found=[];
+
+  for(let ch=0;ch<totalChapters;ch++){
+    const lineIdx=ch*interval;
+    // 빈 줄 건너뛰고 첫 번째 내용 있는 줄 찾기
+    let startIdx=lineIdx;
+    while(startIdx<Math.min(lineIdx+20,totalLines)&&!lines[startIdx].trim()) startIdx++;
+    // 해당 위치 전후 ±10줄에서 가장 짧은 줄(=제목 후보) 찾기
+    const window=lines.slice(Math.max(0,startIdx-5),Math.min(startIdx+15,totalLines));
+    const titleLine=window.reduce((best,l,i)=>{
+      const t=l.trim();
+      if(!t) return best;
+      // 짧고 문장 부호가 적은 줄 선호
+      const score=t.length+(t.match(/[가-힣]/g)||[]).length*0.1;
+      return (!best||score<best.score)?{t,i:startIdx-5+i,score}:best;
+    },null);
+
+    const title=titleLine?titleLine.t:('챕터 '+(ch+1));
+    const lineNum=(titleLine?titleLine.i:startIdx)+1;  // 1-based
+    found.push({line:lineNum,title,enabled:true,autoSplit:true});
+  }
+
+  S.tocItems=found;
+  _fullRawLines=lines;
+  renderTocItems();
+
+  // 패턴 레이블 업데이트
+  const label=document.getElementById('tb0');
+  const badge='<span class="toc-auto-badge">⚡ 자동 간격 분할 ('+interval+'줄 간격, '+totalChapters+'화)</span>';
+  label.insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+badge+'</div>');
+
+  document.getElementById('tocPanel').classList.add('show');
+  tocTab(0);
+
+  // 원본 텍스트도 업데이트
+  document.getElementById('tb2').innerHTML='<pre class="toc-raw">'+
+    lines.map((l,i)=>String(i+1).padStart(4,' ')+' | '+l).join('\n')+'</pre>';
+}
+
+
 
 // ══════════════════════════════════════════
 // 진행률
@@ -1682,6 +1869,23 @@ function handleBatchCover(files){
   renderBatchList();
 }
 
+// 표지 퍼지 매핑: 커버 파일명(확장자 제거)이 txt 파일명에 포함되면 매칭
+// 예) '조선에는_쿠데타가_필요해요'.webp → '조선에는_쿠데타가_필요해요_1부_2부...'.txt
+function findFuzzyCover(txtStem){
+  const keys=Object.keys(B.coverMap);
+  if(!keys.length) return null;
+  // 1순위: 커버 stem이 txt stem의 앞부분과 일치 (접두어)
+  const prefix=keys.find(k=>txtStem.startsWith(k)&&k.length>4);
+  if(prefix) return B.coverMap[prefix];
+  // 2순위: 커버 stem이 txt stem에 포함
+  const included=keys.find(k=>k.length>4&&txtStem.includes(k));
+  if(included) return B.coverMap[included];
+  // 3순위: txt stem이 커버 stem에 포함 (반대 방향)
+  const reverse=keys.find(k=>k.length>4&&k.includes(txtStem.slice(0,Math.min(txtStem.length,10))));
+  if(reverse) return B.coverMap[reverse];
+  return null;
+}
+
 function renderBatchList(){
   const c=document.getElementById('batchList');c.innerHTML='';
   B.txtFiles.forEach((f,i)=>{
@@ -1690,7 +1894,8 @@ function renderBatchList(){
     let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
     if(m){author=m[1].trim();title=m[2].trim();}
     else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
-    const cover=B.coverMap[stem]||B.urlCoverFile||null;
+    // 표지 매핑: 정확 일치 → 퍼지(커버 stem이 txt stem에 포함) → URL 표지
+    const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
     const d=document.createElement('div');d.className='batch-item';d.id='bi_'+i;
     const thumbHtml=cover
       ?'<div class="batch-thumb" onclick="batchPickCover('+i+')" title="클릭해서 변경"><img id="bthumb_'+i+'" src=""></div>'
@@ -1730,7 +1935,7 @@ async function startBatch(){
     let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
     if(m){author=m[1].trim();title=m[2].trim();}
     else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
-    const cover=B.coverMap[stem]||B.urlCoverFile||null;
+    const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
     const item=document.getElementById('bi_'+i);
     if(item)item.className='batch-item running';
     document.getElementById('bst_'+i).textContent='변환 중...';
