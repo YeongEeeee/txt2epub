@@ -83,6 +83,8 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .pat-chip{background:var(--bg2);border:1px solid var(--border);border-radius:99px;padding:3px 10px;font-size:11px;cursor:pointer;color:var(--text2);transition:all .15s;user-select:none}
 .pat-chip:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
 .pat-chip.active{background:var(--accent-bg);color:var(--accent);border-color:var(--accent);font-weight:600}
+.pat-chip.detected{background:var(--green-bg);color:var(--green);border-color:var(--green);font-weight:600}
+.pat-chip.detected.active{background:var(--green);color:#fff;border-color:var(--green)}
 /* 목차 패널 */
 .toc-panel{display:none;border:1.5px solid var(--border);border-radius:var(--radius);margin-top:8px;overflow:hidden;background:var(--bg2)}
 .toc-panel.show{display:block}
@@ -175,6 +177,35 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
 @media(max-width:580px){.wrap{padding:14px 10px 90px}.css-grid{grid-template-columns:1fr}.hdr-sub{display:none}.btn-accent{width:100%}.row{flex-wrap:wrap}.lbl{width:100%}}
+/* 수동 삽화 미리보기 */
+.mill-row{flex-direction:column;gap:0}
+.mill-row-top{display:flex;flex-wrap:wrap;gap:7px;align-items:center;width:100%}
+.mill-row-top input,.mill-row-top select{background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:5px 8px;font-size:12px;color:var(--text);font-family:inherit;outline:none}
+.mill-preview{margin-top:6px;width:100%;display:none}
+.mill-preview.show{display:block}
+.mill-ch-match{padding:5px 8px;background:var(--bg2);border-radius:6px;font-size:11px;border:1px solid var(--border)}
+.mill-ch-match .mill-ch-title{font-weight:600;color:var(--accent);margin-bottom:3px}
+.mill-ch-match .mill-ch-body{color:var(--text2);line-height:1.7;white-space:pre-wrap;max-height:80px;overflow-y:auto}
+.mill-kw-list{max-height:120px;overflow-y:auto}
+.mill-kw-item{padding:3px 8px;border-radius:5px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:6px}
+.mill-kw-item:hover{background:var(--bg2)}
+.mill-kw-item.selected{background:var(--accent-bg);color:var(--accent)}
+.mill-kw-num{color:var(--text2);min-width:40px;font-size:10px}
+.mill-kw-highlight{background:rgba(255,200,0,.3);border-radius:2px;padding:0 2px}
+/* 수동 삽화 - 3화 범위 패널 */
+.mill-range{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-top:6px}
+.mill-range-card{border:1.5px solid var(--border);border-radius:7px;padding:6px 8px;font-size:11px;cursor:pointer;transition:all .15s;position:relative}
+.mill-range-card:hover{border-color:var(--accent)}
+.mill-range-card.center{border-color:var(--blue);background:var(--blue-bg)}
+.mill-range-card.selected{border-color:var(--accent);background:var(--accent-bg)}
+.mill-range-card .rc-role{font-size:9px;color:var(--text2);margin-bottom:2px}
+.mill-range-card .rc-title{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px}
+.mill-range-card .rc-body{font-size:10px;color:var(--text2);margin-top:3px;max-height:40px;overflow:hidden;line-height:1.5}
+.mill-range-card .rc-kw-hit{background:rgba(255,200,0,.35);border-radius:2px;padding:0 2px}
+.mill-kw-bar{display:flex;gap:5px;margin-top:5px;align-items:center}
+.mill-kw-bar input{flex:1;background:var(--panel);border:1.5px solid var(--border);border-radius:6px;padding:4px 8px;font-size:12px;color:var(--text);font-family:inherit;outline:none}
+.mill-kw-bar input:focus{border-color:var(--accent)}
+.mill-kw-status{font-size:10px;color:var(--text2);margin-top:3px}
 /* 목차 미리보기 탭 추가 */
 .toc-preview-item{padding:7px 10px;border-radius:7px;background:var(--bg);margin-bottom:4px;border:1.5px solid transparent;cursor:pointer;transition:border-color .15s}
 .toc-preview-item:hover{border-color:var(--border)}
@@ -643,7 +674,7 @@ const PAT_PRESETS = [
   {label:'N. 제목',         val:'^\\d+\\.\\s+.{1,60}$'},
 ];
 
-const S={txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0,_rawTextFull:[]};
+const S={txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0,_rawTextFull:[],_detectedPat:null,_detectedName:''};
 let customFontFile=null, customFontName='', customFontFace='';
 const B={txtFiles:[],coverMap:{},results:[],urlCoverFile:null};
 const E={epubFile:null,epubZip:null,chapters:[],spineOrder:[],selectedChIdx:null,insTxtFiles:[],insTxtChapters:[],resultBlob:null,resultName:'',perChapterNcx:false};
@@ -666,16 +697,60 @@ function buildPatHelpers(){
   ['patHelper','insPatHelper'].forEach(id=>{
     const c=document.getElementById(id); if(!c) return;
     const targetInput=id==='patHelper'?'pattern':'insPattern';
-    // 안내 텍스트
+    c.innerHTML=''; // 매번 재빌드 가능하도록 초기화
+
+    // ── 안내 텍스트 ──
     const hint=document.createElement('span');
     hint.style.cssText='font-size:11px;color:var(--text2);align-self:center;margin-right:2px';
-    hint.textContent='복수 선택 가능:';
+    hint.textContent='빠른 선택:';
     c.appendChild(hint);
+
+    // ── 현재 감지됨 칩 (patHelper 전용) ──
+    if(id==='patHelper'){
+      const detectedChip=document.createElement('span');
+      detectedChip.className='pat-chip detected';
+      detectedChip.id='chip_detected';
+      const hasDet=S._detectedPat&&S._detectedName;
+      detectedChip.textContent=hasDet?'✅ 감지됨: '+S._detectedName:'⬜ 감지 없음';
+      detectedChip.style.cssText=hasDet?'':'opacity:.4;cursor:default';
+      detectedChip.title=hasDet?'현재 자동 감지된 패턴을 선택에 추가':'아직 목차 확인을 실행하지 않았어요';
+      if(hasDet){
+        detectedChip.onclick=()=>{
+          const src=S._detectedPat.source;
+          const sel=_chipSelected[id];
+          if(sel.has(src)){
+            sel.delete(src);
+            detectedChip.classList.remove('active');
+          } else {
+            sel.add(src);
+            detectedChip.classList.add('active');
+          }
+          const combined=buildCombinedPat(sel);
+          document.getElementById(targetInput).value=combined;
+          previewToc();
+        };
+      }
+      c.appendChild(detectedChip);
+    }
+
+    // ── 프리셋 칩들 ──
     PAT_PRESETS.forEach(p=>{
       const chip=document.createElement('span');
       chip.className='pat-chip';
       chip.textContent=p.label;
       chip.dataset.val=p.val;
+      // 현재 감지된 패턴과 일치하면 미리 하이라이트
+      if(id==='patHelper'&&S._detectedPat){
+        try{
+          const detSrc=S._detectedPat.source;
+          const pRx=new RegExp(p.val.replace(/^\^/,'').replace(/\$$/,''));
+          // source에 이 프리셋 패턴의 핵심 부분이 포함되면 하이라이트
+          if(detSrc.includes(p.val.replace(/^\^/,'').replace(/\$$/,'').replace(/\(\?:/g,'').replace(/\)/g,'').split('|')[0].slice(0,8))){
+            chip.style.borderStyle='dashed';
+            chip.title='현재 감지된 패턴에 포함됨';
+          }
+        }catch(e){}
+      }
       chip.onclick=()=>{
         const sel=_chipSelected[id];
         if(sel.has(p.val)){
@@ -685,16 +760,15 @@ function buildPatHelpers(){
           sel.add(p.val);
           chip.classList.add('active');
         }
-        // 선택된 패턴들을 OR로 조합
         const combined=buildCombinedPat(sel);
         document.getElementById(targetInput).value=combined;
-        // 즉시 재확인
         if(id==='patHelper') previewToc();
         else reloadInsToc();
       };
       c.appendChild(chip);
     });
-    // 초기화 버튼
+
+    // ── 초기화 버튼 ──
     const clr=document.createElement('span');
     clr.className='pat-chip';
     clr.textContent='✕ 초기화';
@@ -708,6 +782,39 @@ function buildPatHelpers(){
     };
     c.appendChild(clr);
   });
+}
+
+// previewToc 완료 후 감지됨 칩 업데이트
+function refreshDetectedChip(){
+  const chip=document.getElementById('chip_detected');
+  if(!chip) return;
+  const hasDet=S._detectedPat&&S._detectedName;
+  chip.textContent=hasDet?'✅ 감지됨: '+S._detectedName:'⬜ 감지 없음';
+  chip.style.opacity=hasDet?'1':'0.4';
+  chip.style.cursor=hasDet?'pointer':'default';
+  chip.title=hasDet?'현재 자동 감지된 패턴을 선택에 추가':'아직 목차 확인을 실행하지 않았어요';
+  // onclick 재연결
+  if(hasDet){
+    const src=S._detectedPat.source;
+    const sel=_chipSelected['patHelper'];
+    // 이미 선택됐으면 active 유지
+    if(sel.has(src)) chip.classList.add('active');
+    else chip.classList.remove('active');
+    chip.onclick=()=>{
+      if(sel.has(src)){
+        sel.delete(src);
+        chip.classList.remove('active');
+      } else {
+        sel.add(src);
+        chip.classList.add('active');
+      }
+      const combined=buildCombinedPat(sel);
+      document.getElementById('pattern').value=combined;
+      previewToc();
+    };
+  } else {
+    chip.onclick=null;
+  }
 }
 
 function buildCombinedPat(selSet){
@@ -774,6 +881,7 @@ function toggleTheme(){
 function resetAll(){
   if(!confirm('모든 설정을 초기화할까요?')) return;
   Object.assign(S,{txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0});
+  _chaptersCache=null;_chaptersCacheKey='';
   document.getElementById('txtDz').className='dz';
   document.getElementById('illDz').className='dz';
   document.getElementById('coverDz').className='dz';
@@ -1313,26 +1421,317 @@ function renderIllTags(){
 function removeIll(i){S.illFiles.splice(i,1);renderIllTags();if(!S.illFiles.length)document.getElementById('illDz').className='dz';}
 
 function addManualIll(){
-  const id=S.manualCnt++;const c=document.getElementById('manualIlls');
-  const r=document.createElement('div');r.className='mill-row';r.id='mr'+id;
-  r.innerHTML='<input placeholder="파일명(예:16.jpg)" id="mp'+id+'" style="flex:2;min-width:100px">'+
-    '<button class="btn btn-ghost btn-sm" onclick="browseManual('+id+')">찾기</button>'+
-    '<select id="mm'+id+'" onchange="toggleMM('+id+')"><option value="chapter">화 번호</option><option value="keyword">키워드</option></select>'+
-    '<input type="number" placeholder="화 번호" id="mc'+id+'" style="width:78px" min="1">'+
-    '<input placeholder="키워드" id="mk'+id+'" style="flex:1;min-width:70px;display:none">'+
-    '<select id="mpos'+id+'"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
-    '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" onclick="document.getElementById(\'mr'+id+'\').remove()">✕</button>';
+  const id=S.manualCnt++;
+  const c=document.getElementById('manualIlls');
+  const r=document.createElement('div');
+  r.className='mill-row';r.id='mr'+id;
+  r.innerHTML=
+    '<div class="mill-row-top">'+
+      // ❶ 파일 선택
+      '<input placeholder="파일명 (예: 16.jpg)" id="mp'+id+'" style="flex:2;min-width:100px" oninput="onManualIllName('+id+')">'+
+      '<button class="btn btn-ghost btn-sm" onclick="browseManual('+id+')">찾기</button>'+
+      // ❷ 화 번호 (범위 기준)
+      '<input type="number" placeholder="중심 화 번호" id="mc'+id+'" style="width:90px" min="1" oninput="loadIllRange('+id+')">'+
+      // ❸ 삽입 위치 (카드 선택 후 자동 설정되지만 수동 조정 가능)
+      '<select id="mpos'+id+'"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
+      '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" onclick="document.getElementById(\'mr'+id+'\').remove()">✕</button>'+
+    '</div>'+
+    // ❹ 3화 범위 미리보기 패널
+    '<div class="mill-preview" id="mpv'+id+'">'+
+      '<div style="font-size:11px;color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>'+
+    '</div>';
   c.appendChild(r);
 }
-function toggleMM(id){
-  document.getElementById('mc'+id).style.display=document.getElementById('mm'+id).value==='chapter'?'':'none';
-  document.getElementById('mk'+id).style.display=document.getElementById('mm'+id).value==='keyword'?'':'none';
+
+// 파일명 → 화 번호 자동 추출 + 범위 로드
+function onManualIllName(id){
+  const stem=document.getElementById('mp'+id).value.trim().replace(/\.[^.]+$/,'');
+  const m=stem.match(/^(\d+)/);
+  if(m){
+    document.getElementById('mc'+id).value=m[1];
+    loadIllRange(id);
+  }
 }
+
 function browseManual(id){
   const inp=document.createElement('input');inp.type='file';inp.accept='.jpg,.jpeg,.png,.gif,.webp';
-  inp.onchange=()=>{if(inp.files[0]){S.illFiles.push(inp.files[0]);renderIllTags();document.getElementById('mp'+id).value=inp.files[0].name;}};
+  inp.onchange=()=>{
+    if(!inp.files[0]) return;
+    S.illFiles.push(inp.files[0]);
+    renderIllTags();
+    document.getElementById('mp'+id).value=inp.files[0].name;
+    onManualIllName(id);
+  };
   inp.click();
 }
+
+// 화 번호 기준 ±1화 범위 로드 + 미리보기 렌더
+const _illRangeCache={};  // id → {chNum, chapters:[{ci,heading,body}]}
+
+async function loadIllRange(id){
+  const chNum=parseInt(document.getElementById('mc'+id).value);
+  const pv=document.getElementById('mpv'+id);
+  if(!chNum||!S.txtFiles.length){
+    pv.innerHTML='<div style="font-size:11px;color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>';
+    pv.classList.remove('show');
+    return;
+  }
+
+  const chapters=await getCachedChapters();
+  if(!chapters.length){pv.classList.remove('show');return;}
+
+  // extractChNum으로 중심 챕터 인덱스 찾기
+  const centerCi=chapters.findIndex(([h])=>extractChNum(h)===chNum);
+
+  if(centerCi<0){
+    pv.innerHTML='<div class="mill-ch-match"><div class="mill-ch-title" style="color:var(--accent)">⚠️ '+chNum+'화를 찾지 못했어요</div>'+
+      '<div class="mill-ch-body">화 번호를 확인하거나 목차 확인을 먼저 실행해주세요.</div></div>';
+    pv.classList.add('show');
+    return;
+  }
+
+  // ±1화 범위 구성
+  const range=[];
+  if(centerCi>0)                   range.push({ci:centerCi-1, role:'prev'});
+                                    range.push({ci:centerCi,   role:'center'});
+  if(centerCi<chapters.length-1)   range.push({ci:centerCi+1, role:'next'});
+
+  // 범위 캐시 저장 (키워드 검색에 사용)
+  _illRangeCache[id]={chNum, range:range.map(({ci,role})=>({ci,role,...{heading:chapters[ci][0],body:chapters[ci][1]||''}}))} ;
+
+  renderIllRangePanel(id, '', null);
+}
+
+// 3화 범위 패널 렌더 (kw: 현재 키워드, selectedCi: 선택된 챕터 인덱스)
+function renderIllRangePanel(id, kw, selectedCi){
+  const pv=document.getElementById('mpv'+id);
+  const cache=_illRangeCache[id];
+  if(!cache){pv.classList.remove('show');return;}
+
+  const kwEsc=kw?kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&'):'';
+
+  // 3화 카드
+  let cardsHtml='<div class="mill-range">';
+  cache.range.forEach(({ci,role,heading,body})=>{
+    const isSel=ci===selectedCi;
+    const isCenter=role==='center';
+    const roleLabel=role==='prev'?'⬆ 이전화':role==='next'?'⬇ 다음화':'🎯 '+extractChNum(heading)+'화';
+    const cardClass='mill-range-card'+(isCenter?' center':'')+(isSel?' selected':'');
+
+    // 본문 앞부분 (키워드 있으면 하이라이트)
+    let bodyPreview=(body||'').split('\n').filter(l=>l.trim()).slice(0,3).join(' ');
+    if(bodyPreview.length>60) bodyPreview=bodyPreview.slice(0,60)+'…';
+    let titleHtml=escHtml(heading);
+    let bodyHtml=escHtml(bodyPreview);
+
+    if(kw&&kwEsc){
+      const rx=new RegExp(kwEsc,'g');
+      titleHtml=titleHtml.replace(rx,'<span class="rc-kw-hit">'+escHtml(kw)+'</span>');
+      // 본문에 키워드 있으면 주변 컨텍스트로 교체
+      if(body.includes(kw)){
+        const idx=body.indexOf(kw);
+        const s=Math.max(0,idx-25);
+        const e=Math.min(body.length,idx+kw.length+35);
+        bodyHtml='···'+escHtml(body.slice(s,e)).replace(rx,'<span class="rc-kw-hit">'+escHtml(kw)+'</span>')+'···';
+      }
+    }
+
+    cardsHtml+=
+      '<div class="'+cardClass+'" onclick="selectIllRangeCard('+id+','+ci+')" title="클릭해서 이 화로 삽입 위치 설정">'+
+        '<div class="rc-role">'+roleLabel+(isSel?' ✓':'')+'</div>'+
+        '<div class="rc-title">'+titleHtml+'</div>'+
+        '<div class="rc-body">'+bodyHtml+'</div>'+
+      '</div>';
+  });
+  cardsHtml+='</div>';
+
+  // 키워드 검색바
+  const kwBar=
+    '<div class="mill-kw-bar">'+
+      '<span style="font-size:11px;color:var(--text2);white-space:nowrap">🔍 범위 내 검색:</span>'+
+      '<input id="mkw'+id+'" placeholder="키워드로 정확한 위치 찾기" value="'+escHtml(kw)+'" '+
+             'oninput="debounceIllKwSearch('+id+')">'+
+    '</div>'+
+    '<div class="mill-kw-status" id="mks'+id+'">'+
+      (kw
+        ? (cache.range.some(({body,heading})=>(body||heading).includes(kw))
+            ? '✅ 범위 내 발견 — 해당 화를 클릭해서 선택하세요'
+            : '⚠️ 이 범위(±1화)에 키워드가 없어요. 화 번호를 확인해주세요.')
+        : '키워드를 입력하면 3화 범위 안에서만 검색해요')+
+    '</div>';
+
+  pv.innerHTML=cardsHtml+kwBar;
+  pv.classList.add('show');
+}
+
+// 카드 클릭 → 삽입 위치 설정
+function selectIllRangeCard(id, ci){
+  const cache=_illRangeCache[id];
+  if(!cache) return;
+  const ch=cache.range.find(r=>r.ci===ci);
+  if(!ch) return;
+
+  // 화 번호 입력란에 선택된 화 번호 반영
+  const chNum=extractChNum(ch.heading);
+  if(chNum) document.getElementById('mc'+id).value=chNum;
+
+  // 미리보기 재렌더 (선택 표시)
+  const kw=document.getElementById('mkw'+id)?.value||'';
+  renderIllRangePanel(id, kw, ci);
+}
+
+// 키워드 검색 (디바운스 · 범위 내에서만)
+let _kwTimer={};
+function debounceKwSearch(id){ clearTimeout(_kwTimer[id]); _kwTimer[id]=setTimeout(()=>kwSearch(id),350); }
+function debounceIllKwSearch(id){ clearTimeout(_kwTimer['r'+id]); _kwTimer['r'+id]=setTimeout(()=>illKwSearch(id),250); }
+
+function illKwSearch(id){
+  const kw=document.getElementById('mkw'+id)?.value.trim()||'';
+  const cache=_illRangeCache[id];
+  if(!cache) return;
+
+  // 키워드 히트가 있는 카드를 자동 선택
+  let autoSel=null;
+  if(kw){
+    const hit=cache.range.find(({body,heading})=>(body||'').includes(kw)||heading.includes(kw));
+    if(hit) autoSel=hit.ci;
+  }
+  renderIllRangePanel(id, kw, autoSel);
+}
+
+// startConvert에서 수동삽화 읽는 로직도 수정 필요 — _illRangeCache에서 선택된 ci 기반으로
+function getManualIllTarget(id){
+  // 현재 선택된 카드의 챕터 인덱스 반환 (선택 안된 경우 중심 화 번호 사용)
+  const chNum=parseInt(document.getElementById('mc'+id)?.value);
+  return {ch:chNum||null, pos:document.getElementById('mpos'+id)?.value||'before'};
+}
+
+
+async function kwSearch(id){
+  const kw=document.getElementById('mk'+id)?.value.trim();
+  const pv=document.getElementById('mpv'+id);
+  if(!kw||kw.length<1){pv.classList.remove('show');return;}
+
+  const chapters=await getCachedChapters();
+  if(!chapters.length){pv.classList.remove('show');return;}
+
+  const kwEsc=kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const kwRx=new RegExp(kwEsc,'g');
+
+  // 1단계: 키워드가 있는 챕터 인덱스 전체 탐색 (제목 + 본문 전체)
+  let centerIdx=-1;
+  let totalMatches=0;
+  for(let ci=0;ci<chapters.length;ci++){
+    const [heading,body]=chapters[ci];
+    if(heading.includes(kw)||(body||'').includes(kw)){
+      if(centerIdx<0) centerIdx=ci; // 첫 번째 발견 챕터
+      totalMatches++;
+    }
+  }
+
+  if(centerIdx<0){
+    pv.innerHTML=
+      '<div class="mill-ch-match">'+
+        '<div class="mill-ch-title" style="color:var(--text2)">검색 결과 없음</div>'+
+        '<div class="mill-ch-body">&#39;'+escHtml(kw)+'&#39; 를 포함한 챕터가 없어요.<br>'+
+        '<span style="font-size:10px">다른 키워드를 시도하거나 화 번호 모드를 사용해보세요.</span></div>'+
+      '</div>';
+    pv.classList.add('show');
+    return;
+  }
+
+  // 2단계: 발견 챕터 ±1화 (총 최대 3화) 표시
+  const range=[];
+  if(centerIdx>0)                    range.push({ci:centerIdx-1, role:'prev'});
+                                     range.push({ci:centerIdx,   role:'match'});
+  if(centerIdx<chapters.length-1)    range.push({ci:centerIdx+1, role:'next'});
+
+  const moreCount=totalMatches-1;
+
+  let html=
+    '<div class="mill-ch-match">'+
+      '<div class="mill-ch-title" style="display:flex;justify-content:space-between;align-items:center">'+
+        '<span>🔍 <b>'+escHtml(kw)+'</b> 발견 · 전후 3화</span>'+
+        (moreCount>0?'<span style="font-size:10px;color:var(--text2)">외 '+moreCount+'곳 더</span>':'')+
+      '</div>'+
+      '<div class="mill-kw-list">';
+
+  range.forEach(({ci,role})=>{
+    const [heading,body]=chapters[ci];
+    const isMatch=role==='match';
+
+    // 키워드 주변 컨텍스트: 발견 화는 본문에서 키워드 앞뒤 40자, 나머지는 본문 첫 줄
+    let snippet='';
+    if(isMatch){
+      const fullText=heading+' '+(body||'');
+      const idx=fullText.indexOf(kw);
+      if(idx>=0){
+        const s=Math.max(0,idx-30);
+        const e=Math.min(fullText.length,idx+kw.length+40);
+        snippet=fullText.slice(s,e).replace(/\n/g,' ');
+      }
+    } else {
+      snippet=(body||'').split('\n').filter(l=>l.trim())[0]||'';
+    }
+
+    // 키워드 하이라이트 (발견 화만)
+    const hiSnippet=isMatch
+      ? snippet.replace(new RegExp(kwEsc,'g'),'<span class="mill-kw-highlight">'+escHtml(kw)+'</span>')
+      : escHtml(snippet);
+    const hiTitle=isMatch
+      ? escHtml(heading).replace(new RegExp(kwEsc,'g'),'<span class="mill-kw-highlight">'+escHtml(kw)+'</span>')
+      : escHtml(heading);
+
+    const roleIcon  = role==='prev'?'⬆':'next'===role?'⬇':'🎯';
+    const roleLabel = role==='prev'?'이전화':role==='next'?'다음화':'발견';
+    const rowStyle  = isMatch
+      ? 'border:1.5px solid var(--accent);background:var(--accent-bg);border-radius:6px;'
+      : '';
+
+    html+=
+      '<div class="mill-kw-item" id="mkwi_'+id+'_'+ci+'" style="'+rowStyle+'" '+
+           'onclick="selectKwResult('+id+',''+escAttr(heading)+'','+ci+')">'+
+        '<div style="display:flex;flex-direction:column;min-width:34px;align-items:center;gap:1px">'+
+          '<span style="font-size:12px">'+roleIcon+'</span>'+
+          '<span style="font-size:9px;color:var(--text2)">'+roleLabel+'</span>'+
+        '</div>'+
+        '<div style="flex:1;min-width:0">'+
+          '<div style="font-weight:'+(isMatch?'700':'500')+';font-size:11px">'+hiTitle+'</div>'+
+          '<div style="color:var(--text2);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">&#183;&#183;&#183;'+hiSnippet+'&#183;&#183;&#183;</div>'+
+        '</div>'+
+      '</div>';
+  });
+
+  html+='</div></div>';
+  pv.innerHTML=html;
+  pv.classList.add('show');
+}
+
+function selectKwResult(id, heading){
+  // 클릭된 챕터를 키워드 입력에 반영
+  const kw=document.getElementById('mk'+id)?.value.trim();
+  document.querySelectorAll('[id^="mkwi_'+id+'_"]').forEach(el=>el.classList.remove('selected'));
+  // 해당 챕터 선택 표시 후 키워드 유지 (키워드 기반 삽화는 챕터 제목 일치로도 작동)
+  event.currentTarget.classList.add('selected');
+}
+
+function escAttr(s){return s.replace(/'/g,"\\'").replace(/"/g,'&quot;');}
+
+// 챕터 목록 캐시 (변환 전 빠른 미리보기용)
+let _chaptersCache=null, _chaptersCacheKey='';
+async function getCachedChapters(){
+  if(!S.txtFiles.length) return [];
+  const key=S.txtFiles.map(f=>f.name+f.size).join('|');
+  const pat=document.getElementById('pattern')?.value.trim()||'';
+  const cacheKey=key+pat;
+  if(_chaptersCache&&_chaptersCacheKey===cacheKey) return _chaptersCache;
+
+  const raw=await fileToText(S.txtFiles[0]);
+  _chaptersCache=splitChapters(raw,pat);
+  _chaptersCacheKey=cacheKey;
+  return _chaptersCache;
+}
+
 
 // ══════════════════════════════════════════
 // 목차 미리보기
@@ -1347,6 +1746,7 @@ async function previewToc(){
   if(pat){
     try{
       const rx=new RegExp(pat,'i');
+      S._detectedPat=rx;S._detectedName='입력';
       const lines=text.split('\n');
       lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))found.push({line:i+1,title:l.trim()});});
       patLabel='입력 패턴: '+pat+' ('+found.length+'개 매칭)';
@@ -1354,7 +1754,12 @@ async function previewToc(){
   }else{
     const{rx,name,cnt,isMixed}=bestPat(text);
     patLabel='자동 선택: '+name+' ('+cnt+'개 매칭)'+(isMixed?' ⚠️ 혼합 패턴':'');
-    if(rx){const lines=text.split('\n');lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))found.push({line:i+1,title:l.trim()});});}
+    if(rx){
+      S._detectedPat=rx;S._detectedName=name;
+      const lines=text.split('\n');lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))found.push({line:i+1,title:l.trim()});});
+    } else {
+      S._detectedPat=null;S._detectedName='';
+    }
   }
   S.tocItems=found.map(f=>({...f,enabled:true}));
   renderTocItems();
@@ -1375,6 +1780,19 @@ async function previewToc(){
   document.getElementById('tocPanel').classList.add('show');
   tocTab(0);
   document.getElementById('tb0').insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+patLabel+'</div>');
+  // 패턴 감지 성공 시 간격 분할 버튼을 회색으로
+  refreshDetectedChip();
+  const splitBtn=document.querySelector('button[onclick="autoSplitByInterval()"]');
+  if(splitBtn){
+    if(found.length>0){
+      splitBtn.style.opacity='0.4';
+      splitBtn.title='패턴 자동 감지 성공 — 간격 분할 불필요 (강제 실행하려면 클릭)';
+    } else {
+      splitBtn.style.opacity='1';
+      splitBtn.style.color='var(--blue)';
+      splitBtn.title='패턴 감지 실패 — 줄 간격으로 자동 분할';
+    }
+  }
 }
 
 function renderTocItems(){
@@ -1459,29 +1877,41 @@ async function renderTocPreview(){
 }
 
 // ══════════════════════════════════════════
+// ══════════════════════════════════════════
 // 패턴 미감지 시 자동 간격 분할
 // ══════════════════════════════════════════
 async function autoSplitByInterval(){
   if(!S.txtFiles.length){alert('TXT 파일을 먼저 선택해주세요.');return;}
+
+  // 패턴이 이미 감지된 경우 경고
+  if(S.tocItems.length>0){
+    const ok=confirm(
+      '⚠️ 이미 '+S.tocItems.length+'개 챕터가 감지되어 있어요.\n\n'+
+      '간격 분할은 패턴 자동 감지가 실패했을 때 사용하는 기능이에요.\n'+
+      '계속하면 현재 목차가 덮어씌워져요.\n\n'+
+      '그래도 계속할까요?'
+    );
+    if(!ok) return;
+  }
+
   const raw=await fileToText(S.txtFiles[0]);
   const lines=raw.split('\n');
   const totalLines=lines.length;
 
-  // 총 화수 입력 받기
+  // 총 화수 입력
   const input=prompt(
     '총 화수를 입력하세요.\n\n'+
     '파일 총 줄 수: '+totalLines+'줄\n'+
-    '(비워두면 자동 추정)',
+    '(비워두면 자동 추정 — 줄 수 ÷ 300)',
     ''
   );
-  if(input===null) return;  // 취소
+  if(input===null) return;
 
   let totalChapters;
   if(input.trim()){
     totalChapters=parseInt(input.trim());
     if(isNaN(totalChapters)||totalChapters<1){alert('올바른 숫자를 입력해주세요.');return;}
   } else {
-    // 자동 추정: 평균 200~400줄로 나누기
     totalChapters=Math.round(totalLines/300);
     if(totalChapters<1) totalChapters=1;
   }
@@ -1489,23 +1919,51 @@ async function autoSplitByInterval(){
   const interval=Math.floor(totalLines/totalChapters);
   const found=[];
 
-  for(let ch=0;ch<totalChapters;ch++){
-    const lineIdx=ch*interval;
-    // 빈 줄 건너뛰고 첫 번째 내용 있는 줄 찾기
-    let startIdx=lineIdx;
-    while(startIdx<Math.min(lineIdx+20,totalLines)&&!lines[startIdx].trim()) startIdx++;
-    // 해당 위치 전후 ±10줄에서 가장 짧은 줄(=제목 후보) 찾기
-    const window=lines.slice(Math.max(0,startIdx-5),Math.min(startIdx+15,totalLines));
-    const titleLine=window.reduce((best,l,i)=>{
-      const t=l.trim();
-      if(!t) return best;
-      // 짧고 문장 부호가 적은 줄 선호
-      const score=t.length+(t.match(/[가-힣]/g)||[]).length*0.1;
-      return (!best||score<best.score)?{t,i:startIdx-5+i,score}:best;
-    },null);
+  // 챕터 제목 후보로 쓰면 안 되는 패턴
+  const badTitle=/^["'"'「『【《\-\*\·…]+|[。.!?！？\-]+$|^\*{2,}$|^[-─━─]+$/;
+  // 좋은 챕터 제목 패턴 (알려진 패턴 우선)
+  const goodTitle=[
+    /^(?:제\s*)?\d+\s*화/i,
+    /^\d+$/,
+    /^(?:프롤로그|에필로그|외전|후일담)/i,
+    /^[1-9]부\s+\d+화/,
+    /^(?:chapter|part|ch)\s*\d+/i,
+    /^제\s*\d+\s*장/,
+  ];
 
-    const title=titleLine?titleLine.t:('챕터 '+(ch+1));
-    const lineNum=(titleLine?titleLine.i:startIdx)+1;  // 1-based
+  for(let ch=0;ch<totalChapters;ch++){
+    const center=ch*interval;
+    // 검색 범위: 해당 구간 전체 (±interval/2)
+    const winStart=Math.max(0,center-10);
+    const winEnd=Math.min(totalLines,center+interval/2);
+    const windowLines=lines.slice(winStart,winEnd);
+
+    // 1순위: 알려진 챕터 패턴과 매칭되는 줄
+    let bestLine=null;
+    for(let wi=0;wi<windowLines.length;wi++){
+      const t=windowLines[wi].trim();
+      if(!t) continue;
+      if(goodTitle.some(rx=>rx.test(t))){
+        bestLine={t,idx:winStart+wi};
+        break;
+      }
+    }
+
+    // 2순위: 짧고 대화문/문장 부호 아닌 줄
+    if(!bestLine){
+      const candidates=windowLines
+        .map((l,wi)=>({t:l.trim(),idx:winStart+wi}))
+        .filter(({t})=>t.length>=2&&t.length<=20&&!badTitle.test(t));
+      if(candidates.length){
+        // 가장 짧은 것
+        candidates.sort((a,b)=>a.t.length-b.t.length);
+        bestLine=candidates[0];
+      }
+    }
+
+    // 3순위: 챕터 N
+    const title=bestLine?bestLine.t:('챕터 '+(ch+1));
+    const lineNum=bestLine?bestLine.idx+1:center+1;
     found.push({line:lineNum,title,enabled:true,autoSplit:true});
   }
 
@@ -1513,20 +1971,16 @@ async function autoSplitByInterval(){
   _fullRawLines=lines;
   renderTocItems();
 
-  // 패턴 레이블 업데이트
   const label=document.getElementById('tb0');
-  const badge='<span class="toc-auto-badge">⚡ 자동 간격 분할 ('+interval+'줄 간격, '+totalChapters+'화)</span>';
-  label.insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+badge+'</div>');
+  const badge='<span class="toc-auto-badge">⚡ 간격 분할 ('+interval+'줄 간격, '+totalChapters+'화 추정)</span>';
+  label.insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+badge+
+    '<br><span style="color:var(--accent);font-size:10px">⚠️ 제목이 부정확할 수 있어요. 목차 확인 후 불필요한 항목을 체크 해제하세요.</span></div>');
 
   document.getElementById('tocPanel').classList.add('show');
   tocTab(0);
-
-  // 원본 텍스트도 업데이트
   document.getElementById('tb2').innerHTML='<pre class="toc-raw">'+
     lines.map((l,i)=>String(i+1).padStart(4,' ')+' | '+l).join('\n')+'</pre>';
 }
-
-
 
 // ══════════════════════════════════════════
 // 진행률
@@ -1710,10 +2164,13 @@ async function startConvert(){
       const id=row.id.replace('mr','');
       const name=document.getElementById('mp'+id)?.value.trim();if(!name)return;
       const file=S.illFiles.find(f=>f.name===name);if(!file)return;
-      const mode=document.getElementById('mm'+id).value;
-      const pos=document.getElementById('mpos'+id).value;
-      if(mode==='chapter'){const ch=parseInt(document.getElementById('mc'+id).value);if(ch)manualIlls.push({file,ch,order:999,pos});}
-      else{const kw=document.getElementById('mk'+id)?.value.trim();if(kw)manualIlls.push({file,kw,pos});}
+      const pos=document.getElementById('mpos'+id)?.value||'before';
+      // 새 UI: 화 번호 기준 (키워드는 범위 내 검색용, 최종 삽입은 화 번호 기준)
+      const ch=parseInt(document.getElementById('mc'+id)?.value);
+      if(ch) manualIlls.push({file,ch,order:999,pos});
+      // 키워드도 병행 저장 (buildEpub에서 kw 매칭도 지원)
+      const kw=document.getElementById('mkw'+id)?.value.trim();
+      if(!ch&&kw) manualIlls.push({file,kw,pos});
     });
     const illMap=[...autoIlls,...manualIlls];
     const title=document.getElementById('title').value.trim()||'제목 없음';
