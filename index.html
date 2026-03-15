@@ -166,6 +166,15 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
 @media(max-width:580px){.wrap{padding:14px 10px 90px}.css-grid{grid-template-columns:1fr}.hdr-sub{display:none}.btn-accent{width:100%}.row{flex-wrap:wrap}.lbl{width:100%}}
+/* 표지 검색 */
+.cover-search-row{display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap}
+.cover-url-row{display:flex;gap:6px;margin-top:6px;align-items:center}
+.cover-url-inp{flex:1;font-size:12px;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);min-width:0}
+.cover-url-inp:focus{outline:none;border-color:var(--accent)}
+.cover-url-inp::placeholder{color:var(--text3)}
+.cover-search-hint{font-size:11px;color:var(--text2);margin-top:4px}
+.btn-search{background:var(--bg2);border:1.5px solid var(--border);border-radius:6px;padding:5px 10px;font-size:11px;cursor:pointer;color:var(--text);display:flex;align-items:center;gap:4px;white-space:nowrap}
+.btn-search:hover{border-color:var(--accent);color:var(--accent)}
 /* 미리보기 모달 */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:center;justify-content:center}
 .modal-overlay.show{display:flex}
@@ -231,6 +240,15 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
           <div id="coverName" style="font-size:11px;color:var(--green);margin-top:3px"></div>
         </div>
         <input type="file" id="coverIn" accept=".jpg,.jpeg,.png,.webp" hidden>
+        <div class="cover-search-row">
+          <button class="btn-search" onclick="openCoverSearch('convert')" title="제목으로 구글 이미지 검색">🔍 구글 이미지 검색</button>
+          <span style="font-size:11px;color:var(--text2)">또는 URL 직접 입력</span>
+        </div>
+        <div class="cover-url-row">
+          <input class="cover-url-inp" id="coverUrlInp" placeholder="이미지 URL 붙여넣기 (https://...)" oninput="previewCoverUrl('coverUrlInp','coverThumb','coverName','convert')">
+          <button class="btn-search" onclick="applyCoverUrl('coverUrlInp','coverThumb','coverName','convert')">적용</button>
+        </div>
+        <div class="cover-search-hint">💡 구글 이미지에서 원하는 이미지 우클릭 → "이미지 주소 복사" 후 붙여넣기</div>
       </div>
     </div>
   </div>
@@ -335,6 +353,15 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       <div style="font-size:12px;color:var(--text2)">🖼 표지 이미지들 한꺼번에 드래그</div>
     </div>
     <input type="file" id="batchCoverIn" accept=".jpg,.jpeg,.png,.webp" multiple hidden>
+    <div class="cover-search-row" style="margin-top:8px">
+      <button class="btn-search" onclick="openCoverSearch('batch')" title="제목으로 구글 이미지 검색">🔍 구글 이미지 검색</button>
+      <span style="font-size:11px;color:var(--text2)">또는 공통 표지 URL 직접 입력</span>
+    </div>
+    <div class="cover-url-row">
+      <input class="cover-url-inp" id="batchCoverUrlInp" placeholder="이미지 URL 붙여넣기 (https://...)" oninput="previewCoverUrl('batchCoverUrlInp',null,null,'batch')">
+      <button class="btn-search" onclick="applyCoverUrl('batchCoverUrlInp',null,null,'batch')">적용</button>
+    </div>
+    <div class="cover-search-hint">💡 구글 이미지에서 원하는 이미지 우클릭 → "이미지 주소 복사" 후 붙여넣기</div>
     <div style="height:10px;border-top:1px solid var(--border);margin-top:12px"></div>
     <div class="row" style="padding:3px 0"><span class="lbl" style="width:80px">챕터 정규식</span><input class="inp" id="batchPattern" placeholder="비워두면 자동 감지"></div>
     <div class="toggle-row" style="padding:6px 0">
@@ -595,7 +622,7 @@ const PAT_PRESETS = [
 
 const S={txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0};
 let customFontFile=null, customFontName='', customFontFace='';
-const B={txtFiles:[],coverMap:{},results:[]};
+const B={txtFiles:[],coverMap:{},results:[],urlCoverFile:null};
 const E={epubFile:null,epubZip:null,chapters:[],spineOrder:[],selectedChIdx:null,insTxtFiles:[],insTxtChapters:[],resultBlob:null,resultName:'',perChapterNcx:false};
 
 // ══════════════════════════════════════════
@@ -1042,6 +1069,147 @@ function handleTxt(files){
   else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
   if(!document.getElementById('title').value) document.getElementById('title').value=title;
   if(!document.getElementById('author').value) document.getElementById('author').value=author;
+}
+
+// ══════════════════════════════════════════
+// 표지 이미지 URL 검색 / 붙여넣기
+// ══════════════════════════════════════════
+
+// 구글 이미지 검색창 열기 (제목 자동 완성)
+function openCoverSearch(mode){
+  let query='';
+  if(mode==='convert'){
+    const t=document.getElementById('title')?.value.trim();
+    const a=document.getElementById('author')?.value.trim();
+    query=(t||'소설 표지')+(a?' '+a:'');
+  } else {
+    // 일괄변환: 첫 번째 파일명에서 제목 추출
+    const first=B.txtFiles[0];
+    query=first?first.name.replace(/\.[^.]+$/,'').replace(/[@[\]]/g,' ').trim():'소설 표지';
+  }
+  const url='https://www.google.com/search?tbm=isch&q='+encodeURIComponent(query+' 표지 일러스트');
+  window.open(url,'_blank');
+}
+
+// URL 입력 시 실시간 미리보기
+function previewCoverUrl(inpId, thumbId, nameId, mode){
+  const url=document.getElementById(inpId)?.value.trim();
+  if(!url||!url.startsWith('http')) return;
+  if(thumbId){
+    const thumb=document.getElementById(thumbId);
+    const img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=()=>{
+      thumb.innerHTML='<img src="'+url+'" style="opacity:.6">';
+    };
+    img.onerror=()=>{}; // CORS 차단 시 조용히 실패
+    img.src=url;
+  }
+}
+
+// URL 적용 — canvas로 blob 변환 (CORS 통과 시) 또는 직접 fetch
+async function applyCoverUrl(inpId, thumbId, nameId, mode){
+  const url=document.getElementById(inpId)?.value.trim();
+  if(!url){alert('이미지 URL을 입력해주세요.');return;}
+  if(!url.startsWith('http')){alert('http:// 또는 https:// 로 시작하는 URL을 입력해주세요.');return;}
+
+  const btn=event.target;
+  const origText=btn.textContent;
+  btn.textContent='로딩 중...';btn.disabled=true;
+
+  try{
+    // 방법 1: canvas crossOrigin으로 blob 변환
+    const blob=await urlToBlob(url);
+    const ext=url.split('?')[0].split('.').pop().toLowerCase().replace(/[^a-z]/g,'') || 'jpg';
+    const validExt=['jpg','jpeg','png','webp','gif'].includes(ext)?ext:'jpg';
+    const fname='cover_url.'+validExt;
+    const file=new File([blob],fname,{type:blob.type||'image/jpeg'});
+
+    if(mode==='convert'){
+      S.coverFile=file;
+      if(nameId) document.getElementById(nameId).textContent='✅ URL 표지 적용';
+      document.getElementById('coverDz').classList.add('ok');
+      if(thumbId){
+        const dataUrl=await blobToDataUrl(blob);
+        document.getElementById(thumbId).innerHTML='<img src="'+dataUrl+'">';
+      }
+      document.getElementById(inpId).value='';
+    } else {
+      // 일괄변환: 공통 표지 File 저장
+      B.urlCoverFile=file;
+      document.getElementById('batchCoverDrop').classList.add('ok');
+      document.getElementById('batchCoverDrop').querySelector('div').textContent='✅ URL 표지 적용';
+      document.getElementById(inpId).value='';
+    }
+    btn.textContent='✅ 적용됨';
+    setTimeout(()=>{btn.textContent=origText;btn.disabled=false;},1500);
+  }catch(e){
+    btn.textContent=origText;btn.disabled=false;
+    // CORS 차단 안내
+    showCorsHelp(inpId, url, thumbId, nameId, mode);
+  }
+}
+
+function showCorsHelp(inpId, url, thumbId, nameId, mode){
+  // CORS 차단 시 대안 안내 모달
+  const overlay=document.createElement('div');
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:600;display:flex;align-items:center;justify-content:center';
+  overlay.innerHTML=`
+    <div style="background:var(--panel);border-radius:12px;padding:24px;max-width:440px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.3)">
+      <h3 style="font-size:14px;font-weight:700;margin-bottom:10px">⚠️ 이미지를 직접 가져올 수 없어요</h3>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.7">
+        이 이미지는 외부 사이트 보안(CORS) 정책으로 직접 가져올 수 없어요.<br>
+        아래 방법 중 하나를 사용해주세요.
+      </p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
+        <div style="background:var(--bg2);border-radius:8px;padding:10px;font-size:12px">
+          <b>방법 1 (권장)</b> — 구글 이미지에서 이미지를 <b>다운로드</b>한 뒤<br>
+          드래그앤드롭으로 표지에 넣기
+        </div>
+        <div style="background:var(--bg2);border-radius:8px;padding:10px;font-size:12px">
+          <b>방법 2</b> — 이미지 페이지를 열어서<br>
+          이미지를 <b>다른 이름으로 저장</b> 후 드래그앤드롭
+        </div>
+        <div style="background:var(--bg2);border-radius:8px;padding:10px;font-size:12px">
+          <b>방법 3</b> — 아래 버튼으로 이미지 페이지 열기 →<br>
+          이미지 우클릭 → 다른 이름으로 저장
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end">
+        <button class="btn btn-ghost btn-sm" onclick="this.closest('div[style*=fixed]').remove()">닫기</button>
+        <button class="btn btn-blue btn-sm" onclick="window.open('${url}','_blank');this.closest('div[style*=fixed]').remove()">🔗 이미지 페이지 열기</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.onclick=e=>{if(e.target===overlay)overlay.remove();};
+}
+
+async function urlToBlob(url){
+  // canvas crossOrigin 방식
+  return new Promise((resolve,reject)=>{
+    const img=new Image();
+    img.crossOrigin='anonymous';
+    img.onload=()=>{
+      const canvas=document.createElement('canvas');
+      canvas.width=img.naturalWidth||img.width;
+      canvas.height=img.naturalHeight||img.height;
+      canvas.getContext('2d').drawImage(img,0,0);
+      canvas.toBlob(b=>{
+        if(b) resolve(b);
+        else reject(new Error('canvas toBlob 실패'));
+      },'image/jpeg',0.92);
+    };
+    img.onerror=()=>reject(new Error('CORS 차단'));
+    img.src=url+'?'+(Date.now()); // 캐시 우회 시도
+  });
+}
+
+function blobToDataUrl(blob){
+  return new Promise(res=>{
+    const r=new FileReader();
+    r.onload=e=>res(e.target.result);
+    r.readAsDataURL(blob);
+  });
 }
 
 function handleCover(files){
@@ -1522,7 +1690,7 @@ function renderBatchList(){
     let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
     if(m){author=m[1].trim();title=m[2].trim();}
     else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
-    const cover=B.coverMap[stem]||null;
+    const cover=B.coverMap[stem]||B.urlCoverFile||null;
     const d=document.createElement('div');d.className='batch-item';d.id='bi_'+i;
     const thumbHtml=cover
       ?'<div class="batch-thumb" onclick="batchPickCover('+i+')" title="클릭해서 변경"><img id="bthumb_'+i+'" src=""></div>'
@@ -1562,7 +1730,7 @@ async function startBatch(){
     let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
     if(m){author=m[1].trim();title=m[2].trim();}
     else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
-    const cover=B.coverMap[stem]||null;
+    const cover=B.coverMap[stem]||B.urlCoverFile||null;
     const item=document.getElementById('bi_'+i);
     if(item)item.className='batch-item running';
     document.getElementById('bst_'+i).textContent='변환 중...';
