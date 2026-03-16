@@ -502,10 +502,11 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="dz" id="illDz">
       <div class="dz-icon">🖼</div>
       <div class="dz-text">삽화 이미지 드래그하거나 클릭</div>
-      <div class="dz-sub">16.jpg → 16화 앞에 삽입 · 198_1.jpg, 198_2.jpg → 순서대로 · PNG·GIF·WebP 지원</div>
+      <div class="dz-sub">16.jpg → 16번째 챕터 앞에 삽입 · 198_1.jpg, 198_2.jpg → 순서대로 · PNG·GIF·WebP 지원</div>
     </div>
     <input type="file" id="illIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
     <div id="illTags" class="tags" style="margin-top:8px"></div>
+    <div id="illOverflowWarn" style="display:none;margin-top:8px;background:var(--yellow-bg);border-left:3px solid var(--accent2);border-radius:0 6px 6px 0;padding:7px 11px;font-size:11px;color:var(--yellow);line-height:1.6"></div>
     <div style="margin:12px 0 8px;border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;color:var(--text2)">추가 삽화 (수동)</div>
     <div id="manualIlls"></div>
     <button class="btn btn-ghost btn-sm" onclick="addManualIll()">＋ 수동 삽화 추가</button>
@@ -3333,12 +3334,72 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
     return html;
   }
 
+  // ── 삽화 인덱스 기반 매핑 전처리 ──
+  // autoIlls에서 ch 값이 챕터 제목 번호와 매칭 안 될 경우를 위해
+  // "N번째 챕터" 인덱스 기반 매칭 지원
+  // 서문을 제외한 실제 챕터 목록 (0-based index)
+  const realChapterIndices = chapters.reduce((acc, [h], i) => {
+    if (h !== '서문') acc.push(i);
+    return acc;
+  }, []);
+  const realChapterCount = realChapterIndices.length;
+
+  // autoIlls 각 항목에 대해 fallback 인덱스 매핑 설정
+  // il.ch 로 챕터 제목 숫자 매칭이 안 되는 경우, il.ch를 "N번째 챕터" 인덱스로 사용
+  // 목차 개수 초과 삽화는 마지막 챕터에 배치 + 경고 수집
+  const illOverflowWarnings = [];
+  for (const il of illMap) {
+    if (il.ch != null && !il.kw) {
+      // il.chIdx: chapters 배열에서 실제 매핑될 인덱스 (0-based)
+      // 1) 챕터 제목 번호 직접 매칭 (기존 방식)
+      const titleMatchIdx = chapters.findIndex(([h]) => extractChNum(h) === il.ch);
+      if (titleMatchIdx !== -1) {
+        il._resolvedIdx = titleMatchIdx;
+      } else {
+        // 2) N번째 챕터 인덱스 매칭 (30.jpg → 30번째 실제 챕터)
+        const nthIdx = il.ch - 1; // 1-based → 0-based
+        if (nthIdx >= 0 && nthIdx < realChapterCount) {
+          il._resolvedIdx = realChapterIndices[nthIdx];
+        } else if (realChapterCount > 0) {
+          // 3) 목차 개수 초과 → 마지막 챕터에 배치
+          il._resolvedIdx = realChapterIndices[realChapterCount - 1];
+          illOverflowWarnings.push(
+            il.file?.name || String(il.ch)
+          );
+        }
+      }
+    }
+  }
+  // 초과 삽화 경고 출력 (콘솔 + UI 알림)
+  if (illOverflowWarnings.length > 0) {
+    console.warn('[삽화] 목차 초과 삽화 (마지막 챕터에 배치):', illOverflowWarnings);
+    const warnEl = document.getElementById('illOverflowWarn');
+    if (warnEl) {
+      warnEl.textContent = '⚠️ 목차 수('+realChapterCount+'화)를 초과하는 삽화 '+illOverflowWarnings.length+'개가 마지막 챕터에 배치되었습니다: '+illOverflowWarnings.join(', ');
+      warnEl.style.display = 'block';
+    }
+  } else {
+    const warnEl = document.getElementById('illOverflowWarn');
+    if (warnEl) warnEl.style.display = 'none';
+  }
+
+  // ── 챕터별 삽화 매핑 (개선된 매칭 함수) ──
+  function illMatchesChapter(il, idx, cn, body) {
+    // _resolvedIdx가 설정된 경우 인덱스 직접 비교
+    if (il._resolvedIdx !== undefined) return il._resolvedIdx === idx;
+    // 키워드 매칭
+    if (!il.ch && il.kw && body.includes(il.kw)) return true;
+    // 기존 제목 번호 매칭 (fallback)
+    if (il.ch != null && il.ch === cn) return true;
+    return false;
+  }
+
   // 챕터별 삽화 매핑
   const chNums={},chHasIll={};
   for(let idx=0;idx<chapters.length;idx++){
     const[h,b]=chapters[idx];
     const cn=extractChNum(h);chNums[idx]=cn;
-    const ills=illMap.filter(il=>il.ch===cn||(!il.ch&&il.kw&&b.includes(il.kw)));
+    const ills=illMap.filter(il=>illMatchesChapter(il,idx,cn,b));
     chHasIll[idx]=ills.length>0;
   }
 
@@ -3348,8 +3409,8 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
     if(idx%50===0) onProgress&&onProgress(15+Math.floor(idx/tot*65),'챕터 생성 중 ('+idx+'/'+tot+')...');
     const[heading,body]=chapters[idx];
     const cn=chNums[idx];
-    const beforeIlls=illMap.filter(il=>(il.ch===cn||(il.kw&&body.includes(il.kw)))&&il.pos!=='after').map(il=>il.file);
-    const afterIlls=illMap.filter(il=>(il.ch===cn||(il.kw&&body.includes(il.kw)))&&il.pos==='after').map(il=>il.file);
+    const beforeIlls=illMap.filter(il=>illMatchesChapter(il,idx,cn,body)&&il.pos!=='after').map(il=>il.file);
+    const afterIlls=illMap.filter(il=>illMatchesChapter(il,idx,cn,body)&&il.pos==='after').map(il=>il.file);
 
     if(heading!=='서문'){
       for(const f of beforeIlls){
