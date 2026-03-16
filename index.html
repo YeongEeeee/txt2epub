@@ -287,6 +287,33 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .enc-badge{display:inline-block;background:var(--blue-bg);color:var(--blue);border-radius:4px;padding:1px 7px;font-size:10px;font-weight:600;margin-left:6px}
 /* 원본 CSS 옵션 */
 .css-option-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
+/* 캐시 초기화 버튼 바 */
+.reset-bar{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)}
+.btn-reset{background:none;border:1.5px solid var(--border);border-radius:6px;padding:3px 9px;font-size:10px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:3px;font-family:inherit;white-space:nowrap;transition:all .15s}
+.btn-reset:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.btn-reset.danger:hover{border-color:var(--accent);color:var(--accent)}
+/* CSS 슬라이더 */
+.css-slider-wrap{display:flex;flex-direction:column;gap:2px;margin-top:2px}
+.css-slider-label{font-size:11px;color:var(--text2);font-weight:500;display:flex;justify-content:space-between;align-items:center}
+.css-slider-label span{font-weight:700;color:var(--accent);min-width:38px;text-align:right;font-size:12px}
+.css-slider{-webkit-appearance:none;appearance:none;width:100%;height:5px;border-radius:99px;background:var(--border);outline:none;cursor:pointer;margin:4px 0}
+.css-slider::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;border-radius:50%;background:var(--accent);cursor:pointer;transition:transform .15s;box-shadow:0 1px 4px rgba(0,0,0,.2)}
+.css-slider::-webkit-slider-thumb:hover{transform:scale(1.2)}
+.css-slider::-moz-range-thumb{width:17px;height:17px;border-radius:50%;background:var(--accent);cursor:pointer;border:none}
+/* CSS 클래스 임포트 */
+.css-cls-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.css-cls-card{background:var(--bg2);border:1.5px solid var(--border);border-radius:8px;padding:7px 10px;cursor:pointer;transition:all .15s;display:flex;flex-direction:column;gap:3px}
+.css-cls-card:hover{border-color:var(--blue);background:var(--blue-bg)}
+.css-cls-card.sel{border-color:var(--accent);background:var(--accent-bg)}
+.css-cls-swatch{height:22px;border-radius:4px;margin-bottom:2px;border:1px solid rgba(0,0,0,.08)}
+.css-cls-name{font-size:11px;font-weight:700;color:var(--text)}
+.css-cls-desc{font-size:10px;color:var(--text2);line-height:1.4}
+/* 고급 CSS 옵션 */
+.adv-css-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.adv-css-row:last-child{border:none}
+.adv-css-lbl{font-size:12px;font-weight:500;color:var(--text);min-width:80px;flex-shrink:0}
+.adv-css-val{font-size:11px;color:var(--text2);flex:1}
+.color-inp{width:36px;height:26px;padding:2px;border:1.5px solid var(--border);border-radius:5px;cursor:pointer;background:var(--bg)}
 
 </style>
 </head>
@@ -321,6 +348,11 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     </div>
     <input type="file" id="txtIn" accept=".txt" multiple hidden>
     <div id="txtInfo" style="display:none;margin-top:7px;font-size:12px;color:var(--green)"></div>
+    <div class="reset-bar" id="convertResetBar" style="display:none">
+      <button class="btn-reset" onclick="resetConvertTxt()">✕ TXT 파일 초기화</button>
+      <button class="btn-reset" onclick="resetConvertCover()">✕ 표지 이미지 초기화</button>
+      <button class="btn-reset danger" onclick="resetConvertAll()">🔄 전체 초기화</button>
+    </div>
     <div style="height:12px"></div>
     <div class="cover-wrap">
       <div class="cover-thumb" id="coverThumb" title="클릭해서 표지 변경">
@@ -468,6 +500,11 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       <div class="dz-sub">파일마다 epub 하나씩 생성 · 파일명에서 제목/작가 자동 인식</div>
     </div>
     <input type="file" id="batchTxtIn" accept=".txt" multiple hidden>
+    <div class="reset-bar" id="batchResetBar" style="display:none">
+      <button class="btn-reset" onclick="resetBatchTxt()">✕ TXT 파일 초기화</button>
+      <button class="btn-reset" onclick="resetBatchCover()">✕ 표지 이미지 초기화</button>
+      <button class="btn-reset danger" onclick="resetBatchAll()">🔄 전체 초기화</button>
+    </div>
     <div style="height:10px;border-top:1px solid var(--border);margin-top:12px"></div>
     <div style="font-size:12px;font-weight:600;color:var(--text2);margin:8px 0 6px">🖼 표지 이미지</div>
     <div style="font-size:11px;color:var(--text2);margin-bottom:8px">파일명 자동 매핑: <code>1권.txt</code> → <code>1권.jpg</code> · 또는 항목의 + 클릭해서 직접 지정</div>
@@ -519,6 +556,10 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     </div>
     <input type="file" id="epubIn" accept=".epub" hidden>
     <div id="epubInfo" style="display:none;margin-top:8px;font-size:12px;color:var(--green)"></div>
+    <div class="reset-bar" id="editResetBar" style="display:none">
+      <button class="btn-reset" onclick="resetEditEpub()">✕ EPUB 파일 초기화</button>
+      <button class="btn-reset danger" onclick="resetEditAll()">🔄 전체 초기화</button>
+    </div>
   </div>
 </div>
 <div class="sec" id="editSec" style="display:none">
@@ -674,8 +715,10 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">🎨 CSS 커스터마이징</span><div class="sec-line"></div></div>
   <div class="card">
-    <div class="css-grid">
-      <div class="css-field"><label>폰트</label>
+    <!-- 슬라이더 + 기존 select 동기화 -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:10px">
+      <div class="css-field">
+        <label>폰트</label>
         <select id="cssFont" onchange="updateCssPreview();saveCssSettings()">
           <optgroup label="── 구글 폰트 (사용률 높은 순) ──">
           <option value='"Noto Sans KR",sans-serif'>Noto Sans KR ★ (범용 고딕)</option>
@@ -702,23 +745,8 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
           <option value="__custom__" id="customFontOpt" style="display:none">📁 커스텀 폰트</option>
         </select>
       </div>
-      <div class="css-field"><label>줄간격</label>
-        <select id="cssLine" onchange="updateCssPreview();saveCssSettings()">
-          <option value="1.7">1.7</option>
-          <option value="1.9" selected>1.9 (기본)</option>
-          <option value="2.1">2.1</option>
-          <option value="2.3">2.3</option>
-        </select>
-      </div>
-      <div class="css-field"><label>글자 크기</label>
-        <select id="cssFontSize" onchange="updateCssPreview();saveCssSettings()">
-          <option value="0.9em">작게</option>
-          <option value="1em" selected>보통</option>
-          <option value="1.1em">크게</option>
-          <option value="1.2em">매우 크게</option>
-        </select>
-      </div>
-      <div class="css-field"><label>여백</label>
+      <div class="css-field">
+        <label style="margin-bottom:2px">여백 (상하/좌우)</label>
         <select id="cssMargin" onchange="updateCssPreview();saveCssSettings()">
           <option value="1em 1.2em">좁게</option>
           <option value="1.5em 1.8em" selected>보통</option>
@@ -726,6 +754,102 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
         </select>
       </div>
     </div>
+
+    <!-- 줄간격 슬라이더 -->
+    <div class="css-slider-wrap" style="margin-bottom:10px">
+      <div class="css-slider-label">줄간격<span id="cssLineVal">1.9</span></div>
+      <input type="range" class="css-slider" id="cssLineSlider" min="1.4" max="2.8" step="0.1" value="1.9"
+             oninput="syncSlider('cssLine','cssLineSlider','cssLineVal',this.value);updateCssPreview();saveCssSettings()">
+      <select id="cssLine" onchange="syncSelect('cssLine','cssLineSlider','cssLineVal',this.value);updateCssPreview();saveCssSettings()" style="margin-top:4px;font-size:11px;padding:3px 6px;border:1.5px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text)">
+        <option value="1.4">1.4 (좁게)</option>
+        <option value="1.6">1.6</option>
+        <option value="1.7">1.7</option>
+        <option value="1.9" selected>1.9 (기본)</option>
+        <option value="2.1">2.1</option>
+        <option value="2.3">2.3</option>
+        <option value="2.5">2.5</option>
+        <option value="2.8">2.8 (넓게)</option>
+      </select>
+    </div>
+
+    <!-- 글자 크기 슬라이더 -->
+    <div class="css-slider-wrap" style="margin-bottom:10px">
+      <div class="css-slider-label">글자 크기<span id="cssFontSizeVal">1.0em</span></div>
+      <input type="range" class="css-slider" id="cssFontSizeSlider" min="0.8" max="1.4" step="0.05" value="1.0"
+             oninput="syncSlider('cssFontSize','cssFontSizeSlider','cssFontSizeVal',this.value+'em');updateCssPreview();saveCssSettings()">
+      <select id="cssFontSize" onchange="syncSelect('cssFontSize','cssFontSizeSlider','cssFontSizeVal',this.value);updateCssPreview();saveCssSettings()" style="margin-top:4px;font-size:11px;padding:3px 6px;border:1.5px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text)">
+        <option value="0.8em">0.8em (매우 작게)</option>
+        <option value="0.9em">0.9em (작게)</option>
+        <option value="1em" selected>1.0em (보통)</option>
+        <option value="1.1em">1.1em (크게)</option>
+        <option value="1.2em">1.2em (매우 크게)</option>
+        <option value="1.4em">1.4em (최대)</option>
+      </select>
+    </div>
+
+    <!-- 문단 들여쓰기 슬라이더 -->
+    <div class="css-slider-wrap" style="margin-bottom:12px">
+      <div class="css-slider-label">들여쓰기<span id="cssIndentVal">1.0em</span></div>
+      <input type="range" class="css-slider" id="cssIndentSlider" min="0" max="2.5" step="0.1" value="1.0"
+             oninput="syncIndent(this.value)">
+    </div>
+
+    <!-- 고급 옵션 -->
+    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:8px">🔧 고급 옵션</div>
+      <div class="adv-css-row">
+        <span class="adv-css-lbl">본문 색상</span>
+        <input type="color" class="color-inp" id="cssTextColor" value="#2d1f14" oninput="updateCssPreview();saveCssSettings()" title="본문 글자색">
+        <span class="adv-css-val">기본: 진한 갈색</span>
+      </div>
+      <div class="adv-css-row">
+        <span class="adv-css-lbl">배경 색상</span>
+        <input type="color" class="color-inp" id="cssBgColor" value="#fdf6ee" oninput="updateCssPreview();saveCssSettings()" title="본문 배경색">
+        <span class="adv-css-val">기본: 아이보리</span>
+        <button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="resetColors()">리셋</button>
+      </div>
+      <div class="adv-css-row">
+        <span class="adv-css-lbl">텍스트 정렬</span>
+        <div style="display:flex;gap:5px">
+          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssAlign" value="justify" checked onchange="updateCssPreview();saveCssSettings()"> 양쪽</label>
+          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssAlign" value="left" onchange="updateCssPreview();saveCssSettings()"> 왼쪽</label>
+          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssAlign" value="center" onchange="updateCssPreview();saveCssSettings()"> 가운데</label>
+        </div>
+      </div>
+      <div class="adv-css-row">
+        <span class="adv-css-lbl">챕터 제목 스타일</span>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssTitleStyle" value="center" checked onchange="updateCssPreview();saveCssSettings()"> 가운데</label>
+          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssTitleStyle" value="left" onchange="updateCssPreview();saveCssSettings()"> 왼쪽</label>
+          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssTitleStyle" value="underline" onchange="updateCssPreview();saveCssSettings()"> 밑줄</label>
+          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssTitleStyle" value="box" onchange="updateCssPreview();saveCssSettings()"> 박스</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- EPUB에서 CSS 클래스 임포트 -->
+    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">📥 EPUB에서 CSS 클래스 임포트</div>
+      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">기존 EPUB의 CSS 스타일을 가져와 변환에 적용할 수 있어요.</div>
+      <div class="dz" id="cssImportDrop" style="padding:8px">
+        <div style="font-size:12px;color:var(--text2)">📖 EPUB 파일 드래그 또는 클릭해서 CSS 임포트</div>
+        <div id="cssImportInfo" style="font-size:11px;color:var(--green);margin-top:3px"></div>
+      </div>
+      <input type="file" id="cssImportIn" accept=".epub" hidden>
+      <div id="cssImportClasses" class="css-cls-grid" style="margin-top:8px;display:none"></div>
+      <div id="cssImportApplyBar" style="display:none;margin-top:6px;font-size:11px;color:var(--text2)">
+        선택한 클래스를 추가 CSS로 적용해요.
+        <button class="btn btn-blue btn-sm" style="margin-left:8px" onclick="applyCssImport()">✅ 선택 클래스 적용</button>
+        <button class="btn btn-ghost btn-sm" style="margin-left:4px" onclick="clearCssImport()">취소</button>
+      </div>
+    </div>
+
+    <!-- 추가 CSS 직접 입력 -->
+    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
+      <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">✏️ 추가 CSS 직접 입력</div>
+      <textarea id="cssExtra" style="width:100%;height:80px;font-family:monospace;font-size:11px;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);resize:vertical;outline:none" placeholder="/* 예) h1 { color: #c63; } */" oninput="saveCssSettings()"></textarea>
+    </div>
+
     <!-- 커스텀 폰트 업로드 -->
     <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
       <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">📁 커스텀 폰트 파일 추가</div>
@@ -736,10 +860,12 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       </div>
       <input type="file" id="fontIn" accept=".ttf,.otf,.woff,.woff2" hidden>
     </div>
+
     <div class="css-preview" id="cssPreview">
-      <strong style="font-size:1.1em;display:block;text-align:center;margin-bottom:10px">미리보기 제목</strong>
-      <p>가나다라마바사아자차카타파하. 한글 소설 본문 미리보기입니다.</p>
+      <strong id="cssPreviewTitle" style="font-size:1.1em;display:block;text-align:center;margin-bottom:10px">미리보기 제목</strong>
+      <p>가나다라마바사아자차카타파하. 한글 소설 본문 미리보기입니다. 두 번째 문장이에요.</p>
       <p style="font-style:italic;margin-top:6px">— 이것은 회상 대사입니다.</p>
+      <p style="margin-top:6px">【시스템 알림: 이것은 시스템창 예시입니다.】</p>
     </div>
   </div>
 </div>
@@ -833,6 +959,11 @@ window.addEventListener('DOMContentLoaded', ()=>{
   setupDragDrop();
   setupEventListeners();
   updateSettingsSummary();
+  // 슬라이더 초기값 select 기준으로 동기화
+  const lineVal=document.getElementById('cssLine')?.value||'1.9';
+  syncSelect('cssLine','cssLineSlider','cssLineVal',lineVal);
+  const sizeVal=document.getElementById('cssFontSize')?.value||'1em';
+  syncSelect('cssFontSize','cssFontSizeSlider','cssFontSizeVal',sizeVal);
 });
 
 // 패턴 헬퍼 선택 상태 (helperId → Set of vals)
@@ -988,6 +1119,7 @@ function setupEventListeners(){
   document.getElementById('batchTxtIn').onchange   =e=>handleBatchTxt(e.target.files);
   document.getElementById('batchCoverIn').onchange =e=>handleBatchCover(e.target.files);
   document.getElementById('fontIn').onchange       =e=>handleCustomFont(e.target.files);
+  document.getElementById('cssImportIn').onchange  =e=>handleCssImportEpub(e.target.files);
   // 표지 썸네일 클릭 (드래그존이 아닌 별도 버튼)
   document.getElementById('coverThumb').onclick=()=>document.getElementById('coverIn').click();
   // editIllMode 라디오
@@ -1012,6 +1144,7 @@ function setupDragDrop(){
   setupDz('batchTxtDrop',  handleBatchTxt,              'batchTxtIn');
   setupDz('batchCoverDrop',handleBatchCover,            'batchCoverIn');
   setupDz('fontDrop',      handleCustomFont,            'fontIn');
+  setupDz('cssImportDrop', handleCssImportEpub,         'cssImportIn');
 }
 
 function setupDz(id,fn,inputId){
@@ -1061,11 +1194,12 @@ function switchPage(name){
 
 function updateSettingsSummary(){
   const font=document.getElementById('cssFont');
-  const fontName=font&&font.options&&font.options[font.selectedIndex]?font.options[font.selectedIndex].text:'Noto Serif KR';
+  const fontName=font&&font.options&&font.options[font.selectedIndex]?font.options[font.selectedIndex].text.split(' ')[0]:'Noto Serif KR';
   const line=document.getElementById('cssLine')?.value||'1.9';
+  const size=document.getElementById('cssFontSize')?.value||'1em';
   const italic=document.getElementById('optItalic')?.checked?'이탤릭 ON':'이탤릭 OFF';
   const indent=document.getElementById('optIndent')?.checked?'들여쓰기 ON':'들여쓰기 OFF';
-  const summary='현재 설정: '+fontName+' · 줄간격 '+line+' · '+italic+' · '+indent;
+  const summary='현재 설정: '+fontName+' · 줄간격 '+line+' · 크기 '+size+' · '+italic+' · '+indent;
   const el=document.getElementById('settingsSummary');
   if(el) el.textContent=summary;
   const el2=document.getElementById('batchSettingSummary');
@@ -1418,11 +1552,18 @@ function extractChNum(h){
 // ══════════════════════════════════════════
 function saveCssSettings(){
   try{
+    const indentSlider=document.getElementById('cssIndentSlider');
     localStorage.setItem('epub_css',JSON.stringify({
-      font:document.getElementById('cssFont').value,
-      line:document.getElementById('cssLine').value,
-      size:document.getElementById('cssFontSize').value,
-      margin:document.getElementById('cssMargin').value,
+      font:document.getElementById('cssFont')?.value,
+      line:document.getElementById('cssLine')?.value,
+      size:document.getElementById('cssFontSize')?.value,
+      margin:document.getElementById('cssMargin')?.value,
+      textColor:document.getElementById('cssTextColor')?.value||'',
+      bgColor:document.getElementById('cssBgColor')?.value||'',
+      align:document.querySelector('input[name="cssAlign"]:checked')?.value||'justify',
+      titleStyle:document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center',
+      indentEm:indentSlider?parseFloat(indentSlider.value):1.0,
+      extra:document.getElementById('cssExtra')?.value||'',
     }));
   }catch(e){}
 }
@@ -1470,47 +1611,298 @@ function resetAllSettings(){
   location.reload();
 }
 
+// ── 변환 탭 초기화 ──
+function resetConvertTxt(){
+  S.txtFiles=[];S._rawTextFull=[];_chaptersCache=null;_chaptersCacheKey='';
+  document.getElementById('txtDz').className='dz';
+  document.getElementById('txtInfo').style.display='none';
+  document.getElementById('tocPanel').classList.remove('show');
+  ['title','author','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('convertResetBar').style.display='none';
+}
+function resetConvertCover(){
+  S.coverFile=null;
+  document.getElementById('coverDz').className='dz';
+  const t=document.getElementById('coverThumb');
+  if(t)t.innerHTML='<span style="display:flex;flex-direction:column;align-items:center;gap:4px"><span style="font-size:22px">🖼</span><span>표지</span></span>';
+  document.getElementById('coverName').textContent='';
+  const inp=document.getElementById('coverUrlInp');if(inp)inp.value='';
+}
+function resetConvertAll(){
+  if(!confirm('변환 탭의 모든 파일과 설정을 초기화할까요?'))return;
+  resetConvertTxt();resetConvertCover();
+  S.illFiles=[];S.tocItems=[];S.epubBlob=null;S.manualCnt=0;
+  document.getElementById('illDz').className='dz';
+  document.getElementById('illTags').innerHTML='';
+  document.getElementById('manualIlls').innerHTML='';
+  ['progWrap','resultBox','errBox','splitSec'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el){el.classList.remove('show');if(id==='splitSec')el.style.display='none';}
+  });
+}
+
+// ── 일괄 변환 탭 초기화 ──
+function resetBatchTxt(){
+  B.txtFiles=[];B.patterns={};B.sampleTexts={};B.totalChs={};
+  const dz=document.getElementById('batchTxtDrop');
+  dz.className='dz';dz.querySelector('.dz-text').textContent='TXT 파일 여러 개 드래그하거나 클릭';
+  document.getElementById('batchList').innerHTML='';
+  document.getElementById('batchListSec').style.display='none';
+  if(!Object.keys(B.coverMap).length&&!B.urlCoverFile) document.getElementById('batchResetBar').style.display='none';
+}
+function resetBatchCover(){
+  B.coverMap={};B.urlCoverFile=null;
+  const dz=document.getElementById('batchCoverDrop');
+  dz.className='dz';dz.querySelector('div').textContent='🖼 표지 이미지들 한꺼번에 드래그';
+  document.getElementById('batchCoverUrlInp').value='';
+  renderBatchList();
+}
+function resetBatchAll(){
+  if(!confirm('일괄 변환 탭의 모든 파일을 초기화할까요?'))return;
+  resetBatchTxt();resetBatchCover();
+  document.getElementById('batchResetBar').style.display='none';
+  ['batchProgWrap','batchResultBox','batchErrBox'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.classList.remove('show');
+  });
+}
+
+// ── EPUB 편집 탭 초기화 ──
+function resetEditEpub(){
+  E.epubFile=null;E.epubZip=null;E.chapters=[];E.spineOrder=[];E.selectedChIdx=null;E.insTxtFiles=[];E.insTxtChapters=[];E.resultBlob=null;
+  document.getElementById('epubDrop').className='epub-drop';
+  document.getElementById('epubInfo').style.display='none';
+  document.getElementById('epubInfo').textContent='';
+  ['editSec','insertSec','editIllSec','insTocSec'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
+  document.getElementById('editResetBar').style.display='none';
+}
+function resetEditAll(){
+  if(!confirm('EPUB 편집 탭을 전부 초기화할까요?'))return;
+  resetEditEpub();
+}
+
+// ── EPUB CSS 임포트 ──
+const _cssImportSelected=new Set();
+async function handleCssImportEpub(files){
+  const file=files[0];if(!file||!file.name.endsWith('.epub'))return;
+  const info=document.getElementById('cssImportInfo');
+  info.textContent='분석 중...';
+  try{
+    const ab=await fileToAB(file);
+    const zip=await JSZip.loadAsync(ab);
+    let allCss='';
+    for(const name of Object.keys(zip.files)){
+      if(name.endsWith('.css')) allCss+=await zip.files[name].async('text')+'\n';
+    }
+    // 유용한 클래스 추출 (색상, 배경, 특수 폰트)
+    const KNOWN=[
+      {cls:'.txt2',     label:'파란 본문',    desc:'color:#2457BD — 강조 대화'},
+      {cls:'.flashback',label:'회상체',        desc:'gray+italic — 회상 장면'},
+      {cls:'.box7',     label:'녹색 박스',     desc:'연두 배경 테두리 박스'},
+      {cls:'.box9',     label:'핑크 박스',     desc:'분홍 배경 테두리 박스'},
+      {cls:'.box3',     label:'파란 박스',     desc:'파란 배경 테두리 박스'},
+      {cls:'.box_message',label:'편지 박스',   desc:'ridge 테두리 메시지 박스'},
+      {cls:'.sms_msg_me',label:'SMS 내 말',    desc:'파란 말풍선'},
+      {cls:'.sms_msg_you',label:'SMS 상대',    desc:'회색 말풍선'},
+      {cls:'.news',     label:'신문 박스',     desc:'double 테두리 뉴스 스타일'},
+      {cls:'.txtink',   label:'잉크 폰트',     desc:'InkLipquid — 손글씨'},
+      {cls:'.txthand',  label:'손글씨',        desc:'UhBeeSeulvely'},
+      {cls:'.txtrd',    label:'리디바탕',       desc:'RIDIBatang 폰트'},
+      {cls:'.txtsns',   label:'SNS 문자',      desc:'작은 글씨 SNS 메시지'},
+      {cls:'.gojo1',    label:'제목형 텍스트', desc:'진한 소형 제목 스타일'},
+      {cls:'.gojo2',    label:'하늘색 강조',   desc:'민트 배경 강조 박스'},
+      {cls:'.red',      label:'빨간 강조',     desc:'color:#C30000 bold'},
+      {cls:'.blue',     label:'파란 강조',     desc:'color:#000CC0 bold'},
+    ];
+    const found=KNOWN.filter(({cls})=>{
+      const src=cls.replace('.','\\.');
+      return new RegExp(src+'\\s*\\{').test(allCss);
+    });
+
+    // 파일에서 직접 추출 (알 수 없는 클래스)
+    const extracted=[];
+    for(const m of allCss.matchAll(/(\.[a-zA-Z][a-zA-Z0-9_-]*)\s*\{([^}]+)\}/g)){
+      const cls=m[1],body=m[2];
+      if(found.some(f=>f.cls===cls)) continue;
+      const hasBg=/background-color\s*:\s*#[0-9a-fA-F]{3,6}/.test(body);
+      const hasColor=/(?:^|[^-])color\s*:\s*#[0-9a-fA-F]{3,6}/.test(body);
+      const hasBorder=/border\s*:/.test(body);
+      const hasSpecialFont=/font-family\s*:/.test(body);
+      if((hasBg||hasColor||hasBorder||hasSpecialFont)&&body.length>20){
+        const bg=body.match(/background-color\s*:\s*(#[0-9a-fA-F]{3,8})/)?.[1]||'';
+        const col=body.match(/(?:^|;)\s*color\s*:\s*(#[0-9a-fA-F]{3,8})/)?.[1]||'';
+        extracted.push({cls,label:cls,desc:(bg?'bg:'+bg+' ':'')+(col?'color:'+col+' ':'')+body.slice(0,40).replace(/\s+/g,' ')+'…',bg,col,raw:body.trim()});
+      }
+    }
+
+    const all=[...found.map(f=>{
+      const bg=allCss.match(new RegExp(f.cls.replace('.','\\.')+'\\s*\\{([^}]+)\\}'))?.[1]||'';
+      const bgCol=bg.match(/background-color\s*:\s*(#[0-9a-fA-F]{3,8})/)?.[1]||'';
+      const col=bg.match(/(?:^|;)\s*color\s*:\s*(#[0-9a-fA-F]{3,8})/)?.[1]||'';
+      return {...f,bg:bgCol,col,raw:bg.trim()};
+    }),...extracted.slice(0,20)];
+
+    _cssImportSelected.clear();
+    const grid=document.getElementById('cssImportClasses');
+    grid.style.display='grid';
+    grid.innerHTML='';
+    all.forEach(item=>{
+      const card=document.createElement('div');
+      card.className='css-cls-card';
+      const swatch=document.createElement('div');
+      swatch.className='css-cls-swatch';
+      if(item.bg) swatch.style.background=item.bg;
+      else if(item.col) swatch.style.background=item.col+'22';
+      else swatch.style.background='var(--border)';
+      card.innerHTML=`<div class="css-cls-name">${escHtml(item.label)}</div><div class="css-cls-desc">${escHtml(item.desc.slice(0,50))}</div>`;
+      card.insertBefore(swatch,card.firstChild);
+      card.onclick=()=>{
+        card.classList.toggle('sel');
+        if(card.classList.contains('sel')) _cssImportSelected.add(item);
+        else _cssImportSelected.delete(item);
+        document.getElementById('cssImportApplyBar').style.display=_cssImportSelected.size?'block':'none';
+      };
+      grid.appendChild(card);
+    });
+    document.getElementById('cssImportInfo').textContent=`✅ ${all.length}개 클래스 발견 — 추가할 클래스를 선택하세요`;
+    if(!all.length) document.getElementById('cssImportInfo').textContent='⚠️ 유용한 CSS 클래스를 찾지 못했어요';
+  }catch(e){
+    info.textContent='❌ 오류: '+e.message;
+  }
+}
+
+function applyCssImport(){
+  if(!_cssImportSelected.size)return;
+  const count=_cssImportSelected.size;
+  const extraEl=document.getElementById('cssExtra');
+  const existing=extraEl?.value||'';
+  const newCss=Array.from(_cssImportSelected)
+    .map(item=>`/* ${item.label} */\n${item.cls}{${item.raw}}`)
+    .join('\n');
+  if(extraEl) extraEl.value=(existing?existing+'\n\n':'')+newCss;
+  _cssImportSelected.clear();
+  document.querySelectorAll('.css-cls-card.sel').forEach(c=>c.classList.remove('sel'));
+  document.getElementById('cssImportApplyBar').style.display='none';
+  saveCssSettings();
+  alert(`✅ ${count}개 클래스가 "추가 CSS" 영역에 추가됐어요.`);
+}
+function clearCssImport(){
+  _cssImportSelected.clear();
+  document.getElementById('cssImportClasses').style.display='none';
+  document.getElementById('cssImportClasses').innerHTML='';
+  document.getElementById('cssImportApplyBar').style.display='none';
+  document.getElementById('cssImportInfo').textContent='';
+  document.getElementById('cssImportDrop').className='dz';
+}
+
 function loadCssSettings(){
   try{
     const saved=JSON.parse(localStorage.getItem('epub_css')||'{}');
-    if(saved.font){
-      const sel=document.getElementById('cssFont');
-      [...sel.options].forEach(o=>{if(o.value===saved.font)o.selected=true;});
+    if(saved.font){const sel=document.getElementById('cssFont');if(sel)[...sel.options].forEach(o=>{if(o.value===saved.font)o.selected=true;});}
+    if(saved.line){
+      const sl=document.getElementById('cssLineSlider'),vl=document.getElementById('cssLineVal'),sel=document.getElementById('cssLine');
+      if(sl)sl.value=parseFloat(saved.line);
+      if(vl)vl.textContent=parseFloat(saved.line).toFixed(1);
+      if(sel)[...sel.options].forEach(o=>{if(o.value===saved.line)o.selected=true;});
     }
-    if(saved.line) document.getElementById('cssLine').value=saved.line;
-    if(saved.size) document.getElementById('cssFontSize').value=saved.size;
-    if(saved.margin) document.getElementById('cssMargin').value=saved.margin;
+    if(saved.size){
+      const numVal=parseFloat(saved.size);
+      const sl=document.getElementById('cssFontSizeSlider'),vl=document.getElementById('cssFontSizeVal'),sel=document.getElementById('cssFontSize');
+      if(sl)sl.value=numVal;
+      if(vl)vl.textContent=numVal.toFixed(2).replace(/\.?0+$/,'')+'em';
+      if(sel)[...sel.options].forEach(o=>{if(o.value===saved.size)o.selected=true;});
+    }
+    if(saved.margin){const sel=document.getElementById('cssMargin');if(sel)[...sel.options].forEach(o=>{if(o.value===saved.margin)o.selected=true;});}
+    if(saved.textColor&&document.getElementById('cssTextColor'))document.getElementById('cssTextColor').value=saved.textColor;
+    if(saved.bgColor&&document.getElementById('cssBgColor'))document.getElementById('cssBgColor').value=saved.bgColor;
+    if(saved.align){const r=document.querySelector('input[name="cssAlign"][value="'+saved.align+'"]');if(r)r.checked=true;}
+    if(saved.titleStyle){const r=document.querySelector('input[name="cssTitleStyle"][value="'+saved.titleStyle+'"]');if(r)r.checked=true;}
+    if(saved.indentEm!=null){
+      const sl=document.getElementById('cssIndentSlider'),vl=document.getElementById('cssIndentVal');
+      if(sl)sl.value=saved.indentEm;
+      if(vl)vl.textContent=parseFloat(saved.indentEm).toFixed(1)+'em';
+    }
+    if(saved.extra&&document.getElementById('cssExtra'))document.getElementById('cssExtra').value=saved.extra;
     updateCssPreview();
   }catch(e){}
 }
 
+// 슬라이더 ↔ select 동기화 헬퍼
+function syncSlider(selectId,sliderId,valId,val){
+  const numVal=parseFloat(val);
+  const sel=document.getElementById(selectId);
+  const vl=document.getElementById(valId);
+  if(vl)vl.textContent=selectId==='cssFontSize'?numVal.toFixed(2).replace(/\.?0+$/,'')+'em':numVal.toFixed(1);
+  if(sel){let best=null,bd=Infinity;[...sel.options].forEach(o=>{const d=Math.abs(parseFloat(o.value)-numVal);if(d<bd){bd=d;best=o;}});if(best)best.selected=true;}
+}
+function syncSelect(selectId,sliderId,valId,val){
+  const numVal=parseFloat(val);
+  const sl=document.getElementById(sliderId),vl=document.getElementById(valId);
+  if(sl)sl.value=numVal;
+  if(vl)vl.textContent=selectId==='cssFontSize'?numVal.toFixed(2).replace(/\.?0+$/,'')+'em':numVal.toFixed(1);
+}
+function syncIndent(val){
+  const vl=document.getElementById('cssIndentVal');
+  if(vl)vl.textContent=parseFloat(val).toFixed(1)+'em';
+  saveCssSettings();updateCssPreview();
+}
+function resetColors(){
+  const tc=document.getElementById('cssTextColor'),bc=document.getElementById('cssBgColor');
+  if(tc)tc.value='#2d1f14';if(bc)bc.value='#fdf6ee';
+  updateCssPreview();saveCssSettings();
+}
+
 function updateCssPreview(){
-  const p=document.getElementById('cssPreview');
-  p.style.fontFamily=document.getElementById('cssFont').value;
-  p.style.lineHeight=document.getElementById('cssLine').value;
-  p.style.fontSize=document.getElementById('cssFontSize').value;
-  p.style.padding=document.getElementById('cssMargin').value;
+  const p=document.getElementById('cssPreview');if(!p)return;
+  const font=document.getElementById('cssFont')?.value||'"Noto Serif KR",serif';
+  const line=document.getElementById('cssLine')?.value||'1.9';
+  const size=document.getElementById('cssFontSize')?.value||'1em';
+  const margin=document.getElementById('cssMargin')?.value||'1.5em 1.8em';
+  const textColor=document.getElementById('cssTextColor')?.value||'';
+  const bgColor=document.getElementById('cssBgColor')?.value||'';
+  const align=document.querySelector('input[name="cssAlign"]:checked')?.value||'justify';
+  const titleStyle=document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center';
+  p.style.cssText=`font-family:${font};line-height:${line};font-size:${size};padding:${margin};${textColor?'color:'+textColor+';':''}${bgColor?'background:'+bgColor+';':''}text-align:${align};border-radius:8px`;
+  const te=document.getElementById('cssPreviewTitle');
+  if(te){
+    te.style.textAlign=titleStyle==='left'?'left':'center';
+    te.style.borderBottom=titleStyle==='underline'?'2px solid currentColor':'none';
+    te.style.paddingBottom=titleStyle==='underline'?'6px':'0';
+    te.style.border=titleStyle==='box'?'1.5px solid currentColor':'none';
+    te.style.padding=titleStyle==='box'?'4px 14px':'0';
+    te.style.borderRadius=titleStyle==='box'?'5px':'0';
+    te.style.display='block';
+  }
 }
 
 function buildCss(){
-  // 커스텀 폰트 @font-face 앞에 추가
-  const font=document.getElementById('cssFont').value;
-  const line=document.getElementById('cssLine').value;
-  const size=document.getElementById('cssFontSize').value;
-  const margin=document.getElementById('cssMargin').value;
-  const indent=document.getElementById('optIndent').checked;
+  const font=document.getElementById('cssFont')?.value||'"Noto Serif KR",serif';
+  const line=document.getElementById('cssLine')?.value||'1.9';
+  const size=document.getElementById('cssFontSize')?.value||'1em';
+  const margin=document.getElementById('cssMargin')?.value||'1.5em 1.8em';
+  const textColor=document.getElementById('cssTextColor')?.value||'';
+  const bgColor=document.getElementById('cssBgColor')?.value||'';
+  const align=document.querySelector('input[name="cssAlign"]:checked')?.value||'justify';
+  const titleStyle=document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center';
+  const indentSlider=document.getElementById('cssIndentSlider');
+  const indentEm=indentSlider?parseFloat(indentSlider.value):1.0;
+  const useIndent=document.getElementById('optIndent')?.checked;
   const fontFaceBlock=customFontFace||'';
+  const extra=document.getElementById('cssExtra')?.value||'';
+  let h1Extra=`text-align:${titleStyle==='left'?'left':'center'};`;
+  if(titleStyle==='underline')h1Extra+='border-bottom:2px solid currentColor;padding-bottom:0.3em;text-align:center;';
+  if(titleStyle==='box')h1Extra+='border:1.5px solid currentColor;padding:0.25em 1em;border-radius:6px;display:inline-block;';
   return `@charset "UTF-8";
-${fontFaceBlock}body{font-family:${font};line-height:${line};font-size:${size};margin:0;padding:${margin};word-break:keep-all;overflow-wrap:break-word}
-h1{font-size:1.3em;text-align:center;margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}
-p{margin:0;padding:0.25em 0;text-indent:${indent?'1em':'0'}}
+${fontFaceBlock}body{font-family:${font};line-height:${line};font-size:${size};margin:0;padding:${margin};word-break:keep-all;overflow-wrap:break-word;text-align:${align};${textColor?'color:'+textColor+';':''}${bgColor?'background:'+bgColor+';':''}}
+h1{font-size:1.3em;${h1Extra}margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}
+p{margin:0;padding:0.25em 0;text-indent:${useIndent?indentEm+'em':'0'}}
 p.noindent{text-indent:0}
 em.flashback{font-style:italic;opacity:.85}
 p.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}
 .illust-page{display:flex;align-items:center;justify-content:center;min-height:80vh;text-align:center;padding:0}
 .illust-page img{max-width:100%;max-height:90vh;height:auto;display:block;margin:0 auto}
-`;
-}
+${extra}
+`;}
+
 
 // ══════════════════════════════════════════
 // 파일 핸들러 (변환 탭)
@@ -1522,6 +1914,7 @@ function handleTxt(files){
   document.getElementById('txtDz').className='dz ok';
   const info=document.getElementById('txtInfo');
   info.style.display='block';
+  document.getElementById('convertResetBar').style.display='flex';
   const names=txts.map(f=>f.name);
   info.textContent='✅ '+txts.length+'개: '+names.slice(0,3).join(', ')+(txts.length>3?' 외 '+(txts.length-3)+'개':'');
   // 첫 파일 인코딩 비동기 감지 후 배지 표시
@@ -2875,6 +3268,7 @@ function handleBatchTxt(files){
   const dz=document.getElementById('batchTxtDrop');
   dz.classList.add('ok');
   dz.querySelector('.dz-text').textContent='✅ '+txts.length+'개 파일 선택됨';
+  document.getElementById('batchResetBar').style.display='flex';
   renderBatchList();
   document.getElementById('batchListSec').style.display='block';
 }
@@ -2887,20 +3281,37 @@ function handleBatchCover(files){
   renderBatchList();
 }
 
-// 표지 퍼지 매핑: 커버 파일명(확장자 제거)이 txt 파일명에 포함되면 매칭
-// 예) '조선에는_쿠데타가_필요해요'.webp → '조선에는_쿠데타가_필요해요_1부_2부...'.txt
+// 표지 퍼지 매핑: 공백·특수문자 제거 후 문자만 비교하는 방식으로 강화
+function normStem(s){
+  // 공백, 언더스코어, 하이픈, 괄호류, 권/부/화 숫자 suffix 제거 후 소문자
+  return s.replace(/[\s_\-\.\[\]\(\)\{\}「」『』【】《》〈〉·~!?！？,，。\.]+/g,'').toLowerCase();
+}
 function findFuzzyCover(txtStem){
   const keys=Object.keys(B.coverMap);
   if(!keys.length) return null;
-  // 1순위: 커버 stem이 txt stem의 앞부분과 일치 (접두어)
-  const prefix=keys.find(k=>txtStem.startsWith(k)&&k.length>4);
+  const normTxt=normStem(txtStem);
+
+  // 0순위: 완전 일치 (정규화 후)
+  const exact=keys.find(k=>normStem(k)===normTxt);
+  if(exact) return B.coverMap[exact];
+
+  // 1순위: 정규화된 커버 stem이 정규화된 txt stem의 앞부분과 일치 (접두어, 최소 4자)
+  const prefix=keys.find(k=>{const nk=normStem(k);return nk.length>=4&&normTxt.startsWith(nk);});
   if(prefix) return B.coverMap[prefix];
-  // 2순위: 커버 stem이 txt stem에 포함
-  const included=keys.find(k=>k.length>4&&txtStem.includes(k));
+
+  // 2순위: 정규화된 커버 stem이 정규화된 txt stem에 포함 (최소 4자)
+  const included=keys.find(k=>{const nk=normStem(k);return nk.length>=4&&normTxt.includes(nk);});
   if(included) return B.coverMap[included];
-  // 3순위: txt stem이 커버 stem에 포함 (반대 방향)
-  const reverse=keys.find(k=>k.length>4&&k.includes(txtStem.slice(0,Math.min(txtStem.length,10))));
-  if(reverse) return B.coverMap[reverse];
+
+  // 3순위: 토큰 교집합 — 양쪽을 한글 단어로 분리해 공통 토큰이 2개 이상이면 매칭
+  const txtTokens=new Set(txtStem.replace(/[0-9\s_\-\.]+/g,' ').trim().split(/\s+/).filter(t=>t.length>=2));
+  const best=keys.reduce((acc,k)=>{
+    const kTokens=k.replace(/[0-9\s_\-\.]+/g,' ').trim().split(/\s+/).filter(t=>t.length>=2);
+    const common=kTokens.filter(t=>txtTokens.has(t)).length;
+    return common>acc.score?{k,score:common}:acc;
+  },{k:null,score:1}); // 최소 2개 이상 (score>1)
+  if(best.k) return B.coverMap[best.k];
+
   return null;
 }
 
@@ -3165,36 +3576,73 @@ async function batchPresetAuto(idx){
 }
 
 function applyBatchPreset(idx){
-  const checks=[...document.querySelectorAll('.bpck_'+idx+':checked')].map(c=>c.dataset.val);
+  // 직접 입력 필드 — 사용자가 명시적으로 입력한 경우만 우선
   const directEl=document.getElementById('bpat_direct_'+idx);
   const direct=directEl?.value.trim();
+  const checks=[...document.querySelectorAll('.bpck_'+idx+':checked')].map(c=>c.dataset.val);
+
   let combined='';
-  if(direct) combined=direct;
-  else if(checks.length===1) combined=checks[0];
-  else if(checks.length>1) combined='^(?:'+checks.map(v=>v.replace(/^\^/,'').replace(/\$$/,'')).join('|')+')';
-  // 체크박스 선택 시 직접 입력 필드도 업데이트
-  if(!direct && combined && directEl) directEl.value=combined;
-  // 이 파일의 개별 패턴으로 저장
+  if(direct&&!checks.length){
+    // 직접 입력만 있는 경우
+    combined=direct;
+  } else if(checks.length===1&&!direct){
+    combined=checks[0];
+  } else if(checks.length>1&&!direct){
+    // 체크박스 여러 개 → OR 결합
+    const parts=checks.map(v=>v.replace(/^\^/,'').replace(/\$$/,'').replace(/^\(\?:/,'').replace(/\)$/,''));
+    combined='^(?:'+parts.join('|')+')$';
+  } else if(direct&&checks.length){
+    // 직접 입력 + 체크박스 모두 있으면 직접 입력 우선
+    combined=direct;
+  }
+
+  // 직접 입력 필드 동기화 (체크박스로만 선택 시)
+  if(!direct&&combined&&directEl) directEl.value=combined;
+
+  // 패턴 저장
   if(combined) B.patterns[idx]=combined;
+  else delete B.patterns[idx];
+
   const prev=document.getElementById('bpat_preview_'+idx);
   if(prev) prev.textContent=combined?'현재: '+combined:'(자동 감지)';
+
+  // 총 챕터 수 실시간 업데이트
+  if(combined&&B.sampleTexts[idx]){
+    try{
+      const rx=new RegExp(combined,'i');
+      const lines=B.sampleTexts[idx].split('\n');
+      const cnt=lines.filter(l=>l.trim()&&rx.test(l.trim())).length;
+      const totalCh=B.totalChs[idx]||0;
+      const pct=totalCh>0?(cnt/totalCh*100).toFixed(0)+'%':null;
+      const infoEl=document.querySelector('#btp_'+idx+' b[style*="accent"]');
+      if(infoEl){
+        infoEl.textContent=cnt;
+        const pctSpan=infoEl.nextSibling;
+        if(pctSpan&&pct) pctSpan.textContent=' ('+pct+(parseFloat(pct)>=80?' ⭐':'')+')';
+      }
+    }catch(e){}
+  }
 }
 
 async function confirmBatchPreset(idx){
-  // 직접 입력 필드 먼저 확인
   const directEl=document.getElementById('bpat_direct_'+idx);
   const direct=directEl?.value.trim();
-  const pat=direct||B.patterns[idx]||document.getElementById('batchPattern')?.value.trim();
+  const checks=[...document.querySelectorAll('.bpck_'+idx+':checked')].map(c=>c.dataset.val);
+
+  let pat=direct;
+  if(!pat&&checks.length===1) pat=checks[0];
+  else if(!pat&&checks.length>1){
+    const parts=checks.map(v=>v.replace(/^\^/,'').replace(/\$$/,'').replace(/^\(\?:/,'').replace(/\)$/,''));
+    pat='^(?:'+parts.join('|')+')$';
+  }
+  if(!pat) pat=B.patterns[idx];
   if(!pat){alert('패턴을 선택하거나 직접 입력해주세요.');return;}
+
   B.patterns[idx]=pat;
-  // 버튼 텍스트 업데이트 후 재분석
   const btn=document.querySelector('#bi_'+idx+' .batch-toc-btn');
   const panel=document.getElementById('btp_'+idx);
   panel.classList.remove('show');
-  if(btn){
-    btn.textContent='📋 목차 확인';
-    await showBatchToc(idx, btn);
-  }
+  if(btn){btn.textContent='📋 목차 확인';await showBatchToc(idx,btn);}
 }
 
 function batchPickCover(idx){
@@ -3325,6 +3773,7 @@ async function loadEpub(file){
   document.getElementById('epubDrop')?.classList.add('ok');
   document.getElementById('epubInfo').style.display='block';
   document.getElementById('epubInfo').textContent='로딩 중...';
+  document.getElementById('editResetBar').style.display='flex';
   const ab=await fileToAB(file);
   E.epubZip=await JSZip.loadAsync(ab);
   const container=await E.epubZip.file('META-INF/container.xml').async('text');
