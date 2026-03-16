@@ -403,7 +403,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
           <div style="font-size:12px;color:var(--text2)">🖼 표지 이미지 드래그 또는 클릭</div>
           <div id="coverName" style="font-size:11px;color:var(--green);margin-top:3px"></div>
         </div>
-        <input type="file" id="coverIn" accept=".jpg,.jpeg,.png,.webp" hidden>
+        <input type="file" id="coverIn" accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.avif" hidden>
         <div class="cover-search-row">
           <button class="btn-search" onclick="openCoverModal('convert')" title="네이버·리디·노벨피아에서 표지 검색">🔍 표지 검색</button>
           <span style="font-size:11px;color:var(--text2)">또는 URL 직접 입력</span>
@@ -502,9 +502,9 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="dz" id="illDz">
       <div class="dz-icon">🖼</div>
       <div class="dz-text">삽화 이미지 드래그하거나 클릭</div>
-      <div class="dz-sub">16.jpg → 16화 앞에 삽입 · 198_1.jpg, 198_2.jpg → 순서대로</div>
+      <div class="dz-sub">16.jpg → 16화 앞에 삽입 · 198_1.jpg, 198_2.jpg → 순서대로 · PNG·GIF·WebP 지원</div>
     </div>
-    <input type="file" id="illIn" accept=".jpg,.jpeg,.png,.gif,.webp" multiple hidden>
+    <input type="file" id="illIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
     <div id="illTags" class="tags" style="margin-top:8px"></div>
     <div style="margin:12px 0 8px;border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;color:var(--text2)">추가 삽화 (수동)</div>
     <div id="manualIlls"></div>
@@ -562,7 +562,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="dz" id="batchCoverDrop" style="padding:10px">
       <div style="font-size:12px;color:var(--text2)">🖼 표지 이미지들 한꺼번에 드래그</div>
     </div>
-    <input type="file" id="batchCoverIn" accept=".jpg,.jpeg,.png,.webp" multiple hidden>
+    <input type="file" id="batchCoverIn" accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
     <div class="cover-search-row" style="margin-top:8px">
       <button class="btn-search" onclick="openCoverModal('batch')" title="네이버·리디·노벨피아에서 표지 검색">🔍 표지 검색</button>
       <span style="font-size:11px;color:var(--text2)">또는 공통 표지 URL 직접 입력</span>
@@ -669,9 +669,9 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="dz" id="insIllDrop">
       <div class="dz-icon">🖼</div>
       <div class="dz-text">삽화 이미지 드래그하거나 클릭</div>
-      <div class="dz-sub">jpg, png, gif, webp 지원 · webp는 jpg로 자동 변환</div>
+      <div class="dz-sub">jpg, png, gif, webp, bmp 지원 · 설정에서 JPG 변환 여부 선택 가능</div>
     </div>
-    <input type="file" id="insIllIn" accept=".jpg,.jpeg,.png,.gif,.webp" multiple hidden>
+    <input type="file" id="insIllIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
     <div id="insIllTags" class="tags" style="margin-top:8px"></div>
     <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">수동 삽화 위치 지정</div>
     <div id="insManualIlls"></div>
@@ -690,7 +690,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       <div class="dz-text">삽화 이미지 드래그 또는 클릭</div>
       <div class="dz-sub">파일명 자동 매핑: 16.jpg → 16화 앞 · 16_1.jpg, 16_2.jpg → 순서대로</div>
     </div>
-    <input type="file" id="editIllIn" accept=".jpg,.jpeg,.png,.gif,.webp" multiple hidden>
+    <input type="file" id="editIllIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
     <div id="editIllTags" class="tags" style="margin-top:8px"></div>
     <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
       <span style="font-size:12px;color:var(--text2)">매핑 방식</span>
@@ -760,6 +760,24 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="toggle-row">
       <div><label for="optDarkCover">다크 커버 배경</label><small>표지 이미지 없을 때 배경색 어둡게</small></div>
       <label class="sw"><input type="checkbox" id="optDarkCover" onchange="saveExtraSettings()"><span class="sw-slider"></span></label>
+    </div>
+    <div class="toggle-row">
+      <div>
+        <label for="optImgConvert">🖼 삽화 이미지 JPG 변환</label>
+        <small>PNG·GIF·WebP 등을 모두 JPG로 변환해요 (호환성 최대화)<br>OFF 시 원본 형식 그대로 삽입 (용량 최적화)</small>
+      </div>
+      <label class="sw"><input type="checkbox" id="optImgConvert" checked onchange="saveExtraSettings();renderIllTags()"><span class="sw-slider"></span></label>
+    </div>
+    <div class="toggle-row" id="optImgQualityRow">
+      <div>
+        <label>JPG 변환 품질</label>
+        <small>높을수록 화질 좋고 용량 큼 (기본: 92%)</small>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="range" id="optImgQuality" min="60" max="100" step="2" value="92"
+               style="width:90px" oninput="document.getElementById('optImgQualityVal').textContent=this.value+'%';saveExtraSettings()">
+        <span id="optImgQualityVal" style="font-size:12px;font-weight:700;color:var(--accent);min-width:36px">92%</span>
+      </div>
     </div>
   </div>
 </div>
@@ -1294,7 +1312,8 @@ function updateSettingsSummary(){
   const size=document.getElementById('cssFontSize')?.value||'1em';
   const italic=document.getElementById('optItalic')?.checked?'이탤릭 ON':'이탤릭 OFF';
   const indent=document.getElementById('optIndent')?.checked?'들여쓰기 ON':'들여쓰기 OFF';
-  const summary='현재 설정: '+fontName+' · 줄간격 '+line+' · 크기 '+size+' · '+italic+' · '+indent;
+  const imgConv=document.getElementById('optImgConvert')?.checked!==false?'삽화 JPG변환 ON':'삽화 JPG변환 OFF';
+  const summary='현재 설정: '+fontName+' · 줄간격 '+line+' · 크기 '+size+' · '+italic+' · '+indent+' · '+imgConv;
   const el=document.getElementById('settingsSummary');
   if(el) el.textContent=summary;
   const el2=document.getElementById('batchSettingSummary');
@@ -1421,18 +1440,67 @@ async function fileToAB(file){
   return new Promise((res,rej)=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=rej;r.readAsArrayBuffer(file);});
 }
 
-async function fileToJpgBlob(file){
+// 이미지 변환 함수 — 설정에 따라 JPG 변환 or 원본 유지
+// forCover=true 이면 항상 JPG 변환 (표지는 뷰어 호환성 최우선)
+async function convertImageFile(file, forCover=false){
+  const ext=file.name.split('.').pop().toLowerCase();
+  const supportedAsIs=['jpg','jpeg'];
+  const convertable=['png','gif','webp','bmp','tiff','tif','avif','heic','heif'];
+
+  if(supportedAsIs.includes(ext)) return {blob:file, ext:'jpg', mt:'image/jpeg'};
+
+  const shouldConvert=forCover || document.getElementById('optImgConvert')?.checked!==false;
+
+  if(shouldConvert && convertable.includes(ext)){
+    const quality=(parseInt(document.getElementById('optImgQuality')?.value||'92'))/100;
+    try{
+      const blob=await imgToJpgBlob(file, quality);
+      return {blob, ext:'jpg', mt:'image/jpeg'};
+    }catch(e){
+      console.warn('JPG 변환 실패, 원본 사용:', file.name, e);
+    }
+  }
+
+  const mimeMap={
+    'png':'image/png','gif':'image/gif','webp':'image/webp',
+    'bmp':'image/bmp','tiff':'image/tiff','tif':'image/tiff',
+    'avif':'image/avif','svg':'image/svg+xml',
+  };
+  const mt=mimeMap[ext]||'image/jpeg';
+  return {blob:file, ext, mt};
+}
+
+// Canvas 기반 JPG 변환 (모든 포맷 대응)
+async function imgToJpgBlob(file, quality=0.92){
   return new Promise((res,rej)=>{
-    const ext=file.name.split('.').pop().toLowerCase();
-    if(ext!=='webp'){res(file);return;}
-    const img=new Image(),url=URL.createObjectURL(file);
+    const url=URL.createObjectURL(file);
+    const img=new Image();
     img.onload=()=>{
-      const c=document.createElement('canvas');c.width=img.width;c.height=img.height;
-      c.getContext('2d').drawImage(img,0,0);
-      c.toBlob(b=>{URL.revokeObjectURL(url);res(b);},'image/jpeg',0.92);
+      try{
+        const c=document.createElement('canvas');
+        c.width=img.naturalWidth||img.width;
+        c.height=img.naturalHeight||img.height;
+        const ctx=c.getContext('2d');
+        // PNG 투명 배경 → 흰색
+        ctx.fillStyle='#ffffff';
+        ctx.fillRect(0,0,c.width,c.height);
+        ctx.drawImage(img,0,0);
+        c.toBlob(b=>{
+          URL.revokeObjectURL(url);
+          if(b) res(b);
+          else rej(new Error('toBlob 실패'));
+        },'image/jpeg',quality);
+      }catch(e){URL.revokeObjectURL(url);rej(e);}
     };
-    img.onerror=rej;img.src=url;
+    img.onerror=(e)=>{URL.revokeObjectURL(url);rej(new Error('이미지 로드 실패: '+file.name));};
+    img.src=url;
   });
+}
+
+// 하위 호환 — 기존 코드가 fileToJpgBlob을 호출하는 곳에서 사용
+async function fileToJpgBlob(file){
+  const result=await convertImageFile(file);
+  return result.blob;
 }
 
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
@@ -1679,6 +1747,8 @@ function saveExtraSettings(){
       compression:document.getElementById('optCompression')?.value||'6',
       italic:document.getElementById('optItalic')?.checked,
       indent:document.getElementById('optIndent')?.checked,
+      imgConvert:document.getElementById('optImgConvert')?.checked,
+      imgQuality:document.getElementById('optImgQuality')?.value||'92',
     }));
   }catch(e){}
 }
@@ -1693,6 +1763,12 @@ function loadExtraSettings(){
     if(s.showLineNum!=null) document.getElementById('optShowLineNum').checked=s.showLineNum;
     if(s.italic!=null) document.getElementById('optItalic').checked=s.italic;
     if(s.indent!=null) document.getElementById('optIndent').checked=s.indent;
+    if(s.imgConvert!=null&&document.getElementById('optImgConvert')) document.getElementById('optImgConvert').checked=s.imgConvert;
+    if(s.imgQuality&&document.getElementById('optImgQuality')){
+      document.getElementById('optImgQuality').value=s.imgQuality;
+      const vl=document.getElementById('optImgQualityVal');
+      if(vl) vl.textContent=s.imgQuality+'%';
+    }
     if(s.defaultPat) document.getElementById('optDefaultPat').value=s.defaultPat;
     if(s.lang) document.getElementById('optLang').value=s.lang;
     if(s.publisher) document.getElementById('optPublisher').value=s.publisher;
@@ -2185,7 +2261,7 @@ function handleCover(files){
 }
 
 function handleIll(files){
-  const imgs=Array.from(files).filter(f=>/\.(jpg|jpeg|png|gif|webp)$/i.test(f.name));
+  const imgs=Array.from(files).filter(f=>/\.(jpg|jpeg|png|gif|webp|bmp|tiff|tif|avif)$/i.test(f.name));
   if(!imgs.length)return;
   S.illFiles.push(...imgs);
   renderIllTags();
@@ -2194,13 +2270,46 @@ function handleIll(files){
 
 function renderIllTags(){
   const c=document.getElementById('illTags');c.innerHTML='';
+  const willConvert=document.getElementById('optImgConvert')?.checked!==false;
   S.illFiles.forEach((f,i)=>{
-    const t=document.createElement('div');t.className='tag';
-    t.innerHTML=f.name+' <span class="x" onclick="removeIll('+i+')">✕</span>';
+    const ext=f.name.split('.').pop().toLowerCase();
+    const isJpg=['jpg','jpeg'].includes(ext);
+    const needsConvert=!isJpg&&willConvert;
+    const fmtBadge=isJpg
+      ? `<span style="font-size:9px;background:var(--green-bg);color:var(--green);border-radius:3px;padding:1px 4px;font-weight:700">JPG</span>`
+      : needsConvert
+        ? `<span style="font-size:9px;background:var(--yellow-bg);color:var(--yellow);border-radius:3px;padding:1px 4px;font-weight:700">${ext.toUpperCase()}→JPG</span>`
+        : `<span style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 4px;font-weight:700">${ext.toUpperCase()}</span>`;
+
+    const t=document.createElement('div');
+    t.className='tag';
+    t.style.cssText='display:flex;align-items:center;gap:5px;padding:4px 8px';
+    t.title=f.name+(needsConvert?' (변환 예정)':'');
+
+    // 썸네일
+    const thumb=document.createElement('img');
+    thumb.style.cssText='width:22px;height:22px;object-fit:cover;border-radius:3px;flex-shrink:0;border:1px solid var(--border)';
+    thumb.alt=f.name;
+    const url=URL.createObjectURL(f);
+    thumb.src=url;
+    thumb.onload=()=>{}; 
+    thumb.onerror=()=>{thumb.style.display='none';};
+    // 메모리 해제는 태그 제거 시
+    thumb.dataset.objUrl=url;
+
+    t.innerHTML=`<span style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${escHtml(f.name)}</span>${fmtBadge}<span class="x" onclick="removeIll(${i})">✕</span>`;
+    t.insertBefore(thumb,t.firstChild);
     c.appendChild(t);
   });
 }
-function removeIll(i){S.illFiles.splice(i,1);renderIllTags();if(!S.illFiles.length)document.getElementById('illDz').className='dz';}
+function removeIll(i){
+  // 썸네일 Object URL 해제
+  const tags=document.getElementById('illTags').querySelectorAll('img[data-obj-url]');
+  if(tags[i]) URL.revokeObjectURL(tags[i].dataset.objUrl);
+  S.illFiles.splice(i,1);
+  renderIllTags();
+  if(!S.illFiles.length)document.getElementById('illDz').className='dz';
+}
 
 function addManualIll(){
   const id=S.manualCnt++;
@@ -2236,7 +2345,7 @@ function onManualIllName(id){
 }
 
 function browseManual(id){
-  const inp=document.createElement('input');inp.type='file';inp.accept='.jpg,.jpeg,.png,.gif,.webp';
+  const inp=document.createElement('input');inp.type='file';inp.accept='.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif';
   inp.onchange=()=>{
     if(!inp.files[0]) return;
     S.illFiles.push(inp.files[0]);
@@ -3124,17 +3233,14 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
 
   // 이미지 추가
   const imgStore=new Map();let imgIdx=0;
-  async function addImg(file){
+  async function addImg(file, forCover=false){
     if(!file||imgStore.has(file))return;
-    const ext=file.name.split('.').pop().toLowerCase();
-    let blob=file,mt='image/jpeg',dext=ext;
-    if(ext==='webp'){blob=await fileToJpgBlob(file);mt='image/jpeg';dext='jpg';}
-    else mt={'jpg':'image/jpeg','jpeg':'image/jpeg','png':'image/png','gif':'image/gif'}[ext]||'image/jpeg';
+    const {blob, ext:dext, mt}=await convertImageFile(file, forCover);
     const dest='img_'+String(imgIdx++).padStart(4,'0')+'.'+dext;
     imagesFolder.file(dest,await fileToAB(blob));
     imgStore.set(file,{filename:dest,mt});
   }
-  if(coverFile) await addImg(coverFile);
+  if(coverFile) await addImg(coverFile, true);  // 표지는 항상 JPG 변환
   for(const ills of illMap.flatMap(v=>v)){if(ills) await addImg(ills);}
 
   onProgress&&onProgress(15,'챕터 생성 중...');
@@ -3501,7 +3607,7 @@ function handleBatchTxt(files){
 }
 
 function handleBatchCover(files){
-  const imgs=Array.from(files).filter(f=>/\.(jpg|jpeg|png|webp)$/i.test(f.name));
+  const imgs=Array.from(files).filter(f=>/\.(jpg|jpeg|png|webp|bmp|tiff|tif|avif)$/i.test(f.name));
   imgs.forEach(f=>{const stem=f.name.replace(/\.[^.]+$/,'');B.coverMap[stem]=f;});
   document.getElementById('batchCoverDrop').classList.add('ok');
   document.getElementById('batchCoverDrop').querySelector('div').textContent='✅ '+imgs.length+'개 표지 등록';
@@ -4307,7 +4413,7 @@ const EI={files:[],manualRows:0};
 // editIllDrop 이벤트는 setupEventListeners에서 처리
 
 function handleEditIll(files){
-  const imgs=Array.from(files).filter(f=>/\.(jpg|jpeg|png|gif|webp)$/i.test(f.name));
+  const imgs=Array.from(files).filter(f=>/\.(jpg|jpeg|png|gif|webp|bmp|tiff|tif|avif)$/i.test(f.name));
   if(!imgs.length)return;
   EI.files.push(...imgs);
   renderEditIllTags();
@@ -4316,7 +4422,7 @@ function handleEditIll(files){
 
 function handleInsIll(files){
   // EPUB편집 탭의 삽화 드롭존 - EI.files 공유
-  const imgs=Array.from(files).filter(f=>/\.(jpg|jpeg|png|gif|webp)$/i.test(f.name));
+  const imgs=Array.from(files).filter(f=>/\.(jpg|jpeg|png|gif|webp|bmp|tiff|tif|avif)$/i.test(f.name));
   if(!imgs.length)return;
   EI.files.push(...imgs);
   renderEditIllTags();
@@ -4376,7 +4482,7 @@ function toggleEIM(id){
   document.getElementById('eik_'+id).style.display=(m==='keyword'||m==='title')?'':'none';
 }
 function browseEditIll(id){
-  const inp=document.createElement('input');inp.type='file';inp.accept='.jpg,.jpeg,.png,.gif,.webp';
+  const inp=document.createElement('input');inp.type='file';inp.accept='.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif';
   inp.onchange=()=>{if(inp.files[0]){EI.files.push(inp.files[0]);renderEditIllTags();document.getElementById('eif_'+id).value=inp.files[0].name;}};
   inp.click();
 }
@@ -4412,14 +4518,11 @@ async function insertIllsToEpub(newZip, opfPath, opfBase, illEntries){
     const{file, targetHref, pos}=entry;
     if(!file||!targetHref) continue;
 
-    // 이미지 저장
-    const ext=file.name.split('.').pop().toLowerCase();
-    let blob=file, mt='image/jpeg', dext=ext;
-    if(ext==='webp'){blob=await fileToJpgBlob(file);mt='image/jpeg';dext='jpg';}
-    else mt={'jpg':'image/jpeg','jpeg':'image/jpeg','png':'image/png','gif':'image/gif'}[ext]||'image/jpeg';
+    // 이미지 저장 (convertImageFile로 통일 — 설정에 따라 JPG 변환 or 원본 유지)
+    const {blob:imgBlob, ext:dext, mt}=await convertImageFile(file);
     const imgDest=opfBase+'Images/ill_img_'+String(imgIdx).padStart(4,'0')+'.'+dext;
     const imgRelHref='Images/ill_img_'+String(imgIdx).padStart(4,'0')+'.'+dext;
-    newZip.file(imgDest,await fileToAB(blob));
+    newZip.file(imgDest,await fileToAB(imgBlob));
     const imgId='edit_img_'+String(imgIdx).padStart(4,'0');
     opfText=opfText.replace('</manifest>','<item id="'+imgId+'" href="'+imgRelHref+'" media-type="'+mt+'"/>\n</manifest>');
     imgIdx++;
