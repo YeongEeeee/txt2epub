@@ -288,30 +288,44 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 /* 원본 CSS 옵션 */
 .css-option-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:12px}
 /* 표지 검색 모달 */
-.cover-modal{background:var(--panel);border-radius:var(--radius);max-width:620px;width:94vw;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.35);overflow:hidden}
-.cover-modal-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-.cover-modal-hdr h3{font-size:14px;font-weight:700}
+.cover-modal{background:var(--panel);border-radius:var(--radius);max-width:740px;width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.35);overflow:hidden}
+.cover-modal-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:10px}
+.cover-modal-hdr h3{font-size:14px;font-weight:700;white-space:nowrap}
 .cover-modal-body{overflow-y:auto;flex:1;padding:14px 16px}
-.cover-modal-search{display:flex;gap:6px;margin-bottom:12px}
-.cover-modal-search input{flex:1;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:7px 11px;font-size:13px;color:var(--text);font-family:inherit;outline:none}
+.cover-modal-search{display:flex;gap:6px;margin-bottom:14px}
+.cover-modal-search input{flex:1;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px;color:var(--text);font-family:inherit;outline:none}
 .cover-modal-search input:focus{border-color:var(--accent)}
-/* 플랫폼 탭 */
-.cover-tabs{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap}
-.cover-tab{padding:5px 12px;font-size:12px;font-weight:600;border-radius:99px;border:1.5px solid var(--border);background:none;color:var(--text2);cursor:pointer;font-family:inherit;transition:all .15s}
-.cover-tab.on{background:var(--accent);color:#fff;border-color:var(--accent)}
-.cover-tab:hover:not(.on){border-color:var(--accent);color:var(--accent)}
-/* 검색 결과 그리드 */
-.cover-results{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px;margin-top:6px}
-.cover-result-card{border:2px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;transition:all .18s;background:var(--bg2);position:relative}
-.cover-result-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 4px 16px rgba(0,0,0,.14)}
-.cover-result-card.selected{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-bg)}
-.cover-result-img{width:100%;aspect-ratio:2/3;object-fit:cover;display:block;background:var(--border)}
-.cover-result-title{font-size:10px;padding:4px 5px;line-height:1.3;color:var(--text);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.cover-result-badge{position:absolute;top:4px;left:4px;background:var(--accent);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px}
-.cover-empty{text-align:center;padding:30px 10px;color:var(--text2);font-size:13px}
-.cover-loading{text-align:center;padding:24px;color:var(--text2);font-size:12px}
+/* 플랫폼 섹션 */
+.cover-platform-sec{margin-bottom:18px}
+.cover-platform-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.cover-platform-label{font-size:12px;font-weight:700;color:var(--text)}
+.cover-platform-status{font-size:10px;color:var(--text2)}
+.cover-platform-spinner{width:12px;height:12px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* 결과 가로 스크롤 스트립 */
+.cover-strip{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+.cover-strip::-webkit-scrollbar{height:4px}
+.cover-strip::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
+/* 결과 카드 */
+.cover-result-card{flex-shrink:0;width:90px;border:2px solid var(--border);border-radius:8px;overflow:hidden;cursor:pointer;transition:all .18s;background:var(--bg2);position:relative}
+.cover-result-card:hover{border-color:var(--accent);transform:translateY(-3px);box-shadow:0 6px 18px rgba(0,0,0,.18)}
+.cover-result-img{width:90px;height:128px;object-fit:cover;display:block;background:var(--border)}
+.cover-result-title{font-size:10px;padding:4px 5px;line-height:1.3;color:var(--text);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;min-height:30px}
+.cover-result-badge{position:absolute;top:4px;left:4px;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;color:#fff}
+.cover-result-card .apply-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;opacity:0;transition:opacity .18s;font-size:11px;color:#fff;font-weight:700}
+.cover-result-card:hover .apply-overlay{opacity:1}
+/* 플랫폼별 배지색 */
+.badge-naver{background:#03c75a}
+.badge-ridi{background:#1f8ce6}
+.badge-novelpia{background:#e67e22}
+.badge-google{background:#ea4335}
+/* 외부 링크 폴백 */
+.cover-fallback{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border-radius:8px;border:1px dashed var(--border);font-size:11px;color:var(--text2)}
+.cover-fallback button{font-size:10px;padding:4px 9px;border-radius:5px;border:1.5px solid var(--border);background:none;color:var(--text2);cursor:pointer;font-family:inherit;white-space:nowrap;transition:all .15s}
+.cover-fallback button:hover{border-color:var(--accent);color:var(--accent)}
+/* 플랫폼 링크 */
 .platform-link-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;padding-top:10px;border-top:1px solid var(--border)}
-.platform-link{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:6px;font-size:11px;font-weight:600;text-decoration:none;border:1.5px solid var(--border);color:var(--text2);transition:all .15s;cursor:pointer;background:none;font-family:inherit}
+.platform-link{display:flex;align-items:center;gap:5px;padding:5px 10px;border-radius:6px;font-size:11px;font-weight:600;border:1.5px solid var(--border);color:var(--text2);transition:all .15s;cursor:pointer;background:none;font-family:inherit}
 .platform-link:hover{border-color:var(--accent);color:var(--accent)}
 /* 캐시 초기화 버튼 바 */
 .reset-bar{display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)}
@@ -4554,47 +4568,25 @@ function downloadEditEpub(){
   <div class="cover-modal">
     <div class="cover-modal-hdr">
       <h3>🔍 표지 검색</h3>
+      <div class="cover-modal-search" style="flex:1;margin:0 12px 0 16px">
+        <input id="coverSearchQ" placeholder="소설 제목을 입력하고 Enter..." onkeydown="if(event.key==='Enter')runCoverSearch()">
+        <button class="btn btn-accent btn-sm" onclick="runCoverSearch()" style="white-space:nowrap;padding:7px 14px">검색</button>
+      </div>
       <button class="modal-close" onclick="closeCoverModal()">✕</button>
     </div>
-    <div class="cover-modal-body">
-      <div class="cover-modal-search">
-        <input id="coverSearchQ" placeholder="소설 제목 입력..." onkeydown="if(event.key==='Enter')runCoverSearch()">
-        <button class="btn btn-accent btn-sm" onclick="runCoverSearch()" style="white-space:nowrap">검색</button>
+    <div class="cover-modal-body" id="coverModalBody">
+      <div style="text-align:center;padding:40px 0;color:var(--text2);font-size:13px">
+        소설 제목을 입력하고 검색하면<br>네이버·리디·노벨피아·구글에서 동시 검색해요
       </div>
-      <!-- 플랫폼 탭 -->
-      <div class="cover-tabs">
-        <button class="cover-tab on" data-platform="naver" onclick="switchCoverTab('naver')">📗 네이버 시리즈</button>
-        <button class="cover-tab" data-platform="ridi" onclick="switchCoverTab('ridi')">📘 리디북스</button>
-        <button class="cover-tab" data-platform="novelpia" onclick="switchCoverTab('novelpia')">📙 노벨피아</button>
-        <button class="cover-tab" data-platform="google" onclick="switchCoverTab('google')">🌐 구글 이미지</button>
-      </div>
-      <!-- 결과 영역 -->
-      <div id="coverResultsArea">
-        <div class="cover-empty">위에서 소설 제목을 검색하세요</div>
-      </div>
-      <!-- 선택한 이미지 적용 바 -->
-      <div id="coverApplyBar" style="display:none;margin-top:12px;padding:10px;background:var(--green-bg);border-radius:8px;border:1.5px solid var(--green);display:none;align-items:center;gap:10px;flex-wrap:wrap">
-        <img id="coverApplyThumb" src="" style="width:44px;height:62px;object-fit:cover;border-radius:4px;border:1px solid var(--border)">
-        <div style="flex:1;min-width:0">
-          <div id="coverApplyTitle" style="font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
-          <div id="coverApplyUrl" style="font-size:10px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></div>
-        </div>
-        <button class="btn btn-green" onclick="applyCoverFromModal()">✅ 이 표지 사용</button>
-      </div>
-      <!-- 외부 링크 -->
-      <div class="platform-link-row" id="coverPlatformLinks"></div>
     </div>
   </div>
 </div>
 
 <script>
 // ══════════════════════════════════════════
-// 표지 검색 모달
+// 표지 검색 모달 (전 플랫폼 동시 검색)
 // ══════════════════════════════════════════
-let _coverModalMode='convert'; // 'convert' or 'batch'
-let _coverCurrentPlatform='naver';
-let _coverSelectedUrl='';
-let _coverSelectedTitle='';
+let _coverModalMode='convert';
 
 function saveApiSettings(){
   try{
@@ -4614,222 +4606,289 @@ function loadApiSettings(){
 
 function openCoverModal(mode){
   _coverModalMode=mode;
-  _coverSelectedUrl='';_coverSelectedTitle='';
-  document.getElementById('coverApplyBar').style.display='none';
-  // 제목 자동 채우기
   let q='';
-  if(mode==='convert'){
-    q=document.getElementById('title')?.value.trim()||'';
-  } else {
-    q=B.txtFiles[0]?.name.replace(/\.txt$/i,'').replace(/[@[\]_]/g,' ').trim()||'';
-  }
+  if(mode==='convert') q=document.getElementById('title')?.value.trim()||'';
+  else q=B.txtFiles[0]?.name.replace(/\.txt$/i,'').replace(/[@[\]_-]+/g,' ').trim()||'';
   document.getElementById('coverSearchQ').value=q;
-  document.getElementById('coverResultsArea').innerHTML='<div class="cover-empty">검색 버튼을 눌러주세요</div>';
-  document.getElementById('coverPlatformLinks').innerHTML='';
   document.getElementById('coverModal').classList.add('show');
-  document.querySelectorAll('.cover-tab').forEach(t=>t.classList.toggle('on',t.dataset.platform==='naver'));
-  _coverCurrentPlatform='naver';
-  if(q) setTimeout(()=>runCoverSearch(),80);
+  if(q) setTimeout(()=>runCoverSearch(),100);
+  else document.getElementById('coverModalBody').innerHTML=
+    '<div style="text-align:center;padding:40px 0;color:var(--text2);font-size:13px">소설 제목을 입력하고 검색하면<br>네이버·리디·노벨피아·구글에서 동시 검색해요</div>';
 }
 function closeCoverModal(){
   document.getElementById('coverModal').classList.remove('show');
 }
 
-function switchCoverTab(platform){
-  _coverCurrentPlatform=platform;
-  document.querySelectorAll('.cover-tab').forEach(t=>t.classList.toggle('on',t.dataset.platform===platform));
-  const q=document.getElementById('coverSearchQ').value.trim();
-  if(q) runCoverSearch();
-}
-
-async function runCoverSearch(){
-  const q=document.getElementById('coverSearchQ').value.trim();
-  if(!q) return;
-  const area=document.getElementById('coverResultsArea');
-  area.innerHTML='<div class="cover-loading">🔍 검색 중...</div>';
-  updatePlatformLinks(q);
-
-  if(_coverCurrentPlatform==='naver') await searchNaver(q,area);
-  else if(_coverCurrentPlatform==='ridi') searchExternalOnly('ridi',q,area);
-  else if(_coverCurrentPlatform==='novelpia') searchExternalOnly('novelpia',q,area);
-  else if(_coverCurrentPlatform==='google') openGoogleImages(q,area);
-}
-
-// ── 네이버 책 검색 ──
-async function searchNaver(q, area){
-  const clientId=document.getElementById('naverClientId')?.value.trim();
-  const clientSecret=document.getElementById('naverClientSecret')?.value.trim();
-
-  let items=[];
-  let method='';
-
-  if(clientId&&clientSecret){
-    // 방법 1: API 키 직접 사용 (CORS 때문에 프록시 필요)
-    try{
-      const proxyUrl='https://api.allorigins.win/get?url='+encodeURIComponent(
-        'https://openapi.naver.com/v1/search/book.json?query='+encodeURIComponent(q)+'&display=12&sort=sim'
-      );
-      const res=await fetch(proxyUrl);
-      const data=await res.json();
-      const parsed=JSON.parse(data.contents);
-      items=parsed.items||[];
-      method='네이버 API (프록시)';
-    }catch(e){ method=''; }
-  }
-
-  if(!items.length){
-    // 방법 2: 네이버 책 검색 결과 페이지 파싱 (프록시)
-    try{
-      const proxyUrl='https://api.allorigins.win/get?url='+encodeURIComponent(
-        'https://search.naver.com/search.naver?where=book&sm=tab_jum&query='+encodeURIComponent(q)
-      );
-      const res=await fetch(proxyUrl);
-      const data=await res.json();
-      const parser=new DOMParser();
-      const doc=parser.parseFromString(data.contents,'text/html');
-      const results=doc.querySelectorAll('.book_info,.info_data,.item_info');
-      // 이미지 태그 직접 추출
-      const imgs=doc.querySelectorAll('img[src*="bookcthumb"],img[src*="booksbookthumb"],img[src*="image.aladin"],img[src*="cdn.naver"],.thumb img,.book_img img');
-      imgs.forEach(img=>{
-        const src=img.src||img.getAttribute('data-src')||'';
-        if(src&&src.startsWith('http')){
-          const alt=img.alt||img.title||'';
-          items.push({title:alt||q,image:src,author:'',publisher:''});
-        }
-      });
-      method=items.length?'네이버 검색 파싱':'';
-    }catch(e){}
-  }
-
-  if(!items.length){
-    // 방법 3: 네이버 시리즈 직접 파싱
-    try{
-      const proxyUrl='https://api.allorigins.win/get?url='+encodeURIComponent(
-        'https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel'
-      );
-      const res=await fetch(proxyUrl,{signal:AbortSignal.timeout(6000)});
-      const data=await res.json();
-      const parser=new DOMParser();
-      const doc=parser.parseFromString(data.contents,'text/html');
-      doc.querySelectorAll('.lst_list li,.list_item').forEach(li=>{
-        const img=li.querySelector('img');
-        const titleEl=li.querySelector('.subj,.title,a[href*="/novel/"]');
-        const src=img?.src||img?.getAttribute('data-src')||'';
-        if(src&&src.startsWith('http')){
-          items.push({title:titleEl?.textContent?.trim()||q,image:src,author:'',publisher:'네이버 시리즈'});
-        }
-      });
-      method=items.length?'네이버 시리즈':'';
-    }catch(e){}
-  }
-
-  renderCoverResults(items,area,method,'naver');
-}
-
-// ── 외부 링크만 (리디/노벨피아) ──
-function searchExternalOnly(platform,q,area){
-  const links={
-    ridi:{
-      url:'https://ridibooks.com/search?q='+encodeURIComponent(q)+'&adult_exclude=n',
-      label:'리디북스에서 검색',icon:'📘',
-      hint:'리디북스에서 원하는 표지 이미지를 우클릭 → "이미지 주소 복사" 후 URL 입력란에 붙여넣기'
-    },
-    novelpia:{
-      url:'https://novelpia.com/search/novel?search_string='+encodeURIComponent(q),
-      label:'노벨피아에서 검색',icon:'📙',
-      hint:'노벨피아에서 원하는 표지 이미지를 우클릭 → "이미지 주소 복사" 후 URL 입력란에 붙여넣기'
-    },
-  };
-  const info=links[platform];
-  if(!info){area.innerHTML='';return;}
-  area.innerHTML=
-    '<div style="text-align:center;padding:24px 12px">'+
-    '<div style="font-size:36px;margin-bottom:10px">'+info.icon+'</div>'+
-    '<div style="font-size:13px;font-weight:600;margin-bottom:6px">'+info.label+'</div>'+
-    '<div style="font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.6">'+
-      info.hint+
-    '</div>'+
-    '<button class="btn btn-blue" onclick="window.open(\''+info.url+'\',\'_blank\')">🌐 '+info.label+'</button>'+
-    '<div style="margin-top:16px;font-size:11px;color:var(--text2)">이미지 URL을 복사한 뒤 아래 입력란에 붙여넣고 적용 버튼을 누르세요.</div>'+
-    '</div>';
-}
-
-// ── 구글 이미지 ──
-function openGoogleImages(q,area){
-  const url='https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q+' 표지 소설');
-  area.innerHTML=
-    '<div style="text-align:center;padding:24px 12px">'+
-    '<div style="font-size:36px;margin-bottom:10px">🌐</div>'+
-    '<div style="font-size:13px;font-weight:600;margin-bottom:6px">구글 이미지 검색</div>'+
-    '<div style="font-size:11px;color:var(--text2);margin-bottom:14px;line-height:1.6">'+
-      '구글 이미지에서 원하는 표지를 찾은 뒤<br>이미지 우클릭 → "이미지 주소 복사" → URL 입력란에 붙여넣기'+
-    '</div>'+
-    '<button class="btn btn-blue" onclick="window.open(\''+url+'\',\'_blank\')">🔍 구글 이미지 열기</button>'+
-    '</div>';
-}
-
-// ── 결과 렌더 ──
-function renderCoverResults(items,area,method,platform){
-  if(!items.length){
-    area.innerHTML=
-      '<div class="cover-empty">'+
-        '검색 결과가 없어요.<br>'+
-        '<span style="font-size:11px">다른 탭을 시도하거나 제목을 수정해보세요.</span>'+
-      '</div>';
-    return;
-  }
-  let html='<div style="font-size:10px;color:var(--text2);margin-bottom:6px">'+
-    method+' · '+items.length+'개 결과 · 클릭해서 선택</div>';
-  html+='<div class="cover-results">';
-  items.forEach((item,i)=>{
-    const title=escHtml(item.title||'');
-    const imgUrl=item.image||item.thumbnail||'';
-    const pub=item.publisher?'<br><span style="color:var(--text2)">'+escHtml(item.publisher)+'</span>':'';
-    html+=
-      '<div class="cover-result-card" onclick="selectCoverResult(\''+escHtml(imgUrl)+'\',\''+title+'\','+i+')" id="cr_'+i+'">'+
-        '<img class="cover-result-img" src="'+escHtml(imgUrl)+'" alt="'+title+'" loading="lazy" onerror="this.style.background=\'var(--border)\';this.src=\'\'">'+
-        '<div class="cover-result-title">'+title+pub+'</div>'+
-      '</div>';
-  });
-  html+='</div>';
-  area.innerHTML=html;
-}
-
-function selectCoverResult(url,title,idx){
-  _coverSelectedUrl=url;
-  _coverSelectedTitle=title;
-  document.querySelectorAll('.cover-result-card').forEach((c,i)=>c.classList.toggle('selected',i===idx));
-  const bar=document.getElementById('coverApplyBar');
-  bar.style.display='flex';
-  document.getElementById('coverApplyThumb').src=url;
-  document.getElementById('coverApplyTitle').textContent=title;
-  document.getElementById('coverApplyUrl').textContent=url;
-}
-
-async function applyCoverFromModal(){
-  if(!_coverSelectedUrl){return;}
-  const url=_coverSelectedUrl;
-  // URL에서 blob으로 변환 시도
+// 이미지 클릭 → 즉시 표지 적용 + 모달 닫기
+async function applyCoverCard(url, title){
   const inpId=_coverModalMode==='convert'?'coverUrlInp':'batchCoverUrlInp';
   const thumbId=_coverModalMode==='convert'?'coverThumb':null;
   const nameId=_coverModalMode==='convert'?'coverName':null;
-  // 입력란에 URL 넣고 적용 함수 호출
   const inp=document.getElementById(inpId);
   if(inp) inp.value=url;
-  await applyCoverUrl(inpId,thumbId,nameId,_coverModalMode);
   closeCoverModal();
+  await applyCoverUrl(inpId, thumbId, nameId, _coverModalMode);
 }
 
-function updatePlatformLinks(q){
-  const links=[
-    {label:'네이버 시리즈',url:'https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel'},
-    {label:'리디북스',url:'https://ridibooks.com/search?q='+encodeURIComponent(q)},
-    {label:'노벨피아',url:'https://novelpia.com/search/novel?search_string='+encodeURIComponent(q)},
-    {label:'구글 이미지',url:'https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q+' 소설 표지')},
+// ── 메인 검색: 4개 플랫폼 병렬 실행 ──
+async function runCoverSearch(){
+  const q=document.getElementById('coverSearchQ').value.trim();
+  if(!q) return;
+
+  const PLATFORMS=[
+    {id:'naver',   label:'📗 네이버 시리즈', badge:'badge-naver',   fn:fetchNaver},
+    {id:'ridi',    label:'📘 리디북스',      badge:'badge-ridi',    fn:fetchRidi},
+    {id:'novelpia',label:'📙 노벨피아',       badge:'badge-novelpia',fn:fetchNovelpia},
+    {id:'google',  label:'🌐 구글 이미지',   badge:'badge-google',  fn:fetchGoogle},
   ];
-  const row=document.getElementById('coverPlatformLinks');
-  row.innerHTML='<span style="font-size:10px;color:var(--text2);align-self:center">직접 열기:</span>'+
-    links.map(l=>'<button class="platform-link" onclick="window.open(\''+l.url+'\',\'_blank\')">'+escHtml(l.label)+'↗</button>').join('');
+
+  // 섹션 스켈레톤 생성 + 외부 링크 바
+  const body=document.getElementById('coverModalBody');
+  body.innerHTML=PLATFORMS.map(p=>
+    `<div class="cover-platform-sec" id="sec_${p.id}">
+      <div class="cover-platform-hdr">
+        <span class="cover-platform-label">${p.label}</span>
+        <span class="cover-platform-spinner" id="spin_${p.id}"></span>
+        <span class="cover-platform-status" id="stat_${p.id}">검색 중...</span>
+      </div>
+      <div class="cover-strip" id="strip_${p.id}">
+        ${[0,1,2,3,4].map(()=>'<div style="width:90px;height:158px;background:var(--border);border-radius:8px;flex-shrink:0;animation:fadeUp .6s ease infinite alternate"></div>').join('')}
+      </div>
+    </div>`
+  ).join('')+
+  `<div class="platform-link-row">
+    <span style="font-size:10px;color:var(--text2);align-self:center">직접 열기:</span>
+    ${[
+      ['네이버 시리즈','https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel'],
+      ['리디북스','https://ridibooks.com/search?q='+encodeURIComponent(q)],
+      ['노벨피아','https://novelpia.com/search/novel?search_string='+encodeURIComponent(q)],
+      ['구글 이미지','https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q+' 소설 표지')],
+    ].map(([l,u])=>`<button class="platform-link" onclick="window.open('${u}','_blank')">${escHtml(l)} ↗</button>`).join('')}
+  </div>`;
+
+  // 4개 플랫폼 병렬 실행 — 각자 완료되는 즉시 해당 섹션 업데이트
+  PLATFORMS.forEach(p=>{
+    p.fn(q).then(items=>{
+      renderPlatformStrip(p.id, p.label, p.badge, q, items);
+    }).catch(()=>{
+      renderPlatformFallback(p.id, p.label, q);
+    });
+  });
+}
+
+// ── 각 섹션 렌더 ──
+function renderPlatformStrip(id, label, badgeClass, q, items){
+  const strip=document.getElementById('strip_'+id);
+  const stat=document.getElementById('stat_'+id);
+  const spin=document.getElementById('spin_'+id);
+  if(!strip) return;
+  if(spin) spin.style.display='none';
+
+  if(!items||!items.length){
+    if(stat) stat.textContent='결과 없음';
+    strip.innerHTML=`<div class="cover-fallback">
+      <span>직접 검색 →</span>
+      <button onclick="window.open(getPlatformUrl('${id}','${escHtml(q)}'),'_blank')">🌐 ${escHtml(label)} 열기</button>
+    </div>`;
+    return;
+  }
+  if(stat) stat.textContent=items.length+'개';
+  strip.innerHTML=items.map((item,i)=>{
+    const url=escHtml(item.image||'');
+    const title=(item.title||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+    const titleHtml=escHtml(item.title||'');
+    return `<div class="cover-result-card" onclick="applyCoverCard('${url}','${title}')" title="${titleHtml}">
+      <span class="cover-result-badge ${badgeClass}">${id==='naver'?'N':id==='ridi'?'R':id==='novelpia'?'NP':'G'}</span>
+      <div class="apply-overlay">클릭해서 적용</div>
+      <img class="cover-result-img" src="${url}" alt="${titleHtml}" loading="lazy"
+           onerror="this.parentElement.style.display='none'">
+      <div class="cover-result-title">${titleHtml}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderPlatformFallback(id, label, q){
+  const strip=document.getElementById('strip_'+id);
+  const stat=document.getElementById('stat_'+id);
+  const spin=document.getElementById('spin_'+id);
+  if(spin) spin.style.display='none';
+  if(stat) stat.textContent='크롤링 실패';
+  if(strip) strip.innerHTML=`<div class="cover-fallback">
+    <span>사이트에서 직접 검색 후 이미지 URL 복사</span>
+    <button onclick="window.open(getPlatformUrl('${id}','${escHtml(q)}'),'_blank')">🌐 ${escHtml(label)} 열기</button>
+  </div>`;
+}
+
+function getPlatformUrl(id,q){
+  const urls={
+    naver:'https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel',
+    ridi:'https://ridibooks.com/search?q='+encodeURIComponent(q),
+    novelpia:'https://novelpia.com/search/novel?search_string='+encodeURIComponent(q),
+    google:'https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q+' 소설 표지'),
+  };
+  return urls[id]||'#';
+}
+
+// ══════════════════════════════════════════
+// 플랫폼별 크롤링 함수
+// ══════════════════════════════════════════
+const PROXY='https://api.allorigins.win/get?url=';
+
+async function proxyFetch(url, timeout=8000){
+  const res=await fetch(PROXY+encodeURIComponent(url),{signal:AbortSignal.timeout(timeout)});
+  const data=await res.json();
+  return data.contents||'';
+}
+
+// ── 네이버 시리즈 ──
+async function fetchNaver(q){
+  const clientId=document.getElementById('naverClientId')?.value.trim();
+  const clientSecret=document.getElementById('naverClientSecret')?.value.trim();
+
+  // 1) 네이버 오픈API (키 있을 때)
+  if(clientId&&clientSecret){
+    try{
+      const html=await proxyFetch(
+        'https://openapi.naver.com/v1/search/book.json?query='+encodeURIComponent(q)+'&display=15&sort=sim'
+        +'|'+clientId+'|'+clientSecret // allorigins는 헤더 불가 → 직접 전달 불가, 아래 파싱으로 대체
+      );
+      // allorigins는 헤더를 붙일 수 없어 API 직접 호출 불가 → 무시하고 파싱으로
+    }catch(e){}
+  }
+
+  // 2) 네이버 시리즈 검색 결과 파싱
+  const html=await proxyFetch(
+    'https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel'
+  );
+  const doc=new DOMParser().parseFromString(html,'text/html');
+  const items=[];
+  // 다양한 셀렉터로 포괄적 추출
+  doc.querySelectorAll('.lst_list li, .search_lst li, .list_item, .item').forEach(li=>{
+    const img=li.querySelector('img');
+    const titleEl=li.querySelector('.subj,.title,strong,a');
+    const src=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
+    if(src&&src.startsWith('http')&&!src.includes('static')&&!src.includes('icon')){
+      items.push({title:titleEl?.textContent?.trim()||q, image:src});
+    }
+  });
+  // 이미지 태그 전체 fallback
+  if(!items.length){
+    doc.querySelectorAll('img').forEach(img=>{
+      const src=img.getAttribute('src')||img.getAttribute('data-src')||'';
+      if(src&&src.startsWith('http')&&(src.includes('thumb')||src.includes('cover')||src.includes('book'))){
+        const alt=img.alt||img.title||'';
+        if(alt||true) items.push({title:alt||q, image:src});
+      }
+    });
+  }
+  return items.slice(0,12);
+}
+
+// ── 리디북스 ──
+async function fetchRidi(q){
+  const html=await proxyFetch(
+    'https://ridibooks.com/search?q='+encodeURIComponent(q)+'&adult_exclude=n'
+  );
+  const doc=new DOMParser().parseFromString(html,'text/html');
+  const items=[];
+  // 리디 검색 결과 구조
+  doc.querySelectorAll('.SearchBookList_book__N_OdA, .book_list li, [class*="book_item"], [class*="BookItem"]').forEach(el=>{
+    const img=el.querySelector('img');
+    const titleEl=el.querySelector('[class*="title"],[class*="Title"],h3,h4,strong');
+    const src=img?.getAttribute('src')||img?.getAttribute('data-src')||img?.getAttribute('data-original')||'';
+    if(src&&src.startsWith('http')){
+      items.push({title:titleEl?.textContent?.trim()||q, image:src});
+    }
+  });
+  if(!items.length){
+    doc.querySelectorAll('img').forEach(img=>{
+      const src=img.getAttribute('src')||img.getAttribute('data-src')||'';
+      if(src&&src.startsWith('http')&&(src.includes('thumb')||src.includes('cover')||src.includes('cdn.ridi'))){
+        items.push({title:img.alt||q, image:src});
+      }
+    });
+  }
+  return items.slice(0,12);
+}
+
+// ── 노벨피아 ──
+async function fetchNovelpia(q){
+  // 노벨피아는 SPA이므로 API 엔드포인트 직접 시도
+  try{
+    const html=await proxyFetch(
+      'https://novelpia.com/proc/novel_list?search_type=all&search_string='+encodeURIComponent(q)+'&page=1&page_limit=12'
+    );
+    // JSON 응답일 경우 파싱
+    try{
+      const json=JSON.parse(html);
+      const list=json.list||json.data||json.novels||[];
+      if(list.length){
+        return list.slice(0,12).map(n=>({
+          title:n.title||n.novel_name||q,
+          image:n.cover||n.img||n.thumbnail||''
+        })).filter(i=>i.image);
+      }
+    }catch(e){}
+    // HTML 응답일 경우 파싱
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const items=[];
+    doc.querySelectorAll('img').forEach(img=>{
+      const src=img.getAttribute('src')||img.getAttribute('data-src')||'';
+      if(src&&(src.startsWith('http')||src.startsWith('/'))&&(src.includes('cover')||src.includes('novel')||src.includes('thumb'))){
+        const fullSrc=src.startsWith('/')?'https://novelpia.com'+src:src;
+        items.push({title:img.alt||q, image:fullSrc});
+      }
+    });
+    if(items.length) return items.slice(0,12);
+  }catch(e){}
+  // fallback: 검색 페이지
+  try{
+    const html2=await proxyFetch('https://novelpia.com/search/novel?search_string='+encodeURIComponent(q));
+    const doc=new DOMParser().parseFromString(html2,'text/html');
+    const items=[];
+    doc.querySelectorAll('.novel-item,.list-item,[class*="novel"]').forEach(el=>{
+      const img=el.querySelector('img');
+      const src=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
+      if(src&&src.startsWith('http')){
+        items.push({title:img?.alt||el.querySelector('h3,h4,strong')?.textContent||q, image:src});
+      }
+    });
+    return items.slice(0,12);
+  }catch(e){ return []; }
+}
+
+// ── 구글 이미지 커스텀 검색 (공개 크롤링) ──
+async function fetchGoogle(q){
+  // 구글 이미지 결과 페이지 프록시 파싱
+  try{
+    const html=await proxyFetch(
+      'https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q+' 소설 표지 일러스트')+'&num=12'
+    );
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const items=[];
+    // 인코딩된 이미지 URL 추출 (구글 결과 페이지)
+    const text=doc.body?.innerHTML||html;
+    const matches=[...text.matchAll(/"(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi)];
+    const seen=new Set();
+    for(const m of matches){
+      const url=m[1];
+      if(!seen.has(url)&&!url.includes('gstatic')&&!url.includes('google.com/logos')){
+        seen.add(url);
+        items.push({title:q, image:url});
+        if(items.length>=12) break;
+      }
+    }
+    // 이미지 태그 fallback
+    if(!items.length){
+      doc.querySelectorAll('img[src]').forEach(img=>{
+        const src=img.getAttribute('src')||'';
+        if(src.startsWith('http')&&!src.includes('gstatic')&&src.length>30){
+          items.push({title:img.alt||q, image:src});
+        }
+      });
+    }
+    return items.slice(0,12);
+  }catch(e){ return []; }
 }
 </script>
 </body>
