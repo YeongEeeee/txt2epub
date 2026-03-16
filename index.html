@@ -1665,7 +1665,23 @@ function splitChapters(raw,customPat){
     try{rx=new RegExp(customPat.trim(),'i');}catch(e){rx=null;}
   }
   if(!rx){const r=bestPat(raw);rx=r.rx;}
-  if(!rx) return[['본문',raw.trim()]];
+
+  // ── 패턴 없음 폴백: 일정 줄 수 단위로 페이지 분할 (텍스트 전체 보존) ──
+  if(!rx){
+    const rawLines=raw.split('\n');
+    const totalLines=rawLines.length;
+    // 파일 크기에 따라 페이지당 줄 수 조정 (작은 파일은 크게, 큰 파일은 작게)
+    const PAGE_LINES=Math.max(200, Math.min(500, Math.floor(totalLines/20)));
+    const chapters=[];
+    for(let i=0;i<totalLines;i+=PAGE_LINES){
+      const slice=rawLines.slice(i,i+PAGE_LINES).join('\n').trim();
+      if(!slice) continue;
+      const pageNum=Math.floor(i/PAGE_LINES)+1;
+      const totalPages=Math.ceil(totalLines/PAGE_LINES);
+      chapters.push([pageNum===1&&totalPages===1?'본문':`(${pageNum}/${totalPages})`, slice]);
+    }
+    return chapters.length?chapters:[['본문',raw.trim()]];
+  }
 
   const rawLines=raw.split('\n');
   const chapters=[];
@@ -2631,7 +2647,11 @@ function extractTotalFromFilename(filename){
 // tocItems(간격분할 결과)를 [heading, body] 쌍으로 조립
 function buildChaptersFromTocItems(lines, tocItems){
   const enabled=tocItems.filter(t=>t.enabled);
-  if(!enabled.length) return [['본문', lines.join('\n').trim()]];
+  // enabled 항목이 없으면 페이지 분할 폴백
+  if(!enabled.length){
+    const raw=lines.join('\n');
+    return splitChapters(raw,''); // splitChapters의 페이지 분할 폴백 사용
+  }
   const chapters=[];
   for(let i=0;i<enabled.length;i++){
     const item=enabled[i];
@@ -2724,13 +2744,21 @@ async function previewToc(){
   S.tocItems=found;
   renderTocItems();
 
-  // 감지 실패 시 자동 간격 분할 버튼 노출
+  // 감지 실패 시 안내 메시지 (변환은 정상 작동)
   if(!found.length){
     const c=document.getElementById('tb0');
     c.insertAdjacentHTML('beforeend',
-      '<div style="margin-top:12px;padding:12px;background:var(--bg2);border-radius:8px;border:1.5px dashed var(--border);text-align:center">'+
-      '<div style="font-size:12px;color:var(--text2);margin-bottom:8px">패턴을 찾지 못했어요.<br>총 화수를 입력하면 줄 간격으로 자동 분할할 수 있어요.</div>'+
-      '<button class="btn btn-blue btn-sm" onclick="autoSplitByInterval()">⚡ 자동 간격 분할</button>'+
+      '<div style="margin-top:12px;padding:12px;background:var(--blue-bg);border-radius:8px;border:1.5px solid var(--blue)">'+
+      '<div style="font-size:12px;font-weight:600;color:var(--blue);margin-bottom:6px">ℹ️ 챕터 패턴을 감지하지 못했어요</div>'+
+      '<div style="font-size:11px;color:var(--text2);line-height:1.7">'+
+        '하지만 <b>텍스트 전체는 그대로 EPUB에 포함</b>돼요.<br>'+
+        '목차 없이 변환하면 일정 줄 수 단위로 자동 페이지 분할해 저장해요.<br>'+
+        '목차 이동이 필요하면 아래에서 패턴을 직접 입력하거나 간격 분할을 사용하세요.'+
+      '</div>'+
+      '<div style="display:flex;gap:8px;margin-top:8px">'+
+        '<button class="btn btn-ghost btn-sm" onclick="tocTab(3)">✏️ 패턴 직접 입력</button>'+
+        '<button class="btn btn-blue btn-sm" onclick="autoSplitByInterval()">⚡ 간격 분할</button>'+
+      '</div>'+
       '</div>'
     );
   }
@@ -3310,7 +3338,10 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
 
     const fname='chapter_'+String(idx).padStart(4,'0')+'.xhtml';
     const chid='ch_'+String(idx).padStart(4,'0');
-    textFolder.file(fname,xhtmlPage(heading,(showChTitle?'<h1>'+escHtml(heading)+'</h1>\n':'')+bodyToHtml(body)));
+    // 패턴 미감지 자동 페이지 분할 챕터는 제목 표시 안 함 (텍스트 우선)
+    const isAutoPage=/^\(\d+\/\d+\)$/.test(heading)||heading==='본문';
+    const showTitle=showChTitle&&!isAutoPage;
+    textFolder.file(fname,xhtmlPage(heading,(showTitle?'<h1>'+escHtml(heading)+'</h1>\n':'')+bodyToHtml(body)));
     manifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
     if(heading!=='서문') spineItems.push(chid);
 
@@ -3328,7 +3359,15 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
 
   onProgress&&onProgress(82,'목차 생성 중...');
 
-  function tocLabel(idx,h){return chHasIll[idx]?h+' 삽화':h;}
+  function tocLabel(idx,h){
+    if(chHasIll[idx]) return h+' 삽화';
+    // 자동 페이지 분할 챕터 — 목차에서 "1페이지", "2페이지" 등으로 표시
+    if(/^\(\d+\/\d+\)$/.test(h)){
+      const m=h.match(/\((\d+)\/(\d+)\)/);
+      return m?m[1]+'페이지':h;
+    }
+    return h;
+  }
   // NCX
   let ncx='<?xml version="1.0" encoding="utf-8"?>\n<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n<head><meta name="dtb:uid" content="'+uid+'"/></head>\n<docTitle><text>'+escHtml(title)+'</text></docTitle>\n<navMap>\n';
   let order=1;
@@ -3429,7 +3468,10 @@ async function startConvert(){
     setProgress(100,'완료! ('+elapsed+'초)');
     document.getElementById('resultMsg').textContent=S.epubName;
     showResultStats('resultStats',[
-      {label:'챕터',value:chapters.filter(([h])=>h!=='서문').length+'개'},
+      {
+        label: /^\(\d+\/\d+\)$/.test(chapters.filter(([h])=>h!=='서문')[0]?.[0]||'') ? '페이지' : '챕터',
+        value: chapters.filter(([h])=>h!=='서문').length+'개'
+      },
       {label:'파일 크기',value:(blob.size/1024/1024).toFixed(1)+'MB'},
       {label:'소요 시간',value:elapsed+'초'},
     ]);
