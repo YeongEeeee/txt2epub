@@ -764,7 +764,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="toggle-row">
       <div>
         <label for="optImgConvert">🖼 삽화 이미지 JPG 변환</label>
-        <small>PNG·GIF·WebP 등을 모두 JPG로 변환해요 (호환성 최대화)<br>OFF 시 원본 형식 그대로 삽입 (용량 최적화)</small>
+        <small>PNG·GIF·WebP 등을 모두 JPG로 변환해요 (호환성 최대화)<br>OFF 시 원본 형식 그대로 삽입 (용량 최적화) · 표지는 항상 JPG로 변환</small>
       </div>
       <label class="sw"><input type="checkbox" id="optImgConvert" checked onchange="saveExtraSettings();renderIllTags()"><span class="sw-slider"></span></label>
     </div>
@@ -2301,6 +2301,7 @@ function renderIllTags(){
     t.className='tag';
     t.style.cssText='display:flex;align-items:center;gap:5px;padding:4px 8px';
     t.title=f.name+(needsConvert?' (변환 예정)':'');
+    t.dataset.idx=i; // ★ 인덱스 명시 저장
 
     // 썸네일
     const thumb=document.createElement('img');
@@ -2308,20 +2309,34 @@ function renderIllTags(){
     thumb.alt=f.name;
     const url=URL.createObjectURL(f);
     thumb.src=url;
-    thumb.onload=()=>{}; 
-    thumb.onerror=()=>{thumb.style.display='none';};
-    // 메모리 해제는 태그 제거 시
     thumb.dataset.objUrl=url;
+    thumb.onerror=()=>{thumb.style.display='none';};
 
-    t.innerHTML=`<span style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px">${escHtml(f.name)}</span>${fmtBadge}<span class="x" onclick="removeIll(${i})">✕</span>`;
-    t.insertBefore(thumb,t.firstChild);
+    const label=document.createElement('span');
+    label.style.cssText='max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px';
+    label.textContent=f.name;
+
+    const badge=document.createElement('span');
+    badge.innerHTML=fmtBadge;
+
+    const x=document.createElement('span');
+    x.className='x';
+    x.textContent='✕';
+    x.onclick=()=>removeIll(i);
+
+    t.appendChild(thumb);
+    t.appendChild(label);
+    t.appendChild(badge);
+    t.appendChild(x);
     c.appendChild(t);
   });
 }
+
 function removeIll(i){
-  // 썸네일 Object URL 해제
-  const tags=document.getElementById('illTags').querySelectorAll('img[data-obj-url]');
-  if(tags[i]) URL.revokeObjectURL(tags[i].dataset.objUrl);
+  // data-idx로 정확한 썸네일 찾아서 URL 해제
+  const tag=document.getElementById('illTags').querySelector(`[data-idx="${i}"]`);
+  const thumb=tag?.querySelector('img[data-obj-url]');
+  if(thumb) URL.revokeObjectURL(thumb.dataset.objUrl);
   S.illFiles.splice(i,1);
   renderIllTags();
   if(!S.illFiles.length)document.getElementById('illDz').className='dz';
@@ -2679,11 +2694,15 @@ async function getCachedChapters(){
 
   const key=S.txtFiles.map(f=>f.name+f.size).join('|');
   const pat=document.getElementById('pattern')?.value.trim()||'';
-  const cacheKey=key+pat;
+  // ★ disabled 상태도 캐시 키에 포함 (체크 해제하면 캐시 무효화)
+  const disabledKey=S.tocItems.filter(t=>!t.enabled).map(t=>t.title).join('|');
+  const cacheKey=key+'::'+pat+'::'+disabledKey;
   if(_chaptersCache&&_chaptersCacheKey===cacheKey) return _chaptersCache;
 
   try{
-    const raw=await fileToText(S.txtFiles[0]);
+    const sorted=[...S.txtFiles].sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
+    const raws=await Promise.all(sorted.map(fileToText));
+    const raw=raws.join('\n\n');
     _chaptersCache=splitChapters(raw,pat);
     _chaptersCacheKey=cacheKey;
   }catch(e){
@@ -2704,13 +2723,14 @@ async function previewToc(){
   _autoSplitActive=false;
   _autoSplitLines=null;
 
-  // 전체 파일 텍스트 로드 (패턴 감지 + 미리보기 모두 전체 기준)
+  // 전체 파일 텍스트 로드 (다중 파일 모두 합산)
   let text;
   try{
-    text=await fileToText(S.txtFiles[0]);
+    const sorted=[...S.txtFiles].sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
+    const raws=await Promise.all(sorted.map(f=>fileToText(f).catch(()=>sampleLines(f))));
+    text=raws.join('\n\n');
   }catch(e){
-    // 로드 실패 시 샘플로 폴백
-    text=await sampleLines(S.txtFiles[0]);
+    text=await sampleLines(S.txtFiles[0]).catch(()=>'');
   }
   _fullRawLines=text.split('\n');
 
@@ -2738,7 +2758,8 @@ async function previewToc(){
   found=found.map((f,fi)=>{
     const nextLine=found[fi+1]?found[fi+1].line-1:_fullRawLines.length;
     const bodyLen=_fullRawLines.slice(f.line,nextLine).join('').replace(/\s/g,'').length;
-    return {...f,enabled:true,suspicious:bodyLen<50&&fi<found.length-1};
+    // ★ originalTitle 초기화 (인라인 편집 추적용)
+    return {...f,enabled:true,suspicious:bodyLen<50&&fi<found.length-1,originalTitle:f.title};
   });
 
   S.tocItems=found;
@@ -2820,7 +2841,10 @@ function renderTocItems(){
     titleInp.title='클릭해서 제목 편집';
     titleInp.addEventListener('click',e=>e.stopPropagation());
     titleInp.addEventListener('change',e=>{
-      S.tocItems[i].title=e.target.value.trim()||item.title;
+      const newTitle=e.target.value.trim()||item.title;
+      // ★ 처음 편집 시 originalTitle 저장 (splitChapters 제목 매핑용)
+      if(!S.tocItems[i].originalTitle) S.tocItems[i].originalTitle=S.tocItems[i].title;
+      S.tocItems[i].title=newTitle;
     });
     titleInp.addEventListener('keydown',e=>{
       if(e.key==='Enter'){e.target.blur();}
@@ -2966,8 +2990,7 @@ function guessPatternFromExample(ex){
   if(/^.{2,20}\s+\d+화/.test(ex)){
     const prefix=ex.replace(/\s+\d+화.*$/,'').trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     return '^'+prefix+'\\s+\\d+화(?:\\s*.+)?$';
-  }
-  // Chapter N / Part N
+  }  // Chapter N / Part N
   if(/^(?:chapter|part|ch)\s*\d+/i.test(ex))
     return '^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$';
   // #N. 제목
@@ -3140,7 +3163,10 @@ async function autoSplitByInterval(){
     if(!ok) return;
   }
 
-  const raw=await fileToText(S.txtFiles[0]);
+  // ★ startConvert와 동일하게 다중 파일 모두 join
+  const sorted=[...S.txtFiles].sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
+  const raws=await Promise.all(sorted.map(fileToText));
+  const raw=raws.join('\n\n');
   const lines=raw.split('\n');
   const totalLines=lines.length;
 
@@ -3269,7 +3295,7 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
     imgStore.set(file,{filename:dest,mt});
   }
   if(coverFile) await addImg(coverFile, true);  // 표지는 항상 JPG 변환
-  for(const ills of illMap.flatMap(v=>v)){if(ills) await addImg(ills);}
+  for(const il of illMap){if(il&&il.file) await addImg(il.file);}
 
   onProgress&&onProgress(15,'챕터 생성 중...');
   const manifestItems=[],spineItems=[],uid=crypto.randomUUID(),today=new Date().toISOString().slice(0,10);
@@ -3421,16 +3447,38 @@ async function startConvert(){
 
     let chapters;
     if(_autoSplitActive&&_autoSplitLines&&S.tocItems.length>0){
-      // 간격 분할 모드: tocItems 기반 챕터 조립 (enabled 상태 반영)
+      // 간격 분할 모드: tocItems 기반 챕터 조립 (enabled + 편집된 제목 반영)
       chapters=buildChaptersFromTocItems(_autoSplitLines, S.tocItems);
-      // disabled 챕터 병합 (간격 분할은 이미 enabled 필터 적용됨)
     } else {
       chapters=splitChapters(raw,customPat);
+      // ★ 인라인 편집된 tocItems 제목 반영 (originalTitle → 편집된 title)
+      if(S.tocItems.length>0){
+        const editedMap=new Map();
+        S.tocItems.forEach(t=>{
+          if(t.originalTitle&&t.title!==t.originalTitle) editedMap.set(t.originalTitle,t.title);
+        });
+        if(editedMap.size>0){
+          chapters=chapters.map(([h,b])=>[editedMap.has(h)?editedMap.get(h):h, b]);
+        }
+      }
+      // disabled 챕터는 인접 챕터 본문에 병합
       if(disabledTitles.size>0){
         const merged=[];let pb='';
         for(const[h,b]of chapters){
-          if(disabledTitles.has(h)){pb+=(pb?'\n\n':'')+h+'\n'+b;}
-          else{if(pb&&merged.length>0){merged[merged.length-1][1]+='\n\n'+pb;pb='';}merged.push([h,b]);}
+          if(disabledTitles.has(h)){
+            pb+=(pb?'\n\n':'')+h+'\n'+b;
+          } else {
+            if(pb&&merged.length>0){
+              merged[merged.length-1][1]+='\n\n'+pb;
+              pb='';
+            } else if(pb){
+              // 아직 merged 없음 → 이 챕터 본문 앞에 붙임
+              merged.push([h, pb+'\n\n'+b]);
+              pb='';
+              continue;
+            }
+            merged.push([h,b]);
+          }
         }
         if(pb&&merged.length>0) merged[merged.length-1][1]+='\n\n'+pb;
         chapters=merged;
