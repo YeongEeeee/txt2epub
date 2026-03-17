@@ -430,8 +430,13 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <!-- 스마트 패턴 입력 -->
     <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
       <span style="font-size:11px;color:var(--text2);white-space:nowrap;flex-shrink:0">💡 예시 입력:</span>
-      <input class="inp" id="smartPatInput" placeholder="예) [EP.001] 또는 1화 제목 또는 Chapter 1 — 입력하면 정규식으로 자동 변환" style="font-size:12px" oninput="smartPatConvert()">
-      <span id="smartPatResult" style="font-size:11px;color:var(--accent);white-space:nowrap;font-family:monospace;max-width:200px;overflow:hidden;text-overflow:ellipsis"></span>
+      <input class="inp" id="smartPatInput" placeholder="예) 00001  제로 코드... / [EP.001] / 1화 제목 / Chapter 1" style="font-size:12px" oninput="smartPatConvert()">
+    </div>
+    <!-- 변환 결과 인라인 표시 (입력 바로 아래) -->
+    <div id="smartPatResultBox" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:7px;display:none;align-items:center;gap:8px;flex-wrap:wrap">
+      <span style="font-size:10px;color:var(--text2);flex-shrink:0">변환된 정규식:</span>
+      <code id="smartPatResult" style="font-size:11px;color:var(--accent);font-family:monospace;flex:1;word-break:break-all;min-width:0"></code>
+      <button class="btn btn-accent btn-sm" id="smartPatApplyBtn" onclick="applySmartPat()" style="flex-shrink:0;font-size:11px;padding:4px 10px">✅ 적용</button>
     </div>
     <div class="pat-helper" id="patHelper">
       <span style="font-size:11px;color:var(--text2);align-self:center">빠른 선택:</span>
@@ -502,11 +507,10 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div class="dz" id="illDz">
       <div class="dz-icon">🖼</div>
       <div class="dz-text">삽화 이미지 드래그하거나 클릭</div>
-      <div class="dz-sub">16.jpg → 16번째 챕터 앞에 삽입 · 198_1.jpg, 198_2.jpg → 순서대로 · PNG·GIF·WebP 지원</div>
+      <div class="dz-sub">16.jpg → 16화 앞에 삽입 · 198_1.jpg, 198_2.jpg → 순서대로 · PNG·GIF·WebP 지원</div>
     </div>
     <input type="file" id="illIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
     <div id="illTags" class="tags" style="margin-top:8px"></div>
-    <div id="illOverflowWarn" style="display:none;margin-top:8px;background:var(--yellow-bg);border-left:3px solid var(--accent2);border-radius:0 6px 6px 0;padding:7px 11px;font-size:11px;color:var(--yellow);line-height:1.6"></div>
     <div style="margin:12px 0 8px;border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;color:var(--text2)">추가 삽화 (수동)</div>
     <div id="manualIlls"></div>
     <button class="btn btn-ghost btn-sm" onclick="addManualIll()">＋ 수동 삽화 추가</button>
@@ -1032,6 +1036,7 @@ const PAT_PRESETS = [
   {label:'[ 파일명.txt ] 형식', val:'^\\[\\s*.+\\.txt\\s*\\]\\s*$'},
   {label:'[EP.N] 형식',        val:'^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$'},
   {label:'[Prologue] 형식',    val:'^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$'},
+  {label:'NNN  제목 형식',     val:'^\\d{3,6}\\s{2,}.+$'},
   {label:'화 번호 (#N화 포함)', val:'^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
   {label:'소설(숫자)',          val:'^.{1,60}\\s*\\(\\d+\\)\\s*$'},
   {label:'숫자만',              val:'^\\d+$'},
@@ -1550,6 +1555,7 @@ const PATS=[
   [/^\[(?:EP|Ep|ep)\.\d+\](?:\s*.+)?$/,               '[EP.N] 형식'],
   [/^\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\s*.+)?\](?:\s*.+)?$/i, '[Prologue] 형식'],
   [/^\[\s*.+\.txt\s*\]\s*$/i,                         '[ 파일명.txt ] 형식'],
+  [/^\d{3,6}\s{2,}.+$/,                               'NNN  제목 형식 (zero-pad)'],
   [/^={2,}\s*\[제\s*\d+\s*화\]\s*={0,}$/i,       '=== [제N화] ==='],
   [/^#?(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,           '화 번호'],
   [/^.{1,60}\s*\(\d+\)\s*$/,                       '소설제목(숫자)'],
@@ -2942,70 +2948,104 @@ function applyPat(){document.getElementById('pattern').value=document.getElement
 function smartPatConvert(){
   const raw=document.getElementById('smartPatInput')?.value||'';
   const t=raw.trim();
+  const resultBox=document.getElementById('smartPatResultBox');
+  const resultEl=document.getElementById('smartPatResult');
   if(!t){
-    document.getElementById('smartPatResult').textContent='';
+    resultBox.style.display='none';
     return;
   }
   const rx=guessPatternFromExample(t);
-  const resultEl=document.getElementById('smartPatResult');
   if(rx){
-    resultEl.textContent='→ '+rx;
-    resultEl.title=rx;
-    resultEl.style.cursor='pointer';
-    resultEl.onclick=()=>{
-      document.getElementById('pattern').value=rx;
-      clearChipSelection('patHelper');
-      previewToc();
-      document.getElementById('smartPatInput').value='';
-      resultEl.textContent='✅ 적용됨';
-      setTimeout(()=>{resultEl.textContent='';},1500);
-    };
+    resultEl.textContent=rx;
+    resultBox.style.display='flex';
   } else {
-    resultEl.textContent='(인식 불가)';
-    resultEl.onclick=null;
+    resultEl.textContent='(인식 불가 — 정규식 수정 탭에서 직접 입력)';
+    resultBox.style.borderColor='var(--border)';
+    resultBox.style.display='flex';
+    document.getElementById('smartPatApplyBtn').style.display='none';
+    return;
   }
+  resultBox.style.borderColor='var(--accent)';
+  document.getElementById('smartPatApplyBtn').style.display='';
+}
+
+function applySmartPat(){
+  const rx=document.getElementById('smartPatResult')?.textContent;
+  if(!rx||rx.startsWith('(')) return;
+  document.getElementById('pattern').value=rx;
+  clearChipSelection('patHelper');
+  document.getElementById('smartPatInput').value='';
+  document.getElementById('smartPatResultBox').style.display='none';
+  previewToc();
 }
 
 // 예시 문자열에서 정규식 추론
 function guessPatternFromExample(ex){
-  // [EP.001] / [EP.1] / [ep.12]
+  // ── 1. Zero-padded 숫자 + 공백2개 이상 + 제목 (예: 00001  제로 코드...)
+  if(/^\d{3,6}\s{2,}/.test(ex)){
+    const m=ex.match(/^(\d+)\s{2,}/);
+    const digits=m[1].length;
+    // 고정 자릿수라면 정확히 N자리, 아니면 \d+ 사용
+    const numPat=m[1].startsWith('0')
+      ? `\\d{${digits}}`   // zero-padded → 고정 자릿수
+      : '\\d+';
+    return `^${numPat}\\s{2,}.+$`;
+  }
+
+  // ── 2. [EP.001] / [EP.1] / [ep.12]
   if(/^\[(?:EP|Ep|ep)\.\d+\]/.test(ex))
     return '^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$';
-  // [Prologue] / [Epilogue] / [Side Story] 등 대괄호 영문 단어
+
+  // ── 3. [Prologue] / [Epilogue] / [Side Story] 등 대괄호 영문 단어
   if(/^\[[A-Za-z가-힣]/.test(ex)&&/\]/.test(ex)){
-    // 숫자 없는 특수 챕터
     if(!/\d/.test(ex))
       return '^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$';
-    // 숫자 포함 대괄호 형식 — 일반화
     const inner=ex.replace(/^\[/,'').replace(/\].*$/,'').trim();
     const prefix=inner.replace(/\d+.*$/,'').trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     return '^\\['+prefix+'\\d+\\](?:\\s*.+)?$';
   }
-  // N화 / 제N화 / #N화
+
+  // ── 4. N화 / 제N화 / #N화
   if(/^#?(?:제\s*)?\d+\s*화/.test(ex))
     return '^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$';
-  // N. 제목
-  if(/^\d+\.\s+/.test(ex))
-    return '^\\d+\\.\\s+.{1,60}$';
-  // 소설명+N화 (예: EX급 마법사의 귀환 001화)
-  if(/^.{2,20}\s+\d+화/.test(ex)){
+
+  // ── 5. 소설명+N화 (예: EX급 마법사의 귀환 001화) — N화보다 앞에 검사
+  if(/^.{2,30}\s+\d+화/.test(ex)){
     const prefix=ex.replace(/\s+\d+화.*$/,'').trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
     return '^'+prefix+'\\s+\\d+화(?:\\s*.+)?$';
-  }  // Chapter N / Part N
+  }
+
+  // ── 6. N. 제목 (숫자+점+공백)
+  if(/^\d+\.\s+/.test(ex))
+    return '^\\d+\\.\\s+.{1,60}$';
+
+  // ── 7. Chapter N / Part N / Ch N
   if(/^(?:chapter|part|ch)\s*\d+/i.test(ex))
     return '^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$';
-  // #N. 제목
+
+  // ── 8. #N. 제목
   if(/^#\d+\.\s+/.test(ex))
     return '^#\\d+\\.\\s+.{1,60}$';
-  // 숫자만
+
+  // ── 9. 숫자만 한 줄
   if(/^\d+$/.test(ex))
     return '^\\d+$';
-  // 프롤로그/에필로그류
+
+  // ── 10. 프롤로그/에필로그류
   if(/^(?:프롤로그|에필로그|외전|후일담|prologue|epilogue)/i.test(ex))
     return '^(?:프롤로그|에필로그|외전|후일담|prologue|epilogue)(?:\\s*.+)?$';
-  // 소설(숫자) → 제목 (N)
+
+  // ── 11. 소설(숫자) → 제목 (N)
   if(/\(\d+\)\s*$/.test(ex))
     return '^.{1,60}\\s*\\(\\d+\\)\\s*$';
+
+  // ── 12. 숫자 + 공백1개 이상 + 제목 (일반형 — 위에서 미처리된 경우)
+  if(/^\d+\s+\S/.test(ex)){
+    const m=ex.match(/^(\d+)\s+/);
+    const numPat=m[1].startsWith('0')&&m[1].length>1?`\\d{${m[1].length}}`:'\\d+';
+    return `^${numPat}\\s+.+$`;
+  }
+
   return null;
 }
 
@@ -3206,6 +3246,16 @@ async function autoSplitByInterval(){
 
   for(let ch=0;ch<totalChapters;ch++){
     const center=ch*interval;
+
+    // ★ 첫 번째 챕터는 항상 파일의 첫 비어있지 않은 줄
+    if(ch===0){
+      const firstNonEmpty=lines.findIndex(l=>l.trim().length>0);
+      const lineNum=firstNonEmpty>=0?firstNonEmpty+1:1;
+      const title=lines[firstNonEmpty]?.trim()||'챕터 1';
+      found.push({line:lineNum,title,enabled:true,autoSplit:true});
+      continue;
+    }
+
     // 검색 범위: 해당 구간 전체 (±interval/2)
     const winStart=Math.max(0,center-10);
     const winEnd=Math.min(totalLines,center+interval/2);
@@ -3334,72 +3384,12 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
     return html;
   }
 
-  // ── 삽화 인덱스 기반 매핑 전처리 ──
-  // autoIlls에서 ch 값이 챕터 제목 번호와 매칭 안 될 경우를 위해
-  // "N번째 챕터" 인덱스 기반 매칭 지원
-  // 서문을 제외한 실제 챕터 목록 (0-based index)
-  const realChapterIndices = chapters.reduce((acc, [h], i) => {
-    if (h !== '서문') acc.push(i);
-    return acc;
-  }, []);
-  const realChapterCount = realChapterIndices.length;
-
-  // autoIlls 각 항목에 대해 fallback 인덱스 매핑 설정
-  // il.ch 로 챕터 제목 숫자 매칭이 안 되는 경우, il.ch를 "N번째 챕터" 인덱스로 사용
-  // 목차 개수 초과 삽화는 마지막 챕터에 배치 + 경고 수집
-  const illOverflowWarnings = [];
-  for (const il of illMap) {
-    if (il.ch != null && !il.kw) {
-      // il.chIdx: chapters 배열에서 실제 매핑될 인덱스 (0-based)
-      // 1) 챕터 제목 번호 직접 매칭 (기존 방식)
-      const titleMatchIdx = chapters.findIndex(([h]) => extractChNum(h) === il.ch);
-      if (titleMatchIdx !== -1) {
-        il._resolvedIdx = titleMatchIdx;
-      } else {
-        // 2) N번째 챕터 인덱스 매칭 (30.jpg → 30번째 실제 챕터)
-        const nthIdx = il.ch - 1; // 1-based → 0-based
-        if (nthIdx >= 0 && nthIdx < realChapterCount) {
-          il._resolvedIdx = realChapterIndices[nthIdx];
-        } else if (realChapterCount > 0) {
-          // 3) 목차 개수 초과 → 마지막 챕터에 배치
-          il._resolvedIdx = realChapterIndices[realChapterCount - 1];
-          illOverflowWarnings.push(
-            il.file?.name || String(il.ch)
-          );
-        }
-      }
-    }
-  }
-  // 초과 삽화 경고 출력 (콘솔 + UI 알림)
-  if (illOverflowWarnings.length > 0) {
-    console.warn('[삽화] 목차 초과 삽화 (마지막 챕터에 배치):', illOverflowWarnings);
-    const warnEl = document.getElementById('illOverflowWarn');
-    if (warnEl) {
-      warnEl.textContent = '⚠️ 목차 수('+realChapterCount+'화)를 초과하는 삽화 '+illOverflowWarnings.length+'개가 마지막 챕터에 배치되었습니다: '+illOverflowWarnings.join(', ');
-      warnEl.style.display = 'block';
-    }
-  } else {
-    const warnEl = document.getElementById('illOverflowWarn');
-    if (warnEl) warnEl.style.display = 'none';
-  }
-
-  // ── 챕터별 삽화 매핑 (개선된 매칭 함수) ──
-  function illMatchesChapter(il, idx, cn, body) {
-    // _resolvedIdx가 설정된 경우 인덱스 직접 비교
-    if (il._resolvedIdx !== undefined) return il._resolvedIdx === idx;
-    // 키워드 매칭
-    if (!il.ch && il.kw && body.includes(il.kw)) return true;
-    // 기존 제목 번호 매칭 (fallback)
-    if (il.ch != null && il.ch === cn) return true;
-    return false;
-  }
-
   // 챕터별 삽화 매핑
   const chNums={},chHasIll={};
   for(let idx=0;idx<chapters.length;idx++){
     const[h,b]=chapters[idx];
     const cn=extractChNum(h);chNums[idx]=cn;
-    const ills=illMap.filter(il=>illMatchesChapter(il,idx,cn,b));
+    const ills=illMap.filter(il=>il.ch===cn||(!il.ch&&il.kw&&b.includes(il.kw)));
     chHasIll[idx]=ills.length>0;
   }
 
@@ -3409,8 +3399,8 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
     if(idx%50===0) onProgress&&onProgress(15+Math.floor(idx/tot*65),'챕터 생성 중 ('+idx+'/'+tot+')...');
     const[heading,body]=chapters[idx];
     const cn=chNums[idx];
-    const beforeIlls=illMap.filter(il=>illMatchesChapter(il,idx,cn,body)&&il.pos!=='after').map(il=>il.file);
-    const afterIlls=illMap.filter(il=>illMatchesChapter(il,idx,cn,body)&&il.pos==='after').map(il=>il.file);
+    const beforeIlls=illMap.filter(il=>(il.ch===cn||(il.kw&&body.includes(il.kw)))&&il.pos!=='after').map(il=>il.file);
+    const afterIlls=illMap.filter(il=>(il.ch===cn||(il.kw&&body.includes(il.kw)))&&il.pos==='after').map(il=>il.file);
 
     if(heading!=='서문'){
       for(const f of beforeIlls){
