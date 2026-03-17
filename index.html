@@ -616,6 +616,20 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       <button class="btn-reset" onclick="resetEditEpub()">✕ EPUB 파일 초기화</button>
       <button class="btn-reset danger" onclick="resetEditAll()">🔄 전체 초기화</button>
     </div>
+    <!-- 이미지 추출 버튼 (EPUB 로드 후 표시) -->
+    <div id="extractImgBar" style="display:none;margin-top:10px;padding:10px 0 4px;border-top:1px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:3px">🖼 이미지 추출</div>
+          <div style="font-size:11px;color:var(--text2)" id="extractImgInfo">EPUB 내 이미지를 챕터명으로 추출해요</div>
+        </div>
+        <button class="btn btn-blue" id="extractImgBtn" onclick="extractEpubImages()">📦 이미지 추출</button>
+      </div>
+      <div id="extractImgProgress" style="display:none;margin-top:8px">
+        <div class="prog-bg" style="height:4px"><div class="prog-bar" id="extractProgBar" style="width:0%"></div></div>
+        <div id="extractProgMsg" style="font-size:11px;color:var(--text2);margin-top:4px"></div>
+      </div>
+    </div>
   </div>
 </div>
 <div class="sec" id="editSec" style="display:none">
@@ -1041,11 +1055,14 @@ const PAT_PRESETS = [
   {label:'소설(숫자)',          val:'^.{1,60}\\s*\\(\\d+\\)\\s*$'},
   {label:'숫자만',              val:'^\\d+$'},
   {label:'Chapter N',          val:'^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$'},
+  {label:'EP/Ch/Scene N',      val:'^(?:EP|제|Chapter|Ch|디|Scene|Prologue)\\.?\\s*\\d+'},
+  {label:'N. 제목',            val:'^\\d{1,3}\\.\\s*.+$'},
+  {label:'N권',                val:'^\\d+권(?:\\s*.+)?$'},
+  {label:'제목+구분선',         val:'^.+[=\\-]{3,}$'},
   {label:'# 제목',             val:'^#{1,3}\\s*.+$'},
   {label:'【제목】',            val:'^【.+】.*$'},
   {label:'=== [제N화] ===',    val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$'},
   {label:'N부 M화',            val:'^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$'},
-  {label:'N. 제목',            val:'^\\d+\\.\\s+.{1,60}$'},
   {label:'#N. 제목',           val:'^#\\d+\\.\\s+.{1,60}$'},
   {label:'소설명+N화',          val:'^.{2,15}\\s+\\d+화$'},
 ];
@@ -1556,17 +1573,23 @@ const PATS=[
   [/^\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\s*.+)?\](?:\s*.+)?$/i, '[Prologue] 형식'],
   [/^\[\s*.+\.txt\s*\]\s*$/i,                         '[ 파일명.txt ] 형식'],
   [/^\d{3,6}\s{2,}.+$/,                               'NNN  제목 형식 (zero-pad)'],
-  [/^={2,}\s*\[제\s*\d+\s*화\]\s*={0,}$/i,       '=== [제N화] ==='],
-  [/^#?(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,           '화 번호'],
-  [/^.{1,60}\s*\(\d+\)\s*$/,                       '소설제목(숫자)'],
-  [/^(?:chapter|part|ch)\s*\d+(?:\s*.+)?$/i,       'Chapter/Part'],
-  [/^[1-9]부\s+(?:\d+화|프롤로그)(?:\s*.+)?$/,     'N부 M화'],
-  [/^#\d+\.\s+.{1,60}$/,                           '#N. 제목'],
-  [/^(?:제\s*\d+\s*장|第\s*\d+\s*章)(?:\s*.+)?$/,  '장 번호'],
+  [/^={2,}\s*\[제\s*\d+\s*화\]\s*={0,}$/i,            '=== [제N화] ==='],
+  [/^#?(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,               '화 번호'],
+  [/^.{1,60}\s*\(\d+\)\s*$/,                          '소설제목(숫자)'],
+  [/^(?:chapter|part|ch)\s*\d+(?:\s*.+)?$/i,          'Chapter/Part'],
+  [/^[1-9]부\s+(?:\d+화|프롤로그)(?:\s*.+)?$/,         'N부 M화'],
+  [/^#\d+\.\s+.{1,60}$/,                              '#N. 제목'],
+  [/^(?:제\s*\d+\s*장|第\s*\d+\s*章)(?:\s*.+)?$/,      '장 번호'],
   [/^(?:프롤로그|에필로그|외전|후일담|prologue|epilogue)(?:\s*.+)?$/i, '프롤로그류'],
-  [/^(?:서장|종장)(?:\s*.+)?$/,                     '서장/종장'],
-  [/^【.+】.*$/,                                    '타이틀'],
-  [/^#{1,3}\s*.+$/,                                 '# 제목'],
+  [/^(?:서장|종장)(?:\s*.+)?$/,                         '서장/종장'],
+  [/^【.+】.*$/,                                        '타이틀'],
+  [/^#{1,3}\s*.+$/,                                    '# 제목'],
+  // ── 추가 패턴 ──
+  [/^(?:EP|제|Chapter|Ch|디|Scene|Prologue)\.?\s*\d+/i,'EP/Ch/Scene N 시작'],
+  [/^\d{1,3}\.\s*.+$/,                                'N. 제목 (짧은 번호)'],
+  [/^\d+권(?:\s*.+)?$/,                                'N권 형식'],
+  [/^.*[=\-]{3,}$/,                                   '제목+구분선(===,--)'],
+  [/^\((?:외전|번외|특별편|side|bonus)\)/i,             '(외전/번외) 형식'],
 ];
 
 // N. 제목 패턴: 줄 간격 필터 포함 (본문 내 번호 목록과 구별)
@@ -1869,6 +1892,8 @@ function resetEditEpub(){
   document.getElementById('epubDrop').className='epub-drop';
   document.getElementById('epubInfo').style.display='none';
   document.getElementById('epubInfo').textContent='';
+  const eb=document.getElementById('extractImgBar');if(eb)eb.style.display='none';
+  const ep=document.getElementById('extractImgProgress');if(ep)ep.style.display='none';
   ['editSec','insertSec','editIllSec','insTocSec'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
   document.getElementById('editResetBar').style.display='none';
 }
@@ -4287,6 +4312,11 @@ async function loadEpub(file){
       })
   );
   document.getElementById('epubInfo').textContent='✅ '+file.name+' ('+E.chapters.length+'개 챕터)';
+  // 이미지 추출 버튼 표시
+  const extractBar=document.getElementById('extractImgBar');
+  if(extractBar) extractBar.style.display='block';
+  document.getElementById('extractImgInfo').textContent=
+    `EPUB 내 이미지를 챕터명으로 추출해요 (${E.chapters.length}개 챕터 로드됨)`;
   // 기본값: 마지막 챕터 뒤
   E.selectedChIdx=E.chapters.length-1;
   document.querySelector('input[name="insPos"][value="after"]').checked=true;
@@ -4298,6 +4328,167 @@ async function loadEpub(file){
     const lastCh=E.chapters[E.chapters.length-1];
     document.getElementById('insertPos').innerHTML=
       '📍 <b>'+escHtml(lastCh.title)+'</b> <span style="color:var(--accent)">뒤</span>에 삽입 <span style="font-size:10px;color:var(--text2)">(기본값 - 클릭해서 변경)</span>';
+  }
+}
+
+// ══════════════════════════════════════════
+// EPUB 이미지 추출
+// ══════════════════════════════════════════
+async function extractEpubImages(){
+  if(!E.epubZip||!E.chapters.length){
+    alert('EPUB 파일을 먼저 불러주세요.');return;
+  }
+
+  const btn=document.getElementById('extractImgBtn');
+  const progress=document.getElementById('extractImgProgress');
+  const progBar=document.getElementById('extractProgBar');
+  const progMsg=document.getElementById('extractProgMsg');
+  const infoEl=document.getElementById('extractImgInfo');
+
+  btn.disabled=true;
+  btn.textContent='추출 중...';
+  progress.style.display='block';
+  progBar.style.width='0%';
+
+  try{
+    // ── 1. OPF에서 이미지 파일 목록 수집 ──
+    const container=await E.epubZip.file('META-INF/container.xml').async('text');
+    const opfPath=container.match(/full-path="([^"]+)"/)[1];
+    const opfBase=opfPath.replace(/[^/]+$/,'');
+    const opfText=await E.epubZip.file(opfPath).async('text');
+
+    // manifest에서 이미지 항목만 추출
+    const imgManifest={}; // id → href
+    for(const m of opfText.matchAll(/<item[^>]+id="([^"]+)"[^>]+href="([^"]+)"[^>]+media-type="(image\/[^"]+)"/g)){
+      imgManifest[m[1]]={href:opfBase+m[2], mt:m[3]};
+    }
+    // href를 절대경로 키로 역매핑
+    const imgByHref={};
+    for(const[id,info] of Object.entries(imgManifest)){
+      imgByHref[info.href.replace(/\/\//g,'/')]={id,mt:info.mt};
+    }
+
+    // ── 2. 각 챕터 xhtml에서 img src 추출 → 챕터 매핑 ──
+    // chapterImages: [{chTitle, imgHref}]
+    const chapterImages=[]; // {chTitle, imgHref, ext}
+
+    progMsg.textContent='챕터 분석 중...';
+    for(let ci=0;ci<E.chapters.length;ci++){
+      progBar.style.width=Math.round(ci/E.chapters.length*50)+'%';
+      const ch=E.chapters[ci];
+      let xhtml='';
+      try{ xhtml=await E.epubZip.file(ch.href).async('text'); }catch(e){ continue; }
+
+      // img src 추출 (src="..." or src='...')
+      const imgRefs=[...xhtml.matchAll(/(?:src|xlink:href)=["']([^"']+\.(jpe?g|png|gif|webp|svg|avif))["']/gi)];
+      for(const m of imgRefs){
+        // 상대경로 → 절대경로
+        const srcRel=m[1];
+        let absHref;
+        if(srcRel.startsWith('http')){
+          absHref=srcRel;
+        } else {
+          const chDir=ch.href.replace(/[^/]+$/,'');
+          absHref=(chDir+srcRel).replace(/[^/]+\/\.\.\//g,'').replace(/\/\//g,'/');
+        }
+        // 이 href가 실제 EPUB 내부 이미지인지 확인
+        if(E.epubZip.file(absHref)||imgByHref[absHref]){
+          const ext=srcRel.split('.').pop().toLowerCase();
+          chapterImages.push({chTitle:ch.title, imgHref:absHref, ext});
+        }
+      }
+    }
+
+    if(!chapterImages.length){
+      infoEl.textContent='⚠️ 이미지를 찾지 못했어요 (표지·내부 삽화 없음)';
+      progress.style.display='none';
+      btn.disabled=false;
+      btn.textContent='📦 이미지 추출';
+      return;
+    }
+
+    progMsg.textContent=`${chapterImages.length}개 이미지 압축 중...`;
+    progBar.style.width='55%';
+
+    // ── 3. 챕터별 이미지 번호 카운터 ──
+    const chCounter={};
+    const fileEntries=[]; // {filename, href}
+
+    for(const{chTitle, imgHref, ext} of chapterImages){
+      // 파일명에 사용할 수 없는 문자 제거
+      const safeTitle=chTitle
+        .replace(/[\\/:*?"<>|]/g,'_')
+        .replace(/\s+/g,' ')
+        .trim()
+        .slice(0,60); // 최대 60자
+
+      if(!(safeTitle in chCounter)) chCounter[safeTitle]=0;
+      chCounter[safeTitle]++;
+
+      // 첫 번째 이미지는 그냥 제목, 2번째부터 _N 붙임
+      const cnt=chCounter[safeTitle];
+      const filename=cnt===1
+        ? `${safeTitle}.${ext}`
+        : `${safeTitle}_${cnt}.${ext}`;
+
+      fileEntries.push({filename, href:imgHref});
+    }
+
+    // ── 4. 중복 파일명 처리 ──
+    // (같은 제목의 챕터가 여러 개면 번호 카운터가 이미 처리함)
+    // 단, 아예 동일한 imgHref가 중복 등록된 경우 제거
+    const seenHrefs=new Set();
+    const uniqueEntries=fileEntries.filter(e=>{
+      if(seenHrefs.has(e.href)) return false;
+      seenHrefs.add(e.href);
+      return true;
+    });
+
+    // ── 5. JSZip으로 압축 ──
+    const outZip=new JSZip();
+    let done=0;
+    for(const{filename, href} of uniqueEntries){
+      progBar.style.width=(55+Math.round(done/uniqueEntries.length*40))+'%';
+      progMsg.textContent=`이미지 추출 중 (${done+1}/${uniqueEntries.length}): ${filename}`;
+      try{
+        const blob=await E.epubZip.file(href).async('arraybuffer');
+        outZip.file(filename, blob);
+      }catch(e){
+        console.warn('이미지 추출 실패:', href, e);
+      }
+      done++;
+    }
+
+    progBar.style.width='97%';
+    progMsg.textContent='ZIP 생성 중...';
+
+    const zipBlob=await outZip.generateAsync({
+      type:'blob',
+      compression:'STORE' // 이미지는 이미 압축됨
+    });
+
+    progBar.style.width='100%';
+
+    // ── 6. 다운로드 ──
+    const epubName=(E.epubFile?.name||'epub').replace(/\.epub$/i,'');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(zipBlob);
+    a.download=epubName+'_images.zip';
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href),3000);
+
+    const totalImgs=uniqueEntries.length;
+    infoEl.textContent=`✅ ${totalImgs}개 이미지 추출 완료 (${(zipBlob.size/1024).toFixed(0)}KB)`;
+    progMsg.textContent=`완료! ${totalImgs}개 이미지가 ZIP으로 다운로드됩니다.`;
+
+  }catch(e){
+    console.error('이미지 추출 실패:', e);
+    progMsg.textContent='❌ 오류: '+e.message;
+    infoEl.textContent='⚠️ 이미지 추출 중 오류 발생';
+  }finally{
+    btn.disabled=false;
+    btn.textContent='📦 이미지 추출';
+    progBar.style.width='100%';
   }
 }
 
