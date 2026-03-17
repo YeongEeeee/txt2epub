@@ -1205,10 +1205,19 @@ const StateManager = (() => {
   const _stores = {};
 
   function create(name, initialState) {
-    let _state = { ...initialState };
+    // _state는 객체 직접 참조 — push/splice 등 배열 변형 메서드 정상 동작
+    const _state = { ...initialState };
+    // 배열 값은 초기화 시 원본 참조 유지
+    Object.keys(initialState).forEach(k => {
+      if (Array.isArray(initialState[k])) _state[k] = [...initialState[k]];
+    });
     const _subscribers = [];
 
-    function get() { return { ..._state }; }
+    // ref(): 내부 state 직접 참조 반환 (배열 변형용)
+    function ref() { return _state; }
+
+    // get(): 안전한 shallow copy 반환 (읽기 전용용)
+    function get() { return _state; }  // 직접 참조 반환으로 변경
 
     function set(patch) {
       const prev = { ..._state };
@@ -1218,7 +1227,16 @@ const StateManager = (() => {
     }
 
     function reset() {
-      set({ ...initialState });
+      // 배열 초기화 시 기존 참조 유지하며 비움
+      Object.keys(initialState).forEach(k => {
+        if (Array.isArray(initialState[k])) {
+          _state[k].length = 0;  // 참조 유지하며 배열 비움
+          _state[k].push(...initialState[k]);
+        } else {
+          _state[k] = initialState[k];
+        }
+      });
+      _subscribers.forEach(fn => { try { fn(_state, _state); } catch(e){} });
     }
 
     function subscribe(fn) {
@@ -1226,7 +1244,7 @@ const StateManager = (() => {
       return () => { const i = _subscribers.indexOf(fn); if(i>-1) _subscribers.splice(i,1); };
     }
 
-    _stores[name] = { get, set, reset, subscribe };
+    _stores[name] = { get, ref, set, reset, subscribe };
     return _stores[name];
   }
 
@@ -1712,6 +1730,16 @@ function setupEventDelegate(){
 
     // ── 분리 ZIP 다운로드 ──
     downloadSplitZip: () => downloadSplitZip(),
+
+    // ── 수동 삽화 행 삭제 (동적 생성 버튼) ──
+    removeManualIllRow: (el) => {
+      const row = document.getElementById(el.dataset.rowId);
+      if (row) row.remove();
+    },
+    removeEditIllRow: (el) => {
+      const row = document.getElementById(el.dataset.rowId);
+      if (row) row.remove();
+    },
   });
 
   // EventDelegate 전역 클릭 위임 시작
@@ -1733,12 +1761,10 @@ function setupEventDelegate(){
   });
 
   // ── StateManager 구독: 탭별 UI 자동 갱신 예시 ──
-  _sStore.subscribe((state, prev) => {
+  _sStore.subscribe((state) => {
     // 변환탭 상태 변경 시 리셋바 표시 여부 자동 갱신
-    if (state.txtFiles !== prev.txtFiles || state.coverFile !== prev.coverFile) {
-      const bar = document.getElementById('convertResetBar');
-      if (bar) bar.style.display = (state.txtFiles.length || state.coverFile) ? 'flex' : 'none';
-    }
+    const bar = document.getElementById('convertResetBar');
+    if (bar) bar.style.display = (state.txtFiles.length || state.coverFile) ? 'flex' : 'none';
   });
 }
 
@@ -2870,7 +2896,7 @@ function addManualIllRow(containerId){
       '<button class="btn btn-ghost btn-sm" onclick="browseManual('+id+')">찾기</button>'+
       '<input type="number" placeholder="중심 화 번호" id="mc'+id+'" style="width:90px" min="1" oninput="loadIllRange('+id+')">'+
       '<select id="mpos'+id+'"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
-      '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" onclick="document.getElementById('mr'+id+'').remove()">✕</button>'+
+      '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" data-action="removeManualIllRow" data-row-id="mr'+id+'">✕</button>'+
     '</div>'+
     '<div class="mill-preview" id="mpv'+id+'">'+
       '<div style="font-size:11px;color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>'+
@@ -5359,7 +5385,6 @@ async function startEditEpub(){
 // ══════════════════════════════════════════
 // 🖼  Module: IllustInsert (삽화 삽입·매핑)
 // ══════════════════════════════════════════
-const EI={files:[],manualRows:0};
 
 // editIllDrop / insIllDrop 이벤트는 setupEventListeners에서 처리
 
@@ -5396,7 +5421,7 @@ function addEditIllRow(){
     '<input type="number" placeholder="화 번호" id="eic_'+id+'" style="width:78px" min="1">'+
     '<input placeholder="키워드/제목" id="eik_'+id+'" style="flex:1;min-width:80px;display:none">'+
     '<select id="eip_'+id+'"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
-    '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" onclick="document.getElementById(\'eir_'+id+'\').remove()">✕</button>';
+    '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" data-action="removeEditIllRow" data-row-id="eir_'+id+'">✕</button>';
   c.appendChild(r);
 }
 function toggleEIM(id){
