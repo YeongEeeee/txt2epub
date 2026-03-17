@@ -1727,6 +1727,17 @@ function setupEventDelegate(){
 
     // ── TOC 동적 버튼 ──
     toggleAllToc:  (el) => toggleAllToc(el.dataset.val === 'true'),
+    removeAllSuspicious: () => {
+      // suspicious 각 항목의 다음 항목(오감지)을 뒤에서부터 제거
+      const indices=[];
+      S.tocItems.forEach((t,i)=>{ if(t.suspicious && i+1<S.tocItems.length) indices.push(i+1); });
+      const toRemove=[...new Set(indices)].sort((a,b)=>b-a);
+      toRemove.forEach(i=>S.tocItems.splice(i,1));
+      renderTocItems();
+      updateTocStat();
+      document.getElementById('susp-toast')?.remove();
+      if(toRemove.length>0) Toast.success('오감지 챕터 '+toRemove.length+'개를 목차에서 제거했어요.');
+    },
 
     // ── 분리 ZIP 다운로드 ──
     downloadSplitZip: () => downloadSplitZip(),
@@ -3342,6 +3353,66 @@ async function previewToc(){
     if(found.length>0){splitBtn.style.opacity='0.4';splitBtn.title='패턴 자동 감지 성공 — 간격 분할 불필요';}
     else{splitBtn.style.opacity='1';splitBtn.style.color='var(--blue)';splitBtn.title='패턴 감지 실패 — 줄 간격으로 자동 분할';}
   }
+
+  // ── 본문 짧음 감지 Toast 알림 ──
+  const suspCount=found.filter(t=>t.suspicious).length;
+  if(suspCount>0){
+    showSuspiciousToast(suspCount);
+  }
+}
+
+// 본문 짧음 Toast 알림 (목차 확인 완료 후 호출)
+function showSuspiciousToast(count){
+  // 기존 suspicious toast 제거
+  document.getElementById('susp-toast')?.remove();
+
+  const el=document.createElement('div');
+  el.id='susp-toast';
+  el.style.cssText=
+    'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9000;'+
+    'background:var(--panel);border:1.5px solid var(--accent2);border-radius:12px;'+
+    'padding:12px 18px;display:flex;align-items:center;gap:12px;'+
+    'box-shadow:0 4px 24px rgba(0,0,0,.18);font-family:inherit;'+
+    'animation:toastIn .25s ease;max-width:420px;width:90vw';
+  el.innerHTML=
+    '<span style="font-size:18px;flex-shrink:0">⚠️</span>'+
+    '<div style="flex:1;min-width:0">'+
+      '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:3px">'+
+        '본문 짧음 챕터 '+count+'개 감지</div>'+
+      '<div style="font-size:11px;color:var(--text2);line-height:1.5">'+
+        '목차에서 ⚠ 배지를 확인하세요. 오감지일 경우 제거할 수 있어요.'+
+      '</div>'+
+    '</div>'+
+    '<div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">'+
+      '<button id="susp-remove-all-btn" class="btn btn-sm" '+
+        'style="font-size:11px;background:var(--accent);color:#fff;border-radius:7px;padding:5px 10px;white-space:nowrap">'+
+        '전체 제거</button>'+
+      '<button id="susp-toast-close" class="btn btn-ghost btn-sm" '+
+        'style="font-size:11px;border-radius:7px;padding:4px 10px">'+
+        '닫기</button>'+
+    '</div>';
+
+  document.body.appendChild(el);
+
+  // 전체 제거 버튼 — suspicious 각 항목의 '다음 항목'(오감지)을 제거
+  el.querySelector('#susp-remove-all-btn').addEventListener('click', ()=>{
+    // 뒤에서부터 제거해야 인덱스 밀림 없음
+    const indices=[];
+    S.tocItems.forEach((t,i)=>{ if(t.suspicious && i+1<S.tocItems.length) indices.push(i+1); });
+    // 중복 제거 후 내림차순
+    const toRemove=[...new Set(indices)].sort((a,b)=>b-a);
+    toRemove.forEach(i=>S.tocItems.splice(i,1));
+    renderTocItems();
+    updateTocStat();
+    el.remove();
+    Toast.success('오감지 챕터 '+toRemove.length+'개를 목차에서 제거했어요.');
+  });
+
+  // 닫기
+  el.querySelector('#susp-toast-close').addEventListener('click', ()=>el.remove());
+
+  // 10초 후 자동 닫기
+  setTimeout(()=>el?.remove(), 10000);
 }
 
 function renderTocItems(){
@@ -3397,13 +3468,52 @@ function renderTocItems(){
       if(e.key==='Escape'){e.target.value=S.tocItems[i].title;e.target.blur();}
     });
 
-    // 오감지 배지
+    // 오감지 배지 + 제거 버튼
     if(item.suspicious){
+      // ── 본문 짧음 경고 배지 ──
       const badge=document.createElement('span');
-      badge.style.cssText='font-size:9px;background:#fff3cd;color:#856404;border-radius:3px;padding:1px 5px;flex-shrink:0;white-space:nowrap';
-      badge.textContent='⚠ 본문 짧음';
-      badge.title='이 챕터의 본문이 매우 짧아 오감지일 수 있어요';
-      d.appendChild(handle);d.appendChild(chk);d.appendChild(num);d.appendChild(titleInp);d.appendChild(badge);
+      badge.style.cssText=
+        'font-size:9px;background:#fff3cd;color:#856404;border-radius:3px;'+
+        'padding:1px 6px;flex-shrink:0;white-space:nowrap;cursor:default;'+
+        'border:1px solid #f0c040;display:inline-flex;align-items:center;gap:3px';
+      badge.innerHTML='<span>⚠</span><span>본문 짧음</span>';
+      badge.title='이 챕터 본문이 50자 미만이에요 — 오감지일 수 있어요';
+
+      // ── 개별 제거 버튼 ──
+      const removeBtn=document.createElement('button');
+      removeBtn.className='btn btn-sm';
+      removeBtn.style.cssText=
+        'font-size:9px;padding:1px 7px;flex-shrink:0;'+
+        'background:var(--accent-bg);color:var(--accent);'+
+        'border:1px solid var(--accent);border-radius:4px;line-height:1.5;'+
+        'white-space:nowrap;transition:all .15s';
+      removeBtn.innerHTML='✕&nbsp;제거';
+      removeBtn.title='이 항목을 목차에서 제거합니다';
+      removeBtn.addEventListener('mouseenter',()=>{
+        removeBtn.style.background='var(--accent)';
+        removeBtn.style.color='#fff';
+      });
+      removeBtn.addEventListener('mouseleave',()=>{
+        removeBtn.style.background='var(--accent-bg)';
+        removeBtn.style.color='var(--accent)';
+      });
+      removeBtn.addEventListener('click', e=>{
+        e.stopPropagation();
+        const idx=S.tocItems.indexOf(item);
+        // suspicious 항목(idx) 다음 항목(idx+1)이 오감지 — 그것을 제거
+        if(idx>=0 && idx+1 < S.tocItems.length) S.tocItems.splice(idx+1, 1);
+        renderTocItems();
+        updateTocStat();
+        const remaining=S.tocItems.filter(t=>t.suspicious).length;
+        if(remaining===0) document.getElementById('susp-toast')?.remove();
+        else {
+          const countEl=document.querySelector('#susp-toast b');
+          if(countEl) countEl.textContent=remaining;
+        }
+      });
+
+      d.appendChild(handle);d.appendChild(chk);d.appendChild(num);
+      d.appendChild(titleInp);d.appendChild(badge);d.appendChild(removeBtn);
     } else {
       d.appendChild(handle);d.appendChild(chk);d.appendChild(num);d.appendChild(titleInp);
     }
@@ -3468,8 +3578,21 @@ function updateTocStat(){
   const stat=document.getElementById('toc-stat'); if(!stat) return;
   const total=S.tocItems.length;
   const active=S.tocItems.filter(t=>t.enabled).length;
-  stat.innerHTML='<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="true">전체 선택</button>'+
+  const suspCount=S.tocItems.filter(t=>t.suspicious).length;
+
+  // 일괄 제거 버튼 — '본문 짧음' 항목이 있을 때만 표시
+  const suspBtn=suspCount>0
+    ? '<button class="btn btn-sm" data-action="removeAllSuspicious" '+
+      'style="font-size:10px;background:var(--accent-bg);color:var(--accent);'+
+      'border:1px solid var(--accent);border-radius:5px;display:inline-flex;align-items:center;gap:4px"'+
+      ' title="본문 짧음 항목을 목차에서 모두 제거합니다">'+
+      '<span>⚠</span><span>본문 짧음 '+suspCount+'개 전체 제거</span></button>'
+    : '';
+
+  stat.innerHTML=
+    '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="true">전체 선택</button>'+
     '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="false">전체 해제</button>'+
+    suspBtn+
     '<span style="font-size:11px;color:var(--text2);margin-left:auto">총 '+total+'개 · 활성 '+active+'개</span>';
 }
 function toggleTocItem(i,v){S.tocItems[i].enabled=v;renderTocItems();}
@@ -3923,6 +4046,9 @@ async function autoSplitByInterval(){
   tocTab(0);
   document.getElementById('tb2').innerHTML='<pre class="toc-raw">'+
     lines.map((l,i)=>String(i+1).padStart(4,' ')+' | '+escHtml(l)).join('\n')+'</pre>';
+  // 자동 분할 결과 중 본문 짧음 감지
+  const _autoSuspCount=S.tocItems.filter(t=>t.suspicious).length;
+  if(_autoSuspCount>0) showSuspiciousToast(_autoSuspCount);
 }
 
 // ══════════════════════════════════════════
