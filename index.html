@@ -2933,6 +2933,19 @@ function renderIllTags(){
     label.style.cssText='max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px';
     label.textContent=f.name;
 
+    // 챕터 인덱스 배지 — 파일명에서 파싱해서 어느 챕터에 삽입될지 표시
+    const stem=f.name.replace(/\.[^.]+$/,'');
+    const mi=stem.match(/^(\d+)(?:_(\d+))?/);
+    const chIdxBadge=mi ? (()=>{
+      const chIdx=parseInt(mi[1]);      // 1-based 표시용
+      const sub=mi[2]?('-'+parseInt(mi[2])):'';
+      const b=document.createElement('span');
+      b.style.cssText='font-size:9px;background:var(--accent-bg);color:var(--accent);border-radius:3px;padding:1px 5px;font-weight:700;flex-shrink:0;white-space:nowrap';
+      b.textContent=chIdx+'번째'+sub;
+      b.title=chIdx+'번째 챕터 앞에 삽입 (파일명 기준 인덱스)';
+      return b;
+    })() : null;
+
     const badge=document.createElement('span');
     badge.innerHTML=fmtBadge;
 
@@ -2943,6 +2956,7 @@ function renderIllTags(){
 
     t.appendChild(thumb);
     t.appendChild(label);
+    if(chIdxBadge) t.appendChild(chIdxBadge);
     t.appendChild(badge);
     t.appendChild(x);
     c.appendChild(t);
@@ -4256,11 +4270,18 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
   function bodyToHtml(body){ return renderBodyHtml(body,{useItalic,maxBlank:2}); }
 
   // 챕터별 삽화 매핑
-  const chNums={},chHasIll={};
+  // il.idx: 파일명 기반 0-based 인덱스 매칭 (auto)
+  // il.ch:  챕터 제목 숫자 기반 매칭 (manual, 기존 방식 유지)
+  // il.kw:  키워드 기반 매칭 (manual)
+  const chHasIll={};
   for(let idx=0;idx<chapters.length;idx++){
     const[h,b]=chapters[idx];
-    const cn=extractChNum(h);chNums[idx]=cn;
-    const ills=illMap.filter(il=>il.ch===cn||(!il.ch&&il.kw&&b.includes(il.kw)));
+    const cn=extractChNum(h);
+    const ills=illMap.filter(il=>
+      (il.idx!==undefined ? il.idx===idx : false) ||  // 인덱스 매칭 (auto)
+      (il.ch!==undefined&&il.idx===undefined ? il.ch===cn : false) || // 제목번호 매칭 (manual)
+      (!il.ch&&!il.idx&&il.kw&&b.includes(il.kw))   // 키워드 매칭 (manual)
+    );
     chHasIll[idx]=ills.length>0;
   }
 
@@ -4269,9 +4290,17 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
   for(let idx=0;idx<tot;idx++){
     if(idx%50===0) onProgress&&onProgress(15+Math.floor(idx/tot*65),'챕터 생성 중 ('+idx+'/'+tot+')...');
     const[heading,body]=chapters[idx];
-    const cn=chNums[idx];
-    const beforeIlls=illMap.filter(il=>(il.ch===cn||(il.kw&&body.includes(il.kw)))&&il.pos!=='after').map(il=>il.file);
-    const afterIlls=illMap.filter(il=>(il.ch===cn||(il.kw&&body.includes(il.kw)))&&il.pos==='after').map(il=>il.file);
+    const cn=extractChNum(heading);
+
+    // 인덱스 매칭(auto) + 제목번호 매칭(manual) + 키워드 매칭(manual)
+    function matchIll(il){
+      if(il.idx!==undefined) return il.idx===idx;           // 파일명 인덱스
+      if(il.ch!==undefined)  return il.ch===cn;             // 챕터 제목 숫자
+      if(il.kw)              return body.includes(il.kw);   // 키워드
+      return false;
+    }
+    const beforeIlls=illMap.filter(il=>matchIll(il)&&il.pos!=='after').map(il=>il.file);
+    const afterIlls=illMap.filter(il=>matchIll(il)&&il.pos==='after').map(il=>il.file);
 
     if(heading!=='서문'){
       for(const f of beforeIlls){
@@ -4406,14 +4435,22 @@ async function startConvert(){
         chapters=merged;
       }
     }
-    // 삽화 파싱
+    // 삽화 파싱 — 파일명 숫자 = 챕터 인덱스(1-based)
+    // 01.jpg → chapters[0] (첫 번째 챕터)
+    // 100.jpg → chapters[99] (100번째 챕터)
+    // 01_01.jpg → chapters[0]의 첫 번째 삽화
+    // 01_02.jpg → chapters[0]의 두 번째 삽화
     const autoIlls=[];
     for(const f of S.illFiles){
       const stem=f.name.replace(/\.[^.]+$/,'');
       const m=stem.match(/^(\d+)(?:_(\d+))?/);
-      if(m) autoIlls.push({file:f,ch:parseInt(m[1]),order:parseInt(m[2]||'0'),pos:'before'});
+      if(m){
+        const chIdx=parseInt(m[1])-1;   // 1-based → 0-based 인덱스
+        const order=parseInt(m[2]||'1'); // 서브넘버 (01_01 → 1, 01_02 → 2)
+        autoIlls.push({file:f, idx:chIdx, order, pos:'before'});
+      }
     }
-    autoIlls.sort((a,b)=>a.ch-b.ch||a.order-b.order);
+    autoIlls.sort((a,b)=>a.idx-b.idx||a.order-b.order);
     const manualIlls=[];
     document.querySelectorAll('[id^="mr"]').forEach(row=>{
       const id=row.id.replace('mr','');
@@ -5830,33 +5867,36 @@ function buildIllEntries(epubChapters, opfBase){
   const overflowWarnings=[];
 
   if(mode==='auto'){
-    // 파일명에서 화번호 추출 → 챕터 href 매핑
-    // 1순위: 제목에서 화번호 직접 매칭
-    // 2순위: N번째 챕터 인덱스 기반 매칭 (TXT→EPUB과 동일 로직)
-    // 3순위: 목차 초과 시 마지막 챕터에 배치
+    // 파일명 숫자 = 챕터 인덱스(1-based) 직접 매칭
+    // 01.jpg → epubChapters[0] (첫 번째 챕터)
+    // 100.jpg → epubChapters[99] (100번째 챕터)
+    // 01_01.jpg → epubChapters[0]의 첫 번째 삽화
+    // 01_02.jpg → epubChapters[0]의 두 번째 삽화
+    // 목차 수 초과 시 마지막 챕터에 배치 + 경고
+    const autoEntries=[];
     for(const f of EI.files){
       const stem=f.name.replace(/\.[^.]+$/,'');
       const m=stem.match(/^(\d+)(?:_(\d+))?/);
       if(!m) continue;
-      const chNum=parseInt(m[1]);
-      // 1순위: 제목 번호 직접 매칭
-      let ch=epubChapters.find(c=>{
-        const nm=c.title.match(/\((\d+)\)/)||c.title.match(/(\d+)\s*화/)||c.title.match(/^(\d+)$/);
-        return nm&&parseInt(nm[1])===chNum;
-      });
-      if(!ch){
-        // 2순위: N번째 챕터 인덱스 매칭
-        const nthIdx=chNum-1;
-        if(nthIdx>=0&&nthIdx<epubChapters.length){
-          ch=epubChapters[nthIdx];
-        } else if(epubChapters.length>0){
-          // 3순위: 초과 → 마지막 챕터
-          ch=epubChapters[epubChapters.length-1];
-          overflowWarnings.push(f.name);
-        }
+      const chIdx=parseInt(m[1])-1;          // 1-based → 0-based 인덱스
+      const order=parseInt(m[2]||'1');        // 서브넘버 (없으면 1)
+      let ch=null;
+      if(chIdx>=0&&chIdx<epubChapters.length){
+        ch=epubChapters[chIdx];
+      } else if(epubChapters.length>0){
+        // 인덱스 초과 → 마지막 챕터
+        ch=epubChapters[epubChapters.length-1];
+        overflowWarnings.push(f.name);
       }
-      if(ch) entries.push({file:f,targetHref:ch.href,pos:'before'});
+      if(ch) autoEntries.push({file:f, targetHref:ch.href, pos:'before', order});
     }
+    // order 기준 정렬 (같은 챕터 내 서브넘버 순서 보장)
+    autoEntries.sort((a,b)=>{
+      const ai=entries.findIndex(e=>e.targetHref===a.targetHref);
+      const bi=entries.findIndex(e=>e.targetHref===b.targetHref);
+      return a.order-b.order;
+    });
+    entries.push(...autoEntries);
     // 초과 경고 UI 표시
     const warnEl=document.getElementById('editIllOverflowWarn');
     if(warnEl){
