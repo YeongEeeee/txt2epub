@@ -3678,9 +3678,22 @@ async function _runSmartPat(include, exclude){
         applyBtn.style.display='none';
       }
     }catch(e){
-      console.warn('Gemini API 오류:', e);
-      // fallback: 로컬 로직
-      _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
+      const msg=e.message||'';
+      if(msg==='quota_exceeded'){
+        // 모든 모델 quota 초과 → 로컬 로직으로 fallback + 안내
+        Toast.warn('Gemini API 할당량 초과 — 내장 변환 로직을 사용해요.<br>잠시 후 다시 시도하거나 API 사용량을 확인해주세요.');
+        _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
+      } else if(msg.includes('API 키가 올바르지 않아요')){
+        resultBox.style.display='flex';
+        resultBox.style.borderColor='var(--accent)';
+        resultEl.textContent='⚠ '+msg;
+        applyBtn.style.display='none';
+        if(aiLabel) aiLabel.style.display='none';
+      } else {
+        // 네트워크 오류 등 → 로컬 fallback
+        console.warn('Gemini API 오류:', e);
+        _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
+      }
     }
   } else {
     // ── 로컬 로직 fallback ──
@@ -3703,9 +3716,16 @@ function _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel){
   }
 }
 
+// Gemini API 모델 우선순위 목록 (앞부터 시도)
+const GEMINI_MODELS = [
+  'gemini-2.0-flash',
+  'gemini-1.5-flash',
+  'gemini-1.5-flash-8b',
+];
+
 async function _askGeminiForPattern(apiKey, include, exclude){
   const excludePart=exclude
-    ? `\n\n반드시 제외해야 할 줄 (이 패턴에 매칭되면 안 됨):\n${exclude}`
+    ? '\n\n반드시 제외해야 할 줄 (이 패턴에 매칭되면 안 됨):\n'+exclude
     : '';
 
   const prompt=
@@ -3720,37 +3740,61 @@ async function _askGeminiForPattern(apiKey, include, exclude){
     (exclude?'- 제외 예시 줄에는 절대 매칭되지 않을 것\n':'')+
     '\n예시 반환 형식: ^\\d+화(?:\\s*.+)?$';
 
-  const res=await fetch(
-    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+apiKey,
-    {
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        contents:[{parts:[{text:prompt}]}],
-        generationConfig:{temperature:0.1, maxOutputTokens:200}
-      })
-    }
-  );
+  const body=JSON.stringify({
+    contents:[{parts:[{text:prompt}]}],
+    generationConfig:{temperature:0.1, maxOutputTokens:200}
+  });
 
-  if(!res.ok){
-    const err=await res.json().catch(()=>({}));
-    throw new Error('Gemini API 오류: '+(err?.error?.message||res.status));
+  // 모델 순서대로 시도
+  for(const model of GEMINI_MODELS){
+    const url='https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+apiKey;
+    const result=await _geminiRequest(url, body, model);
+    if(result.ok) return result.rx;
+    if(result.fatal) throw new Error(result.msg);  // 인증 오류 등 — 더 시도 불필요
+    // 429 quota or 그 외 → 다음 모델로
+  }
+  // 모든 모델 실패
+  throw new Error('quota_exceeded');
+}
+
+async function _geminiRequest(url, body, model){
+  let res;
+  try{ res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body}); }
+  catch(e){ return {ok:false,fatal:false,msg:e.message}; }
+
+  if(res.ok){
+    const data=await res.json();
+    const raw=(data?.candidates?.[0]?.content?.parts?.[0]?.text||'').trim();
+    const cleaned=raw
+      .replace(/```[\w]*/g,'').replace(/```/g,'')
+      .replace(/^\/(.+)\/[gimsuy]*$/, '$1')
+      .trim();
+    if(!cleaned) return {ok:false,fatal:false,msg:'empty'};
+    try{ new RegExp(cleaned,'i'); return {ok:true,rx:cleaned}; }
+    catch(e){ return {ok:false,fatal:false,msg:'invalid_regex'}; }
   }
 
-  const data=await res.json();
-  const raw=(data?.candidates?.[0]?.content?.parts?.[0]?.text||'').trim();
+  // 오류 처리
+  const status=res.status;
+  const errBody=await res.json().catch(()=>({}));
+  const errMsg=errBody?.error?.message||String(status);
 
-  // 응답에서 정규식 문자열만 추출
-  // 마크다운 코드블록 제거
-  const cleaned=raw
-    .replace(/```[a-z]*/gi,'').replace(/```/g,'')  // ```regex ... ``` 제거
-    .replace(/^\/(.+)\/[gimsuy]*$/, '$1')           // /regex/flags → regex
-    .trim();
+  // 401 / 403: API 키 오류 — 즉시 중단
+  if(status===401||status===403) return {ok:false,fatal:true,msg:'API 키가 올바르지 않아요. 설정에서 Gemini API Key를 확인해주세요.'};
 
-  // 유효한 정규식인지 검증
-  if(!cleaned) return null;
-  try{ new RegExp(cleaned,'i'); return cleaned; }
-  catch(e){ return null; }
+  // 429: quota 초과 → 다음 모델로 fallback
+  if(status===429){
+    // retryDelay 파싱 (초 단위)
+    const retryMatch=errMsg.match(/retry in ([\d.]+)s/i);
+    console.info('[Gemini] '+model+' quota 초과, 다음 모델 시도...');
+    return {ok:false,fatal:false,msg:'quota_exceeded'};
+  }
+
+  // 404: 모델 없음 → 다음 모델로
+  if(status===404) return {ok:false,fatal:false,msg:'model_not_found'};
+
+  // 그 외
+  return {ok:false,fatal:false,msg:errMsg};
 }
 
 function applySmartPat(){
