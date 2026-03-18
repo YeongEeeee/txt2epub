@@ -6226,79 +6226,101 @@ async function proxyFetchRace(url, timeout=9000){
 
 // ── 카카오페이지 ──
 async function fetchKakao(q){
-  function isValidKakaoImg(src){
-    if(!src) return false;
+  // 카카오CDN 이미지 유효성 검사
+  function isKakaoImg(src){
+    if(!src||src.length<40) return false;
     const s=src.toLowerCase();
-    if(s.includes('icon')||s.includes('logo')||s.includes('badge')||s.includes('profile')) return false;
-    // 카카오페이지 이미지 CDN 패턴
+    if(s.includes('icon')||s.includes('logo')||s.includes('badge')||s.includes('profile')||s.includes('default')) return false;
     return s.includes('kakaocdn')||s.includes('dn-img-page.kakao')||
-           s.includes('t1.kakaocdn')||s.includes('k.kakaocdn')||
-           s.includes('page.kakao.com')&&s.includes('download');
+           s.includes('t1.kakaocdn')||s.includes('k.kakaocdn');
   }
 
-  // ── 1순위: 카카오페이지 GraphQL API (Workers POST 경유) ──
-  try{
-    const gqlQuery=`query SearchContentByKeyword($keyword:String!$after:String$page:Int){
-      searchContentByKeyword(keyword:$keyword after:$after page:$page){
-        edges{ node{
-          id title
-          thumbnail{ url }
-          singleThumbnailImage{ url }
-        }}
-      }
-    }`;
-    const body=JSON.stringify({
-      query:gqlQuery,
-      variables:{keyword:q, page:0}
-    });
+  const worker=PROXIES.find(p=>p.url.includes('workers.dev'));
 
-    const worker=PROXIES.find(p=>p.url.includes('workers.dev'));
-    if(worker){
-      const res=await fetch(
-        worker.url+encodeURIComponent('https://page.kakao.com/graphql')+'&_method=POST&_body='+encodeURIComponent(body)+'&_h_Content-Type='+encodeURIComponent('application/json'),
-        {signal:AbortSignal.timeout(9000)}
-      );
+  // ── 1순위: 카카오페이지 GraphQL API ──
+  // 실제 카카오페이지 앱이 사용하는 공식 GraphQL 엔드포인트
+  if(worker){
+    try{
+      // 카카오페이지 실제 GraphQL 쿼리 (네트워크 탭 확인)
+      const body=JSON.stringify({
+        operationName:'SearchContentByKeyword',
+        query:`query SearchContentByKeyword($keyword:String!,$page:Int,$size:Int){
+          searchByKeyword(keyword:$keyword,page:$page,size:$size,contentsType:NOVEL){
+            count
+            list{
+              id title
+              thumbnail
+              singleThumbnailImage{url}
+              horizontalThumbnail{url}
+            }
+          }
+        }`,
+        variables:{keyword:q, page:0, size:12}
+      });
+
+      const workerUrl=worker.url
+        +encodeURIComponent('https://page.kakao.com/graphql')
+        +'&_method=POST'
+        +'&_body='+encodeURIComponent(body)
+        +'&_h_Content-Type='+encodeURIComponent('application/json')
+        +'&_h_Accept='+encodeURIComponent('application/json');
+
+      const res=await fetch(workerUrl,{signal:AbortSignal.timeout(9000)});
       if(res.ok){
         const json=await res.json();
-        const edges=json?.data?.searchContentByKeyword?.edges||[];
-        const items=edges.map(e=>({
-          title:e.node.title||q,
-          image:e.node.thumbnail?.url||e.node.singleThumbnailImage?.url||''
-        })).filter(i=>i.image);
+        // 다양한 응답 구조 시도
+        const list=json?.data?.searchByKeyword?.list
+          ||json?.data?.searchContentByKeyword?.edges?.map(e=>e.node)
+          ||[];
+        const items=list.map(n=>({
+          title:n.title||q,
+          image:n.thumbnail||(typeof n.thumbnail==='string'?n.thumbnail:'')||
+                n.singleThumbnailImage?.url||n.horizontalThumbnail?.url||''
+        })).filter(i=>i.image&&i.image.startsWith('http'));
         if(items.length) return items.slice(0,12);
       }
-    }
-  }catch(e){}
+    }catch(e){}
+  }
 
-  // ── 2순위: 다음 책 검색 페이지 파싱 (Workers 경유) ──
+  // ── 2순위: Daum 책 검색 JSON API (Workers 경유) ──
+  // search.daum.net은 서버사이드 렌더링 → 이미지 파싱 가능
   try{
+    // Daum 책 검색 — 결과에 카카오페이지 표지 포함
     const html=await proxyFetch(
-      'https://search.daum.net/search?w=bookpage&bookType=novel&q='+encodeURIComponent(q)
+      'https://search.daum.net/search?w=book&q='+encodeURIComponent(q)+'&DA=LB2'
     );
     const doc=new DOMParser().parseFromString(html,'text/html');
     const items=[];
-    doc.querySelectorAll('.wrap_thumb img, .thumb_g img, [class*="thumb"] img, [class*="cover"] img').forEach(img=>{
-      const src=img.getAttribute('src')||img.getAttribute('data-original')||'';
-      if(src&&src.startsWith('http')&&!src.includes('icon')&&src.length>40){
-        items.push({title:img.alt||img.closest('[class*="item"]')?.querySelector('[class*="title"],strong,a')?.textContent?.trim()||q, image:src});
+
+    // Daum 책 검색 결과 구조
+    doc.querySelectorAll('a[href*="page.kakao"] img, a[href*="kakao"] img, .wrap_thmbnail img, .thumb_img img').forEach(img=>{
+      const src=img.getAttribute('src')||img.getAttribute('data-original-src')||'';
+      if(src&&src.startsWith('http')&&src.length>40&&!src.includes('icon')){
+        const titleEl=img.closest('li,article,.item_book')?.querySelector('.tit_subject,.tit_item,strong,a[class*="tit"]');
+        items.push({title:titleEl?.textContent?.trim()||img.alt||q, image:src});
       }
     });
+
+    // img 전체 fallback — kakaocdn 이미지만
+    if(!items.length){
+      doc.querySelectorAll('img').forEach(img=>{
+        const src=img.getAttribute('src')||img.getAttribute('data-original-src')||'';
+        if(isKakaoImg(src)) items.push({title:img.alt||q, image:src});
+      });
+    }
     if(items.length) return items.slice(0,12);
   }catch(e){}
 
-  // ── 3순위: 카카오 통합검색 HTML 파싱 (Workers 경유) ──
+  // ── 3순위: Daum 통합검색 HTML (소설 카테고리) ──
   try{
     const html=await proxyFetch(
-      'https://search.kakao.com/search?q='+encodeURIComponent(q+' 소설')
+      'https://search.daum.net/search?q='+encodeURIComponent(q+' 카카오페이지 소설')+'&DA=LB2'
     );
     const doc=new DOMParser().parseFromString(html,'text/html');
     const items=[];
     doc.querySelectorAll('img').forEach(img=>{
-      const src=img.getAttribute('src')||img.getAttribute('data-original')||'';
-      if(isValidKakaoImg(src)||
-         (src.startsWith('http')&&(src.includes('kakaocdn')||src.includes('t1.kakao'))&&!src.includes('icon')&&src.length>50)){
-        items.push({title:img.alt||q, image:src});
-      }
+      const src=img.getAttribute('src')||img.getAttribute('data-original-src')||'';
+      if(isKakaoImg(src)) items.push({title:img.alt||q, image:src});
     });
     return items.slice(0,12);
   }catch(e){ return []; }
