@@ -840,22 +840,40 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
   <div class="sec-hdr"><span class="sec-title">📋 삽입할 챕터 선택</span><div class="sec-line"></div></div>
   <div class="card">
     <div style="font-size:12px;color:var(--text2);margin-bottom:8px">중복 화는 체크 해제하세요. <span id="insTocCount" style="color:var(--accent);font-weight:600"></span></div>
-    <!-- 기준 챕터 필터 (EPUB 기존 목차 기준 이전/이후 선택) -->
-    <div id="insTocFilterBar" style="padding:8px 10px;background:var(--bg2);border-radius:8px;border:1px solid var(--border);margin-bottom:10px">
-      <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">📌 EPUB 기준 챕터로 범위 선택</div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <select id="insTocRefChapter" style="flex:1;min-width:120px;font-size:11px;padding:4px 7px;border:1.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">
-          <option value="">— 기준 챕터 선택 —</option>
-        </select>
-        <button class="btn btn-ghost btn-sm" data-action="applyInsTocRange" data-range="before" title="선택 챕터 이전 챕터들만 체크">이전만 ✓</button>
-        <button class="btn btn-ghost btn-sm" data-action="applyInsTocRange" data-range="after" title="선택 챕터 이후 챕터들만 체크">이후만 ✓</button>
-        <button class="btn btn-ghost btn-sm" data-action="applyInsTocRange" data-range="reset" title="전체 선택">전체 ✓</button>
+    <!-- 기준 챕터 필터 (TXT 파일 챕터 기준) -->
+    <div id="insTocFilterBar" style="padding:10px 12px;background:var(--bg2);border-radius:8px;border:1px solid var(--border);margin-bottom:10px">
+      <!-- EPUB 마지막 위치 안내 -->
+      <div id="insTocEpubInfo" style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:6px 8px;background:var(--blue-bg);border-radius:6px;display:none">
+        📖 <span id="insTocEpubInfoText"></span>
       </div>
-      <div id="insTocRangeInfo" style="font-size:10px;color:var(--text2);margin-top:5px"></div>
+      <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">📌 TXT 챕터 기준으로 범위 선택</div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <select id="insTocRefChapter" style="flex:1;min-width:140px;font-size:11px;padding:4px 7px;border:1.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">
+          <option value="">— TXT 기준 챕터 선택 —</option>
+        </select>
+        <button class="btn btn-ghost btn-sm" data-action="applyInsTocRange" data-range="before"
+          title="선택 챕터 포함 이전 전체 선택">이전 ✓</button>
+        <button class="btn btn-ghost btn-sm" data-action="applyInsTocRange" data-range="after"
+          title="선택 챕터 포함 이후 전체 선택">이후 ✓</button>
+      </div>
+      <!-- 빠른 선택 버튼 -->
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;padding-top:7px;border-top:1px dashed var(--border)">
+        <span style="font-size:10px;color:var(--text2);align-self:center;white-space:nowrap">빠른 선택:</span>
+        <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="applyInsTocRange" data-range="epubAfter"
+          title="EPUB 마지막 화 이후 챕터만 선택">EPUB 이후만</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="applyInsTocRange" data-range="epubBefore"
+          title="EPUB에 이미 있는 화 이전 챕터만 선택">EPUB 이전만</button>
+        <button class="btn btn-ghost btn-sm" style="font-size:10px;color:var(--accent)" data-action="applyInsTocRange" data-range="dedupe"
+          title="EPUB에 이미 있는 중복 화를 자동 해제">중복 제외</button>
+      </div>
+      <!-- 연속성 경고 -->
+      <div id="insTocGapWarn" style="display:none;margin-top:6px;padding:5px 8px;background:var(--yellow-bg);border-radius:5px;font-size:10px;color:var(--yellow);line-height:1.6"></div>
+      <div id="insTocRangeInfo" style="font-size:10px;color:var(--accent);margin-top:5px;font-weight:600"></div>
     </div>
-    <div style="display:flex;gap:6px;margin-bottom:8px">
+    <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" data-action="toggleAllInsToc" data-val="true">전체 선택</button>
       <button class="btn btn-ghost btn-sm" data-action="toggleAllInsToc" data-val="false">전체 해제</button>
+      <span id="insTocDupCount" style="font-size:10px;color:var(--accent);align-self:center;display:none"></span>
     </div>
     <div class="ch-list" id="insTocList"></div>
   </div>
@@ -5616,8 +5634,21 @@ async function handleInsTxt(files){
   const raws=await Promise.all(sorted.map(fileToText));
   const raw=raws.join('\n\n');
   const chapters=splitChapters(raw,pat);
-  E.insTxtChapters=chapters.map((ch,i)=>({idx:i,title:ch[0],body:ch[1],enabled:true}));
-  info.textContent='✅ '+txts.length+'개 파일 · '+chapters.length+'개 챕터 감지';
+  // ④ 챕터 번호 기반 정렬 — 파일 순서가 아닌 실제 화수 순으로 정렬
+  const mapped=chapters.map((ch,i)=>({idx:i,title:ch[0],body:ch[1],enabled:true,chNum:_extractTocNum(ch[0])}));
+  const hasNums=mapped.filter(ch=>ch.chNum>0).length > mapped.length*0.5;
+  if(hasNums){
+    // 과반수 이상 번호 감지 시 번호 순 정렬
+    mapped.sort((a,b)=>{
+      if(a.chNum>0&&b.chNum>0) return a.chNum-b.chNum;
+      if(a.chNum>0) return -1;
+      if(b.chNum>0) return 1;
+      return a.idx-b.idx;
+    });
+    mapped.forEach((ch,i)=>ch.idx=i);
+  }
+  E.insTxtChapters=mapped;
+  info.textContent='✅ '+txts.length+'개 파일 · '+chapters.length+'개 챕터 감지'+(hasNums?' (번호순 정렬)':'');
   renderInsTocList();
   document.getElementById('insTocSec').style.display='block';
   document.getElementById('editIllSec').style.display='block';
@@ -5631,93 +5662,238 @@ async function reloadInsToc(){
 function renderInsTocList(){
   const c=document.getElementById('insTocList');c.innerHTML='';
   const items=E.insTxtChapters||[];
-  items.forEach((ch,i)=>{
-    const d=document.createElement('div');d.className='ch-item';
-    d.innerHTML='<input type="checkbox" class="toc-chk" '+(ch.enabled?'checked':'')+' onchange="toggleInsTocItem('+i+',this.checked)">'+
-      '<span class="ch-idx">'+(i+1)+'</span>'+
-      '<span class="ch-title">'+escHtml(ch.title)+'</span>'+
-      '<span class="ch-badge badge-new">신규</span>';
-    c.appendChild(d);
-  });
-  updateInsTocCount();
-  // EPUB 기준 챕터 select 동기화
-  syncInsTocRefSelect();
-}
-
-// EPUB 기존 챕터 목록을 기준 챕터 select에 동기화
-function syncInsTocRefSelect(){
-  const sel=document.getElementById('insTocRefChapter');
-  if(!sel) return;
-  const prev=sel.value;
-  sel.innerHTML='<option value="">— 기준 챕터 선택 —</option>';
-  (E.chapters||[]).forEach((ch,i)=>{
-    const opt=document.createElement('option');
-    opt.value=i;
-    opt.textContent=(i+1)+'. '+ch.title;
-    sel.appendChild(opt);
-  });
-  sel.value=prev; // 이전 선택 복원
-  // filterBar는 EPUB 챕터가 있을 때만 표시
-  const bar=document.getElementById('insTocFilterBar');
-  if(bar) bar.style.display=(E.chapters&&E.chapters.length)?'block':'none';
-}
-
-// 기준 챕터 기준 이전/이후 선택 적용
-function applyInsTocRange(mode){
-  const sel=document.getElementById('insTocRefChapter');
-  const refIdx=sel&&sel.value!==''?parseInt(sel.value):-1;
-  const items=E.insTxtChapters||[];
-  if(!items.length) return;
-
-  if(mode==='reset'){
-    items.forEach(ch=>ch.enabled=true);
-    document.getElementById('insTocRangeInfo').textContent='';
-    renderInsTocList();
+  if(!items.length){
+    c.innerHTML='<div class="toc-empty">TXT 파일을 로드해주세요.</div>';
+    updateInsTocCount();
     return;
   }
 
-  if(refIdx<0){
-    Toast.warn('기준 챕터를 먼저 선택해주세요.');return;
+  const epubLastNum=_getEpubLastChNum();
+  // ① EPUB에 이미 있는 챕터 번호 집합 (중복 감지용)
+  const epubNums=new Set((E.chapters||[]).map(ch=>_extractTocNum(ch.title)).filter(n=>n>0));
+
+  let dupCount=0;
+  items.forEach((ch,i)=>{
+    const d=document.createElement('div');
+    d.className='ch-item'+(ch.enabled?'':' off');
+    d.style.transition='opacity .15s';
+
+    const chk=document.createElement('input');
+    chk.type='checkbox'; chk.className='toc-chk'; chk.checked=ch.enabled;
+    chk.addEventListener('change',e=>{
+      e.stopPropagation();
+      toggleInsTocItem(i,chk.checked);
+      d.classList.toggle('off',!chk.checked);
+    });
+
+    const num=document.createElement('span');
+    num.className='ch-idx'; num.textContent=(i+1);
+
+    const title=document.createElement('span');
+    title.className='ch-title'; title.textContent=ch.title;
+
+    // 배지 영역
+    const chNum=_extractTocNum(ch.title);
+    const isDup=chNum>0&&epubNums.has(chNum);
+    const isNext=epubLastNum>0&&chNum===epubLastNum+1;
+
+    if(isDup){ dupCount++; }
+
+    // 중복 배지 (기존에 있는 화)
+    if(isDup){
+      const dupBadge=document.createElement('span');
+      dupBadge.style.cssText='font-size:9px;background:var(--yellow-bg);color:var(--yellow);border:1px solid var(--accent2);border-radius:3px;padding:1px 5px;flex-shrink:0';
+      dupBadge.textContent='중복';
+      dupBadge.title='EPUB에 이미 '+chNum+'화가 있어요';
+      d.appendChild(chk); d.appendChild(num); d.appendChild(title); d.appendChild(dupBadge);
+    } else if(isNext){
+      // EPUB 연결점 강조
+      const marker=document.createElement('span');
+      marker.style.cssText='font-size:9px;background:var(--blue);color:#fff;border-radius:3px;padding:1px 5px;flex-shrink:0';
+      marker.textContent='← 연결점';
+      marker.title='EPUB 마지막('+epubLastNum+'화) 바로 다음 챕터';
+      const newBadge=document.createElement('span');
+      newBadge.className='ch-badge badge-new'; newBadge.textContent='신규';
+      d.appendChild(chk); d.appendChild(num); d.appendChild(title);
+      d.appendChild(marker); d.appendChild(newBadge);
+    } else {
+      const newBadge=document.createElement('span');
+      newBadge.className='ch-badge badge-new'; newBadge.textContent='신규';
+      d.appendChild(chk); d.appendChild(num); d.appendChild(title); d.appendChild(newBadge);
+    }
+    c.appendChild(d);
+  });
+
+  // 중복 카운트 표시
+  const dupCountEl=document.getElementById('insTocDupCount');
+  if(dupCountEl){
+    if(dupCount>0){
+      dupCountEl.textContent='⚠ 중복 '+dupCount+'개';
+      dupCountEl.style.display='';
+    }else{
+      dupCountEl.style.display='none';
+    }
   }
 
-  const refChTitle=E.chapters[refIdx]?.title||'';
+  updateInsTocCount();
+  syncInsTocRefSelect();
+  _showEpubConnectInfo();
+  // ② 연속성 검증
+  _checkTocContinuity();
+}
 
-  // TXT 챕터 중에서 EPUB 기준 챕터와 제목이 가장 유사한 것을 찾아서 경계로 사용
-  // 1순위: 제목 완전 일치, 2순위: 포함 관계, 3순위: 번호 추출 비교
-  const extractNum=t=>{const m=t.match(/\d+/);return m?parseInt(m[0]):-1;};
-  const refNum=extractNum(refChTitle);
+// ② 연속성 검증 — 누락 화수 감지
+function _checkTocContinuity(){
+  const warnEl=document.getElementById('insTocGapWarn');
+  if(!warnEl) return;
+  const epubLastNum=_getEpubLastChNum();
+  const items=E.insTxtChapters||[];
+  if(epubLastNum<=0||!items.length){ warnEl.style.display='none'; return; }
 
-  let boundaryIdx=-1;
-  // 완전 일치
-  boundaryIdx=items.findIndex(ch=>ch.title.trim()===refChTitle.trim());
-  // 번호 기반 매칭 (제목 패턴이 달라도)
-  if(boundaryIdx<0&&refNum>=0){
-    boundaryIdx=items.findIndex(ch=>extractNum(ch.title)===refNum);
+  // 활성화된 TXT 챕터 중 최솟값
+  const enabledNums=items.filter(ch=>ch.enabled).map(ch=>_extractTocNum(ch.title)).filter(n=>n>0);
+  if(!enabledNums.length){ warnEl.style.display='none'; return; }
+
+  const minTxtNum=Math.min(...enabledNums);
+  const gaps=[];
+
+  // EPUB 마지막과 TXT 최솟값 사이 공백
+  if(minTxtNum>epubLastNum+1){
+    for(let n=epubLastNum+1;n<minTxtNum;n++) gaps.push(n);
   }
-  // 포함 관계
-  if(boundaryIdx<0){
-    boundaryIdx=items.findIndex(ch=>
-      ch.title.includes(refChTitle)||refChTitle.includes(ch.title)
-    );
+
+  if(gaps.length>0){
+    const gapStr=gaps.length<=5?gaps.join(', ')+'화':gaps[0]+'화~'+gaps[gaps.length-1]+'화 ('+gaps.length+'개)';
+    warnEl.innerHTML='⚠️ <b>연속성 경고</b>: EPUB 마지막('+epubLastNum+'화)과 TXT 시작('+minTxtNum+'화) 사이 <b>'+gapStr+'</b>가 누락되어 있어요.';
+    warnEl.style.display='block';
+  }else{
+    warnEl.style.display='none';
+  }
+}
+
+// EPUB 마지막 챕터 번호 추출
+function _getEpubLastChNum(){
+  if(!E.chapters||!E.chapters.length) return -1;
+  const last=E.chapters[E.chapters.length-1];
+  return _extractTocNum(last.title);
+}
+function _extractTocNum(t){
+  const m=t.match(/(\d+)/);
+  return m?parseInt(m[1]):-1;
+}
+
+// EPUB 연결 정보 표시
+function _showEpubConnectInfo(){
+  const infoEl=document.getElementById('insTocEpubInfo');
+  const textEl=document.getElementById('insTocEpubInfoText');
+  if(!infoEl||!textEl) return;
+  if(!E.chapters||!E.chapters.length){infoEl.style.display='none';return;}
+  const lastCh=E.chapters[E.chapters.length-1];
+  const lastNum=_getEpubLastChNum();
+  const numText=lastNum>0?` (${lastNum}화)`:'';
+  textEl.innerHTML=
+    `현재 EPUB 마지막 챕터: <b>${escHtml(lastCh.title)}</b>${numText} — `+
+    `<b>${E.chapters.length}번째</b> 위치<br>`+
+    `<span style="color:var(--accent);font-size:10px">➡ 아래에서 이 이후 챕터들을 선택해 삽입하세요</span>`;
+  infoEl.style.display='block';
+}
+
+// TXT 챕터 목록을 기준 챕터 select에 동기화 (TXT 기준으로 변경)
+function syncInsTocRefSelect(){
+  const sel=document.getElementById('insTocRefChapter');
+  if(!sel) return;
+  const items=E.insTxtChapters||[];
+  if(!items.length){ sel.innerHTML='<option value="">— TXT 기준 챕터 선택 —</option>'; return; }
+
+  const prev=sel.value;
+  sel.innerHTML='<option value="">— TXT 기준 챕터 선택 —</option>';
+
+  // EPUB 마지막 챕터 번호를 기준으로 기본 선택값 계산
+  const epubLastNum=_getEpubLastChNum();
+  let defaultIdx=-1;
+
+  items.forEach((ch,i)=>{
+    const opt=document.createElement('option');
+    opt.value=i;
+    const chNum=_extractTocNum(ch.title);
+    // EPUB 마지막 화 다음 챕터를 기본값으로
+    if(epubLastNum>0&&chNum===epubLastNum+1&&defaultIdx<0) defaultIdx=i;
+    opt.textContent=(i+1)+'. '+ch.title;
+    sel.appendChild(opt);
+  });
+
+  // 기본값: EPUB 이후 첫 챕터, 없으면 맨 처음
+  if(prev!==''){ sel.value=prev; }
+  else if(defaultIdx>=0){ sel.value=defaultIdx; }
+  else if(items.length){ sel.value=0; }
+}
+
+// TXT 챕터 기준 이전/이후 + 빠른 선택
+function applyInsTocRange(mode){
+  const sel=document.getElementById('insTocRefChapter');
+  const items=E.insTxtChapters||[];
+  if(!items.length) return;
+
+  const infoEl=document.getElementById('insTocRangeInfo');
+  const epubLastNum=_getEpubLastChNum();
+  // ① EPUB에 이미 있는 챕터 번호 집합
+  const epubNums=new Set((E.chapters||[]).map(ch=>_extractTocNum(ch.title)).filter(n=>n>0));
+
+  if(mode==='reset'){
+    items.forEach(ch=>ch.enabled=true);
+    infoEl.textContent=''; renderInsTocList(); return;
   }
 
+  // ③ 빠른 선택: EPUB 이후만
+  if(mode==='epubAfter'){
+    if(epubLastNum<=0){ Toast.warn('EPUB 파일을 먼저 불러와주세요.'); return; }
+    let cnt=0;
+    items.forEach(ch=>{
+      const n=_extractTocNum(ch.title);
+      ch.enabled=(n>epubLastNum||n<=0);  // 번호 없는 건 포함
+      if(ch.enabled) cnt++;
+    });
+    infoEl.textContent='EPUB 이후('+epubLastNum+'화 초과) '+cnt+'개 선택';
+    renderInsTocList(); return;
+  }
+
+  // ③ 빠른 선택: EPUB 이전만
+  if(mode==='epubBefore'){
+    if(epubLastNum<=0){ Toast.warn('EPUB 파일을 먼저 불러와주세요.'); return; }
+    let cnt=0;
+    items.forEach(ch=>{
+      const n=_extractTocNum(ch.title);
+      ch.enabled=(n>0&&n<=epubLastNum);
+      if(ch.enabled) cnt++;
+    });
+    infoEl.textContent='EPUB 이전('+epubLastNum+'화 이하) '+cnt+'개 선택';
+    renderInsTocList(); return;
+  }
+
+  // ① 빠른 선택: 중복 제외 (EPUB에 이미 있는 화 해제)
+  if(mode==='dedupe'){
+    let deduped=0;
+    items.forEach(ch=>{
+      const n=_extractTocNum(ch.title);
+      if(n>0&&epubNums.has(n)){ ch.enabled=false; deduped++; }
+    });
+    infoEl.textContent=deduped>0?'중복 '+deduped+'개 해제됨':'중복 챕터 없음';
+    renderInsTocList(); return;
+  }
+
+  // 기준 챕터 선택 필요
+  const refIdx=sel&&sel.value!==''?parseInt(sel.value):-1;
+  if(refIdx<0){ Toast.warn('기준 챕터를 먼저 선택해주세요.'); return; }
+
+  const refTitle=items[refIdx]?.title||'';
   let enabledCount=0;
+
   if(mode==='before'){
-    // 기준 챕터보다 앞에 있는 TXT 챕터만 선택
-    // boundaryIdx를 못 찾은 경우: EPUB 기준 챕터의 순번(refIdx)을 TXT 챕터 수에 비례해서 추정
-    const boundary=boundaryIdx>=0?boundaryIdx:Math.round(refIdx/Math.max(E.chapters.length-1,1)*(items.length-1));
-    items.forEach((ch,i)=>{ch.enabled=i<boundary;if(ch.enabled)enabledCount++;});
-    const info=boundaryIdx>=0
-      ?`"${refChTitle}" 이전 챕터 ${enabledCount}개 선택`
-      :`EPUB ${refIdx+1}번 챕터 기준 비례 추정 (경계: ${boundary}번째) · ${enabledCount}개 선택`;
-    document.getElementById('insTocRangeInfo').textContent=info;
+    items.forEach((ch,i)=>{ ch.enabled=(i<=refIdx); if(ch.enabled) enabledCount++; });
+    infoEl.textContent='"'+refTitle+'" 포함 이전 '+enabledCount+'개 선택 (1~'+(refIdx+1)+'번째)';
   } else if(mode==='after'){
-    const boundary=boundaryIdx>=0?boundaryIdx:Math.round(refIdx/Math.max(E.chapters.length-1,1)*(items.length-1));
-    items.forEach((ch,i)=>{ch.enabled=i>boundary;if(ch.enabled)enabledCount++;});
-    const info=boundaryIdx>=0
-      ?`"${refChTitle}" 이후 챕터 ${enabledCount}개 선택`
-      :`EPUB ${refIdx+1}번 챕터 기준 비례 추정 (경계: ${boundary}번째) · ${enabledCount}개 선택`;
-    document.getElementById('insTocRangeInfo').textContent=info;
+    items.forEach((ch,i)=>{ ch.enabled=(i>=refIdx); if(ch.enabled) enabledCount++; });
+    infoEl.textContent='"'+refTitle+'" 포함 이후 '+enabledCount+'개 선택 ('+(refIdx+1)+'~'+items.length+'번째)';
   }
 
   renderInsTocList();
