@@ -649,19 +649,77 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <!-- 목차 재생성 탭 -->
     <div id="editPanel_toc" style="padding:14px">
       <div style="font-size:12px;color:var(--text2);margin-bottom:10px;line-height:1.7">
-        EPUB의 NCX/Nav 목차를 다시 생성해요. 목차 순서·제목을 편집하거나 불필요한 챕터를 제거할 수 있어요.
+        EPUB 본문 텍스트에서 챕터를 새로 감지해 NCX/Nav 목차를 재생성해요.
       </div>
-      <div style="display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap">
-        <button class="btn btn-ghost btn-sm" onclick="directEditTocCheckAll(true)">전체 선택</button>
-        <button class="btn btn-ghost btn-sm" onclick="directEditTocCheckAll(false)">전체 해제</button>
-        <button class="btn btn-blue btn-sm" style="margin-left:auto" onclick="directEditTocMoveUp()">↑ 위로</button>
-        <button class="btn btn-blue btn-sm" onclick="directEditTocMoveDown()">↓ 아래로</button>
-      </div>
-      <div id="directEditTocList" class="ch-list" style="max-height:320px"></div>
-      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border)">
-        <div style="font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px">메타데이터 수정</div>
+
+      <!-- 메타데이터 -->
+      <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
         <div class="row"><span class="lbl">📖 제목</span><input class="inp" id="directEditTitle" placeholder="변경할 제목 (비워두면 유지)"></div>
         <div class="row"><span class="lbl">✒️ 작가</span><input class="inp" id="directEditAuthor" placeholder="변경할 작가명 (비워두면 유지)"></div>
+      </div>
+
+      <!-- 챕터 정규식 -->
+      <div class="row" style="margin-bottom:4px">
+        <span class="lbl">⚙️ 챕터 정규식</span>
+        <input class="inp" id="eTocPattern"
+          placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능"
+          oninput="clearChipSelection('eTocPatHelper')">
+        <button class="btn btn-blue btn-sm" onclick="previewEpubToc()">🔍 목차 확인</button>
+      </div>
+
+      <!-- AI 예시 입력 -->
+      <div style="display:flex;flex-direction:column;gap:5px;margin-top:4px">
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:11px;color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px">💡 예시 입력:</span>
+          <input class="inp" id="eSmartPatInput"
+            placeholder="예) 1화 제목 / [EP.001] / Chapter 1"
+            style="font-size:12px"
+            oninput="eSmartPatConvert()">
+        </div>
+        <div style="display:flex;gap:6px;align-items:center">
+          <span style="font-size:11px;color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px">🚫 제외할 예시:</span>
+          <input class="inp" id="eSmartPatExclude"
+            placeholder="챕터 제목이 아닌 줄 (예: 작가의 말)"
+            style="font-size:12px"
+            oninput="eSmartPatConvert()">
+        </div>
+      </div>
+
+      <!-- AI 변환 결과 -->
+      <div id="eSmartPatResultBox" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:7px;align-items:center;gap:8px;flex-wrap:wrap">
+        <span style="font-size:10px;color:var(--text2);flex-shrink:0">변환된 정규식:</span>
+        <code id="eSmartPatResult" style="font-size:11px;color:var(--accent);font-family:monospace;flex:1;word-break:break-all;min-width:0"></code>
+        <span id="eSmartPatAiLabel" style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 5px;flex-shrink:0;display:none">✨ AI</span>
+        <button class="btn btn-accent btn-sm" onclick="applyESmartPat()" style="flex-shrink:0;font-size:11px;padding:4px 10px">✅ 적용</button>
+      </div>
+
+      <!-- 빠른 선택 칩 -->
+      <div class="pat-helper" id="eTocPatHelper" style="margin-top:6px">
+        <span style="font-size:11px;color:var(--text2);align-self:center">빠른 선택:</span>
+      </div>
+      <div id="eTocPatApplyBar" style="display:none;margin-top:5px;gap:6px;align-items:center">
+        <button class="btn btn-accent btn-sm" onclick="applyETocSelectedChips()" style="font-size:12px;padding:6px 14px">✅ 선택한 패턴 적용</button>
+        <span id="eTocPatApplyInfo" style="font-size:11px;color:var(--text2)"></span>
+      </div>
+
+      <!-- 힌트 -->
+      <div class="hint" style="margin-top:6px">💡 EPUB 내 텍스트 전체를 합쳐서 패턴을 탐색해요. 정규식 수정은 목차 패널 탭에서 직접 입력할 수 있어요.</div>
+
+      <!-- 목차 패널 -->
+      <div class="toc-panel show" id="eTocPanel" style="margin-top:10px">
+        <div class="toc-tabs">
+          <button class="ttab on" onclick="eTocTab(0)">감지된 목차</button>
+          <button class="ttab" onclick="eTocTab(1)">원본 텍스트</button>
+          <button class="ttab" onclick="eTocTab(2)">정규식 수정</button>
+        </div>
+        <div class="toc-body" id="eTb0"><div class="toc-empty">목차 확인 버튼을 눌러주세요</div></div>
+        <div class="toc-body" id="eTb1" style="display:none"></div>
+        <div class="toc-body" id="eTb2" style="display:none">
+          <div style="display:flex;gap:8px;padding:4px 0">
+            <input class="inp" id="eTocPatEdit" placeholder="새 정규식 직접 입력">
+            <button class="btn btn-accent btn-sm" onclick="applyEPat()">적용 후 재확인</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1574,10 +1632,10 @@ window.addEventListener('DOMContentLoaded', ()=>{
 });
 
 // 패턴 헬퍼 선택 상태 (helperId → Set of vals)
-const _chipSelected={patHelper:new Set(), insPatHelper:new Set()};
+const _chipSelected={patHelper:new Set(), insPatHelper:new Set(), eTocPatHelper:new Set()};
 
 function buildPatHelpers(){
-  ['patHelper','insPatHelper'].forEach(id=>{
+  ['patHelper','insPatHelper','eTocPatHelper'].forEach(id=>{
     const c=document.getElementById(id); if(!c) return;
     const targetInput=id==='patHelper'?'pattern':'insPattern';
     c.innerHTML=''; // 매번 재빌드 가능하도록 초기화
@@ -5333,6 +5391,8 @@ async function loadEpub(file){
   // 직접 편집 섹션 표시 + 목차 초기화
   document.getElementById('epubDirectEditSec').style.display='block';
   renderDirectEditToc();
+  // EPUB 전체 텍스트 추출 (목차 재생성용)
+  extractEpubRawText();
   // 메타데이터 초기화 (기존 값 가져오기)
   try{
     const opfXml=await E.epubZip.file(
@@ -6081,6 +6141,202 @@ let _directEditResult=null; // {blob, name}
 let _directEditIllFiles=[];  // 삽화 파일 목록
 let _directEditTocItems=[];  // 목차 편집 상태
 
+// ── EPUB 텍스트 추출 (목차 재생성용) ──
+let _epubRawText='';     // 전체 텍스트 (줄 배열 아님)
+let _epubRawLines=[];    // 줄 배열
+let _eTocItems=[];       // 감지된 목차 아이템
+let _eSmartPatTimer=null;
+
+async function extractEpubRawText(){
+  if(!E.epubZip||!E.chapters.length){ _epubRawText=''; _epubRawLines=[]; return; }
+  // EPUB 각 챕터 xhtml → 텍스트 추출 후 합치기
+  const parts=[];
+  for(const ch of E.chapters){
+    try{
+      const xhtml=await E.epubZip.file(ch.href)?.async('text')||'';
+      const doc=new DOMParser().parseFromString(xhtml,'text/html');
+      // body 텍스트만 추출 (태그 제거)
+      const body=doc.body?.innerText||doc.body?.textContent||'';
+      parts.push(body.trim());
+    }catch(e){}
+  }
+  _epubRawText=parts.join('\n\n');
+  _epubRawLines=_epubRawText.split('\n');
+  // 원본 텍스트 탭 갱신
+  const tb1=document.getElementById('eTb1');
+  if(tb1&&tb1.style.display!=='none'){
+    tb1.innerHTML='<pre class="toc-raw">'+
+      _epubRawLines.map((l,i)=>String(i+1).padStart(4,' ')+' | '+escHtml(l)).join('\n')+'</pre>';
+  }
+}
+
+// ── 목차 확인 (EPUB 버전) ──
+async function previewEpubToc(){
+  if(!_epubRawText){ Toast.warn('EPUB 파일을 먼저 불러와주세요.'); return; }
+  const pat=document.getElementById('eTocPattern').value.trim();
+  const tb0=document.getElementById('eTb0');
+  const tb1=document.getElementById('eTb1');
+  tb0.innerHTML='<div style="font-size:12px;color:var(--text2);padding:8px">🔍 감지 중...</div>';
+
+  // 원본 텍스트 탭 내용 채우기
+  tb1.innerHTML='<pre class="toc-raw">'+
+    _epubRawLines.map((l,i)=>String(i+1).padStart(4,' ')+' | '+escHtml(l)).join('\n')+'</pre>';
+
+  // 패턴 또는 자동 감지
+  let found=[];
+  if(pat){
+    try{
+      const rx=new RegExp(pat,'i');
+      _epubRawLines.forEach((l,i)=>{
+        if(l.trim()&&rx.test(l.trim())) found.push({line:i+1,title:l.trim(),enabled:true});
+      });
+    }catch(e){
+      tb0.innerHTML='<div style="color:var(--accent);padding:8px;font-size:12px">⚠️ 정규식 오류: '+escHtml(e.message)+'</div>';
+      return;
+    }
+  }else{
+    // 자동 감지 — 기존 bestPat 활용
+    const {rx}=bestPat(_epubRawText);
+    if(rx){
+      _epubRawLines.forEach((l,i)=>{
+        if(l.trim()&&rx.test(l.trim())) found.push({line:i+1,title:l.trim(),enabled:true});
+      });
+      document.getElementById('eTocPattern').value=rx.source;
+    }
+  }
+
+  _eTocItems=found;
+  renderETocItems();
+
+  // 칩 감지 결과 갱신
+  refreshEDetectedChip();
+}
+
+function renderETocItems(){
+  const tb0=document.getElementById('eTb0');
+  if(!_eTocItems.length){
+    tb0.innerHTML='<div class="toc-empty">⚠️ 챕터가 감지되지 않았어요. 정규식을 수정해보세요.</div>';
+    return;
+  }
+  tb0.innerHTML='';
+  const stat=document.createElement('div');
+  stat.style.cssText='margin-bottom:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+  stat.innerHTML='<span style="font-size:11px;color:var(--text2)">총 <b>'+_eTocItems.length+'</b>개 감지</span>'+
+    '<button class="btn btn-ghost btn-sm" onclick="eToggleAllToc(true)">전체 선택</button>'+
+    '<button class="btn btn-ghost btn-sm" onclick="eToggleAllToc(false)">전체 해제</button>';
+  tb0.appendChild(stat);
+
+  _eTocItems.forEach((item,i)=>{
+    const d=document.createElement('div');
+    d.className='toc-item'+(item.enabled?'':' off');
+
+    const chk=document.createElement('input');
+    chk.type='checkbox'; chk.className='toc-chk'; chk.checked=item.enabled;
+    chk.onchange=e=>{ _eTocItems[i].enabled=chk.checked; d.classList.toggle('off',!chk.checked); };
+
+    const num=document.createElement('span');
+    num.className='toc-num'; num.textContent=item.line+'줄';
+
+    const title=document.createElement('input');
+    title.className='toc-title-edit'; title.value=item.title;
+    title.onchange=()=>{ _eTocItems[i].title=title.value.trim()||item.title; };
+
+    d.appendChild(chk); d.appendChild(num); d.appendChild(title);
+    tb0.appendChild(d);
+  });
+}
+
+function eToggleAllToc(v){ _eTocItems.forEach(t=>t.enabled=v); renderETocItems(); }
+
+// ── 정규식 탭 ──
+function eTocTab(n){
+  const panel=document.getElementById('eTocPanel');
+  if(panel) panel.querySelectorAll('.ttab').forEach((t,i)=>t.classList.toggle('on',i===n));
+  [0,1,2].forEach(i=>{
+    const el=document.getElementById('eTb'+i);
+    if(el) el.style.display=i===n?'':'none';
+  });
+  if(n===1&&_epubRawLines.length){
+    document.getElementById('eTb1').innerHTML='<pre class="toc-raw">'+
+      _epubRawLines.map((l,i)=>String(i+1).padStart(4,' ')+' | '+escHtml(l)).join('\n')+'</pre>';
+  }
+}
+function applyEPat(){
+  const v=document.getElementById('eTocPatEdit').value.trim();
+  if(v){ document.getElementById('eTocPattern').value=v; previewEpubToc(); }
+}
+
+// ── 빠른 선택 칩 ──
+function refreshEDetectedChip(){
+  const pat=document.getElementById('eTocPattern').value.trim();
+  if(!pat) return;
+  const allChips=document.querySelectorAll('#eTocPatHelper .pat-chip');
+  allChips.forEach(chip=>{
+    chip.classList.remove('detected','active');
+    try{
+      const rx=new RegExp(chip.dataset.pat,'i');
+      if(rx.source===new RegExp(pat,'i').source){ chip.classList.add('detected','active'); }
+    }catch(e){}
+  });
+}
+function applyETocSelectedChips(){
+  const sel=_chipSelected['eTocPatHelper'];
+  if(!sel||!sel.size){ Toast.warn('패턴을 먼저 선택해주세요.'); return; }
+  const combined=buildCombinedPat(sel);
+  document.getElementById('eTocPattern').value=combined;
+  clearChipSelection('eTocPatHelper');
+  document.getElementById('eTocPatApplyBar').style.display='none';
+  previewEpubToc();
+}
+
+// ── AI 스마트 패턴 (EPUB 버전) ──
+function eSmartPatConvert(){
+  clearTimeout(_eSmartPatTimer);
+  const include=document.getElementById('eSmartPatInput')?.value.trim()||'';
+  const exclude=document.getElementById('eSmartPatExclude')?.value.trim()||'';
+  if(!include){ document.getElementById('eSmartPatResultBox').style.display='none'; return; }
+  _eSmartPatTimer=setTimeout(()=>_eRunSmartPat(include, exclude), 600);
+}
+async function _eRunSmartPat(include, exclude){
+  const resultBox=document.getElementById('eSmartPatResultBox');
+  const resultEl=document.getElementById('eSmartPatResult');
+  const aiLabel=document.getElementById('eSmartPatAiLabel');
+  const applyBtn=resultBox.querySelector('button');
+  const apiKey=(document.getElementById('geminiApiKey')?.value||'').trim();
+  resultBox.style.display='flex'; resultBox.style.borderColor='var(--border)';
+  resultEl.textContent='⏳ 변환 중...'; applyBtn.style.display='none';
+  if(aiLabel) aiLabel.style.display='none';
+  try{
+    let rx=null;
+    if(apiKey){
+      rx=await _askGeminiForPattern(apiKey, include, exclude);
+    }
+    if(!rx) rx=guessPatternFromExample(include);
+    if(rx){
+      resultEl.textContent=rx;
+      resultBox.style.borderColor='var(--accent)';
+      applyBtn.style.display='';
+      if(apiKey&&aiLabel) aiLabel.style.display='';
+    }else{
+      resultEl.textContent='(인식 불가 — 정규식 수정 탭에서 직접 입력)';
+      resultBox.style.borderColor='var(--border)';
+    }
+  }catch(e){
+    const rx2=guessPatternFromExample(include);
+    if(rx2){ resultEl.textContent=rx2; resultBox.style.borderColor='var(--accent)'; applyBtn.style.display=''; }
+    else{ resultEl.textContent='(변환 실패)'; resultBox.style.borderColor='var(--border)'; }
+  }
+}
+function applyESmartPat(){
+  const rx=document.getElementById('eSmartPatResult')?.textContent;
+  if(!rx||rx.startsWith('(')) return;
+  document.getElementById('eTocPattern').value=rx;
+  document.getElementById('eSmartPatInput').value='';
+  document.getElementById('eSmartPatExclude').value='';
+  document.getElementById('eSmartPatResultBox').style.display='none';
+  previewEpubToc();
+}
+
 // ── 탭 전환 ──
 function switchEditTab(name){
   ['toc','ill','css'].forEach(t=>{
@@ -6264,8 +6520,32 @@ async function applyDirectEdit(){
     // ── 목차 재생성 ──
     if(activeTab==='toc'){
       ep(20,'목차 재생성 중...');
-      const enabledItems=_directEditTocItems.filter(it=>it.enabled);
-      if(!enabledItems.length) throw new Error('활성화된 챕터가 없어요.');
+      // 감지된 새 목차 사용 (_eTocItems), 없으면 기존 목차 편집 결과 사용
+      let enabledItems;
+      if(_eTocItems.length>0){
+        // 패턴 감지로 새로 생성된 목차 → href를 텍스트 내 줄 번호로 가장 가까운 챕터에 매핑
+        enabledItems=_eTocItems.filter(it=>it.enabled).map(item=>{
+          // _epubRawLines에서 item.line 기준으로 어느 챕터 xhtml에 해당하는지 계산
+          // 챕터 전체 텍스트 합산 줄 수 기반으로 해당 챕터 href 찾기
+          let accLines=0;
+          let targetHref=E.chapters[0]?.href||'';
+          for(const ch of E.chapters){
+            const chLines=_epubRawLines.filter((_,i)=>i>=accLines&&i<accLines+9999).length;
+            // 챕터당 평균 줄수로 어느 챕터인지 근사
+            const chLineCount=Math.ceil(_epubRawLines.length/E.chapters.length);
+            const chIdx=Math.min(Math.floor((item.line-1)/Math.max(1,chLineCount)), E.chapters.length-1);
+            targetHref=E.chapters[chIdx]?.href||E.chapters[0]?.href;
+            break;
+          }
+          return {href:targetHref, title:item.title, enabled:true};
+        });
+        // href 중복 제거 (같은 챕터에 여러 제목이 매핑되면 첫 번째만)
+        const seen=new Set();
+        enabledItems=enabledItems.filter(it=>{ if(seen.has(it.href))return false; seen.add(it.href); return true; });
+      }else{
+        enabledItems=_directEditTocItems.filter(it=>it.enabled);
+      }
+      if(!enabledItems.length) throw new Error('활성화된 챕터가 없어요. 먼저 목차 확인을 눌러주세요.');
 
       // OPF 읽기
       let opfXml=await E.epubZip.file(opfPath).async('text');
@@ -6277,9 +6557,13 @@ async function applyDirectEdit(){
       if(newAuthor) opfXml=opfXml.replace(/<dc:creator[^>]*>[^<]*<\/dc:creator>/,`<dc:creator>${escHtml(newAuthor)}</dc:creator>`);
 
       // Spine 재생성 (활성화된 챕터 순서로)
-      const spineItems=enabledItems.map(it=>{
-        const href=it.href.replace(opfBase,'');
-        const id=E.chapters.find(ch=>ch.href===it.href)?.href.split('/').pop().replace(/\.[^.]+$/,'')||href;
+      // 새 목차(_eTocItems)일 경우: 기존 모든 챕터 순서 유지 + 제목만 갱신
+      const spineItems=(_eTocItems.length>0
+        ? E.chapters.map(ch=>ch.href)   // 원본 순서 유지
+        : enabledItems.map(it=>it.href) // 편집 순서 적용
+      ).map(href=>{
+        const relHref=href.replace(opfBase,'');
+        const id=relHref.replace(/[^a-zA-Z0-9_-]/g,'_').replace(/^_+/,'ch_');
         return `<itemref idref="${id}"/>`;
       }).join('\n    ');
       opfXml=opfXml.replace(/<spine[^>]*>[\s\S]*?<\/spine>/,
