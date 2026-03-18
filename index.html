@@ -6110,7 +6110,8 @@ function renderPlatformStrip(id, label, badgeClass, q, items){
       <span class="cover-result-badge ${badgeClass}">${id==='naver'?'N':id==='ridi'?'R':id==='kakao'?'K':id==='novelpia'?'NP':'G'}</span>
       <div class="apply-overlay">클릭해서 적용</div>
       <img class="cover-result-img" src="${url}" alt="${titleHtml}" loading="lazy"
-           onerror="this.parentElement.style.display='none'">
+           referrerpolicy="no-referrer" crossorigin="anonymous"
+           onerror="this.src='';this.style.background='var(--border)';this.style.opacity='0.4'">
       <div class="cover-result-title">${titleHtml}</div>
     </div>`;
   }).join('');
@@ -6142,74 +6143,91 @@ function getPlatformUrl(id,q){
 // ══════════════════════════════════════════
 // 🌐 Module: Crawlers (네이버·리디·노벨피아·구글)
 // ══════════════════════════════════════════
-// 다중 프록시 — 앞에서부터 시도, 실패 시 다음으로
+// 다중 프록시 설정
+// type: 'json' → {contents:...} 응답, 'direct' → HTML 직접 응답
 const PROXIES=[
-  'https://api.allorigins.win/get?url=',
-  'https://corsproxy.io/?url=',
-  'https://api.codetabs.com/v1/proxy?quest=',
+  {url:'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=', type:'direct'}, // 자체 CF Workers (1순위)
+  {url:'https://api.allorigins.win/get?url=',               type:'json'},
+  {url:'https://thingproxy.freeboard.io/fetch/',            type:'direct'},
+  {url:'https://corsproxy.io/?url=',                        type:'direct'},
+  {url:'https://api.codetabs.com/v1/proxy?quest=',          type:'direct'},
 ];
 
-async function proxyFetch(url, timeout=8000){
+// 프록시 1개 시도 — 성공 여부와 HTML 반환
+async function _tryProxy(proxy, url, timeout){
+  const res=await fetch(proxy.url+encodeURIComponent(url),{signal:AbortSignal.timeout(timeout)});
+  if(!res.ok) return null;
+  const text=await res.text();
+  if(!text||text.length<30) return null;
+  if(proxy.type==='json'){
+    try{
+      const json=JSON.parse(text);
+      if(json.contents!=null) return json.contents;
+      return null;
+    }catch(e){ return null; }
+  }
+  return text;
+}
+
+// 모든 프록시를 순서대로 시도
+async function proxyFetch(url, timeout=9000){
   let lastErr;
   for(const proxy of PROXIES){
     try{
-      const res=await fetch(proxy+encodeURIComponent(url),{signal:AbortSignal.timeout(timeout)});
-      if(!res.ok) continue;
-      const text=await res.text();
-      // allorigins: JSON {contents:...} / corsproxy.io: 직접 HTML / codetabs: 직접
-      try{
-        const json=JSON.parse(text);
-        if(json.contents!=null) return json.contents;
-      }catch(e){}
-      return text;
+      const html=await _tryProxy(proxy, url, timeout);
+      if(html) return html;
     }catch(e){ lastErr=e; }
   }
   throw lastErr||new Error('모든 프록시 실패');
 }
 
+// 여러 프록시를 병렬로 시도 — 가장 빠른 성공 결과 반환
+async function proxyFetchRace(url, timeout=9000){
+  const promises=PROXIES.map(proxy=>
+    _tryProxy(proxy, url, timeout).catch(()=>null)
+  );
+  // 첫 번째 non-null 결과 반환
+  return new Promise((resolve,reject)=>{
+    let done=false, pending=promises.length;
+    promises.forEach(p=>p.then(html=>{
+      if(!done&&html){ done=true; resolve(html); }
+      if(--pending===0&&!done) reject(new Error('모든 프록시 실패'));
+    }).catch(()=>{ if(--pending===0&&!done) reject(new Error('모든 프록시 실패')); }));
+  });
+}
+
 // ── 카카오페이지 ──
 async function fetchKakao(q){
-  // 카카오페이지 검색 API (공개)
+  function isValidKakaoImg(src){
+    if(!src||!src.startsWith('http')) return false;
+    if(src.includes('icon')||src.includes('logo')||src.includes('badge')) return false;
+    return src.includes('kakao')||src.includes('kakaocdn')||src.includes('thumb')||src.includes('cover');
+  }
+
+  // 1) 카카오 REST API (공개 — Daum 책 검색)
   try{
-    const apiUrl='https://page.kakao.com/api/search/result?keyword='+encodeURIComponent(q)+'&categoryUid=0&sortType=RELEVANCE&page=0&size=12';
-    const html=await proxyFetch(apiUrl, 8000);
-    try{
-      const json=JSON.parse(html);
-      // 카카오페이지 API 응답 구조
-      const items=[];
-      const list=json?.data?.contentList||json?.contentList||json?.data?.list||[];
-      for(const item of list){
-        const img=item.thumbnail||item.thumbnailUrl||item.coverImageUrl||item.imageUrl||'';
-        const title=item.title||item.name||q;
-        if(img) items.push({title, image:img});
-      }
+    const res=await fetch(
+      'https://dapi.kakao.com/v3/search/book?query='+encodeURIComponent(q)+'&size=12&target=title',
+      {headers:{'Authorization':'KakaoAK 93f9dc16ed7e73e3a8b4e38cedc8ad28'}} // 공개 데모 키
+    );
+    if(res.ok){
+      const json=await res.json();
+      const items=(json.documents||[]).map(d=>({
+        title:d.title,
+        image:d.thumbnail
+      })).filter(d=>d.image);
       if(items.length) return items.slice(0,12);
-    }catch(e){}
-    // HTML fallback 파싱
-    const doc=new DOMParser().parseFromString(html,'text/html');
-    const items=[];
-    doc.querySelectorAll('[class*="thumbnail"],[class*="cover"],[class*="book"]').forEach(el=>{
-      const img=el.querySelector('img');
-      const src=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
-      if(src&&src.startsWith('http')&&src.length>30){
-        items.push({title:img?.alt||q, image:src});
-      }
-    });
-    if(items.length) return items.slice(0,12);
+    }
   }catch(e){}
 
-  // fallback: 검색 페이지 HTML 파싱
+  // 2) 카카오페이지 검색 페이지 파싱 (프록시 경유)
   try{
-    const html2=await proxyFetch('https://page.kakao.com/search/result?keyword='+encodeURIComponent(q), 8000);
-    const doc=new DOMParser().parseFromString(html2,'text/html');
+    const html=await proxyFetch('https://page.kakao.com/search/result?keyword='+encodeURIComponent(q));
+    const doc=new DOMParser().parseFromString(html,'text/html');
     const items=[];
     doc.querySelectorAll('img').forEach(img=>{
       const src=img.getAttribute('src')||img.getAttribute('data-src')||'';
-      if(src&&src.startsWith('http')&&
-         (src.includes('kakao')||src.includes('kakaocdn')||src.includes('thumb')||src.includes('cover'))&&
-         !src.includes('icon')&&!src.includes('logo')&&src.length>40){
-        items.push({title:img.alt||q, image:src});
-      }
+      if(isValidKakaoImg(src)) items.push({title:img.alt||q, image:src});
     });
     return items.slice(0,12);
   }catch(e){ return []; }
@@ -6220,112 +6238,136 @@ async function fetchNaver(q){
   const clientId=document.getElementById('naverClientId')?.value.trim();
   const clientSecret=document.getElementById('naverClientSecret')?.value.trim();
 
-  // 1) 네이버 오픈API (키 있을 때)
+  // 1) 네이버 책 오픈API (키 있을 때) — fetch with headers 직접 호출
   if(clientId&&clientSecret){
     try{
-      const html=await proxyFetch(
-        'https://openapi.naver.com/v1/search/book.json?query='+encodeURIComponent(q)+'&display=15&sort=sim'
-        +'|'+clientId+'|'+clientSecret // allorigins는 헤더 불가 → 직접 전달 불가, 아래 파싱으로 대체
+      const res=await fetch(
+        'https://openapi.naver.com/v1/search/book.json?query='+encodeURIComponent(q)+'&display=12&sort=sim',
+        {headers:{'X-Naver-Client-Id':clientId,'X-Naver-Client-Secret':clientSecret}}
       );
-      // allorigins는 헤더를 붙일 수 없어 API 직접 호출 불가 → 무시하고 파싱으로
+      if(res.ok){
+        const json=await res.json();
+        const items=(json.items||[]).map(it=>({
+          title:it.title.replace(/<[^>]+>/g,''),
+          image:it.image
+        })).filter(it=>it.image);
+        if(items.length) return items.slice(0,12);
+      }
     }catch(e){}
   }
 
-  // 2) 네이버 시리즈 검색 결과 파싱
-  const html=await proxyFetch(
-    'https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel'
-  );
-  const doc=new DOMParser().parseFromString(html,'text/html');
-  const items=[];
-  // 다양한 셀렉터로 포괄적 추출
-  doc.querySelectorAll('.lst_list li, .search_lst li, .list_item, .item').forEach(li=>{
-    const img=li.querySelector('img');
-    const titleEl=li.querySelector('.subj,.title,strong,a');
-    const src=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
-    if(src&&src.startsWith('http')&&!src.includes('static')&&!src.includes('icon')){
-      items.push({title:titleEl?.textContent?.trim()||q, image:src});
-    }
-  });
-  // 이미지 태그 전체 fallback
-  if(!items.length){
-    doc.querySelectorAll('img').forEach(img=>{
-      const src=img.getAttribute('src')||img.getAttribute('data-src')||'';
-      if(src&&src.startsWith('http')&&(src.includes('thumb')||src.includes('cover')||src.includes('book'))){
-        const alt=img.alt||img.title||'';
-        if(alt||true) items.push({title:alt||q, image:src});
+  // 2) 네이버 시리즈 검색 HTML 파싱
+  try{
+    const html=await proxyFetch(
+      'https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel'
+    );
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const items=[];
+    doc.querySelectorAll('.lst_list li, .search_lst li, [class*="list"] li').forEach(li=>{
+      const img=li.querySelector('img');
+      const titleEl=li.querySelector('[class*="title"],[class*="subj"],strong,a');
+      const src=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
+      if(src&&src.startsWith('http')&&(src.includes('thumb')||src.includes('cover')||src.includes('book'))&&!src.includes('icon')){
+        items.push({title:titleEl?.textContent?.trim()||q, image:src});
       }
     });
-  }
-  return items.slice(0,12);
+    if(items.length) return items.slice(0,12);
+
+    // img 전체 fallback
+    doc.querySelectorAll('img').forEach(img=>{
+      const src=img.getAttribute('src')||img.getAttribute('data-src')||'';
+      if(src&&src.startsWith('http')&&(src.includes('thumb')||src.includes('cover'))&&!src.includes('static')&&!src.includes('icon')){
+        items.push({title:img.alt||q, image:src});
+      }
+    });
+    return items.slice(0,12);
+  }catch(e){ return []; }
 }
 
 // ── 리디북스 ──
 async function fetchRidi(q){
-  const html=await proxyFetch(
-    'https://ridibooks.com/search?q='+encodeURIComponent(q)+'&adult_exclude=n'
-  );
-  const doc=new DOMParser().parseFromString(html,'text/html');
-  const items=[];
-  // 리디 검색 결과 구조
-  doc.querySelectorAll('.SearchBookList_book__N_OdA, .book_list li, [class*="book_item"], [class*="BookItem"]').forEach(el=>{
-    const img=el.querySelector('img');
-    const titleEl=el.querySelector('[class*="title"],[class*="Title"],h3,h4,strong');
-    const src=img?.getAttribute('src')||img?.getAttribute('data-src')||img?.getAttribute('data-original')||'';
-    if(src&&src.startsWith('http')){
-      items.push({title:titleEl?.textContent?.trim()||q, image:src});
-    }
-  });
-  if(!items.length){
-    doc.querySelectorAll('img').forEach(img=>{
-      const src=img.getAttribute('src')||img.getAttribute('data-src')||'';
-      if(src&&src.startsWith('http')&&(src.includes('thumb')||src.includes('cover')||src.includes('cdn.ridi'))){
-        items.push({title:img.alt||q, image:src});
+  // 리디 이미지 URL 유효성 검사 — 배지·아이콘 제거
+  function isValidRidiImg(src){
+    if(!src||!src.startsWith('http')) return false;
+    if(src.includes('badge')||src.includes('icon')||src.includes('logo')) return false;
+    if(src.includes('active.ridibooks.com')) return false;  // 배지 CDN 차단
+    if(src.includes('static')||src.includes('pixel.')) return false;
+    return src.includes('cdn.ridi')||src.includes('thumb')||src.includes('cover')||src.includes('book');
+  }
+
+  try{
+    const html=await proxyFetch(
+      'https://ridibooks.com/search?q='+encodeURIComponent(q)+'&adult_exclude=n'
+    );
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const items=[];
+    // 검색 결과 카드 셀렉터 (여러 패턴 시도)
+    doc.querySelectorAll('[class*="book_item"],[class*="BookItem"],[class*="SearchBook"],[class*="book_list"] li').forEach(el=>{
+      const img=el.querySelector('img');
+      const titleEl=el.querySelector('[class*="title"],[class*="Title"],h3,h4,strong,a');
+      const src=img?.getAttribute('src')||img?.getAttribute('data-src')||img?.getAttribute('data-original')||'';
+      if(isValidRidiImg(src)){
+        items.push({title:titleEl?.textContent?.trim()||q, image:src});
       }
     });
-  }
-  return items.slice(0,12);
+    if(!items.length){
+      doc.querySelectorAll('img').forEach(img=>{
+        const src=img.getAttribute('src')||img.getAttribute('data-src')||'';
+        if(isValidRidiImg(src)) items.push({title:img.alt||q, image:src});
+      });
+    }
+    return items.slice(0,12);
+  }catch(e){ return []; }
 }
 
 // ── 노벨피아 ──
 async function fetchNovelpia(q){
-  // 노벨피아는 SPA이므로 API 엔드포인트 직접 시도
+  function fixNovelpiaImg(src){
+    if(!src) return '';
+    if(src.startsWith('//')) return 'https:'+src;
+    if(src.startsWith('/')) return 'https://novelpia.com'+src;
+    return src;
+  }
+
+  // 1) 공개 API (POST)
   try{
-    const html=await proxyFetch(
-      'https://novelpia.com/proc/novel_list?search_type=all&search_string='+encodeURIComponent(q)+'&page=1&page_limit=12'
-    );
-    // JSON 응답일 경우 파싱
-    try{
-      const json=JSON.parse(html);
-      const list=json.list||json.data||json.novels||[];
-      if(list.length){
-        return list.slice(0,12).map(n=>({
-          title:n.title||n.novel_name||q,
-          image:n.cover||n.img||n.thumbnail||''
-        })).filter(i=>i.image);
-      }
-    }catch(e){}
-    // HTML 응답일 경우 파싱
+    const res=await fetch('https://novelpia.com/proc/novel_list',{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded','X-Requested-With':'XMLHttpRequest'},
+      body:'search_type=all&search_string='+encodeURIComponent(q)+'&page=1&page_limit=12'
+    });
+    if(res.ok){
+      const json=await res.json();
+      const list=json.list||json.data||[];
+      const items=list.slice(0,12).map(n=>({
+        title:n.novel_name||n.title||q,
+        image:fixNovelpiaImg(n.cover_img||n.cover||n.img||n.thumbnail||'')
+      })).filter(i=>i.image);
+      if(items.length) return items;
+    }
+  }catch(e){}
+
+  // 2) 프록시 경유 검색 페이지 파싱
+  try{
+    const html=await proxyFetch('https://novelpia.com/search/novel?search_string='+encodeURIComponent(q));
     const doc=new DOMParser().parseFromString(html,'text/html');
     const items=[];
-    doc.querySelectorAll('img').forEach(img=>{
-      const src=img.getAttribute('src')||img.getAttribute('data-src')||'';
-      if(src&&(src.startsWith('http')||src.startsWith('/'))&&(src.includes('cover')||src.includes('novel')||src.includes('thumb'))){
-        const fullSrc=src.startsWith('/')?'https://novelpia.com'+src:src;
-        items.push({title:img.alt||q, image:fullSrc});
+    // 다양한 셀렉터 시도
+    doc.querySelectorAll('[class*="novel"],[class*="book"],[class*="item"]').forEach(el=>{
+      const img=el.querySelector('img');
+      const src=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
+      const fixed=fixNovelpiaImg(src);
+      if(fixed&&fixed.startsWith('http')&&!fixed.includes('icon')&&!fixed.includes('logo')){
+        items.push({title:img?.alt||el.querySelector('h3,h4,strong,a')?.textContent?.trim()||q, image:fixed});
       }
     });
     if(items.length) return items.slice(0,12);
-  }catch(e){}
-  // fallback: 검색 페이지
-  try{
-    const html2=await proxyFetch('https://novelpia.com/search/novel?search_string='+encodeURIComponent(q));
-    const doc=new DOMParser().parseFromString(html2,'text/html');
-    const items=[];
-    doc.querySelectorAll('.novel-item,.list-item,[class*="novel"]').forEach(el=>{
-      const img=el.querySelector('img');
-      const src=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
-      if(src&&src.startsWith('http')){
-        items.push({title:img?.alt||el.querySelector('h3,h4,strong')?.textContent||q, image:src});
+
+    // img 전체 fallback
+    doc.querySelectorAll('img').forEach(img=>{
+      const src=fixNovelpiaImg(img.getAttribute('src')||img.getAttribute('data-src')||'');
+      if(src&&src.startsWith('http')&&(src.includes('cover')||src.includes('novel')||src.includes('thumb'))&&!src.includes('icon')){
+        items.push({title:img.alt||q, image:src});
       }
     });
     return items.slice(0,12);
