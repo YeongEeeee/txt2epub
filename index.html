@@ -416,15 +416,22 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" data-input-action="clearChipPatHelper">
       <button class="btn btn-blue btn-sm" data-action="previewToc">🔍 목차 확인</button><button class="btn btn-ghost btn-sm" data-action="autoSplitByInterval">⚡ 간격 분할</button>
     </div>
-    <!-- 스마트 패턴 입력 -->
-    <div style="display:flex;gap:6px;align-items:center;margin-top:4px">
-      <span style="font-size:11px;color:var(--text2);white-space:nowrap;flex-shrink:0">💡 예시 입력:</span>
-      <input class="inp" id="smartPatInput" placeholder="예) 00001  제로 코드... / [EP.001] / 1화 제목 / Chapter 1" style="font-size:12px" data-input-action="smartPatConvert">
+    <!-- 스마트 패턴 입력 (Gemini AI 연동) -->
+    <div style="display:flex;flex-direction:column;gap:5px;margin-top:4px">
+      <div style="display:flex;gap:6px;align-items:center">
+        <span style="font-size:11px;color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px">💡 예시 입력:</span>
+        <input class="inp" id="smartPatInput" placeholder="예) 1화 제목 / [EP.001] / Chapter 1 / 00001  제로 코드..." style="font-size:12px" data-input-action="smartPatConvert">
+      </div>
+      <div style="display:flex;gap:6px;align-items:center">
+        <span style="font-size:11px;color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px">🚫 제외할 예시:</span>
+        <input class="inp" id="smartPatExclude" placeholder="이 내용은 챕터 제목이 아님 (예: 작가의 말, 목차)" style="font-size:12px" data-input-action="smartPatConvert">
+      </div>
     </div>
-    <!-- 변환 결과 인라인 표시 (입력 바로 아래) -->
-    <div id="smartPatResultBox" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:7px;display:none;align-items:center;gap:8px;flex-wrap:wrap">
+    <!-- 변환 결과 인라인 표시 -->
+    <div id="smartPatResultBox" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:7px;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="font-size:10px;color:var(--text2);flex-shrink:0">변환된 정규식:</span>
       <code id="smartPatResult" style="font-size:11px;color:var(--accent);font-family:monospace;flex:1;word-break:break-all;min-width:0"></code>
+      <span id="smartPatAiLabel" style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 5px;flex-shrink:0;display:none">✨ AI</span>
       <button class="btn btn-accent btn-sm" id="smartPatApplyBtn" data-action="applySmartPat" style="flex-shrink:0;font-size:11px;padding:4px 10px">✅ 적용</button>
     </div>
     <div class="pat-helper" id="patHelper">
@@ -1000,6 +1007,25 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
         <option value="6" selected>보통 (권장)</option>
         <option value="9">최대 압축 (느림)</option>
       </select>
+    </div>
+  </div>
+</div>
+<div class="sec">
+  <div class="sec-hdr"><span class="sec-title">🤖 Gemini API 설정</span><div class="sec-line"></div></div>
+  <div class="card">
+    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;line-height:1.7">
+      Gemini API 키를 등록하면 <b>예시 입력</b>칸에서 AI가 정규식을 자동 생성해줘요.<br>
+      <span style="font-size:11px">키 없이도 내장 로직으로 변환되지만, AI가 훨씬 정확해요.</span>
+    </div>
+    <div class="adv-css-row" style="border:none">
+      <span class="adv-css-lbl" style="min-width:100px">API Key</span>
+      <input class="inp" id="geminiApiKey" type="text" autocomplete="off"
+        placeholder="AIza..." style="font-size:12px;-webkit-text-security:disc"
+        data-input-action="saveApiSettings">
+    </div>
+    <div style="margin-top:8px;padding:8px 10px;background:var(--blue-bg);border-radius:7px;font-size:11px;color:var(--blue);line-height:1.7">
+      💡 <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--blue);font-weight:600">Google AI Studio</a>에서 무료 발급 →
+      키는 이 기기의 localStorage에만 저장되며 외부로 전송되지 않아요.
     </div>
   </div>
 </div>
@@ -3608,29 +3634,123 @@ function tocTab(n){
 }
 function applyPat(){document.getElementById('pattern').value=document.getElementById('patEdit').value;previewToc();}
 
-// ── 스마트 패턴 변환: 사용자 예시 입력 → 정규식 자동 생성 ──
+// ── 스마트 패턴 변환: Gemini AI 또는 로컬 로직 ──
+let _smartPatTimer=null;
+
 function smartPatConvert(){
-  const raw=document.getElementById('smartPatInput')?.value||'';
-  const t=raw.trim();
-  const resultBox=document.getElementById('smartPatResultBox');
-  const resultEl=document.getElementById('smartPatResult');
-  if(!t){
-    resultBox.style.display='none';
+  // 디바운스: 입력 멈춘 후 600ms에 실행
+  clearTimeout(_smartPatTimer);
+  const include=document.getElementById('smartPatInput')?.value.trim()||'';
+  const exclude=document.getElementById('smartPatExclude')?.value.trim()||'';
+  if(!include){
+    document.getElementById('smartPatResultBox').style.display='none';
     return;
   }
-  const rx=guessPatternFromExample(t);
+  _smartPatTimer=setTimeout(()=>_runSmartPat(include,exclude), 600);
+}
+
+async function _runSmartPat(include, exclude){
+  const resultBox=document.getElementById('smartPatResultBox');
+  const resultEl=document.getElementById('smartPatResult');
+  const applyBtn=document.getElementById('smartPatApplyBtn');
+  const aiLabel=document.getElementById('smartPatAiLabel');
+
+  const apiKey=(document.getElementById('geminiApiKey')?.value||'').trim();
+
+  if(apiKey){
+    // ── Gemini API 호출 ──
+    resultBox.style.display='flex';
+    resultBox.style.borderColor='var(--border)';
+    resultEl.textContent='⏳ AI 변환 중...';
+    applyBtn.style.display='none';
+    if(aiLabel) aiLabel.style.display='none';
+
+    try{
+      const rx=await _askGeminiForPattern(apiKey, include, exclude);
+      if(rx){
+        resultEl.textContent=rx;
+        resultBox.style.borderColor='var(--accent)';
+        applyBtn.style.display='';
+        if(aiLabel) aiLabel.style.display='';
+      } else {
+        resultEl.textContent='(AI가 정규식을 생성하지 못했어요 — 다시 시도하거나 직접 입력)';
+        resultBox.style.borderColor='var(--border)';
+        applyBtn.style.display='none';
+      }
+    }catch(e){
+      console.warn('Gemini API 오류:', e);
+      // fallback: 로컬 로직
+      _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
+    }
+  } else {
+    // ── 로컬 로직 fallback ──
+    _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
+  }
+}
+
+function _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel){
+  const rx=guessPatternFromExample(include);
+  resultBox.style.display='flex';
+  if(aiLabel) aiLabel.style.display='none';
   if(rx){
     resultEl.textContent=rx;
-    resultBox.style.display='flex';
+    resultBox.style.borderColor='var(--accent)';
+    applyBtn.style.display='';
   } else {
     resultEl.textContent='(인식 불가 — 정규식 수정 탭에서 직접 입력)';
     resultBox.style.borderColor='var(--border)';
-    resultBox.style.display='flex';
-    document.getElementById('smartPatApplyBtn').style.display='none';
-    return;
+    applyBtn.style.display='none';
   }
-  resultBox.style.borderColor='var(--accent)';
-  document.getElementById('smartPatApplyBtn').style.display='';
+}
+
+async function _askGeminiForPattern(apiKey, include, exclude){
+  const excludePart=exclude
+    ? `\n\n반드시 제외해야 할 줄 (이 패턴에 매칭되면 안 됨):\n${exclude}`
+    : '';
+
+  const prompt=
+    '소설 TXT 파일의 챕터 제목을 감지하는 JavaScript 정규식을 만들어줘.\n\n'+
+    '챕터 제목 예시 (이 패턴에 매칭되어야 함):\n'+include+
+    excludePart+
+    '\n\n조건:\n'+
+    '- JavaScript RegExp 문자열만 반환 (플래그 제외, 슬래시 제외)\n'+
+    '- 정규식 하나만 반환, 설명 없이\n'+
+    '- 예시 입력의 공통 패턴을 추출해 일반화할 것\n'+
+    '- ^ 와 $ 앵커 사용 권장\n'+
+    (exclude?'- 제외 예시 줄에는 절대 매칭되지 않을 것\n':'')+
+    '\n예시 반환 형식: ^\\d+화(?:\\s*.+)?$';
+
+  const res=await fetch(
+    'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+apiKey,
+    {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        contents:[{parts:[{text:prompt}]}],
+        generationConfig:{temperature:0.1, maxOutputTokens:200}
+      })
+    }
+  );
+
+  if(!res.ok){
+    const err=await res.json().catch(()=>({}));
+    throw new Error('Gemini API 오류: '+(err?.error?.message||res.status));
+  }
+
+  const data=await res.json();
+  const raw=(data?.candidates?.[0]?.content?.parts?.[0]?.text||'').trim();
+
+  // 응답에서 정규식 문자열만 추출
+  // 마크다운 코드블록 제거
+  const cleaned=raw
+    .replace(/```[a-z]*/gi,'').replace(/```/g,'')  // ```regex ... ``` 제거
+    .replace(/^\/(.+)\/[gimsuy]*$/, '$1')           // /regex/flags → regex
+    .trim();
+
+  // 유효한 정규식인지 검증
+  if(!cleaned) return null;
+  try{ new RegExp(cleaned,'i'); return cleaned; }
+  catch(e){ return null; }
 }
 
 function applySmartPat(){
@@ -3639,6 +3759,7 @@ function applySmartPat(){
   document.getElementById('pattern').value=rx;
   clearChipSelection('patHelper');
   document.getElementById('smartPatInput').value='';
+  document.getElementById('smartPatExclude').value='';
   document.getElementById('smartPatResultBox').style.display='none';
   previewToc();
 }
@@ -5756,6 +5877,7 @@ let _coverModalMode='convert';
 function saveApiSettings(){
   try{
     localStorage.setItem('epub_api',JSON.stringify({
+      geminiApiKey:document.getElementById('geminiApiKey')?.value||'',
       naverClientId:document.getElementById('naverClientId')?.value||'',
       naverClientSecret:document.getElementById('naverClientSecret')?.value||'',
     }));
@@ -5764,6 +5886,7 @@ function saveApiSettings(){
 function loadApiSettings(){
   try{
     const s=JSON.parse(localStorage.getItem('epub_api')||'{}');
+    if(s.geminiApiKey&&document.getElementById('geminiApiKey')) document.getElementById('geminiApiKey').value=s.geminiApiKey;
     if(s.naverClientId&&document.getElementById('naverClientId')) document.getElementById('naverClientId').value=s.naverClientId;
     if(s.naverClientSecret&&document.getElementById('naverClientSecret')) document.getElementById('naverClientSecret').value=s.naverClientSecret;
   }catch(e){}
