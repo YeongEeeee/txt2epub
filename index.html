@@ -2156,37 +2156,94 @@ async function detectEncoding(file){
   if(errorRate<0.001) return 'utf-8';
 
   // EUC-KR / CP949 판정:
-  // 실제 디코딩 후 깨진 문자(\uFFFD) 수로 비교 (가장 정확)
-  const sampleBlob=new Blob([bytes]);
-  const [utf8Result, eucResult]=await Promise.all([
-    new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>res('');r.readAsText(sampleBlob,'utf-8');}),
-    new Promise(res=>{const r=new FileReader();r.onload=e=>res(e.target.result);r.onerror=()=>res('');r.readAsText(sampleBlob,'euc-kr');}),
-  ]);
-  const utf8Bad=(utf8Result.match(/\ufffd/g)||[]).length;
-  const eucBad=(eucResult.match(/\ufffd/g)||[]).length;
+  // TextDecoder로 직접 디코딩 후 U+FFFD(깨진 문자) 수 비교
+  const utf8Text=new TextDecoder('utf-8',{fatal:false}).decode(bytes);
+  const eucText=new TextDecoder('euc-kr',{fatal:false}).decode(bytes);
+  const utf8Bad=(utf8Text.match(/\ufffd/g)||[]).length;
+  const eucBad=(eucText.match(/\ufffd/g)||[]).length;
 
+  // UTF-8 깨짐이 0이면 UTF-8 확정 (파일 자체가 올바른 UTF-8)
+  if(utf8Bad===0) return 'utf-8';
   return utf8Bad<=eucBad ? 'utf-8' : 'euc-kr';
 }
 
 async function fileToText(file){
   const enc=await detectEncoding(file);
-  _encCache.set(file,enc); // File 객체를 키로 사용 (동명 다른 파일 오작동 방지)
+  _encCache.set(file,enc);
+
+  // TextDecoder 직접 사용 — 대용량 파일(20MB+)에서 더 안정적
+  // FileReader.readAsText()는 브라우저 내부 구현에 따라 청크 경계에서 손실 가능
   return new Promise((res,rej)=>{
     const r=new FileReader();
-    r.onload=e=>res(e.target.result);
+    r.onload=e=>{
+      try{
+        const ab=e.target.result;
+        // TextDecoder로 직접 디코딩 (fatal:false → 잘못된 바이트는 U+FFFD 대체)
+        const decoder=new TextDecoder(enc,{fatal:false});
+        const text=decoder.decode(new Uint8Array(ab));
+        // U+FFFD(대체문자) 포함 여부 경고 — EUC-KR 오판 감지
+        const badCount=(text.match(/\ufffd/g)||[]).length;
+        if(badCount>10&&enc==='utf-8'){
+          // UTF-8 판정인데 깨진 문자가 많으면 EUC-KR로 재시도
+          const r2=new FileReader();
+          r2.onload=e2=>{
+            const ab2=e2.target.result;
+            const text2=new TextDecoder('euc-kr',{fatal:false}).decode(new Uint8Array(ab2));
+            const bad2=(text2.match(/\ufffd/g)||[]).length;
+            res(bad2<badCount?text2:text);
+          };
+          r2.onerror=()=>res(text);
+          r2.readAsArrayBuffer(file);
+        }else{
+          res(text);
+        }
+      }catch(err){
+        // fallback: readAsText
+        const fr=new FileReader();
+        fr.onload=ev=>res(ev.target.result);
+        fr.onerror=rej;
+        fr.readAsText(file,enc);
+      }
+    };
     r.onerror=rej;
-    r.readAsText(file,enc);
+    r.readAsArrayBuffer(file);
   });
 }
 
 // 파일을 스트리밍 방식으로 부분 읽기 (대용량 파일 UI 블로킹 방지)
+// UTF-8 경계 안전 슬라이스 읽기
+// 고정 바이트 오프셋 슬라이스 시 멀티바이트 문자(한글 3바이트)가 잘릴 수 있음
+// → ArrayBuffer로 읽어서 경계 바이트를 직접 보정 후 TextDecoder 사용
 async function readFileSlice(file, start, end){
+  // 앞 경계 보정: start가 멀티바이트 중간이면 다음 유효 바이트로 이동
+  const MARGIN=4; // UTF-8 최대 4바이트
+  const safeStart=Math.max(0, start-MARGIN);
+  const safeEnd=Math.min(file.size, end+MARGIN);
+
   return new Promise((res,rej)=>{
-    const slice=file.slice(start,end);
+    const slice=file.slice(safeStart, safeEnd);
     const r=new FileReader();
-    r.onload=e=>res(e.target.result);
+    r.onload=e=>{
+      const bytes=new Uint8Array(e.target.result);
+      // 앞 경계: start-safeStart 오프셋부터 첫 유효 UTF-8 시작 바이트 찾기
+      let s=start-safeStart;
+      while(s<bytes.length&&s<MARGIN&&(bytes[s]&0xC0)===0x80) s++;
+      // 뒤 경계: end-safeStart 오프셋 이후 멀티바이트 완성 보장
+      let e2=end-safeStart;
+      while(e2<bytes.length&&(bytes[e2]&0xC0)===0x80) e2++;
+      try{
+        const text=new TextDecoder('utf-8',{fatal:false}).decode(bytes.subarray(s,e2));
+        res(text);
+      }catch(err){
+        // fallback: FileReader readAsText
+        const fr=new FileReader();
+        fr.onload=ev=>res(ev.target.result);
+        fr.onerror=()=>res('');
+        fr.readAsText(new Blob([bytes.subarray(s,e2)]),'utf-8');
+      }
+    };
     r.onerror=rej;
-    r.readAsText(slice,'utf-8');
+    r.readAsArrayBuffer(slice);
   });
 }
 
@@ -2293,11 +2350,28 @@ async function imgToJpgBlob(file, quality=0.92){
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 // ── 공통 본문 HTML 변환 함수 (bodyToHtml · bToHtml 통합) ──
 // useItalic: 대화/회상 이탤릭 여부 · maxBlank: 연속 빈줄 최대 허용 수
+// ── 텍스트 정규화 (인코딩 안전 처리) ──
+// U+00AD(soft hyphen) → U+2014(em dash): 대화 표시 문자로 변환
+// XML 1.0 비허용 제어문자 제거 (U+0000~U+001F 중 허용 외)
+// 과도한 후행 공백 제거
+function sanitizeLine(s){
+  // U+00AD soft hyphen → em dash (소설에서 대화 표시로 사용됨)
+  s=s.replace(/­/g,'—');
+  // XML 1.0 비허용 제어문자 제거: U+0000-U+0008, U+000B, U+000C, U+000E-U+001F
+  s=s.replace(/[ --]/g,'');
+  // U+FFFE, U+FFFF 제거 (XML 비허용)
+  s=s.replace(/[￾￿]/g,'');
+  // 후행 공백 제거
+  return s.trimEnd();
+}
+
 function renderBodyHtml(body, {useItalic=true, maxBlank=2}={}){
   let html='';
   let blankRun=0;
-  for(const line of body.split('\n')){
-    const t=line.trim();
+  // CRLF → LF 정규화
+  const lines=body.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+  for(const line of lines){
+    const t=sanitizeLine(line).trim();
     if(!t){
       blankRun++;
       if(blankRun<=maxBlank) html+='<p>&#160;</p>\n';
@@ -2478,6 +2552,14 @@ function bestPat(raw){
 }
 
 function splitChapters(raw,customPat){
+  // 입력 텍스트 정규화: CRLF → LF, U+00AD 변환, XML 비허용 제어문자 제거
+  raw=raw
+    .replace(/\r\n/g,'\n')   // CRLF 정규화
+    .replace(/\r/g,'\n')      // 단독 CR 정규화
+    .replace(/\xad/g,'\u2014') // U+00AD soft hyphen → em dash
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'') // XML 비허용 제어문자 제거
+    .replace(/[\uFFFE\uFFFF]/g,''); // XML 비허용 유니코드 제거
+
   let rx=null;
   if(customPat&&customPat.trim()){
     try{rx=new RegExp(customPat.trim(),'i');}catch(e){rx=null;}
