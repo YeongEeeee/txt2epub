@@ -637,13 +637,13 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     <div style="display:flex;border-bottom:1.5px solid var(--border)">
       <button class="btn" id="editTab_toc"
         style="flex:1;border-radius:0;border:none;padding:10px 6px;font-size:12px;font-weight:600;color:var(--accent);border-bottom:2px solid var(--accent);background:var(--accent-bg)"
-        onclick="switchEditTab('toc')">📋 목차 재생성</button>
+        data-action="switchEditTab" data-tab="toc">📋 목차 재생성</button>
       <button class="btn" id="editTab_ill"
         style="flex:1;border-radius:0;border:none;padding:10px 6px;font-size:12px;font-weight:600;color:var(--text2);border-bottom:2px solid transparent;background:none"
-        onclick="switchEditTab('ill')">🖼 삽화 추가</button>
+        data-action="switchEditTab" data-tab="ill">🖼 삽화 추가</button>
       <button class="btn" id="editTab_css"
         style="flex:1;border-radius:0;border:none;padding:10px 6px;font-size:12px;font-weight:600;color:var(--text2);border-bottom:2px solid transparent;background:none"
-        onclick="switchEditTab('css')">🎨 CSS 추가</button>
+        data-action="switchEditTab" data-tab="css">🎨 CSS 추가</button>
     </div>
 
     <!-- 목차 재생성 탭 -->
@@ -663,8 +663,8 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
         <span class="lbl">⚙️ 챕터 정규식</span>
         <input class="inp" id="eTocPattern"
           placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능"
-          oninput="clearChipSelection('eTocPatHelper')">
-        <button class="btn btn-blue btn-sm" onclick="previewEpubToc()">🔍 목차 확인</button>
+          data-input-action="clearEtocChip">
+        <button class="btn btn-blue btn-sm" data-action="previewEpubToc">🔍 목차 확인</button>
       </div>
 
       <!-- AI 예시 입력 -->
@@ -674,14 +674,14 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
           <input class="inp" id="eSmartPatInput"
             placeholder="예) 1화 제목 / [EP.001] / Chapter 1"
             style="font-size:12px"
-            oninput="eSmartPatConvert()">
+            data-input-action="eSmartPatConvert">
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           <span style="font-size:11px;color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px">🚫 제외할 예시:</span>
           <input class="inp" id="eSmartPatExclude"
             placeholder="챕터 제목이 아닌 줄 (예: 작가의 말)"
             style="font-size:12px"
-            oninput="eSmartPatConvert()">
+            data-input-action="eSmartPatConvert">
         </div>
       </div>
 
@@ -690,7 +690,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
         <span style="font-size:10px;color:var(--text2);flex-shrink:0">변환된 정규식:</span>
         <code id="eSmartPatResult" style="font-size:11px;color:var(--accent);font-family:monospace;flex:1;word-break:break-all;min-width:0"></code>
         <span id="eSmartPatAiLabel" style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 5px;flex-shrink:0;display:none">✨ AI</span>
-        <button class="btn btn-accent btn-sm" onclick="applyESmartPat()" style="flex-shrink:0;font-size:11px;padding:4px 10px">✅ 적용</button>
+        <button class="btn btn-accent btn-sm" data-action="applyESmartPat" style="flex-shrink:0;font-size:11px;padding:4px 10px">✅ 적용</button>
       </div>
 
       <!-- 빠른 선택 칩 -->
@@ -698,7 +698,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
         <span style="font-size:11px;color:var(--text2);align-self:center">빠른 선택:</span>
       </div>
       <div id="eTocPatApplyBar" style="display:none;margin-top:5px;gap:6px;align-items:center">
-        <button class="btn btn-accent btn-sm" onclick="applyETocSelectedChips()" style="font-size:12px;padding:6px 14px">✅ 선택한 패턴 적용</button>
+        <button class="btn btn-accent btn-sm" data-action="applyETocSelectedChips" style="font-size:12px;padding:6px 14px">✅ 선택한 패턴 적용</button>
         <span id="eTocPatApplyInfo" style="font-size:11px;color:var(--text2)"></span>
       </div>
 
@@ -708,16 +708,16 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       <!-- 목차 패널 -->
       <div class="toc-panel show" id="eTocPanel" style="margin-top:10px">
         <div class="toc-tabs">
-          <button class="ttab on" onclick="eTocTab(0)">감지된 목차</button>
-          <button class="ttab" onclick="eTocTab(1)">원본 텍스트</button>
-          <button class="ttab" onclick="eTocTab(2)">정규식 수정</button>
+          <button class="ttab on" data-action="eTocTab" data-idx="0">감지된 목차</button>
+          <button class="ttab" data-action="eTocTab" data-idx="1">원본 텍스트</button>
+          <button class="ttab" data-action="eTocTab" data-idx="2">정규식 수정</button>
         </div>
         <div class="toc-body" id="eTb0"><div class="toc-empty">목차 확인 버튼을 눌러주세요</div></div>
         <div class="toc-body" id="eTb1" style="display:none"></div>
         <div class="toc-body" id="eTb2" style="display:none">
           <div style="display:flex;gap:8px;padding:4px 0">
             <input class="inp" id="eTocPatEdit" placeholder="새 정규식 직접 입력">
-            <button class="btn btn-accent btn-sm" onclick="applyEPat()">적용 후 재확인</button>
+            <button class="btn btn-accent btn-sm" data-action="applyEPat">적용 후 재확인</button>
           </div>
         </div>
       </div>
@@ -747,7 +747,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       </div>
       <div id="directEditIllManual" style="display:none;margin-top:8px">
         <div id="directEditIllManualList"></div>
-        <button class="btn btn-ghost btn-sm" onclick="addDirectEditIllRow()">＋ 수동 삽화 추가</button>
+        <button class="btn btn-ghost btn-sm" data-action="addDirectEditIllRow">＋ 수동 삽화 추가</button>
       </div>
     </div>
 
@@ -765,18 +765,18 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
         style="width:100%;height:160px;font-family:monospace;font-size:12px;line-height:1.6;resize:vertical"
         placeholder="예)&#10;body { font-size: 1.1em; line-height: 1.9; }&#10;p { text-indent: 1em; }&#10;.chapter-title { font-weight: bold; text-align: center; }"></textarea>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
-        <button class="btn btn-ghost btn-sm" onclick="directEditCssPreset('indent')">들여쓰기</button>
-        <button class="btn btn-ghost btn-sm" onclick="directEditCssPreset('line')">줄간격</button>
-        <button class="btn btn-ghost btn-sm" onclick="directEditCssPreset('font')">폰트</button>
-        <button class="btn btn-ghost btn-sm" onclick="directEditCssPreset('reset')">초기화 스타일</button>
-        <button class="btn btn-ghost btn-sm" onclick="document.getElementById('directEditCssInput').value=''">지우기</button>
+        <button class="btn btn-ghost btn-sm" data-action="directEditCssPreset" data-preset="indent">들여쓰기</button>
+        <button class="btn btn-ghost btn-sm" data-action="directEditCssPreset" data-preset="line">줄간격</button>
+        <button class="btn btn-ghost btn-sm" data-action="directEditCssPreset" data-preset="font">폰트</button>
+        <button class="btn btn-ghost btn-sm" data-action="directEditCssPreset" data-preset="reset">초기화 스타일</button>
+        <button class="btn btn-ghost btn-sm" data-action="clearDirectEditCss">지우기</button>
       </div>
     </div>
   </div>
 
   <!-- 적용 버튼 -->
   <div style="margin-top:10px">
-    <button class="btn btn-accent" style="width:100%;font-size:14px;padding:12px" onclick="applyDirectEdit()">✅ EPUB 직접 편집 적용</button>
+    <button class="btn btn-accent" style="width:100%;font-size:14px;padding:12px" data-action="applyDirectEdit">✅ EPUB 직접 편집 적용</button>
   </div>
   <div class="prog-wrap" id="directEditProgWrap">
     <div class="prog-bg"><div class="prog-bar" id="directEditProgBar"></div></div>
@@ -785,7 +785,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
   <div class="result" id="directEditResultBox" style="display:none;margin-top:10px">
     <h3>✅ 편집 완료!</h3>
     <p id="directEditResultMsg"></p>
-    <button class="btn btn-green" onclick="downloadDirectEditEpub()">⬇ EPUB 다운로드</button>
+    <button class="btn btn-green" data-action="downloadDirectEditEpub">⬇ EPUB 다운로드</button>
   </div>
   <div class="err-box" id="directEditErrBox"></div>
 </div>
@@ -1856,6 +1856,8 @@ function setupEventListeners(){
     clearChipPatHelper:     ()   => clearChipSelection('patHelper'),
     clearChipInsHelper:     ()   => clearChipSelection('insPatHelper'),
     smartPatConvert:        ()   => smartPatConvert(),
+    eSmartPatConvert:   () => eSmartPatConvert(),
+    clearEtocChip:      () => clearChipSelection('eTocPatHelper'),
     saveCssSettings:        ()   => saveCssSettings(),
     saveExtraSettings:      ()   => saveExtraSettings(),
     saveApiSettings:        ()   => saveApiSettings(),
@@ -2011,6 +2013,23 @@ function setupEventDelegate(){
       const row = document.getElementById(el.dataset.rowId);
       if (row) row.remove();
     },
+
+    // ── EPUB 직접 편집 탭 ──
+    switchEditTab:          (el) => switchEditTab(el.dataset.tab),
+    eTocTab:                (el) => eTocTab(parseInt(el.dataset.idx)),
+    eToggleAllToc:          (el) => eToggleAllToc(el.dataset.val==='true'),
+    previewEpubToc:         ()   => previewEpubToc(),
+    applyESmartPat:         ()   => applyESmartPat(),
+    applyETocSelectedChips: ()   => applyETocSelectedChips(),
+    applyEPat:              ()   => applyEPat(),
+    directEditTocCheckAll:  (el) => directEditTocCheckAll(el.dataset.val==='true'),
+    directEditTocMoveUp:    ()   => directEditTocMoveUp(),
+    directEditTocMoveDown:  ()   => directEditTocMoveDown(),
+    addDirectEditIllRow:    ()   => addDirectEditIllRow(),
+    directEditCssPreset:    (el) => directEditCssPreset(el.dataset.preset),
+    clearDirectEditCss:     ()   => { const el=document.getElementById('directEditCssInput'); if(el) el.value=''; },
+    applyDirectEdit:        ()   => applyDirectEdit(),
+    downloadDirectEditEpub: ()   => downloadDirectEditEpub(),
   });
 
   // EventDelegate 전역 클릭 위임 시작
@@ -6317,82 +6336,7 @@ async function insertIllsToEpub(newZip, opfPath, opfBase, illEntries){
   if(navFile&&navText) newZip.file(navFile,navText);
 }
 
-// 삽화 매핑 계산
-function buildIllEntries(epubChapters, opfBase){
-  if(!EI.files.length) return [];
-  const mode=document.querySelector('input[name="editIllMode"]:checked').value;
-  const entries=[];
-  const overflowWarnings=[];
 
-  if(mode==='auto'){
-    // 파일명 숫자 = 챕터 인덱스(1-based) 직접 매칭
-    // 01.jpg → epubChapters[0] (첫 번째 챕터)
-    // 100.jpg → epubChapters[99] (100번째 챕터)
-    // 01_01.jpg → epubChapters[0]의 첫 번째 삽화
-    // 01_02.jpg → epubChapters[0]의 두 번째 삽화
-    // 목차 수 초과 시 마지막 챕터에 배치 + 경고
-    const autoEntries=[];
-    for(const f of EI.files){
-      const stem=f.name.replace(/\.[^.]+$/,'');
-      const m=stem.match(/^(\d+)(?:_(\d+))?/);
-      if(!m) continue;
-      const chIdx=parseInt(m[1])-1;          // 1-based → 0-based 인덱스
-      const order=parseInt(m[2]||'1');        // 서브넘버 (없으면 1)
-      let ch=null;
-      if(chIdx>=0&&chIdx<epubChapters.length){
-        ch=epubChapters[chIdx];
-      } else if(epubChapters.length>0){
-        // 인덱스 초과 → 마지막 챕터
-        ch=epubChapters[epubChapters.length-1];
-        overflowWarnings.push(f.name);
-      }
-      if(ch) autoEntries.push({file:f, targetHref:ch.href, pos:'before', order});
-    }
-    // order 기준 정렬 (같은 챕터 내 서브넘버 순서 보장)
-    autoEntries.sort((a,b)=>{
-      const ai=entries.findIndex(e=>e.targetHref===a.targetHref);
-      const bi=entries.findIndex(e=>e.targetHref===b.targetHref);
-      return a.order-b.order;
-    });
-    entries.push(...autoEntries);
-    // 초과 경고 UI 표시
-    const warnEl=document.getElementById('editIllOverflowWarn');
-    if(warnEl){
-      if(overflowWarnings.length>0){
-        warnEl.textContent='⚠️ 목차 수('+epubChapters.length+'화)를 초과하는 삽화 '+overflowWarnings.length+'개가 마지막 챕터에 배치되었습니다: '+overflowWarnings.join(', ');
-        warnEl.style.display='block';
-      } else {
-        warnEl.style.display='none';
-      }
-    }
-  }else{
-    // 수동: 각 row 파싱
-    document.querySelectorAll('[id^="eir_"]').forEach(row=>{
-      const id=row.id.replace('eir_','');
-      const fname=document.getElementById('eif_'+id)?.value.trim();
-      if(!fname)return;
-      const file=EI.files.find(f=>f.name===fname);
-      if(!file)return;
-      const modeVal=document.getElementById('eim_'+id).value;
-      const pos=document.getElementById('eip_'+id).value;
-      let targetCh=null;
-      if(modeVal==='chapter'){
-        const chNum=parseInt(document.getElementById('eic_'+id).value);
-        targetCh=epubChapters.find(c=>{
-          const nm=c.title.match(/\((\d+)\)/)||c.title.match(/(\d+)\s*화/)||c.title.match(/^(\d+)$/);
-          return nm&&parseInt(nm[1])===chNum;
-        });
-      }else{
-        const kw=document.getElementById('eik_'+id)?.value.trim();
-        if(modeVal==='title') targetCh=epubChapters.find(c=>c.title.includes(kw));
-        // keyword는 본문 검색이 필요해 epub 편집에서는 제목 포함으로 처리
-        else targetCh=epubChapters.find(c=>c.title.includes(kw));
-      }
-      if(targetCh) entries.push({file,targetHref:targetCh.href,pos});
-    });
-  }
-  return entries;
-}
 
 function downloadEditEpub(){
   if(!E.resultBlob)return;
@@ -6488,8 +6432,8 @@ function renderETocItems(){
   const stat=document.createElement('div');
   stat.style.cssText='margin-bottom:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
   stat.innerHTML='<span style="font-size:11px;color:var(--text2)">총 <b>'+_eTocItems.length+'</b>개 감지</span>'+
-    '<button class="btn btn-ghost btn-sm" onclick="eToggleAllToc(true)">전체 선택</button>'+
-    '<button class="btn btn-ghost btn-sm" onclick="eToggleAllToc(false)">전체 해제</button>';
+    '<button class="btn btn-ghost btn-sm" data-action="eToggleAllToc" data-val="true">전체 선택</button>'+
+    '<button class="btn btn-ghost btn-sm" data-action="eToggleAllToc" data-val="false">전체 해제</button>';
   tb0.appendChild(stat);
 
   _eTocItems.forEach((item,i)=>{
