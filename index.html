@@ -308,6 +308,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .badge-ridi{background:#1f8ce6}
 .badge-novelpia{background:#e67e22}
 .badge-google{background:#ea4335}
+.badge-kakao{background:#ffcd00;color:#381e1f}
 /* 외부 링크 폴백 */
 .cover-fallback{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border-radius:8px;border:1px dashed var(--border);font-size:11px;color:var(--text2)}
 .cover-fallback button{font-size:10px;padding:4px 9px;border-radius:5px;border:1.5px solid var(--border);background:none;color:var(--text2);cursor:pointer;font-family:inherit;white-space:nowrap;transition:all .15s}
@@ -1070,6 +1071,45 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
   <button class="btn btn-accent" data-action="startBatch">📦 일괄 변환 시작!</button>
 </div>
 <div class="btm" id="btmEdit" style="display:none"><button class="btn btn-accent" data-action="startEditEpub">✏️ 편집 적용!</button></div>
+<!-- ══ 미리보기 모달 ══ -->
+<div class="modal-overlay" id="previewModal" data-action-overlay="closePreview">
+  <div class="modal">
+    <div class="modal-hdr">
+      <h3>👁 EPUB 미리보기</h3>
+      <button class="modal-close" data-action="closePreview">✕</button>
+    </div>
+    <div class="modal-body" id="previewBody"></div>
+    <div class="modal-footer">
+      <span id="previewPageInfo" style="font-size:12px;color:var(--text2);align-self:center"></span>
+      <button class="btn btn-ghost btn-sm" data-action="previewNav" data-dir="-1">◀ 이전</button>
+      <button class="btn btn-ghost btn-sm" data-action="previewNav" data-dir="1">다음 ▶</button>
+      <button class="btn btn-green btn-sm" data-action="downloadEpub">⬇ 다운로드</button>
+    </div>
+  </div>
+</div>
+
+<!-- ══ 표지 검색 모달 ══ -->
+<div class="modal-overlay" id="coverModal" data-action-overlay="closeCoverModal">
+  <div class="cover-modal">
+    <div class="cover-modal-hdr">
+      <h3>🔍 표지 검색</h3>
+      <div class="cover-modal-search" style="flex:1;margin:0 12px 0 16px">
+        <input id="coverSearchQ" placeholder="소설 제목을 입력하고 Enter..."
+               onkeydown="if(event.key==='Enter')runCoverSearch()">
+        <button class="btn btn-accent btn-sm" data-action="runCoverSearch"
+                style="white-space:nowrap;padding:7px 14px">검색</button>
+      </div>
+      <button class="modal-close" data-action="closeCoverModal">✕</button>
+    </div>
+    <div class="cover-modal-body" id="coverModalBody">
+      <div style="text-align:center;padding:40px 0;color:var(--text2);font-size:13px">
+        소설 제목을 입력하고 검색하면<br>네이버·리디·카카오페이지·노벨피아·구글에서 동시 검색해요
+      </div>
+    </div>
+  </div>
+</div>
+
+
 
 <script>
 // ══════════════════════════════════════════════════════════
@@ -5936,16 +5976,51 @@ function loadApiSettings(){
   }catch(e){}
 }
 
+// ── 검색용 순수 제목 추출 ──
+// "작품명 1-489 본편, 후일담, 번외편 완" → "작품명"
+// "작품명 2권" / "작품명_완결" / "[작가명] 작품명" → "작품명"
+function extractSearchTitle(raw) {
+  let t = raw
+    .replace(/\.txt$/i, '')           // 확장자 제거
+    .replace(/^\[.+?\]\s*/, '')       // [작가명] 제거
+    .replace(/^.+?@\s*/, '')          // 작가명@ 제거
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // 숫자 범위 "1-489", "1~300" 제거
+  t = t.replace(/\s+\d+[-~]\d+.*$/, '');
+  // "N권", "N부" 앞 내용만 유지 (붙어있으면 제거)
+  t = t.replace(/\s+\d+[권부].*$/, '');
+  // " 완", " 완결", " 완전판" 제거
+  t = t.replace(/\s+(?:완결?|완전판|전권|전편|번외|후일담|외전|특별판).*$/i, '');
+  // 쉼표 뒤 내용 제거 ("본편, 후일담, ...")
+  t = t.replace(/,.*$/, '');
+  // 괄호 내용 제거
+  t = t.replace(/\s*[\(\[\{].+$/, '');
+
+  return t.trim() || raw.replace(/\.txt$/i,'').trim();
+}
+
 function openCoverModal(mode){
   _coverModalMode=mode;
   let q='';
-  if(mode==='convert') q=document.getElementById('title')?.value.trim()||'';
-  else q=B.txtFiles[0]?.name.replace(/\.txt$/i,'').replace(/[@[\]_-]+/g,' ').trim()||'';
+  if(mode==='convert'){
+    // 입력된 제목 우선, 없으면 파일명에서 추출
+    const titleInput=document.getElementById('title')?.value.trim()||'';
+    if(titleInput){
+      q=extractSearchTitle(titleInput);
+    } else if(S.txtFiles.length){
+      q=extractSearchTitle(S.txtFiles[0].name);
+    }
+  } else {
+    const f=B.txtFiles[0];
+    q=f ? extractSearchTitle(f.name) : '';
+  }
   document.getElementById('coverSearchQ').value=q;
   document.getElementById('coverModal').classList.add('show');
   if(q) setTimeout(()=>runCoverSearch(),100);
   else document.getElementById('coverModalBody').innerHTML=
-    '<div style="text-align:center;padding:40px 0;color:var(--text2);font-size:13px">소설 제목을 입력하고 검색하면<br>네이버·리디·노벨피아·구글에서 동시 검색해요</div>';
+    '<div style="text-align:center;padding:40px 0;color:var(--text2);font-size:13px">소설 제목을 입력하고 검색하면<br>네이버·리디·카카오페이지·노벨피아·구글에서 동시 검색해요</div>';
 }
 function closeCoverModal(){
   document.getElementById('coverModal').classList.remove('show');
@@ -5968,10 +6043,11 @@ async function runCoverSearch(){
   if(!q) return;
 
   const PLATFORMS=[
-    {id:'naver',   label:'📗 네이버 시리즈', badge:'badge-naver',   fn:fetchNaver},
-    {id:'ridi',    label:'📘 리디북스',      badge:'badge-ridi',    fn:fetchRidi},
-    {id:'novelpia',label:'📙 노벨피아',       badge:'badge-novelpia',fn:fetchNovelpia},
-    {id:'google',  label:'🌐 구글 이미지',   badge:'badge-google',  fn:fetchGoogle},
+    {id:'naver',   label:'📗 네이버 시리즈',  badge:'badge-naver',   fn:fetchNaver},
+    {id:'ridi',    label:'📘 리디북스',        badge:'badge-ridi',    fn:fetchRidi},
+    {id:'kakao',   label:'🟡 카카오페이지',    badge:'badge-kakao',   fn:fetchKakao},
+    {id:'novelpia',label:'📙 노벨피아',         badge:'badge-novelpia',fn:fetchNovelpia},
+    {id:'google',  label:'🌐 구글 이미지',     badge:'badge-google',  fn:fetchGoogle},
   ];
 
   // 섹션 스켈레톤 생성 + 외부 링크 바
@@ -5993,6 +6069,7 @@ async function runCoverSearch(){
     ${[
       ['네이버 시리즈','https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel'],
       ['리디북스','https://ridibooks.com/search?q='+encodeURIComponent(q)],
+      ['카카오페이지','https://page.kakao.com/search/result?keyword='+encodeURIComponent(q)],
       ['노벨피아','https://novelpia.com/search/novel?search_string='+encodeURIComponent(q)],
       ['구글 이미지','https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q+' 소설 표지')],
     ].map(([l,u])=>`<button class="platform-link" onclick="window.open('${u}','_blank')">${escHtml(l)} ↗</button>`).join('')}
@@ -6030,7 +6107,7 @@ function renderPlatformStrip(id, label, badgeClass, q, items){
     const title=(item.title||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
     const titleHtml=escHtml(item.title||'');
     return `<div class="cover-result-card" onclick="applyCoverCard('${url}','${title}')" title="${titleHtml}">
-      <span class="cover-result-badge ${badgeClass}">${id==='naver'?'N':id==='ridi'?'R':id==='novelpia'?'NP':'G'}</span>
+      <span class="cover-result-badge ${badgeClass}">${id==='naver'?'N':id==='ridi'?'R':id==='kakao'?'K':id==='novelpia'?'NP':'G'}</span>
       <div class="apply-overlay">클릭해서 적용</div>
       <img class="cover-result-img" src="${url}" alt="${titleHtml}" loading="lazy"
            onerror="this.parentElement.style.display='none'">
@@ -6055,6 +6132,7 @@ function getPlatformUrl(id,q){
   const urls={
     naver:'https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel',
     ridi:'https://ridibooks.com/search?q='+encodeURIComponent(q),
+    kakao:'https://page.kakao.com/search/result?keyword='+encodeURIComponent(q),
     novelpia:'https://novelpia.com/search/novel?search_string='+encodeURIComponent(q),
     google:'https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q+' 소설 표지'),
   };
@@ -6064,12 +6142,77 @@ function getPlatformUrl(id,q){
 // ══════════════════════════════════════════
 // 🌐 Module: Crawlers (네이버·리디·노벨피아·구글)
 // ══════════════════════════════════════════
-const PROXY='https://api.allorigins.win/get?url=';
+// 다중 프록시 — 앞에서부터 시도, 실패 시 다음으로
+const PROXIES=[
+  'https://api.allorigins.win/get?url=',
+  'https://corsproxy.io/?url=',
+  'https://api.codetabs.com/v1/proxy?quest=',
+];
 
 async function proxyFetch(url, timeout=8000){
-  const res=await fetch(PROXY+encodeURIComponent(url),{signal:AbortSignal.timeout(timeout)});
-  const data=await res.json();
-  return data.contents||'';
+  let lastErr;
+  for(const proxy of PROXIES){
+    try{
+      const res=await fetch(proxy+encodeURIComponent(url),{signal:AbortSignal.timeout(timeout)});
+      if(!res.ok) continue;
+      const text=await res.text();
+      // allorigins: JSON {contents:...} / corsproxy.io: 직접 HTML / codetabs: 직접
+      try{
+        const json=JSON.parse(text);
+        if(json.contents!=null) return json.contents;
+      }catch(e){}
+      return text;
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr||new Error('모든 프록시 실패');
+}
+
+// ── 카카오페이지 ──
+async function fetchKakao(q){
+  // 카카오페이지 검색 API (공개)
+  try{
+    const apiUrl='https://page.kakao.com/api/search/result?keyword='+encodeURIComponent(q)+'&categoryUid=0&sortType=RELEVANCE&page=0&size=12';
+    const html=await proxyFetch(apiUrl, 8000);
+    try{
+      const json=JSON.parse(html);
+      // 카카오페이지 API 응답 구조
+      const items=[];
+      const list=json?.data?.contentList||json?.contentList||json?.data?.list||[];
+      for(const item of list){
+        const img=item.thumbnail||item.thumbnailUrl||item.coverImageUrl||item.imageUrl||'';
+        const title=item.title||item.name||q;
+        if(img) items.push({title, image:img});
+      }
+      if(items.length) return items.slice(0,12);
+    }catch(e){}
+    // HTML fallback 파싱
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const items=[];
+    doc.querySelectorAll('[class*="thumbnail"],[class*="cover"],[class*="book"]').forEach(el=>{
+      const img=el.querySelector('img');
+      const src=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
+      if(src&&src.startsWith('http')&&src.length>30){
+        items.push({title:img?.alt||q, image:src});
+      }
+    });
+    if(items.length) return items.slice(0,12);
+  }catch(e){}
+
+  // fallback: 검색 페이지 HTML 파싱
+  try{
+    const html2=await proxyFetch('https://page.kakao.com/search/result?keyword='+encodeURIComponent(q), 8000);
+    const doc=new DOMParser().parseFromString(html2,'text/html');
+    const items=[];
+    doc.querySelectorAll('img').forEach(img=>{
+      const src=img.getAttribute('src')||img.getAttribute('data-src')||'';
+      if(src&&src.startsWith('http')&&
+         (src.includes('kakao')||src.includes('kakaocdn')||src.includes('thumb')||src.includes('cover'))&&
+         !src.includes('icon')&&!src.includes('logo')&&src.length>40){
+        items.push({title:img.alt||q, image:src});
+      }
+    });
+    return items.slice(0,12);
+  }catch(e){ return []; }
 }
 
 // ── 네이버 시리즈 ──
