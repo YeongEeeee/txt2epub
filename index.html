@@ -6147,10 +6147,10 @@ function getPlatformUrl(id,q){
 // type: 'json' → {contents:...} 응답, 'direct' → HTML 직접 응답
 const PROXIES=[
   {url:'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=', type:'direct'}, // 자체 CF Workers (1순위)
-  {url:'https://api.allorigins.win/get?url=',               type:'json'},
-  {url:'https://thingproxy.freeboard.io/fetch/',            type:'direct'},
-  {url:'https://corsproxy.io/?url=',                        type:'direct'},
-  {url:'https://api.codetabs.com/v1/proxy?quest=',          type:'direct'},
+  {url:'https://api.allorigins.win/get?url=',               type:'json'},   // 범용 (2순위)
+  {url:'https://corsproxy.io/?url=',                        type:'direct'}, // (3순위)
+  {url:'https://api.codetabs.com/v1/proxy?quest=',          type:'direct'}, // (4순위)
+  // thingproxy.freeboard.io 제거 — DNS 불능 확인됨
 ];
 
 // 프록시 1개 시도 — 성공 여부와 HTML 반환
@@ -6469,34 +6469,98 @@ async function fetchNovelpia(q){
 
 // ── 구글 이미지 커스텀 검색 (공개 크롤링) ──
 async function fetchGoogle(q){
-  // 구글 이미지 결과 페이지 프록시 파싱
+  // 구글 이미지 직접 크롤링 불가 (모든 프록시 429/403 차단)
+  // 대안: Bing 이미지 → DuckDuckGo → 네이버 이미지 순으로 시도
+
+  function isValidImg(src){
+    if(!src||!src.startsWith('http')||src.length<40) return false;
+    const s=src.toLowerCase();
+    return !s.includes('icon')&&!s.includes('logo')&&!s.includes('pixel')&&
+           !s.includes('blank')&&!s.includes('spacer')&&
+           (s.includes('.jpg')||s.includes('.jpeg')||s.includes('.png')||
+            s.includes('.webp')||s.includes('image')||s.includes('thumb')||
+            s.includes('cover')||s.includes('photo'));
+  }
+
+  // ── 1순위: Bing 이미지 검색 (SSR HTML — Workers 경유) ──
   try{
     const html=await proxyFetch(
-      'https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q+' 소설 표지 일러스트')+'&num=12'
+      'https://www.bing.com/images/search?q='+encodeURIComponent(q+' 소설 표지')+'&form=HDRSC2&first=1'
     );
     const doc=new DOMParser().parseFromString(html,'text/html');
     const items=[];
-    // 인코딩된 이미지 URL 추출 (구글 결과 페이지)
-    const text=doc.body?.innerHTML||html;
-    const matches=[...text.matchAll(/"(https:\/\/[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/gi)];
     const seen=new Set();
-    for(const m of matches){
-      const url=m[1];
-      if(!seen.has(url)&&!url.includes('gstatic')&&!url.includes('google.com/logos')){
-        seen.add(url);
-        items.push({title:q, image:url});
-        if(items.length>=12) break;
+
+    // Bing 이미지 결과 — data-src 또는 murl 속성에 원본 URL
+    doc.querySelectorAll('.iusc,[class*="imgpt"],[class*="img_cont"]').forEach(el=>{
+      // Bing은 data-m JSON에 murl(원본 URL) 포함
+      const m=el.getAttribute('m')||el.getAttribute('data-m')||'';
+      if(m){
+        try{
+          const obj=JSON.parse(m);
+          const url=obj.murl||obj.imgurl||'';
+          if(url&&!seen.has(url)&&isValidImg(url)){
+            seen.add(url);
+            items.push({title:obj.t||q, image:url});
+          }
+        }catch(e){}
       }
-    }
-    // 이미지 태그 fallback
+      // img 태그 직접 확인
+      const img=el.querySelector('img');
+      const src=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
+      if(src&&!seen.has(src)&&isValidImg(src)){
+        seen.add(src);
+        items.push({title:img?.alt||q, image:src});
+      }
+    });
+
+    // Bing img 태그 전체 fallback
     if(!items.length){
       doc.querySelectorAll('img[src]').forEach(img=>{
         const src=img.getAttribute('src')||'';
-        if(src.startsWith('http')&&!src.includes('gstatic')&&src.length>30){
-          items.push({title:img.alt||q, image:src});
+        if(!seen.has(src)&&isValidImg(src)&&!src.includes('bing.com/th')){
+          seen.add(src); items.push({title:img.alt||q, image:src});
         }
       });
     }
+    if(items.length) return items.slice(0,12);
+  }catch(e){}
+
+  // ── 2순위: DuckDuckGo 이미지 API (공개 JSON — Workers 경유) ──
+  try{
+    const html=await proxyFetch(
+      'https://duckduckgo.com/?q='+encodeURIComponent(q+' 소설 표지')+'&iax=images&ia=images'
+    );
+    // DuckDuckGo vqd 토큰 추출
+    const vqd=(html.match(/vqd=['"]([^'"]+)['"]/)||[])[1];
+    if(vqd){
+      const jsonHtml=await proxyFetch(
+        'https://duckduckgo.com/i.js?q='+encodeURIComponent(q+' 소설 표지')+'&vqd='+encodeURIComponent(vqd)+'&p=1'
+      );
+      const json=JSON.parse(jsonHtml);
+      const items=(json.results||[]).slice(0,12).map(r=>({
+        title:r.title||q,
+        image:r.image||r.thumbnail||''
+      })).filter(i=>i.image&&isValidImg(i.image));
+      if(items.length) return items;
+    }
+  }catch(e){}
+
+  // ── 3순위: 네이버 이미지 검색 HTML (Workers 경유) ──
+  try{
+    const html=await proxyFetch(
+      'https://search.naver.com/search.naver?where=image&query='+encodeURIComponent(q+' 소설 표지')+'&sm=tab_srt&sort=0'
+    );
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const items=[];
+    const seen=new Set();
+    doc.querySelectorAll('img[data-lazy-src],img[data-original],img[src]').forEach(img=>{
+      const src=img.getAttribute('data-lazy-src')||img.getAttribute('data-original')||img.getAttribute('src')||'';
+      if(!seen.has(src)&&isValidImg(src)&&!src.includes('naver.com/static')){
+        seen.add(src);
+        items.push({title:img.alt||q, image:src});
+      }
+    });
     return items.slice(0,12);
   }catch(e){ return []; }
 }
