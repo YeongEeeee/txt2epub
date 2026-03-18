@@ -4169,65 +4169,15 @@ async function autoSplitByInterval(){
     if(totalChapters<1) totalChapters=1;
   }
 
+  // 균등 간격으로 줄 번호 계산 — 제목은 "Chapter N" 고정
+  // (줄 내용 기반 제목 탐색 제거 → 정확한 화수 기준 분할)
   const interval=Math.floor(totalLines/totalChapters);
   const found=[];
 
-  // 챕터 제목 후보로 쓰면 안 되는 패턴
-  const badTitle=/^["'"'「『【《\-\*\·…]+|[。.!?！？\-]+$|^\*{2,}$|^[-─━─]+$/;
-  // 좋은 챕터 제목 패턴 (알려진 패턴 우선)
-  const goodTitle=[
-    /^(?:제\s*)?\d+\s*화/i,
-    /^\d+$/,
-    /^(?:프롤로그|에필로그|외전|후일담)/i,
-    /^[1-9]부\s+\d+화/,
-    /^(?:chapter|part|ch)\s*\d+/i,
-    /^제\s*\d+\s*장/,
-  ];
-
   for(let ch=0;ch<totalChapters;ch++){
-    const center=ch*interval;
-
-    // ★ 첫 번째 챕터는 항상 파일의 첫 비어있지 않은 줄
-    if(ch===0){
-      const firstNonEmpty=lines.findIndex(l=>l.trim().length>0);
-      const lineNum=firstNonEmpty>=0?firstNonEmpty+1:1;
-      const title=lines[firstNonEmpty]?.trim()||'챕터 1';
-      found.push({line:lineNum,title,enabled:true,autoSplit:true});
-      continue;
-    }
-
-    // 검색 범위: 해당 구간 전체 (±interval/2)
-    const winStart=Math.max(0,center-10);
-    const winEnd=Math.min(totalLines,center+interval/2);
-    const windowLines=lines.slice(winStart,winEnd);
-
-    // 1순위: 알려진 챕터 패턴과 매칭되는 줄
-    let bestLine=null;
-    for(let wi=0;wi<windowLines.length;wi++){
-      const t=windowLines[wi].trim();
-      if(!t) continue;
-      if(goodTitle.some(rx=>rx.test(t))){
-        bestLine={t,idx:winStart+wi};
-        break;
-      }
-    }
-
-    // 2순위: 짧고 대화문/문장 부호 아닌 줄
-    if(!bestLine){
-      const candidates=windowLines
-        .map((l,wi)=>({t:l.trim(),idx:winStart+wi}))
-        .filter(({t})=>t.length>=2&&t.length<=20&&!badTitle.test(t));
-      if(candidates.length){
-        // 가장 짧은 것
-        candidates.sort((a,b)=>a.t.length-b.t.length);
-        bestLine=candidates[0];
-      }
-    }
-
-    // 3순위: 챕터 N
-    const title=bestLine?bestLine.t:('챕터 '+(ch+1));
-    const lineNum=bestLine?bestLine.idx+1:center+1;
-    found.push({line:lineNum,title,enabled:true,autoSplit:true});
+    const lineNum=Math.floor(ch*interval)+1; // 1-based
+    const title='Chapter '+(ch+1);
+    found.push({line:lineNum, title, enabled:true, autoSplit:true});
   }
 
   S.tocItems=found;
