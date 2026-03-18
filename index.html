@@ -2377,7 +2377,7 @@ function sanitizeLine(s){
   // U+00AD soft hyphen → em dash (소설에서 대화 표시로 사용됨)
   s=s.replace(/­/g,'—');
   // XML 1.0 비허용 제어문자 제거: U+0000-U+0008, U+000B, U+000C, U+000E-U+001F
-  s=s.replace(/[ --]/g,'');
+  s=s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'');
   // U+FFFE, U+FFFF 제거 (XML 비허용)
   s=s.replace(/[￾￿]/g,'');
   // 후행 공백 제거
