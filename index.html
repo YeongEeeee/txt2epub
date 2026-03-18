@@ -6086,6 +6086,31 @@ async function runCoverSearch(){
 }
 
 // ── 각 섹션 렌더 ──
+// ── 이미지 CORS 프록시 헬퍼 ──
+// Workers 경유로 이미지 로드 → CORS 헤더 자동 추가
+// crossorigin 속성 없이 로드하면 canvas 오염 없이 표시만 가능
+function proxyImgUrl(originalUrl){
+  if(!originalUrl) return '';
+  const worker=PROXIES.find(p=>p.url.includes('workers.dev'));
+  if(worker) return worker.url+encodeURIComponent(originalUrl);
+  return originalUrl; // Workers 없으면 직접 시도
+}
+
+// img onerror: Workers 경유 실패 시 직접 URL → 그래도 실패 시 placeholder
+function imgError(el, originalUrl){
+  if(el.dataset.retried==='1'){
+    // 최종 실패 → 회색 placeholder
+    el.style.display='none';
+    const ph=document.createElement('div');
+    ph.style.cssText='width:90px;height:128px;background:var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text2);text-align:center;padding:4px';
+    ph.textContent='이미지\n없음';
+    el.parentElement?.insertBefore(ph, el);
+    return;
+  }
+  el.dataset.retried='1';
+  el.src=originalUrl; // 직접 URL로 재시도
+}
+
 function renderPlatformStrip(id, label, badgeClass, q, items){
   const strip=document.getElementById('strip_'+id);
   const stat=document.getElementById('stat_'+id);
@@ -6103,15 +6128,18 @@ function renderPlatformStrip(id, label, badgeClass, q, items){
   }
   if(stat) stat.textContent=items.length+'개';
   strip.innerHTML=items.map((item,i)=>{
-    const url=escHtml(item.image||'');
+    const rawUrl=item.image||'';
+    const proxiedUrl=escHtml(proxyImgUrl(rawUrl));  // Workers 경유 URL
+    const directUrl=escHtml(rawUrl);                 // 직접 URL (fallback)
     const title=(item.title||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
     const titleHtml=escHtml(item.title||'');
-    return `<div class="cover-result-card" onclick="applyCoverCard('${url}','${title}')" title="${titleHtml}">
+    return `<div class="cover-result-card" onclick="applyCoverCard('${directUrl}','${title}')" title="${titleHtml}">
       <span class="cover-result-badge ${badgeClass}">${id==='naver'?'N':id==='ridi'?'R':id==='kakao'?'K':id==='novelpia'?'NP':'G'}</span>
       <div class="apply-overlay">클릭해서 적용</div>
-      <img class="cover-result-img" src="${url}" alt="${titleHtml}" loading="lazy"
-           referrerpolicy="no-referrer" crossorigin="anonymous"
-           onerror="this.src='';this.style.background='var(--border)';this.style.opacity='0.4'">
+      <img class="cover-result-img" src="${proxiedUrl}" alt="${titleHtml}" loading="lazy"
+           referrerpolicy="no-referrer"
+           data-original="${directUrl}"
+           onerror="imgError(this,'${directUrl}')">
       <div class="cover-result-title">${titleHtml}</div>
     </div>`;
   }).join('');
