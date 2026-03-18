@@ -6227,20 +6227,78 @@ async function proxyFetchRace(url, timeout=9000){
 // ── 카카오페이지 ──
 async function fetchKakao(q){
   function isValidKakaoImg(src){
-    if(!src||!src.startsWith('http')) return false;
-    if(src.includes('icon')||src.includes('logo')||src.includes('badge')) return false;
-    return src.includes('kakao')||src.includes('kakaocdn')||src.includes('thumb')||src.includes('cover');
+    if(!src) return false;
+    const s=src.toLowerCase();
+    if(s.includes('icon')||s.includes('logo')||s.includes('badge')||s.includes('profile')) return false;
+    // 카카오페이지 이미지 CDN 패턴
+    return s.includes('kakaocdn')||s.includes('dn-img-page.kakao')||
+           s.includes('t1.kakaocdn')||s.includes('k.kakaocdn')||
+           s.includes('page.kakao.com')&&s.includes('download');
   }
 
-  // 카카오 REST API는 서버 키 필요 (CORS + 인증 문제) → Workers 경유 카카오페이지 파싱 사용
-  // 1) 카카오페이지 검색 페이지 파싱 (Workers 경유)
+  // ── 1순위: 카카오페이지 GraphQL API (Workers POST 경유) ──
   try{
-    const html=await proxyFetch('https://page.kakao.com/search/result?keyword='+encodeURIComponent(q));
+    const gqlQuery=`query SearchContentByKeyword($keyword:String!$after:String$page:Int){
+      searchContentByKeyword(keyword:$keyword after:$after page:$page){
+        edges{ node{
+          id title
+          thumbnail{ url }
+          singleThumbnailImage{ url }
+        }}
+      }
+    }`;
+    const body=JSON.stringify({
+      query:gqlQuery,
+      variables:{keyword:q, page:0}
+    });
+
+    const worker=PROXIES.find(p=>p.url.includes('workers.dev'));
+    if(worker){
+      const res=await fetch(
+        worker.url+encodeURIComponent('https://page.kakao.com/graphql')+'&_method=POST&_body='+encodeURIComponent(body)+'&_h_Content-Type='+encodeURIComponent('application/json'),
+        {signal:AbortSignal.timeout(9000)}
+      );
+      if(res.ok){
+        const json=await res.json();
+        const edges=json?.data?.searchContentByKeyword?.edges||[];
+        const items=edges.map(e=>({
+          title:e.node.title||q,
+          image:e.node.thumbnail?.url||e.node.singleThumbnailImage?.url||''
+        })).filter(i=>i.image);
+        if(items.length) return items.slice(0,12);
+      }
+    }
+  }catch(e){}
+
+  // ── 2순위: 다음 책 검색 페이지 파싱 (Workers 경유) ──
+  try{
+    const html=await proxyFetch(
+      'https://search.daum.net/search?w=bookpage&bookType=novel&q='+encodeURIComponent(q)
+    );
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const items=[];
+    doc.querySelectorAll('.wrap_thumb img, .thumb_g img, [class*="thumb"] img, [class*="cover"] img').forEach(img=>{
+      const src=img.getAttribute('src')||img.getAttribute('data-original')||'';
+      if(src&&src.startsWith('http')&&!src.includes('icon')&&src.length>40){
+        items.push({title:img.alt||img.closest('[class*="item"]')?.querySelector('[class*="title"],strong,a')?.textContent?.trim()||q, image:src});
+      }
+    });
+    if(items.length) return items.slice(0,12);
+  }catch(e){}
+
+  // ── 3순위: 카카오 통합검색 HTML 파싱 (Workers 경유) ──
+  try{
+    const html=await proxyFetch(
+      'https://search.kakao.com/search?q='+encodeURIComponent(q+' 소설')
+    );
     const doc=new DOMParser().parseFromString(html,'text/html');
     const items=[];
     doc.querySelectorAll('img').forEach(img=>{
-      const src=img.getAttribute('src')||img.getAttribute('data-src')||'';
-      if(isValidKakaoImg(src)) items.push({title:img.alt||q, image:src});
+      const src=img.getAttribute('src')||img.getAttribute('data-original')||'';
+      if(isValidKakaoImg(src)||
+         (src.startsWith('http')&&(src.includes('kakaocdn')||src.includes('t1.kakao'))&&!src.includes('icon')&&src.length>50)){
+        items.push({title:img.alt||q, image:src});
+      }
     });
     return items.slice(0,12);
   }catch(e){ return []; }
