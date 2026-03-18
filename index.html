@@ -6053,7 +6053,15 @@ async function startEditEpub(){
       const fname='chapter_'+String(nextNum).padStart(4,'0')+'.xhtml';
       const fullPath=opfBase+'Text/'+fname;
       const chid='ins_ch_'+String(nextNum).padStart(4,'0');
-      newZip.file(fullPath,'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml"><head>\n<title>'+escHtml(heading)+'</title>\n<link rel="stylesheet" type="text/css" href="../'+cssHref+'"/>\n</head><body>\n<h1>'+escHtml(heading)+'</h1>\n'+bToHtml(body)+'</body></html>');
+      // keepOrigCss=true이면 원본 CSS의 커스텀 폰트가 적용됨
+// 커스텀 폰트(NF_Library 등)가 !important로 지정된 경우 새 챕터 한글이 깨짐
+// → 새 챕터 body에 시스템 폰트를 !important 인라인으로 강제 지정
+const inlineFont=keepCss
+  ? ' style="font-family: \'Noto Serif KR\',\'Malgun Gothic\',\'Apple SD Gothic Neo\',\'나눔고딕\',sans-serif !important"'
+  : '';
+newZip.file(fullPath,'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml"><head>\n<title>'+escHtml(heading)+'</title>\n<link rel="stylesheet" type="text/css" href="../'+cssHref+'"/>\n'+
+  '<style>/* 커스텀 폰트 폰트 오버라이드 */\np,h1,h2,h3,h4,h5,span,a{font-family:\'Noto Serif KR\',\'Malgun Gothic\',\'Apple SD Gothic Neo\',sans-serif!important}</style>\n'+
+  '</head><body>\n<h1>'+escHtml(heading)+'</h1>\n'+bToHtml(body)+'</body></html>');
       newManifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
       // 챕터별 NCX 구조이면 개별 ncx 파일도 생성
       if(perChNcx){
