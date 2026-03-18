@@ -6169,7 +6169,7 @@ async function _tryProxy(proxy, url, timeout){
   return text;
 }
 
-// 모든 프록시를 순서대로 시도
+// 모든 프록시를 순서대로 시도 (GET)
 async function proxyFetch(url, timeout=9000){
   let lastErr;
   for(const proxy of PROXIES){
@@ -6179,6 +6179,34 @@ async function proxyFetch(url, timeout=9000){
     }catch(e){ lastErr=e; }
   }
   throw lastErr||new Error('모든 프록시 실패');
+}
+
+// Workers 경유 POST 요청 (노벨피아 등 POST API용)
+// Workers가 ?url=...&_method=POST&_body=... 형태를 처리
+async function proxyPost(url, body, timeout=9000){
+  // 1순위: 자체 Workers (POST 지원)
+  const worker = PROXIES.find(p=>p.url.includes('workers.dev'));
+  if(worker){
+    try{
+      const res=await fetch(worker.url+encodeURIComponent(url)+'&_method=POST&_body='+encodeURIComponent(body),
+        {signal:AbortSignal.timeout(timeout)});
+      if(res.ok){
+        const text=await res.text();
+        if(text&&text.length>10) return text;
+      }
+    }catch(e){}
+  }
+  // fallback: 직접 시도 (실패할 수 있음)
+  try{
+    const res=await fetch(url,{
+      method:'POST',
+      headers:{'Content-Type':'application/x-www-form-urlencoded'},
+      body,
+      signal:AbortSignal.timeout(timeout)
+    });
+    if(res.ok) return await res.text();
+  }catch(e){}
+  throw new Error('POST 프록시 실패');
 }
 
 // 여러 프록시를 병렬로 시도 — 가장 빠른 성공 결과 반환
@@ -6204,23 +6232,8 @@ async function fetchKakao(q){
     return src.includes('kakao')||src.includes('kakaocdn')||src.includes('thumb')||src.includes('cover');
   }
 
-  // 1) 카카오 REST API (공개 — Daum 책 검색)
-  try{
-    const res=await fetch(
-      'https://dapi.kakao.com/v3/search/book?query='+encodeURIComponent(q)+'&size=12&target=title',
-      {headers:{'Authorization':'KakaoAK 93f9dc16ed7e73e3a8b4e38cedc8ad28'}} // 공개 데모 키
-    );
-    if(res.ok){
-      const json=await res.json();
-      const items=(json.documents||[]).map(d=>({
-        title:d.title,
-        image:d.thumbnail
-      })).filter(d=>d.image);
-      if(items.length) return items.slice(0,12);
-    }
-  }catch(e){}
-
-  // 2) 카카오페이지 검색 페이지 파싱 (프록시 경유)
+  // 카카오 REST API는 서버 키 필요 (CORS + 인증 문제) → Workers 경유 카카오페이지 파싱 사용
+  // 1) 카카오페이지 검색 페이지 파싱 (Workers 경유)
   try{
     const html=await proxyFetch('https://page.kakao.com/search/result?keyword='+encodeURIComponent(q));
     const doc=new DOMParser().parseFromString(html,'text/html');
@@ -6238,20 +6251,24 @@ async function fetchNaver(q){
   const clientId=document.getElementById('naverClientId')?.value.trim();
   const clientSecret=document.getElementById('naverClientSecret')?.value.trim();
 
-  // 1) 네이버 책 오픈API (키 있을 때) — fetch with headers 직접 호출
+  // 1) 네이버 오픈API — Workers에 헤더 파라미터로 전달 (_h_ prefix)
   if(clientId&&clientSecret){
     try{
-      const res=await fetch(
-        'https://openapi.naver.com/v1/search/book.json?query='+encodeURIComponent(q)+'&display=12&sort=sim',
-        {headers:{'X-Naver-Client-Id':clientId,'X-Naver-Client-Secret':clientSecret}}
-      );
-      if(res.ok){
-        const json=await res.json();
-        const items=(json.items||[]).map(it=>({
-          title:it.title.replace(/<[^>]+>/g,''),
-          image:it.image
-        })).filter(it=>it.image);
-        if(items.length) return items.slice(0,12);
+      const worker=PROXIES.find(p=>p.url.includes('workers.dev'));
+      if(worker){
+        const apiUrl='https://openapi.naver.com/v1/search/book.json?query='+encodeURIComponent(q)+'&display=12&sort=sim';
+        const workerUrl=worker.url+encodeURIComponent(apiUrl)
+          +'&_h_X-Naver-Client-Id='+encodeURIComponent(clientId)
+          +'&_h_X-Naver-Client-Secret='+encodeURIComponent(clientSecret);
+        const res=await fetch(workerUrl,{signal:AbortSignal.timeout(8000)});
+        if(res.ok){
+          const json=await res.json();
+          const items=(json.items||[]).map(it=>({
+            title:it.title.replace(/<[^>]+>/g,''),
+            image:it.image
+          })).filter(it=>it.image);
+          if(items.length) return items.slice(0,12);
+        }
       }
     }catch(e){}
   }
@@ -6329,25 +6346,21 @@ async function fetchNovelpia(q){
     return src;
   }
 
-  // 1) 공개 API (POST)
+  // 노벨피아: Workers 경유 POST API 시도 → 검색 페이지 파싱 fallback
+  // 1) Workers 경유 POST API
   try{
-    const res=await fetch('https://novelpia.com/proc/novel_list',{
-      method:'POST',
-      headers:{'Content-Type':'application/x-www-form-urlencoded','X-Requested-With':'XMLHttpRequest'},
-      body:'search_type=all&search_string='+encodeURIComponent(q)+'&page=1&page_limit=12'
-    });
-    if(res.ok){
-      const json=await res.json();
-      const list=json.list||json.data||[];
-      const items=list.slice(0,12).map(n=>({
-        title:n.novel_name||n.title||q,
-        image:fixNovelpiaImg(n.cover_img||n.cover||n.img||n.thumbnail||'')
-      })).filter(i=>i.image);
-      if(items.length) return items;
-    }
+    const postBody='search_type=all&search_string='+encodeURIComponent(q)+'&page=1&page_limit=12';
+    const resp=await proxyPost('https://novelpia.com/proc/novel_list', postBody);
+    const json=JSON.parse(resp);
+    const list=json.list||json.data||[];
+    const items=list.slice(0,12).map(n=>({
+      title:n.novel_name||n.title||q,
+      image:fixNovelpiaImg(n.cover_img||n.cover||n.img||n.thumbnail||'')
+    })).filter(i=>i.image);
+    if(items.length) return items;
   }catch(e){}
 
-  // 2) 프록시 경유 검색 페이지 파싱
+  // 2) Workers 경유 검색 페이지 파싱
   try{
     const html=await proxyFetch('https://novelpia.com/search/novel?search_string='+encodeURIComponent(q));
     const doc=new DOMParser().parseFromString(html,'text/html');
