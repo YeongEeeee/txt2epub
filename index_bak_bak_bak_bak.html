@@ -93,7 +93,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .toc-tabs{display:flex;border-bottom:1px solid var(--border)}
 .ttab{flex:1;padding:8px;font-size:12px;font-weight:600;text-align:center;cursor:pointer;color:var(--text2);border:none;background:none;font-family:inherit}
 .ttab.on{color:var(--accent);box-shadow:inset 0 -2px var(--accent)}
-.toc-body{padding:10px;max-height:280px;overflow-y:auto;font-size:12px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.toc-body{padding:10px;max-height:280px;overflow-y:auto;font-size:12px}
 .toc-item{display:flex;align-items:center;gap:8px;padding:3px 6px;border-radius:5px;cursor:default;user-select:none;transition:background .15s}
 .toc-item:hover{background:var(--bg)}
 .toc-item.off{opacity:.35;text-decoration:line-through}
@@ -146,7 +146,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .epub-drop{border:2px dashed var(--border);border-radius:var(--radius);padding:24px;text-align:center;cursor:pointer;transition:all .2s;background:var(--bg)}
 .epub-drop:hover,.epub-drop.over{border-color:var(--accent);background:var(--accent-bg)}
 .epub-drop.ok{border-color:var(--green);background:var(--green-bg);border-style:solid}
-.ch-list{max-height:360px;overflow-y:auto;border:1.5px solid var(--border);border-radius:var(--radius-sm);margin-top:8px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.ch-list{max-height:360px;overflow-y:auto;border:1.5px solid var(--border);border-radius:var(--radius-sm);margin-top:8px}
 .ch-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--border);font-size:12px;cursor:pointer}
 .ch-item:last-child{border:none}
 .ch-item:hover{background:var(--bg)}
@@ -216,19 +216,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .mill-preview.show{display:block}
 .mill-ch-match{padding:5px 8px;background:var(--bg2);border-radius:6px;font-size:11px;border:1px solid var(--border)}
 .mill-ch-match .mill-ch-title{font-weight:600;color:var(--accent);margin-bottom:3px}
-.mill-ch-match .mill-ch-body{color:var(--text2);line-height:1.7;white-space:pre-wrap;max-height:80px;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
-/* ── 파일 정렬 리스트 ── */
-.txt-file-row{display:flex;align-items:center;gap:6px;padding:5px 8px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;cursor:default;user-select:none;transition:background .1s;touch-action:none}
-.txt-file-row:hover{border-color:var(--accent);background:var(--accent-bg)}
-.txt-file-row.drag-over{border:1.5px dashed var(--accent);background:var(--accent-bg);opacity:.7}
-.txt-file-row.dragging{opacity:.35}
-.txt-file-handle{font-size:14px;color:var(--text2);cursor:grab;padding:4px 6px;flex-shrink:0;min-width:32px;display:flex;align-items:center;justify-content:center}
-.txt-file-handle:active{cursor:grabbing}
-.txt-file-num{font-size:10px;color:var(--text2);min-width:20px;text-align:right;flex-shrink:0}
-.txt-file-name{flex:1;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.txt-file-enc{font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 4px;flex-shrink:0}
-.txt-file-rm{font-size:11px;color:var(--text2);cursor:pointer;flex-shrink:0;padding:0 3px;opacity:.5}
-.txt-file-rm:hover{color:var(--accent);opacity:1}
+.mill-ch-match .mill-ch-body{color:var(--text2);line-height:1.7;white-space:pre-wrap;max-height:80px;overflow-y:auto}
 .mill-kw-list{max-height:120px;overflow-y:auto}
 .mill-kw-item{padding:3px 8px;border-radius:5px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:6px}
 .mill-kw-item:hover{background:var(--bg2)}
@@ -272,7 +260,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .modal-hdr{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .modal-hdr h3{font-size:14px;font-weight:700}
 .modal-close{background:none;border:none;font-size:20px;cursor:pointer;color:var(--text2);padding:0 4px;line-height:1}
-.modal-body{overflow-y:auto;flex:1;padding:20px 24px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.modal-body{overflow-y:auto;flex:1;padding:20px 24px}
 .modal-footer{padding:10px 18px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;flex-shrink:0}
 /* 미리보기 콘텐츠 */
 .preview-ch{margin-bottom:28px;padding-bottom:20px;border-bottom:1px solid var(--border)}
@@ -292,7 +280,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 .cover-modal{background:var(--panel);border-radius:var(--radius);max-width:740px;width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 8px 40px rgba(0,0,0,.35);overflow:hidden}
 .cover-modal-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:10px}
 .cover-modal-hdr h3{font-size:14px;font-weight:700;white-space:nowrap}
-.cover-modal-body{overflow-y:auto;flex:1;padding:14px 16px;-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
+.cover-modal-body{overflow-y:auto;flex:1;padding:14px 16px}
 .cover-modal-search{display:flex;gap:6px;margin-bottom:14px}
 .cover-modal-search input{flex:1;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px;color:var(--text);font-family:inherit;outline:none}
 .cover-modal-search input:focus{border-color:var(--accent)}
@@ -390,18 +378,6 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
     </div>
     <input type="file" id="txtIn" accept=".txt" multiple hidden>
     <div id="txtInfo" style="display:none;margin-top:7px;font-size:12px;color:var(--green)"></div>
-    <!-- 다중 파일 정렬 리스트 -->
-    <div id="txtFileList" style="display:none;margin-top:8px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-        <span style="font-size:11px;color:var(--text2)" id="txtFileCount"></span>
-        <div style="display:flex;gap:5px">
-          <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="sortTxtAuto" title="파일명 숫자 기준 자동 정렬">⚡ 자동 정렬</button>
-          <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="sortTxtAlpha" title="사전순 정렬">가나다↑</button>
-          <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="addMoreTxt" title="파일 추가">＋ 파일 추가</button>
-        </div>
-      </div>
-      <div id="txtSortList" style="display:flex;flex-direction:column;gap:3px;max-height:220px;overflow-y:auto;padding:2px 0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y"></div>
-    </div>
     <div class="reset-bar" id="convertResetBar" style="display:none">
       <button class="btn-reset" data-action="resetConvertTxt">✕ TXT 파일 초기화</button>
       <button class="btn-reset" data-action="resetConvertCover">✕ 표지 이미지 초기화</button>
@@ -1848,12 +1824,7 @@ function clearChipSelection(helperId){
 
 function setupEventListeners(){
   // file input onchange (드래그존 onclick과 같은 핸들러 연결)
-  document.getElementById('txtIn').onchange        =e=>{
-    // 이미 파일이 있으면 append 모드 (파일 추가 버튼 클릭 시)
-    const append=S.txtFiles.length>0;
-    handleTxt(e.target.files,append);
-    e.target.value=''; // 같은 파일 재선택 허용
-  };
+  document.getElementById('txtIn').onchange        =e=>handleTxt(e.target.files);
   document.getElementById('illIn').onchange        =e=>handleIll(e.target.files);
   document.getElementById('coverIn').onchange      =e=>handleCover(e.target.files);
   document.getElementById('epubIn').onchange       =e=>loadEpub(e.target.files[0]);
@@ -1946,9 +1917,6 @@ function setupEventDelegate(){
 
     // ── 변환 탭 ──
     resetConvertTxt:  () => resetConvertTxt(),
-    sortTxtAuto:      () => { S.txtFiles=smartSortFiles(S.txtFiles); _chaptersCache=null; renderTxtFileList(); Toast.success('스마트 정렬 완료!'); },
-    sortTxtAlpha:     () => { S.txtFiles=[...S.txtFiles].sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1); _chaptersCache=null; renderTxtFileList(); },
-    addMoreTxt:       () => document.getElementById('txtIn').click(),
     resetConvertCover:() => resetConvertCover(),
     resetConvertAll:  () => resetConvertAll(),
     previewToc:       () => previewToc(),
@@ -2473,43 +2441,9 @@ function showResultStats(containerId, stats){
   ).join('');
 }
 
-// ── 스마트 파일 정렬 키 ──
-// 연재 소설 특성: 001화, 1화, 1-2화, EP.001, Chapter 1 등 다양한 번호 패턴
 function sortKey(name){
-  const stem=name.replace(/\.[^.]+$/,'');
-  // 숫자 추출: 파일명에서 첫 번째 등장하는 숫자 블록을 주 정렬 키로
-  const parts=stem.split(/(\d+)/);
-  return parts.map((p,i)=>{
-    if(isNaN(p)||p==='') return p.toLowerCase();
-    // 숫자는 zero-pad 10자리로 비교 (자연 정렬)
-    return '\uffff'+parseInt(p).toString().padStart(10,'0');
-  });
-}
-
-// 소설 연재 특화 스마트 정렬
-// 우선순위: ① 화번호(숫자) → ② 파일명 사전순
-function smartSortFiles(files){
-  return [...files].sort((a,b)=>{
-    // 파일명에서 첫 번째 숫자 추출
-    const numA=extractFileNum(a.name);
-    const numB=extractFileNum(b.name);
-    // 둘 다 숫자 있으면 숫자 비교
-    if(numA!==null&&numB!==null) return numA-numB;
-    // 숫자 없으면 sortKey 기준 사전순
-    const ka=sortKey(a.name), kb=sortKey(b.name);
-    return ka<kb?-1:ka>kb?1:0;
-  });
-}
-
-// 파일명에서 대표 번호 추출
-// "001화_제목.txt" → 1, "EP.023_제목.txt" → 23, "제목_123.txt" → 123
-function extractFileNum(name){
-  const stem=name.replace(/\.txt$/i,'');
-  // 화번호 패턴 우선
-  let m=stem.match(/^(\d+)화/)||stem.match(/^(\d+)\s*[-._]/)||
-         stem.match(/(?:EP|Ch|Chapter|화)[\.\s]*(\d+)/i)||
-         stem.match(/^(\d+)/)||stem.match(/(\d+)/);
-  return m?parseInt(m[1]):null;
+  const parts=name.replace(/\.[^.]+$/,'').split(/(\d+)/);
+  return parts.map(p=>isNaN(p)?p.toLowerCase():['\uffff',parseInt(p).toString().padStart(10,'0')].join(''));
 }
 
 // ══════════════════════════════════════════
@@ -2791,8 +2725,6 @@ function resetConvertTxt(){
   _autoSplitActive=false;_autoSplitLines=null;
   document.getElementById('txtDz').className='dz';
   document.getElementById('txtInfo').style.display='none';
-  const fl=document.getElementById('txtFileList'); if(fl) fl.style.display='none';
-  const sl=document.getElementById('txtSortList'); if(sl) sl.innerHTML='';
   document.getElementById('tocPanel').classList.remove('show');
   ['title','author','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('convertResetBar').style.display='none';
@@ -3088,223 +3020,32 @@ ${extra}
 // ══════════════════════════════════════════
 // 📂 Module: FileHandlers (드롭·파일 입력 처리)
 // ══════════════════════════════════════════
-function handleTxt(files, append=false){
+function handleTxt(files){
   const txts=Array.from(files).filter(f=>f.name.endsWith('.txt'));
   if(!txts.length)return;
-
-  // append 모드: 기존 파일에 추가 (중복 제거)
-  if(append&&S.txtFiles.length){
-    const existing=new Set(S.txtFiles.map(f=>f.name));
-    const newFiles=txts.filter(f=>!existing.has(f.name));
-    if(!newFiles.length){Toast.warn('이미 추가된 파일이에요.');return;}
-    S.txtFiles=[...S.txtFiles,...newFiles];
-  }else{
-    S.txtFiles=smartSortFiles(txts); // 스마트 정렬 적용
-  }
-
+  S.txtFiles=txts;
   document.getElementById('txtDz').className='dz ok';
+  const info=document.getElementById('txtInfo');
+  info.style.display='block';
   document.getElementById('convertResetBar').style.display='flex';
-  _chaptersCache=null; // 캐시 무효화
-
-  renderTxtFileList();
-
-  // 자동 미리보기
+  const names=txts.map(f=>f.name);
+  info.textContent='✅ '+txts.length+'개: '+names.slice(0,3).join(', ')+(txts.length>3?' 외 '+(txts.length-3)+'개':'');
+  // 첫 파일 인코딩 비동기 감지 후 배지 표시
   if(document.getElementById('optAutoPreview')?.checked) setTimeout(()=>previewToc(),300);
-
-  // 메타데이터 자동 채우기 (첫 파일 기준)
-  const stem=S.txtFiles[0].name.replace(/\.txt$/i,'');
+  detectEncoding(txts[0]).then(enc=>{
+    const badge=enc.toUpperCase().replace('-','');
+    const badgeEl=document.createElement('span');
+    badgeEl.className='enc-badge';
+    badgeEl.textContent=badge;
+    info.appendChild(badgeEl);
+  });
+  const stem=txts[0].name.replace(/\.txt$/i,'');
   let title=stem,author='';
   let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
   if(m){author=m[1].trim();title=m[2].trim();}
   else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
   if(!document.getElementById('title').value) document.getElementById('title').value=title;
   if(!document.getElementById('author').value) document.getElementById('author').value=author;
-}
-
-// ── 파일 리스트 렌더링 (드래그 정렬 포함) ──
-// ── 터치 정렬 헬퍼 (_attachTouchSort) ──
-// touchstart/move/end 기반 모바일 드래그 정렬
-// 작동 원리:
-//   1. touchstart → 드래그 대상 기록 + 시각적 클론 생성
-//   2. touchmove  → 클론을 손가락 위치로 이동 + 삽입 위치 계산
-//   3. touchend   → 실제 배열 순서 변경 + 리렌더
-let _touchDragState=null; // {fromIdx, clone, listEl, origRow, startY, scrollEl}
-
-function _attachTouchSort(row, listEl, idx){
-  const handle=row.querySelector('.txt-file-handle')||row;
-
-  handle.addEventListener('touchstart',e=>{
-    // 멀티터치 무시
-    if(e.touches.length>1) return;
-    const touch=e.touches[0];
-
-    // 클론 생성 (시각적 피드백용)
-    const clone=row.cloneNode(true);
-    const rect=row.getBoundingClientRect();
-    clone.style.cssText=
-      'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;'+
-      'width:'+rect.width+'px;opacity:.85;z-index:9999;'+
-      'pointer-events:none;border:1.5px solid var(--accent);'+
-      'border-radius:6px;background:var(--accent-bg);box-shadow:0 4px 16px rgba(0,0,0,.2)';
-    document.body.appendChild(clone);
-
-    row.style.opacity='0.3';
-
-    // 스크롤 컨테이너 (listEl 또는 가장 가까운 scrollable 부모)
-    const scrollEl=listEl;
-
-    _touchDragState={
-      fromIdx:idx, clone, listEl, origRow:row,
-      startY:touch.clientY, scrollEl,
-      cloneOffsetY: touch.clientY - rect.top,
-      cloneOffsetX: touch.clientX - rect.left,
-    };
-    e.preventDefault(); // 페이지 스크롤 차단 (드래그 중에만)
-  },{passive:false});
-
-  handle.addEventListener('touchmove',e=>{
-    if(!_touchDragState||e.touches.length>1) return;
-    const st=_touchDragState;
-    const touch=e.touches[0];
-
-    // 클론 위치 업데이트
-    st.clone.style.top=(touch.clientY - st.cloneOffsetY)+'px';
-    st.clone.style.left=(touch.clientX - st.cloneOffsetX)+'px';
-
-    // 손가락 아래 요소 찾기 (클론은 pointer-events:none 이므로 투과됨)
-    const elBelow=document.elementFromPoint(touch.clientX, touch.clientY);
-    const targetRow=elBelow?.closest('.txt-file-row');
-
-    // drag-over 시각 표시
-    st.listEl.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));
-    if(targetRow&&targetRow!==st.origRow){
-      targetRow.classList.add('drag-over');
-    }
-
-    // 자동 스크롤: 리스트 상단/하단 근처에서 스크롤
-    const listRect=st.listEl.getBoundingClientRect();
-    const SCROLL_ZONE=40; // px
-    if(touch.clientY < listRect.top + SCROLL_ZONE){
-      st.listEl.scrollTop -= 6;
-    } else if(touch.clientY > listRect.bottom - SCROLL_ZONE){
-      st.listEl.scrollTop += 6;
-    }
-
-    e.preventDefault();
-  },{passive:false});
-
-  handle.addEventListener('touchend',e=>{
-    if(!_touchDragState) return;
-    const st=_touchDragState;
-
-    // 클론 제거
-    st.clone.remove();
-    st.origRow.style.opacity='';
-
-    // drag-over 제거
-    st.listEl.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));
-
-    // 손가락 끝 위치로 대상 행 찾기
-    const touch=e.changedTouches[0];
-    const elBelow=document.elementFromPoint(touch.clientX, touch.clientY);
-    const targetRow=elBelow?.closest('.txt-file-row');
-    const toIdx=targetRow?parseInt(targetRow.dataset.idx):-1;
-
-    if(toIdx>=0 && toIdx!==st.fromIdx){
-      const moved=S.txtFiles.splice(st.fromIdx,1)[0];
-      S.txtFiles.splice(toIdx,0,moved);
-      _chaptersCache=null;
-      renderTxtFileList();
-    }
-
-    _touchDragState=null;
-  });
-}
-
-function renderTxtFileList(){
-  const files=S.txtFiles;
-  const listEl=document.getElementById('txtSortList');
-  const countEl=document.getElementById('txtFileCount');
-  const infoEl=document.getElementById('txtInfo');
-  const listWrap=document.getElementById('txtFileList');
-  if(!listEl) return;
-
-  // 기존 info 영역 간단 요약
-  infoEl.style.display='block';
-  infoEl.textContent='✅ '+files.length+'개 파일 선택됨';
-  listWrap.style.display='block';
-  if(countEl) countEl.textContent=files.length+'개 · 드래그로 순서 변경';
-
-  listEl.innerHTML='';
-  files.forEach((f,i)=>{
-    const row=document.createElement('div');
-    row.className='txt-file-row';
-    row.draggable=true;
-    row.dataset.idx=i;
-
-    row.innerHTML=
-      '<span class="txt-file-handle" title="드래그해서 순서 변경">⠿</span>'+
-      '<span class="txt-file-num">'+(i+1)+'</span>'+
-      '<span class="txt-file-name" title="'+escHtml(f.name)+'">'+escHtml(f.name)+'</span>'+
-      '<span class="txt-file-rm" data-idx="'+i+'" title="제거">✕</span>';
-
-    // 인코딩 비동기 감지
-    detectEncoding(f).then(enc=>{
-      const encBadge=document.createElement('span');
-      encBadge.className='txt-file-enc';
-      encBadge.textContent=enc.toUpperCase().replace('-','');
-      const rmBtn=row.querySelector('.txt-file-rm');
-      if(rmBtn) row.insertBefore(encBadge,rmBtn);
-    });
-
-    // ✕ 클릭으로 개별 파일 제거
-    row.querySelector('.txt-file-rm').onclick=e=>{
-      e.stopPropagation();
-      const idx=parseInt(e.target.dataset.idx);
-      S.txtFiles.splice(idx,1);
-      _chaptersCache=null;
-      if(!S.txtFiles.length){resetConvertTxt();}
-      else renderTxtFileList();
-    };
-
-    // ── 데스크탑 드래그 앤 드롭 ──
-    row.addEventListener('dragstart',e=>{
-      row.classList.add('dragging');
-      e.dataTransfer.effectAllowed='move';
-      e.dataTransfer.setData('text/plain',String(i));
-    });
-    row.addEventListener('dragend',()=>{
-      row.classList.remove('dragging');
-      listEl.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));
-    });
-    row.addEventListener('dragover',e=>{
-      e.preventDefault();
-      e.dataTransfer.dropEffect='move';
-      listEl.querySelectorAll('.drag-over').forEach(el=>el.classList.remove('drag-over'));
-      row.classList.add('drag-over');
-    });
-    row.addEventListener('dragleave',e=>{
-      // 자식 요소로 이동 시 오작동 방지
-      if(!row.contains(e.relatedTarget)) row.classList.remove('drag-over');
-    });
-    row.addEventListener('drop',e=>{
-      e.preventDefault();
-      row.classList.remove('drag-over');
-      const fromIdx=parseInt(e.dataTransfer.getData('text/plain'));
-      const toIdx=i;
-      if(fromIdx===toIdx) return;
-      const moved=S.txtFiles.splice(fromIdx,1)[0];
-      S.txtFiles.splice(toIdx,0,moved);
-      _chaptersCache=null;
-      renderTxtFileList();
-    });
-
-    // ── 모바일 터치 드래그 ──
-    // touchstart/touchmove/touchend로 구현 (iOS·Android 모두 지원)
-    _attachTouchSort(row, listEl, i);
-
-    listEl.appendChild(row);
-  });
 }
 
 // ══════════════════════════════════════════
@@ -3891,7 +3632,7 @@ async function getCachedChapters(){
   if(_chaptersCache&&_chaptersCacheKey===cacheKey) return _chaptersCache;
 
   try{
-    const sorted=[...S.txtFiles]; // 사용자 정렬 순서 유지 (renderTxtFileList에서 이미 정렬됨)
+    const sorted=[...S.txtFiles].sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
     const raws=await Promise.all(sorted.map(fileToText));
     const raw=raws.join('\n\n');
     _chaptersCache=splitChapters(raw,pat);
@@ -3917,7 +3658,7 @@ async function previewToc(){
   // 전체 파일 텍스트 로드 (다중 파일 모두 합산)
   let text;
   try{
-    const sorted=[...S.txtFiles]; // 사용자 정렬 순서 유지 (renderTxtFileList에서 이미 정렬됨)
+    const sorted=[...S.txtFiles].sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
     const raws=await Promise.all(sorted.map(f=>fileToText(f).catch(()=>sampleLines(f))));
     text=raws.join('\n\n');
   }catch(e){
@@ -4646,7 +4387,7 @@ async function renderTocPreview(){
   // 전체 파일 텍스트 로드 (캐시) — 다중 파일 모두 병합 (previewToc와 동일 처리)
   if(!_fullRawLines.length&&S.txtFiles.length){
     try{
-      const sorted=[...S.txtFiles]; // 사용자 정렬 순서 유지 (renderTxtFileList에서 이미 정렬됨)
+      const sorted=[...S.txtFiles].sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
       const raws=await Promise.all(sorted.map(f=>fileToText(f).catch(()=>sampleLines(f))));
       _fullRawLines=raws.join('\n\n').split('\n');
     }catch(e){
@@ -4715,7 +4456,7 @@ async function autoSplitByInterval(){
   }
 
   // ★ startConvert와 동일하게 다중 파일 모두 join
-  const sorted=[...S.txtFiles]; // 사용자 정렬 순서 유지 (renderTxtFileList에서 이미 정렬됨)
+  const sorted=[...S.txtFiles].sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
   const raws=await Promise.all(sorted.map(fileToText));
   const raw=raws.join('\n\n');
   const lines=raw.split('\n');
@@ -4943,7 +4684,7 @@ async function startConvert(){
   document.getElementById('errBox').classList.remove('show');
   setProgress(0,'텍스트 읽는 중...');
   try{
-    const sorted=[...S.txtFiles]; // 사용자 정렬 순서 유지 (renderTxtFileList에서 이미 정렬됨)
+    const sorted=[...S.txtFiles].sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
     const raws=await Promise.all(sorted.map(fileToText));
     const raw=raws.join('\n\n');
     setProgress(8,'챕터 분리 중...');
@@ -5082,15 +4823,10 @@ function showPreview(){
   _previewLine=document.getElementById('cssLine')?.value||'1.9';
   renderPreview();
   document.getElementById('previewModal').classList.add('show');
-  document.body.style.overflow='hidden'; // 모달 열리면 배경 스크롤 차단
-  document.body.style.touchAction='none';
 }
 
 function renderPreview(){
   const body=document.getElementById('previewBody');
-  // 모바일에서 내부 스크롤이 페이지 스크롤과 충돌하지 않도록
-  body.style.overscrollBehavior='contain';
-  body.style.webkitOverflowScrolling='touch';
   const total=Math.min(_previewChapters.length,_previewIdx+3);
   const start=_previewIdx;
   let html='';
@@ -5123,8 +4859,6 @@ function previewNav(dir){
 
 function closePreview(){
   document.getElementById('previewModal').classList.remove('show');
-  document.body.style.overflow=''; // 스크롤 복원
-  document.body.style.touchAction='';
 }
 
 // ══════════════════════════════════════════
@@ -7267,8 +7001,6 @@ function openCoverModal(mode){
 }
 function closeCoverModal(){
   document.getElementById('coverModal').classList.remove('show');
-  document.body.style.overflow='';
-  document.body.style.touchAction='';
 }
 
 // 이미지 클릭 → 즉시 표지 적용 + 모달 닫기
