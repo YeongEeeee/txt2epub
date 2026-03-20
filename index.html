@@ -1272,6 +1272,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
       <input class="inp" id="geminiApiKey" type="text" autocomplete="off"
         placeholder="AIza..." style="font-size:12px;-webkit-text-security:disc"
         data-input-action="saveApiSettings">
+      <span id="geminiKeyStatus" style="font-size:10px;padding:2px 7px;border-radius:3px;white-space:nowrap;display:none"></span>
     </div>
     <div style="margin-top:8px;padding:8px 10px;background:var(--blue-bg);border-radius:7px;font-size:11px;color:var(--blue);line-height:1.7">
       💡 <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--blue);font-weight:600">Google AI Studio</a>에서 무료 발급 →
@@ -4442,11 +4443,14 @@ async function _geminiRequest(url, body, model){
   // 401 / 403: API 키 오류 — 즉시 중단
   if(status===401||status===403) return {ok:false,fatal:true,msg:'API 키가 올바르지 않아요. 설정에서 Gemini API Key를 확인해주세요.'};
 
-  // 429: quota 초과 → 다음 모델로 fallback
+  // 429: quota 초과 → 잠시 대기 후 다음 모델로 fallback
   if(status===429){
-    // retryDelay 파싱 (초 단위)
-    const retryMatch=errMsg.match(/retry in ([\d.]+)s/i);
-    console.info('[Gemini] '+model+' quota 초과, 다음 모델 시도...');
+    const retryMatch=errMsg.match(/retry(?:\s*after|\s*in)?\s*([\d.]+)\s*s/i);
+    const waitMs=retryMatch
+      ? Math.min(parseFloat(retryMatch[1])*1000, 8000) // 최대 8초 대기
+      : 2000; // 기본 2초
+    console.info('[Gemini] '+model+' quota 초과 ('+status+'), '+Math.round(waitMs/1000)+'초 대기 후 다음 모델 시도...');
+    await new Promise(r=>setTimeout(r, waitMs));
     return {ok:false,fatal:false,msg:'quota_exceeded'};
   }
 
@@ -6859,9 +6863,21 @@ async function _eRunSmartPat(include, exclude){
       resultBox.style.borderColor='var(--border)';
     }
   }catch(e){
+    const msg=e.message||'';
+    if(msg==='quota_exceeded'){
+      Toast.warn('Gemini API 할당량 초과 — 내장 변환 로직을 사용해요.<br>잠시 후 다시 시도하거나 API 사용량을 확인해주세요.');
+    } else if(msg.includes('API 키가 올바르지 않아요')){
+      resultEl.textContent='⚠ '+msg;
+      resultBox.style.borderColor='var(--accent)';
+      resultBox.style.display='flex';
+      applyBtn.style.display='none';
+      return;
+    } else {
+      console.warn('[Gemini] _eRunSmartPat 오류:', e);
+    }
     const rx2=guessPatternFromExample(include);
     if(rx2){ resultEl.textContent=rx2; resultBox.style.borderColor='var(--accent)'; applyBtn.style.display=''; }
-    else{ resultEl.textContent='(변환 실패)'; resultBox.style.borderColor='var(--border)'; }
+    else{ resultEl.textContent='(변환 실패 — 정규식 수정 탭에서 직접 입력)'; resultBox.style.borderColor='var(--border)'; }
   }
 }
 function applyESmartPat(){
@@ -7268,6 +7284,7 @@ function saveApiSettings(){
     const gemKey=document.getElementById('geminiApiKey')?.value||'';
     if(gemKey) sessionStorage.setItem('epub_gemini_key', gemKey);
     else sessionStorage.removeItem('epub_gemini_key');
+    _updateGeminiKeyBadge();
     localStorage.setItem('epub_api',JSON.stringify({
       geminiApiKey:'', // localStorage에는 더 이상 저장 안 함
       naverClientId:document.getElementById('naverClientId')?.value||'',
@@ -7275,6 +7292,18 @@ function saveApiSettings(){
     }));
   }catch(e){}
 }
+// ── Gemini API Key 상태 배지 ──
+function _updateGeminiKeyBadge(){
+  const input=document.getElementById('geminiApiKey');
+  const badge=document.getElementById('geminiKeyStatus');
+  if(!input||!badge) return;
+  const hasKey=input.value.trim().length>0;
+  badge.style.display=hasKey?'':'none';
+  badge.textContent=hasKey?'✅ 등록됨':'';
+  badge.style.background=hasKey?'var(--green-bg)':'';
+  badge.style.color=hasKey?'var(--green)':'';
+}
+
 function loadApiSettings(){
   try{
     // geminiApiKey: sessionStorage (탭 닫으면 삭제 — XSS 위험 감소)
@@ -7284,6 +7313,8 @@ function loadApiSettings(){
     const s=JSON.parse(localStorage.getItem('epub_api')||'{}');
     if(s.geminiApiKey&&!gemKey&&document.getElementById('geminiApiKey'))
       document.getElementById('geminiApiKey').value=s.geminiApiKey; // 기존 localStorage 마이그레이션
+    // 키 상태 배지 갱신
+    _updateGeminiKeyBadge();
     if(s.naverClientId&&document.getElementById('naverClientId')) document.getElementById('naverClientId').value=s.naverClientId;
     if(s.naverClientSecret&&document.getElementById('naverClientSecret')) document.getElementById('naverClientSecret').value=s.naverClientSecret;
   }catch(e){}
