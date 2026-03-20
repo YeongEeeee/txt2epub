@@ -197,42 +197,7 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
-/* ── 반응형: 3단계 breakpoint ── */
-/* 1024px 이하: 중간 화면 (태블릿 가로) */
-@media(max-width:1024px){
-  .wrap{max-width:100%;padding:16px 20px 100px}
-  .css-grid{grid-template-columns:1fr 1fr}
-}
-/* 768px 이하: 태블릿 세로 / 큰 모바일 */
-@media(max-width:768px){
-  .wrap{padding:14px 14px 100px}
-  .css-grid{grid-template-columns:1fr}
-  .hdr-title{font-size:15px}
-  .row{flex-wrap:wrap;gap:6px}
-  .sec{margin-bottom:14px}
-  .modal{max-width:95vw;margin:5vh auto}
-  .cover-modal{max-width:95vw}
-  .toc-body{max-height:220px}
-  .ch-list{max-height:280px}
-  .pat-helper{flex-wrap:wrap;gap:4px}
-}
-/* 480px 이하: 소형 모바일 */
-@media(max-width:480px){
-  .wrap{padding:12px 10px 90px}
-  .hdr-sub{display:none}
-  .btn-accent{width:100%;padding:14px}
-  .lbl{width:100%;margin-bottom:2px}
-  .row{flex-direction:column;align-items:stretch}
-  .tags{gap:4px}
-  .tag{font-size:10px;padding:3px 7px}
-  .page-tab{padding:8px 10px;font-size:12px}
-  .btm{padding:8px 12px}
-  .btm .btn-accent{font-size:14px}
-  .card{padding:12px}
-  .css-grid{grid-template-columns:1fr}
-  .toc-body{max-height:180px}
-  .modal-body{padding:14px 16px}
-}
+@media(max-width:580px){.wrap{padding:14px 10px 90px}.css-grid{grid-template-columns:1fr}.hdr-sub{display:none}.btn-accent{width:100%}.row{flex-wrap:wrap}.lbl{width:100%}}
 /* 툴팁 */
 
 
@@ -1692,13 +1657,6 @@ let customFontFile=null, customFontName='', customFontFace='';
 // ══════════════════════════════════════════
 // 🚀 Module: Init   (DOMContentLoaded 진입점)
 // ══════════════════════════════════════════
-// ── scheduler.yield() 폴리필 ──
-// Chrome 115+: scheduler.yield() 네이티브 지원
-// 구형 브라우저: setTimeout(0) 폴백 → 메인 스레드에 제어권 반납
-const yieldToMain = (typeof scheduler !== 'undefined' && scheduler.yield)
-  ? () => scheduler.yield()
-  : () => new Promise(r => setTimeout(r, 0));
-
 window.addEventListener('DOMContentLoaded', ()=>{
   loadCssSettings();
   loadExtraSettings();
@@ -2579,13 +2537,6 @@ const PATS=[
   [/^\d+권(?:\s*.+)?$/,                                'N권 형식'],
   [/^.*[=\-]{3,}$/,                                   '제목+구분선(===,--)'],
   [/^\((?:외전|번외|특별편|side|bonus)\)/i,             '(외전/번외) 형식'],
-  // ── 추가 패턴 (리디북스·조아라·시즌제·한자·특수문자) ──
-  [/^\d+화\.\s*.+$/,                                    '화. 제목 (리디북스형)'],
-  [/^[\*\-─]+\s*\d+화?\s*[\*\-─]+$/,                  '* N * 구분자 형식'],
-  [/^(?:시즌\s*\d+\s+)?\d+화(?:\s*.+)?$/,               '시즌 N화 형식'],
-  [/^S\d+E\d+(?:\s*.+)?$/i,                              'S1E01 형식'],
-  [/^第\s*[\d一二三四五六七八九十百千]+\s*[章話话](?:\s*.+)?$/, '한자 장/화 형식'],
-  [/^[■▶◆●►▷◇]\s*.{2,40}$/,                              '특수문자 제목 형식'],
 ];
 
 // N. 제목 패턴: 줄 간격 필터 포함 (본문 내 번호 목록과 구별)
@@ -2685,8 +2636,6 @@ function bestPat(raw){
   return {rx:best,name:bestName,cnt:bestScore};
 }
 
-// splitChapters: 동기 함수이지만 정규화 전처리가 무거울 수 있음
-// 호출부에서 await yieldToMain() 후 호출 권장 (startConvert에서 처리)
 function splitChapters(raw,customPat){
   // 입력 텍스트 정규화: CRLF → LF, U+00AD 변환, XML 비허용 제어문자 제거
   raw=raw
@@ -3945,7 +3894,6 @@ async function getCachedChapters(){
     const sorted=[...S.txtFiles]; // 사용자 정렬 순서 유지 (renderTxtFileList에서 이미 정렬됨)
     const raws=await Promise.all(sorted.map(fileToText));
     const raw=raws.join('\n\n');
-    await yieldToMain(); // 대용량 텍스트 조인 후 UI 복원
     _chaptersCache=splitChapters(raw,pat);
     _chaptersCacheKey=cacheKey;
   }catch(e){
@@ -4893,17 +4841,8 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
 
   const tot=chapters.length;
   let illPageIdx=0;
-  const _loopStart=Date.now();
   for(let idx=0;idx<tot;idx++){
-    // 50챕터마다 메인 스레드에 제어권 반납 → UI 응답 유지 (500화+ 무응답 방지)
-    if(idx%50===0){
-      const pct=15+Math.floor(idx/tot*65);
-      const elapsed=Date.now()-_loopStart;
-      const eta=idx>0?Math.round((elapsed/idx)*(tot-idx)/1000):0;
-      const etaStr=eta>0?` (남은 시간: ~${eta}초)`:'';
-      onProgress&&onProgress(pct,'챕터 생성 중 ('+idx+'/'+tot+')'+etaStr+'...');
-      await yieldToMain(); // ← 메인 스레드 제어권 반납
-    }
+    if(idx%50===0) onProgress&&onProgress(15+Math.floor(idx/tot*65),'챕터 생성 중 ('+idx+'/'+tot+')...');
     const[heading,body]=chapters[idx];
     const cn=extractChNum(heading);
 
@@ -6523,7 +6462,7 @@ function renderEditIllTags(){
     c.innerHTML='';
     EI.files.forEach((f,i)=>{
       const t=document.createElement('div');t.className='tag';
-      t.innerHTML=escHtml(f.name)+' <span class="x" onclick="removeEditIll('+i+')">✕</span>';
+      t.innerHTML=f.name+' <span class="x" onclick="removeEditIll('+i+')">✕</span>';
       c.appendChild(t);
     });
   });
@@ -7264,12 +7203,8 @@ let _coverModalMode='convert';
 
 function saveApiSettings(){
   try{
-    // geminiApiKey → sessionStorage (탭 닫으면 자동 삭제)
-    const gemKey=document.getElementById('geminiApiKey')?.value||'';
-    if(gemKey) sessionStorage.setItem('epub_gemini_key', gemKey);
-    else sessionStorage.removeItem('epub_gemini_key');
     localStorage.setItem('epub_api',JSON.stringify({
-      geminiApiKey:'', // localStorage에는 더 이상 저장 안 함
+      geminiApiKey:document.getElementById('geminiApiKey')?.value||'',
       naverClientId:document.getElementById('naverClientId')?.value||'',
       naverClientSecret:document.getElementById('naverClientSecret')?.value||'',
     }));
@@ -7277,13 +7212,8 @@ function saveApiSettings(){
 }
 function loadApiSettings(){
   try{
-    // geminiApiKey: sessionStorage (탭 닫으면 삭제 — XSS 위험 감소)
-    // naverClient*: localStorage (편의상 유지)
-    const gemKey=sessionStorage.getItem('epub_gemini_key')||'';
-    if(gemKey&&document.getElementById('geminiApiKey')) document.getElementById('geminiApiKey').value=gemKey;
     const s=JSON.parse(localStorage.getItem('epub_api')||'{}');
-    if(s.geminiApiKey&&!gemKey&&document.getElementById('geminiApiKey'))
-      document.getElementById('geminiApiKey').value=s.geminiApiKey; // 기존 localStorage 마이그레이션
+    if(s.geminiApiKey&&document.getElementById('geminiApiKey')) document.getElementById('geminiApiKey').value=s.geminiApiKey;
     if(s.naverClientId&&document.getElementById('naverClientId')) document.getElementById('naverClientId').value=s.naverClientId;
     if(s.naverClientSecret&&document.getElementById('naverClientSecret')) document.getElementById('naverClientSecret').value=s.naverClientSecret;
   }catch(e){}
@@ -7357,9 +7287,13 @@ async function runCoverSearch(){
   const q=document.getElementById('coverSearchQ').value.trim();
   if(!q) return;
 
-  // CoverSearchAdapters에서 PLATFORMS 배열 동적 생성 — 새 플랫폼 추가 시 어댑터만 수정
-  const PLATFORMS=Object.entries(CoverSearchAdapters).map(([id,a])=>({id,label:a.label,badge:a.badge,fn:a.fetch}));
-
+  const PLATFORMS=[
+    {id:'naver',   label:'📗 네이버 시리즈',  badge:'badge-naver',   fn:fetchNaver},
+    {id:'ridi',    label:'📘 리디북스',        badge:'badge-ridi',    fn:fetchRidi},
+    {id:'kakao',   label:'🟡 카카오페이지',    badge:'badge-kakao',   fn:fetchKakao},
+    {id:'novelpia',label:'📙 노벨피아',         badge:'badge-novelpia',fn:fetchNovelpia},
+    {id:'google',  label:'🌐 구글 이미지',     badge:'badge-google',  fn:fetchGoogle},
+  ];
 
   // 섹션 스켈레톤 생성 + 외부 링크 바
   const body=document.getElementById('coverModalBody');
@@ -7482,16 +7416,6 @@ function getPlatformUrl(id,q){
 // ══════════════════════════════════════════
 // 🌐 Module: Crawlers (네이버·리디·노벨피아·구글)
 // ══════════════════════════════════════════
-// ── CoverSearchAdapters: 플랫폼별 어댑터 패턴 ──
-// 새 플랫폼 추가 = 이 객체에 항목 1개만 추가하면 됨
-const CoverSearchAdapters = {
-  naver:    { label:'📗 네이버 시리즈',  badge:'badge-naver',    fetch: q=>fetchNaver(q) },
-  ridi:     { label:'📘 리디북스',        badge:'badge-ridi',     fetch: q=>fetchRidi(q)  },
-  kakao:    { label:'🟡 카카오페이지',    badge:'badge-kakao',    fetch: q=>fetchKakao(q) },
-  novelpia: { label:'📙 노벨피아',         badge:'badge-novelpia', fetch: q=>fetchNovelpia(q) },
-  google:   { label:'🌐 구글 이미지',     badge:'badge-google',   fetch: q=>fetchGoogle(q) },
-};
-
 // 다중 프록시 설정
 // type: 'json' → {contents:...} 응답, 'direct' → HTML 직접 응답
 const PROXIES=[
