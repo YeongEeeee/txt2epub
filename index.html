@@ -1627,6 +1627,7 @@ const PAT_PRESETS = [
   {label:'[EP.N] 형식',        val:'^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$'},
   {label:'[Prologue] 형식',    val:'^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$'},
   {label:'NNN  제목 형식',     val:'^\\d{3,6}\\s{2,}.+$'},
+  {label:'〈N화〉 꺽쇠',          val:'^[〈<]\\s*(\\d+)\\s*화\\s*[〉>](?:\\s*(.*))?$'},
   {label:'줄 시작 통합 ★',     val:'^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|(?=\\d+화)\\d+화|\\d+).*'},
   {label:'화 번호 (#N화 포함)', val:'^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
   {label:'소설(숫자)',          val:'^.{1,60}\\s*\\(\\d+\\)\\s*$'},
@@ -2563,6 +2564,7 @@ const PATS=[
   [/^\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\s*.+)?\](?:\s*.+)?$/i, '[Prologue] 형식'],
   [/^\[\s*.+\.txt\s*\]\s*$/i,                         '[ 파일명.txt ] 형식'],
   [/^\d{3,6}\s{2,}.+$/,                               'NNN  제목 형식 (zero-pad)'],
+  [/^[〈<]\s*\d+\s*화\s*[〉>](?:\s*.+)?$/i, '〈N화〉 꺽쇠 형식'],
   [/^(?:\s?〈\s?\d+화\s?〉|EP\.\d+|(?=\d+화)\d+화|\d+).*/,'줄 시작 통합 (꺽쇠/EP/숫자)'],
   [/^={2,}\s*\[제\s*\d+\s*화\]\s*={0,}$/i,            '=== [제N화] ==='],
   [/^#?(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,               '화 번호'],
@@ -4297,6 +4299,8 @@ function applyPat(){document.getElementById('pattern').value=document.getElement
 
 // ── 스마트 패턴 변환: Gemini AI 또는 로컬 로직 ──
 let _smartPatTimer=null;
+let _smartPatAbort=null;   // 진행 중인 Gemini 요청 취소용
+let _eSmartPatAbort=null;  // EPUB 탭용
 
 function smartPatConvert(){
   // 디바운스: 입력 멈춘 후 600ms에 실행
@@ -4307,6 +4311,8 @@ function smartPatConvert(){
     document.getElementById('smartPatResultBox').style.display='none';
     return;
   }
+  // 이전 진행 중인 요청 취소 (병렬 중복 요청 방지)
+  if(_smartPatAbort) _smartPatAbort.abort();
   _smartPatTimer=setTimeout(()=>_runSmartPat(include,exclude), 600);
 }
 
@@ -4317,6 +4323,11 @@ async function _runSmartPat(include, exclude){
   const aiLabel=document.getElementById('smartPatAiLabel');
 
   const apiKey=(document.getElementById('geminiApiKey')?.value||'').trim();
+
+  // 병렬 요청 방지: 이전 실행 취소 후 새 컨트롤러 등록
+  if(_smartPatAbort) _smartPatAbort.abort();
+  const abortCtrl=new AbortController();
+  _smartPatAbort=abortCtrl;
 
   if(apiKey){
     // ── Gemini API 호출 ──
@@ -4341,8 +4352,11 @@ async function _runSmartPat(include, exclude){
     }catch(e){
       const msg=e.message||'';
       if(msg==='quota_exceeded'){
-        // 모든 모델 quota 초과 → 로컬 로직으로 fallback + 안내
-        Toast.warn('Gemini API 할당량 초과 — 내장 변환 로직을 사용해요.<br>잠시 후 다시 시도하거나 API 사용량을 확인해주세요.');
+        Toast.warn(
+          'Gemini API 할당량 초과 — 내장 변환 로직을 사용해요.<br>'+
+          '<small style="opacity:.8">💡 Free Tier 일일 한도(1,500회/day) 초과 시 내일 초기화돼요.<br>'+
+          '오류 메시지에 <b>limit: 0</b>이 포함되면 Google AI Studio 키인지 확인해주세요.</small>'
+        );
         _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
       } else if(msg.includes('API 키가 올바르지 않아요')){
         resultBox.style.display='flex';
@@ -4378,87 +4392,149 @@ function _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel){
 }
 
 // Gemini API 모델 우선순위 목록 (앞부터 시도)
+// Gemini 모델 목록 — 순서대로 fallback
+// Free Tier RPM: gemini-2.0-flash 15/min, gemini-1.5-flash 15/min, gemini-1.5-flash-8b 15/min
+// Free Tier RPD: gemini-2.0-flash 1500/day, gemini-1.5-flash 1500/day, gemini-1.5-flash-8b 1500/day
 const GEMINI_MODELS = [
-  'gemini-2.0-flash',
-  'gemini-1.5-flash',
-  'gemini-1.5-flash-8b',
+  { id: 'gemini-2.0-flash',    maxTokens: 200, tier: 'primary'   },
+  { id: 'gemini-1.5-flash',    maxTokens: 200, tier: 'fallback1' },
+  { id: 'gemini-1.5-flash-8b', maxTokens: 200, tier: 'fallback2' },
 ];
 
-async function _askGeminiForPattern(apiKey, include, exclude){
-  const excludePart=exclude
-    ? '\n\n반드시 제외해야 할 줄 (이 패턴에 매칭되면 안 됨):\n'+exclude
-    : '';
+// 모델별 마지막 429 발생 시각 추적 (분당 RPM 관리)
+const _geminiModelCooldown = {};;
 
+async function _askGeminiForPattern(apiKey, include, exclude){
+  // ── 프롬프트 압축 (토큰 절약) ──
+  // 조건 설명을 최소화, 한국어 대신 짧은 영문 지시어 사용
+  // 기존 ~220자(~55토큰) → ~120자(~30토큰) 절약
+  const excPart=exclude?'\nNOT match:\n'+exclude:'';
   const prompt=
-    '소설 TXT 파일의 챕터 제목을 감지하는 JavaScript 정규식을 만들어줘.\n\n'+
-    '챕터 제목 예시 (이 패턴에 매칭되어야 함):\n'+include+
-    excludePart+
-    '\n\n조건:\n'+
-    '- JavaScript RegExp 문자열만 반환 (플래그 제외, 슬래시 제외)\n'+
-    '- 정규식 하나만 반환, 설명 없이\n'+
-    '- 예시 입력의 공통 패턴을 추출해 일반화할 것\n'+
-    '- ^ 와 $ 앵커 사용 권장\n'+
-    (exclude?'- 제외 예시 줄에는 절대 매칭되지 않을 것\n':'')+
-    '\n예시 반환 형식: ^\\d+화(?:\\s*.+)?$';
+    'JS regex for novel chapter titles.\n'+
+    'Match:\n'+include+excPart+
+    '\nReturn regex only, no flags, no slashes, use ^$.\n'+
+    'Example: ^\\d+화(?:\\s*.+)?$';
+
+  // 예시 입력이 너무 길면 앞 3줄만 사용 (과도한 토큰 사용 방지)
+  const includeLines=include.split('\n').filter(Boolean);
+  const truncatedInclude=includeLines.slice(0,3).join('\n');
+  const truncatedPrompt=includeLines.length>3
+    ? prompt.replace(include, truncatedInclude+'\n(+'+(includeLines.length-3)+' more)')
+    : prompt;
 
   const body=JSON.stringify({
-    contents:[{parts:[{text:prompt}]}],
-    generationConfig:{temperature:0.1, maxOutputTokens:200}
+    contents:[{parts:[{text:truncatedPrompt}]}],
+    generationConfig:{temperature:0.1, maxOutputTokens:80} // 200→80: 정규식 1줄만 필요
   });
 
-  // 모델 순서대로 시도
-  for(const model of GEMINI_MODELS){
-    const url='https://generativelanguage.googleapis.com/v1beta/models/'+model+':generateContent?key='+apiKey;
-    const result=await _geminiRequest(url, body, model);
+  // 모델 순서대로 시도 — cooldown 중인 모델 스킵
+  for(const m of GEMINI_MODELS){
+    const modelId=m.id||m; // 문자열/객체 모두 지원
+    // 세션 내 영구 차단된 모델 스킵
+    if(_geminiModelCooldown[modelId]===Infinity){
+      console.info('[Gemini] '+modelId+' cooldown 중, 스킵');
+      continue;
+    }
+    const url='https://generativelanguage.googleapis.com/v1beta/models/'+modelId
+      +':generateContent?key='+apiKey;
+    const result=await _geminiRequest(url, body, modelId);
     if(result.ok) return result.rx;
-    if(result.fatal) throw new Error(result.msg);  // 인증 오류 등 — 더 시도 불필요
-    // 429 quota or 그 외 → 다음 모델로
+    if(result.fatal) throw new Error(result.msg);
+    // quota/error → 다음 모델
   }
-  // 모든 모델 실패
   throw new Error('quota_exceeded');
 }
 
-async function _geminiRequest(url, body, model){
-  let res;
-  try{ res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body}); }
-  catch(e){ return {ok:false,fatal:false,msg:e.message}; }
+// ── Gemini 단일 요청 (지수 백오프 포함) ──
+// maxRetries: 같은 모델을 재시도할 최대 횟수 (429 일시적 RPM 초과 시)
+async function _geminiRequest(url, body, modelId, maxRetries=2){
+  for(let attempt=0; attempt<=maxRetries; attempt++){
+    let res;
+    try{ res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body}); }
+    catch(e){ return {ok:false,fatal:false,msg:e.message}; }
 
-  if(res.ok){
-    const data=await res.json();
-    const raw=(data?.candidates?.[0]?.content?.parts?.[0]?.text||'').trim();
-    const cleaned=raw
-      .replace(/```[\w]*/g,'').replace(/```/g,'')
-      .replace(/^\/(.+)\/[gimsuy]*$/, '$1')
-      .trim();
-    if(!cleaned) return {ok:false,fatal:false,msg:'empty'};
-    try{ new RegExp(cleaned,'i'); return {ok:true,rx:cleaned}; }
-    catch(e){ return {ok:false,fatal:false,msg:'invalid_regex'}; }
+    if(res.ok){
+      const data=await res.json();
+      const raw=(data?.candidates?.[0]?.content?.parts?.[0]?.text||'').trim();
+      const cleaned=raw
+        .replace(/```[\w]*/g,'').replace(/```/g,'')
+        .replace(/^\/(.+)\/[gimsuy]*$/, '$1')
+        .trim();
+      if(!cleaned) return {ok:false,fatal:false,msg:'empty'};
+      try{ new RegExp(cleaned,'i'); return {ok:true,rx:cleaned}; }
+      catch(e){ return {ok:false,fatal:false,msg:'invalid_regex'}; }
+    }
+
+    const status=res.status;
+    const errBody=await res.json().catch(()=>({}));
+    const errMsg=errBody?.error?.message||String(status);
+    const violations=errBody?.error?.details
+      ?.find(d=>d['@type']?.includes('QuotaFailure'))?.violations||[];
+
+    // 401 / 403: 키 오류 — 즉시 중단 (재시도 불필요)
+    if(status===401||status===403){
+      const hint=errMsg.includes('free_tier')||violations.some(v=>v.quotaId?.includes('FreeTier'))
+        ? '\n\n💡 hint: limit:0 오류는 Google AI Studio 키(AIza...)가 아닌\n   Google Cloud API 키를 사용하면 발생해요.\n   https://aistudio.google.com/app/apikey 에서 발급한 키를 사용해주세요.'
+        : '';
+      return {ok:false,fatal:true,msg:'API 키가 올바르지 않아요.'+hint};
+    }
+
+    // 429: quota 초과 분류
+    if(status===429){
+      // Free Tier limit:0 → 이 모델은 이 프로젝트에서 영구 차단 상태
+      // quota violations에 limit:0 확인
+      const isHardLimit=errMsg.includes('limit: 0')||
+        violations.some(v=>v.quotaId?.includes('FreeTier')&&
+          (errMsg.match(new RegExp('model:\s*'+modelId))));
+
+      if(isHardLimit){
+        // 재시도해도 의미 없음 → 즉시 다음 모델로
+        console.warn('[Gemini] '+modelId+' Free Tier 영구 한도 초과 (limit:0) — 다음 모델로 전환');
+        _geminiModelCooldown[modelId]=Infinity; // 이 세션에서 이 모델 사용 안 함
+        return {ok:false,fatal:false,msg:'hard_quota',model:modelId};
+      }
+
+      // 일시적 RPM 초과 → 지수 백오프 후 재시도
+      // API가 알려준 retryDelay 우선, 없으면 지수 백오프
+      const retryMatch=errMsg.match(/retry(?:\s*after|\s*in)?\s*([\d.]+)\s*s/i);
+      const retryInfoDelay=errBody?.error?.details
+        ?.find(d=>d['@type']?.includes('RetryInfo'))?.retryDelay;
+      const retryInfoSec=retryInfoDelay?parseFloat(retryInfoDelay.replace('s','')):null;
+
+      const baseWait=retryInfoSec
+        ? retryInfoSec*1000                  // API 지정 시간
+        : retryMatch
+          ? parseFloat(retryMatch[1])*1000   // 메시지 파싱
+          : 1000 * Math.pow(2, attempt);     // 지수 백오프: 1s, 2s, 4s
+
+      // Free Tier 일일 한도 초과(RPD)는 재시도 의미 없음 → 다음 모델
+      const isDailyLimit=violations.some(v=>v.quotaId?.includes('PerDay'));
+      if(isDailyLimit||attempt>=maxRetries){
+        console.info('[Gemini] '+modelId+' 일일/분당 한도 초과 — 다음 모델로');
+        return {ok:false,fatal:false,msg:'quota_exceeded',model:modelId};
+      }
+
+      const waitMs=Math.min(baseWait, 30000); // 최대 30초 대기
+      console.info('[Gemini] '+modelId+' 일시적 RPM 초과, '
+        +Math.round(waitMs/1000)+'초 후 재시도 ('+attempt+'/'+maxRetries+')...');
+      await new Promise(r=>setTimeout(r,waitMs));
+      continue; // 같은 모델 재시도
+    }
+
+    // 404: 모델 없음 → 다음 모델
+    if(status===404) return {ok:false,fatal:false,msg:'model_not_found'};
+
+    // 500/503: 서버 오류 → 짧게 대기 후 재시도
+    if(status>=500&&attempt<maxRetries){
+      const waitMs=1000*(attempt+1);
+      console.info('[Gemini] '+modelId+' 서버 오류('+status+'), '+waitMs/1000+'초 후 재시도...');
+      await new Promise(r=>setTimeout(r,waitMs));
+      continue;
+    }
+
+    return {ok:false,fatal:false,msg:errMsg};
   }
-
-  // 오류 처리
-  const status=res.status;
-  const errBody=await res.json().catch(()=>({}));
-  const errMsg=errBody?.error?.message||String(status);
-
-  // 401 / 403: API 키 오류 — 즉시 중단
-  if(status===401||status===403) return {ok:false,fatal:true,msg:'API 키가 올바르지 않아요. 설정에서 Gemini API Key를 확인해주세요.'};
-
-  // 429: quota 초과 → 잠시 대기 후 다음 모델로 fallback
-  if(status===429){
-    const retryMatch=errMsg.match(/retry(?:\s*after|\s*in)?\s*([\d.]+)\s*s/i);
-    const waitMs=retryMatch
-      ? Math.min(parseFloat(retryMatch[1])*1000, 8000) // 최대 8초 대기
-      : 2000; // 기본 2초
-    console.info('[Gemini] '+model+' quota 초과 ('+status+'), '+Math.round(waitMs/1000)+'초 대기 후 다음 모델 시도...');
-    await new Promise(r=>setTimeout(r, waitMs));
-    return {ok:false,fatal:false,msg:'quota_exceeded'};
-  }
-
-  // 404: 모델 없음 → 다음 모델로
-  if(status===404) return {ok:false,fatal:false,msg:'model_not_found'};
-
-  // 그 외
-  return {ok:false,fatal:false,msg:errMsg};
+  return {ok:false,fatal:false,msg:'max_retries_exceeded'};
 }
 
 function applySmartPat(){
@@ -6066,21 +6142,17 @@ async function handleInsTxt(files){
   const raws=await Promise.all(sorted.map(fileToText));
   const raw=raws.join('\n\n');
   const chapters=splitChapters(raw,pat);
-  // ④ 챕터 번호 기반 정렬 — 파일 순서가 아닌 실제 화수 순으로 정렬
-  const mapped=chapters.map((ch,i)=>({idx:i,title:ch[0],body:ch[1],enabled:true,chNum:_extractTocNum(ch[0])}));
-  const hasNums=mapped.filter(ch=>ch.chNum>0).length > mapped.length*0.5;
-  if(hasNums){
-    // 과반수 이상 번호 감지 시 번호 순 정렬
-    mapped.sort((a,b)=>{
-      if(a.chNum>0&&b.chNum>0) return a.chNum-b.chNum;
-      if(a.chNum>0) return -1;
-      if(b.chNum>0) return 1;
-      return a.idx-b.idx;
-    });
-    mapped.forEach((ch,i)=>ch.idx=i);
-  }
+  // 텍스트 파일에서 뽑아온 순서(splitChapters 인덱스)를 정렬 기준으로 사용
+  // 번호 기반 재정렬 제거: "1화"와 "외전 1화"가 동일 chNum=1로 충돌하는 문제 해결
+  const mapped=chapters.map((ch,i)=>({
+    idx:i,
+    title:ch[0],
+    body:ch[1],
+    enabled:true,
+    chNum:_extractTocNum(ch[0])  // 중복 감지·연결점 표시용으로만 유지
+  }));
   E.insTxtChapters=mapped;
-  info.textContent='✅ '+txts.length+'개 파일 · '+chapters.length+'개 챕터 감지'+(hasNums?' (번호순 정렬)':'');
+  info.textContent='✅ '+txts.length+'개 파일 · '+chapters.length+'개 챕터 감지';
   renderInsTocList();
   document.getElementById('insTocSec').style.display='block';
   document.getElementById('editIllSec').style.display='block';
@@ -6101,8 +6173,8 @@ function renderInsTocList(){
   }
 
   const epubLastNum=_getEpubLastChNum();
-  // ① EPUB에 이미 있는 챕터 번호 집합 (중복 감지용)
-  const epubNums=new Set((E.chapters||[]).map(ch=>_extractTocNum(ch.title)).filter(n=>n>0));
+  // ① EPUB에 이미 있는 챕터 키 집합 (ns:num 복합키 — 본편/외전 구분)
+  const epubKeys=new Set((E.chapters||[]).map(ch=>_tocKey(ch.title)));
 
   let dupCount=0;
   items.forEach((ch,i)=>{
@@ -6124,22 +6196,23 @@ function renderInsTocList(){
     const title=document.createElement('span');
     title.className='ch-title'; title.textContent=ch.title;
 
-    // 배지 영역
-    const chNum=_extractTocNum(ch.title);
-    const isDup=chNum>0&&epubNums.has(chNum);
-    const isNext=epubLastNum>0&&chNum===epubLastNum+1;
+    // ns:num 복합키로 중복 감지 — "1화"(main:1)와 "외전 1화"(extra:1)는 다른 키
+    const parsed=_parseTocTitle(ch.title);
+    const chKey=_tocKey(ch.title);
+    const chNum=parsed.num;
+    const isDup=chNum>0&&epubKeys.has(chKey);
+    // 연결점: 본편(main) 기준으로만 판정
+    const isNext=parsed.ns==='main'&&epubLastNum>0&&chNum===epubLastNum+1;
 
     if(isDup){ dupCount++; }
 
-    // 중복 배지 (기존에 있는 화)
     if(isDup){
       const dupBadge=document.createElement('span');
       dupBadge.style.cssText='font-size:9px;background:var(--yellow-bg);color:var(--yellow);border:1px solid var(--accent2);border-radius:3px;padding:1px 5px;flex-shrink:0';
       dupBadge.textContent='중복';
-      dupBadge.title='EPUB에 이미 '+chNum+'화가 있어요';
+      dupBadge.title='EPUB에 이미 있는 챕터예요 ('+chKey+')';
       d.appendChild(chk); d.appendChild(num); d.appendChild(title); d.appendChild(dupBadge);
     } else if(isNext){
-      // EPUB 연결점 강조
       const marker=document.createElement('span');
       marker.style.cssText='font-size:9px;background:var(--blue);color:#fff;border-radius:3px;padding:1px 5px;flex-shrink:0';
       marker.textContent='← 연결점';
@@ -6182,8 +6255,12 @@ function _checkTocContinuity(){
   const items=E.insTxtChapters||[];
   if(epubLastNum<=0||!items.length){ warnEl.style.display='none'; return; }
 
-  // 활성화된 TXT 챕터 중 최솟값
-  const enabledNums=items.filter(ch=>ch.enabled).map(ch=>_extractTocNum(ch.title)).filter(n=>n>0);
+  // 활성화된 TXT 챕터 중 본편(main)만 추출 — 외전/번외는 연속성 계산 제외
+  const enabledNums=items
+    .filter(ch=>ch.enabled)
+    .filter(ch=>_parseTocTitle(ch.title).ns==='main') // 본편만
+    .map(ch=>_extractTocNum(ch.title))
+    .filter(n=>n>0);
   if(!enabledNums.length){ warnEl.style.display='none'; return; }
 
   const minTxtNum=Math.min(...enabledNums);
@@ -6209,9 +6286,40 @@ function _getEpubLastChNum(){
   const last=E.chapters[E.chapters.length-1];
   return _extractTocNum(last.title);
 }
+// 챕터 제목에서 번호 추출 (중복 감지·연결점 표시용)
+// 외전/번외/프롤로그는 본편과 충돌하지 않도록 별도 네임스페이스 부여
+// 반환 형식: {num, ns}
+//   num: 정수 번호 (없으면 -1)
+//   ns:  'main'(본편) | 'extra'(외전/번외) | 'special'(프롤로그/에필로그 등)
+function _parseTocTitle(t){
+  const s=(t||'').trim();
+  // 외전/번외/사이드/특별편 키워드 — 본편과 별도 ns
+  if(/(?:^|\s)(?:외전|번외|사이드|side|특별편|bonus|extra)/i.test(s)){
+    const m=s.match(/(\d+)/);
+    return {num: m?parseInt(m[1]):-1, ns:'extra'};
+  }
+  // 후일담/에필로그/종장
+  if(/(?:^|\s)(?:후일담|에필로그|epilogue|종장)/i.test(s)){
+    const m=s.match(/(\d+)/);
+    return {num: m?parseInt(m[1]):-1, ns:'special'};
+  }
+  // 프롤로그/서장 — 본편 앞
+  if(/^(?:프롤로그|서장|prologue)/i.test(s))
+    return {num:0, ns:'special'};
+  // 일반 본편
+  const m=s.match(/(\d+)/);
+  return {num: m?parseInt(m[1]):-1, ns:'main'};
+}
+
+// 하위 호환용 — 번호만 반환
 function _extractTocNum(t){
-  const m=t.match(/(\d+)/);
-  return m?parseInt(m[1]):-1;
+  return _parseTocTitle(t).num;
+}
+
+// 중복 감지에 사용: ns + num 복합 키 반환
+function _tocKey(t){
+  const {num,ns}=_parseTocTitle(t);
+  return ns+':'+num;
 }
 
 // EPUB 연결 정보 표시
@@ -6268,46 +6376,48 @@ function applyInsTocRange(mode){
 
   const infoEl=document.getElementById('insTocRangeInfo');
   const epubLastNum=_getEpubLastChNum();
-  // ① EPUB에 이미 있는 챕터 번호 집합
-  const epubNums=new Set((E.chapters||[]).map(ch=>_extractTocNum(ch.title)).filter(n=>n>0));
+  // 챕터 키 집합 (ns:num 복합키 — 본편/외전 구분)
+  const epubKeys=new Set((E.chapters||[]).map(ch=>_tocKey(ch.title)));
 
   if(mode==='reset'){
     items.forEach(ch=>ch.enabled=true);
     infoEl.textContent=''; renderInsTocList(); return;
   }
 
-  // ③ 빠른 선택: EPUB 이후만
+  // EPUB 이후만: 본편 기준 (외전은 번호 무관하게 항상 포함)
   if(mode==='epubAfter'){
     if(epubLastNum<=0){ Toast.warn('EPUB 파일을 먼저 불러와주세요.'); return; }
     let cnt=0;
     items.forEach(ch=>{
-      const n=_extractTocNum(ch.title);
-      ch.enabled=(n>epubLastNum||n<=0);  // 번호 없는 건 포함
+      const {num,ns}=_parseTocTitle(ch.title);
+      // 본편은 epubLastNum 초과만, 외전/특별편은 무조건 포함, 번호 없으면 포함
+      ch.enabled=(ns!=='main'||num>epubLastNum||num<=0);
       if(ch.enabled) cnt++;
     });
     infoEl.textContent='EPUB 이후('+epubLastNum+'화 초과) '+cnt+'개 선택';
     renderInsTocList(); return;
   }
 
-  // ③ 빠른 선택: EPUB 이전만
+  // EPUB 이전만: 본편 기준
   if(mode==='epubBefore'){
     if(epubLastNum<=0){ Toast.warn('EPUB 파일을 먼저 불러와주세요.'); return; }
     let cnt=0;
     items.forEach(ch=>{
-      const n=_extractTocNum(ch.title);
-      ch.enabled=(n>0&&n<=epubLastNum);
+      const {num,ns}=_parseTocTitle(ch.title);
+      ch.enabled=(ns==='main'&&num>0&&num<=epubLastNum);
       if(ch.enabled) cnt++;
     });
     infoEl.textContent='EPUB 이전('+epubLastNum+'화 이하) '+cnt+'개 선택';
     renderInsTocList(); return;
   }
 
-  // ① 빠른 선택: 중복 제외 (EPUB에 이미 있는 화 해제)
+  // 중복 제외: ns:num 복합키 기준 — "1화"와 "외전 1화"를 별개로 판정
   if(mode==='dedupe'){
     let deduped=0;
     items.forEach(ch=>{
-      const n=_extractTocNum(ch.title);
-      if(n>0&&epubNums.has(n)){ ch.enabled=false; deduped++; }
+      const key=_tocKey(ch.title);
+      const {num}=_parseTocTitle(ch.title);
+      if(num>0&&epubKeys.has(key)){ ch.enabled=false; deduped++; }
     });
     infoEl.textContent=deduped>0?'중복 '+deduped+'개 해제됨':'중복 챕터 없음';
     renderInsTocList(); return;
@@ -6865,7 +6975,11 @@ async function _eRunSmartPat(include, exclude){
   }catch(e){
     const msg=e.message||'';
     if(msg==='quota_exceeded'){
-      Toast.warn('Gemini API 할당량 초과 — 내장 변환 로직을 사용해요.<br>잠시 후 다시 시도하거나 API 사용량을 확인해주세요.');
+      Toast.warn(
+        'Gemini API 할당량 초과 — 내장 변환 로직을 사용해요.<br>'+
+        '<small style="opacity:.8">💡 오류에 <b>limit: 0</b>이 있으면 Google AI Studio 키인지 확인해주세요.<br>'+
+        'https://aistudio.google.com/app/apikey</small>'
+      );
     } else if(msg.includes('API 키가 올바르지 않아요')){
       resultEl.textContent='⚠ '+msg;
       resultBox.style.borderColor='var(--accent)';
