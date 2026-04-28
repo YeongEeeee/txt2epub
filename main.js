@@ -726,6 +726,8 @@ function setupEventDelegate(){
       S.tocItems.forEach((t,i)=>{ if(t.suspicious && i+1<S.tocItems.length) indices.push(i+1); });
       const toRemove=[...new Set(indices)].sort((a,b)=>b-a);
       toRemove.forEach(i=>S.tocItems.splice(i,1));
+      // ★ 목차 변경 → 캐시 즉시 무효화
+      _chaptersCache=null;_chaptersCacheKey='';
       renderTocItems();
       updateTocStat();
       document.getElementById('susp-toast')?.remove();
@@ -2253,18 +2255,24 @@ async function startConvert(){
     setProgress(15,'② 챕터 패턴 분석 중...');
     await yieldToMain();
     const customPat=document.getElementById('pattern').value.trim();
-    const disabledTitles=new Set(S.tocItems.filter(t=>!t.enabled).map(t=>t.title));
 
     let chapters;
     if(_autoSplitActive&&_autoSplitLines&&S.tocItems.length>0){
+      // 간격 분할 모드
       setProgress(20,'② 간격 분할 적용 중...');
       await yieldToMain();
-      // 간격 분할 모드: tocItems 기반 챕터 조립 (enabled + 편집된 제목 반영)
       chapters=buildChaptersFromTocItems(_autoSplitLines, S.tocItems);
+    } else if(S.tocItems.length>0&&_fullRawLines&&_fullRawLines.length>0){
+      // ★ 일반 패턴 분할 모드에서도 tocItems가 있으면 tocItems 기반으로 조립
+      // disabledTitles 문자열 매칭 방식은 제목 편집 시 실패 → 완전히 대체
+      setProgress(20,'② 목차 기반 챕터 조립 중...');
+      await yieldToMain();
+      chapters=buildChaptersFromTocItems(_fullRawLines, S.tocItems);
+      setProgress(28,`② 챕터 조립 완료 (활성 ${S.tocItems.filter(t=>t.enabled).length}개 → ${chapters.length}개)`);
     } else {
+      // tocItems 없거나 _fullRawLines 없음 → 원본 텍스트 직접 파싱
       setProgress(18,'② 목차 패턴 감지 중...');
       await yieldToMain();
-      // ★ 대용량(10만 줄 이상)은 비동기 파서, 소형은 동기 처리
       const lineCount=(raw.match(/\n/g)||[]).length;
       if(lineCount>=100000){
         chapters=await splitChaptersAsync(raw,customPat,(pct,msg)=>setProgress(pct,msg));
@@ -2272,18 +2280,8 @@ async function startConvert(){
         chapters=splitChapters(raw,customPat);
       }
       setProgress(24,`② 챕터 분리 완료 (${chapters.length}개)`);
-      await yieldToMain();
-      // ★ 인라인 편집된 tocItems 제목 반영 (originalTitle → 편집된 title)
-      if(S.tocItems.length>0){
-        const editedMap=new Map();
-        S.tocItems.forEach(t=>{
-          if(t.originalTitle&&t.title!==t.originalTitle) editedMap.set(t.originalTitle,t.title);
-        });
-        if(editedMap.size>0){
-          chapters=chapters.map(([h,b])=>[editedMap.has(h)?editedMap.get(h):h, b]);
-        }
-      }
-      // disabled 챕터는 인접 챕터 본문에 병합
+      // tocItems 없는 경우 disabledTitles 폴백
+      const disabledTitles=new Set(S.tocItems.filter(t=>!t.enabled).map(t=>t.title));
       if(disabledTitles.size>0){
         setProgress(28,'② 비활성 챕터 병합 중...');
         await yieldToMain();
@@ -2292,15 +2290,8 @@ async function startConvert(){
           if(disabledTitles.has(h)){
             pb+=(pb?'\n\n':'')+h+'\n'+b;
           } else {
-            if(pb&&merged.length>0){
-              merged[merged.length-1][1]+='\n\n'+pb;
-              pb='';
-            } else if(pb){
-              // 아직 merged 없음 → 이 챕터 본문 앞에 붙임
-              merged.push([h, pb+'\n\n'+b]);
-              pb='';
-              continue;
-            }
+            if(pb&&merged.length>0){merged[merged.length-1][1]+='\n\n'+pb;pb='';}
+            else if(pb){merged.push([h,pb+'\n\n'+b]);pb='';continue;}
             merged.push([h,b]);
           }
         }
@@ -2308,6 +2299,7 @@ async function startConvert(){
         chapters=merged;
       }
     }
+    await yieldToMain();
     setProgress(30,'③ 삽화 파싱 중...');
     await yieldToMain();
     // 삽화 파싱 — 파일명 숫자 = 챕터 인덱스(1-based)

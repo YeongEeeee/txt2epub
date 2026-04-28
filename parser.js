@@ -509,31 +509,44 @@ function escAttr(s){return s.replace(/'/g,"\\'").replace(/"/g,'&quot;');}
 let _chaptersCache=null, _chaptersCacheKey='';
 let _autoSplitLines=null; // 간격 분할 시 원문 줄 배열
 function buildChaptersFromTocItems(lines, tocItems){
+  // ★ enabled:true인 항목만 — UI 편집 결과 그대로 반영
   const enabled=tocItems.filter(t=>t.enabled);
-  // enabled 항목이 없으면 페이지 분할 폴백
   if(!enabled.length){
-    const raw=lines.join('\n');
-    return splitChapters(raw,''); // splitChapters의 페이지 분할 폴백 사용
+    // 전체 비활성화 → 전체 텍스트 단일 챕터
+    return [['본문', lines.join('\n').trim()]];
   }
+
+  const totalLines=lines.length;
+  // ★ 라인 범위 검증: item.line이 실제 lines 배열 안에 있는지 확인
+  const validEnabled=enabled.filter(item=>
+    item.line!=null && item.line>=1 && item.line<=totalLines
+  );
+  if(!validEnabled.length){
+    return [['본문', lines.join('\n').trim()]];
+  }
+
   const chapters=[];
-  for(let i=0;i<enabled.length;i++){
-    const item=enabled[i];
+  for(let i=0;i<validEnabled.length;i++){
+    const item=validEnabled[i];
     const headLine=item.line-1; // 0-based
-    const nextLine=i+1<enabled.length?enabled[i+1].line-1:lines.length;
+    const nextLine=i+1<validEnabled.length
+      ? Math.min(validEnabled[i+1].line-1, totalLines)
+      : totalLines;
 
     let bodyLines;
     if(item.autoSplit){
-      // ★ 간격 분할 모드: "Chapter N" 제목은 목차 전용
-      // headLine 위치의 원본 텍스트를 그대로 본문에 포함 (텍스트 유실 방지)
+      // 간격 분할: headLine 포함 (원본 텍스트 유실 방지)
       bodyLines=lines.slice(headLine, nextLine);
     } else {
-      // 일반 패턴 분할: 헤딩 줄 자체는 제목이므로 body에서 제외
+      // 일반 패턴: 헤딩 줄 제외
       bodyLines=lines.slice(headLine+1, nextLine);
     }
+    // ★ 빈 본문 챕터도 포함 (제목만 있는 챕터)
     chapters.push([item.title, bodyLines.join('\n').trim()]);
   }
+
   // 첫 챕터 앞에 내용이 있으면 서문으로
-  const firstLine=enabled[0].line-1;
+  const firstLine=validEnabled[0].line-1;
   if(firstLine>0){
     const preamble=lines.slice(0,firstLine).join('\n').trim();
     if(preamble) chapters.unshift(['서문',preamble]);
@@ -544,27 +557,28 @@ function buildChaptersFromTocItems(lines, tocItems){
 async function getCachedChapters(){
   if(!S.txtFiles.length) return [];
 
-  // ★ 간격 분할 모드: tocItems 기반으로 챕터 조립
-  if(_autoSplitActive&&_autoSplitLines&&S.tocItems.length>0){
-    return buildChaptersFromTocItems(_autoSplitLines, S.tocItems);
+  // ★ tocItems가 있으면 항상 tocItems 기반 챕터 조립 (_autoSplitActive 무관)
+  if(S.tocItems.length>0){
+    const sourceLines=_autoSplitActive&&_autoSplitLines
+      ? _autoSplitLines
+      : (_fullRawLines&&_fullRawLines.length>0 ? _fullRawLines : null);
+    if(sourceLines) return buildChaptersFromTocItems(sourceLines, S.tocItems);
   }
 
+  // tocItems 없거나 sourceLines 없음 → 원본 텍스트 파싱 (캐시 사용)
   const key=S.txtFiles.map(f=>f.name+f.size).join('|');
   const pat=document.getElementById('pattern')?.value.trim()||'';
-  // ★ disabled 상태도 캐시 키에 포함 (체크 해제하면 캐시 무효화)
-  const disabledKey=S.tocItems.filter(t=>!t.enabled).map(t=>t.title).join('|');
-  const cacheKey=key+'::'+pat+'::'+disabledKey;
+  const cacheKey=key+'::'+pat;
   if(_chaptersCache&&_chaptersCacheKey===cacheKey) return _chaptersCache;
 
   try{
-    const sorted=[...S.txtFiles]; // 사용자 정렬 순서 유지 (renderTxtFileList에서 이미 정렬됨)
+    const sorted=[...S.txtFiles];
     const raws=await Promise.all(sorted.map(fileToText));
     const raw=raws.join('\n\n');
-    await yieldToMain(); // 대용량 텍스트 조인 후 UI 복원
+    await yieldToMain();
     _chaptersCache=splitChapters(raw,pat);
     _chaptersCacheKey=cacheKey;
   }catch(e){
-    console.warn('getCachedChapters 실패:',e);
     _chaptersCache=[];
   }
   return _chaptersCache||[];
@@ -757,6 +771,8 @@ function renderTocItems(){
     for(let k=idxs.length-1;k>=1;k--) S.tocItems.splice(idxs[k],1);
     S.tocItems[idxs[0]]=merged;
     _selectedIdxs.clear();
+    // ★ 목차 변경 → 캐시 즉시 무효화
+    _chaptersCache=null;_chaptersCacheKey='';
     renderTocItems();
     updateTocStat();
   });
@@ -848,6 +864,8 @@ function renderTocItems(){
         const idx=S.tocItems.indexOf(item);
         // suspicious 항목(idx) 다음 항목(idx+1)이 오감지 — 그것을 제거
         if(idx>=0 && idx+1 < S.tocItems.length) S.tocItems.splice(idx+1, 1);
+        // ★ 목차 변경 → 캐시 즉시 무효화
+        _chaptersCache=null;_chaptersCacheKey='';
         renderTocItems();
         updateTocStat();
         const remaining=S.tocItems.filter(t=>t.suspicious).length;
@@ -956,8 +974,18 @@ function updateTocStat(){
     suspBtn+
     '<span style="font-size:11px;color:var(--text2);margin-left:auto">총 '+total+'개 · 활성 '+active+'개</span>';
 }
-function toggleTocItem(i,v){S.tocItems[i].enabled=v;renderTocItems();}
-function toggleAllToc(v){S.tocItems.forEach(t=>t.enabled=v);renderTocItems();}
+function toggleTocItem(i,v){
+  S.tocItems[i].enabled=v;
+  // ★ tocItems 변경 → 캐시 즉시 무효화
+  _chaptersCache=null;_chaptersCacheKey='';
+  renderTocItems();
+}
+function toggleAllToc(v){
+  S.tocItems.forEach(t=>t.enabled=v);
+  // ★ tocItems 변경 → 캐시 즉시 무효화
+  _chaptersCache=null;_chaptersCacheKey='';
+  renderTocItems();
+}
 let tocTabActive=0;
 function tocTab(n){
   tocTabActive=n;
