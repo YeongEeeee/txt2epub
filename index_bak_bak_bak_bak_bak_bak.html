@@ -2725,8 +2725,7 @@ function splitChapters(raw,customPat){
   const rawLines=raw.split('\n');
   const chapters=[];
   let cur=null,body=[];
-  // 중복 제목 카운터: 같은 제목이 여러 번 나오면 (2), (3)... 접미사 부여
-  const seenHeadings=new Map(); // title → count
+  const seenHeadings=new Set();
 
   // 구분선 패턴 (챕터 앞뒤 장식선)
   const sepRx=/^[-=*─━~·.‒—]{3,}\s*$|^[─━═]{2,}$/;
@@ -2736,16 +2735,13 @@ function splitChapters(raw,customPat){
     const t=line.trim();
 
     if(t&&rx.test(t)){
-      // ★ 중복 제목 처리: 같은 제목이 또 나오면 (2), (3)... 접미사
-      const prevCount=seenHeadings.get(t)||0;
-      seenHeadings.set(t, prevCount+1);
-      const uniqueTitle=prevCount===0 ? t : `${t} (${prevCount+1})`;
-
+      if(seenHeadings.has(t)){body.push(line);continue;}
+      seenHeadings.add(t);
       // 직전 body 끝 구분선/빈줄 제거
       while(body.length&&(sepRx.test(body[body.length-1].trim())||body[body.length-1].trim()==='')) body.pop();
       if(cur===null&&body.length>0) chapters.push(['서문',body.join('\n').trim()]);
       else if(cur!==null) chapters.push([cur,body.join('\n').trim()]);
-      cur=uniqueTitle; body=[];
+      cur=t; body=[];
       // 챕터 헤더 직후 구분선만 스킵 (빈줄은 본문에 포함)
       let ni=li+1;
       while(ni<rawLines.length&&sepRx.test(rawLines[ni].trim())) ni++;
@@ -3921,16 +3917,7 @@ function buildChaptersFromTocItems(lines, tocItems){
     const item=enabled[i];
     const headLine=item.line-1; // 0-based
     const nextLine=i+1<enabled.length?enabled[i+1].line-1:lines.length;
-
-    let bodyLines;
-    if(item.autoSplit){
-      // ★ 간격 분할 모드: "Chapter N" 제목은 목차 전용
-      // headLine 위치의 원본 텍스트를 그대로 본문에 포함 (텍스트 유실 방지)
-      bodyLines=lines.slice(headLine, nextLine);
-    } else {
-      // 일반 패턴 분할: 헤딩 줄 자체는 제목이므로 body에서 제외
-      bodyLines=lines.slice(headLine+1, nextLine);
-    }
+    const bodyLines=lines.slice(headLine+1,nextLine);
     chapters.push([item.title, bodyLines.join('\n').trim()]);
   }
   // 첫 챕터 앞에 내용이 있으면 서문으로
@@ -5024,7 +5011,7 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
     const fname='chapter_'+String(idx).padStart(4,'0')+'.xhtml';
     const chid='ch_'+String(idx).padStart(4,'0');
     // 패턴 미감지 자동 페이지 분할 챕터는 제목 표시 안 함 (텍스트 우선)
-    const isAutoPage=/^\(\d+\/\d+\)$/.test(heading)||heading==='본문'||/^Chapter\s+\d+$/.test(heading);
+    const isAutoPage=/^\(\d+\/\d+\)$/.test(heading)||heading==='본문';
     const showTitle=showChTitle&&!isAutoPage;
     textFolder.file(fname,xhtmlPage(heading,(showTitle?'<h1>'+escHtml(heading)+'</h1>\n':'')+bodyToHtml(body)));
     manifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
@@ -5046,15 +5033,10 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
 
   function tocLabel(idx,h){
     if(chHasIll[idx]) return h+' 삽화';
-    // (N/M) 자동 페이지 분할 → "N페이지"
+    // 자동 페이지 분할 챕터 — 목차에서 "1페이지", "2페이지" 등으로 표시
     if(/^\(\d+\/\d+\)$/.test(h)){
       const m=h.match(/\((\d+)\/(\d+)\)/);
       return m?m[1]+'페이지':h;
-    }
-    // 간격 분할 "Chapter N" → NCX/Nav에는 "N화"로 표시 (본문엔 제목 없음)
-    if(/^Chapter\s+\d+$/.test(h)){
-      const m=h.match(/Chapter\s+(\d+)/);
-      return m?m[1]+'화':h;
     }
     return h;
   }
