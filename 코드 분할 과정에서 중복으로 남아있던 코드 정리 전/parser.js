@@ -730,24 +730,6 @@ function showSuspiciousToast(count){
   setTimeout(()=>el?.remove(), 10000);
 }
 
-// ── 목차 Undo 스택 (최대 10개 스냅샷) ──
-const _tocUndoStack=[];
-const _TOC_UNDO_MAX=10;
-function _saveTocSnapshot(){
-  // 깊은 복사
-  _tocUndoStack.push(JSON.parse(JSON.stringify(S.tocItems||[])));
-  if(_tocUndoStack.length>_TOC_UNDO_MAX) _tocUndoStack.shift();
-}
-function undoToc(){
-  if(_tocUndoStack.length===0){Toast.warn('되돌릴 내역이 없어요.');return;}
-  const snap=_tocUndoStack.pop();
-  S.tocItems=snap;
-  _chaptersCache=null;_chaptersCacheKey='';
-  renderTocItems();
-  updateTocStat();
-  Toast.success('되돌리기 완료 (남은 스냅샷: '+_tocUndoStack.length+'개)');
-}
-
 function renderTocItems(){
   let _tocDragSrc=null;
   const c=document.getElementById('tb0');c.innerHTML='';
@@ -761,27 +743,6 @@ function renderTocItems(){
 
   // ★ 다중 선택 상태
   const _selectedIdxs=new Set();
-
-  // ── 검색/필터 바 ──
-  const filterBar=document.createElement('div');
-  filterBar.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:8px';
-  filterBar.innerHTML=
-    '<input id="toc-search" class="inp" placeholder="🔍 제목 검색..." style="flex:1;font-size:11px;padding:5px 8px">'+
-    '<button class="btn btn-ghost btn-sm" onclick="undoToc()" title="되돌리기 (최대 10단계)" style="font-size:11px">↩ Undo</button>';
-  c.appendChild(filterBar);
-  const searchInp=filterBar.querySelector('#toc-search');
-  let _filterQ='';
-  searchInp.addEventListener('input',e=>{
-    _filterQ=e.target.value.toLowerCase().trim();
-    c.querySelectorAll('.toc-item[data-idx]').forEach(el=>{
-      const idx=parseInt(el.dataset.idx);
-      const t=(S.tocItems[idx]?.title||'').toLowerCase();
-      el.style.display=(!_filterQ||t.includes(_filterQ))?'':'none';
-    });
-    // 접힘 버튼 숨김
-    const foldBtn=c.querySelector('.toc-fold-btn');
-    if(foldBtn) foldBtn.style.display=_filterQ?'none':'';
-  });
 
   // ── 병합 툴바 ──
   const toolbar=document.createElement('div');
@@ -798,7 +759,7 @@ function renderTocItems(){
   toolbar.querySelector('#toc-merge-btn').addEventListener('click',()=>{
     const idxs=[..._selectedIdxs].sort((a,b)=>a-b);
     if(idxs.length<2) return;
-    _saveTocSnapshot(); // ★ Undo 스냅샷 저장
+    // 첫 항목으로 병합 (제목: 첫번째 화 ~ 마지막 화)
     const first=S.tocItems[idxs[0]];
     const merged={
       ...first,
@@ -806,16 +767,18 @@ function renderTocItems(){
       enabled:true,
       originalTitle: first.originalTitle||first.title,
     };
+    // 나머지 제거 (뒤에서부터)
     for(let k=idxs.length-1;k>=1;k--) S.tocItems.splice(idxs[k],1);
     S.tocItems[idxs[0]]=merged;
     _selectedIdxs.clear();
+    // ★ 목차 변경 → 캐시 즉시 무효화
     _chaptersCache=null;_chaptersCacheKey='';
     renderTocItems();
     updateTocStat();
   });
   toolbar.querySelector('#toc-sel-clear').addEventListener('click',()=>{
     _selectedIdxs.clear();
-    c.querySelectorAll('.toc-item.multi-selected').forEach(el=>el.classList.remove('multi-selected'));
+    document.querySelectorAll('.toc-item.multi-selected').forEach(el=>el.classList.remove('multi-selected'));
     updateMergeBar();
   });
 
@@ -844,34 +807,11 @@ function renderTocItems(){
     // 체크박스
     const chk=document.createElement('input');
     chk.type='checkbox'; chk.className='toc-chk'; chk.checked=item.enabled;
-    chk.addEventListener('change',e=>{
-      e.stopPropagation();
-      S.tocItems[i].enabled=e.target.checked;
-      // ★ DOM만 업데이트 (전체 재렌더링 없음 → 1,000화 이상 성능 개선)
-      d.classList.toggle('off',!e.target.checked);
-      _chaptersCache=null;_chaptersCacheKey='';
-      updateTocStat();
-    });
+    chk.addEventListener('change',e=>{e.stopPropagation();S.tocItems[i].enabled=e.target.checked;d.classList.toggle('off',!e.target.checked);updateTocStat();});
 
     // 줄 번호
     const num=document.createElement('span');
     num.className='toc-num'; num.textContent=item.line+'줄';
-
-    // ★ 챕터 본문 글자수 배지
-    const charBadge=document.createElement('span');
-    charBadge.className='toc-char-badge';
-    // 다음 챕터까지의 줄 수로 글자수 추정
-    if(_fullRawLines&&_fullRawLines.length>0){
-      const nextItemLine=S.tocItems[i+1]?.line||_fullRawLines.length+1;
-      const bodyLen=_fullRawLines.slice(item.line, nextItemLine-1)
-        .join('').replace(/\s/g,'').length;
-      const kLen=Math.round(bodyLen/1000);
-      charBadge.textContent=bodyLen<1000?bodyLen+'자':(kLen+'k자');
-      charBadge.title='본문 글자수 (공백 제외)';
-      charBadge.style.cssText=
-        'font-size:9px;padding:1px 5px;border-radius:3px;flex-shrink:0;white-space:nowrap;'+
-        (bodyLen<50?'background:#fff3cd;color:#856404;border:1px solid #f0c040':'background:var(--bg2);color:var(--text2);border:1px solid var(--border)');
-    }
 
     // 제목 인라인 편집 input
     const titleInp=document.createElement('input');
@@ -881,10 +821,9 @@ function renderTocItems(){
     titleInp.addEventListener('click',e=>e.stopPropagation());
     titleInp.addEventListener('change',e=>{
       const newTitle=e.target.value.trim()||item.title;
+      // ★ 처음 편집 시 originalTitle 저장 (splitChapters 제목 매핑용)
       if(!S.tocItems[i].originalTitle) S.tocItems[i].originalTitle=S.tocItems[i].title;
       S.tocItems[i].title=newTitle;
-      // ★ 제목 편집 시에도 캐시 무효화
-      _chaptersCache=null;_chaptersCacheKey='';
     });
     titleInp.addEventListener('keydown',e=>{
       if(e.key==='Enter'){e.target.blur();}
@@ -893,6 +832,7 @@ function renderTocItems(){
 
     // 오감지 배지 + 제거 버튼
     if(item.suspicious){
+      // ── 본문 짧음 경고 배지 ──
       const badge=document.createElement('span');
       badge.style.cssText=
         'font-size:9px;background:#fff3cd;color:#856404;border-radius:3px;'+
@@ -901,6 +841,7 @@ function renderTocItems(){
       badge.innerHTML='<span>⚠</span><span>본문 짧음</span>';
       badge.title='이 챕터 본문이 50자 미만이에요 — 오감지일 수 있어요';
 
+      // ── 개별 제거 버튼 ──
       const removeBtn=document.createElement('button');
       removeBtn.className='btn btn-sm';
       removeBtn.style.cssText=
@@ -910,28 +851,35 @@ function renderTocItems(){
         'white-space:nowrap;transition:all .15s';
       removeBtn.innerHTML='✕&nbsp;제거';
       removeBtn.title='이 항목을 목차에서 제거합니다';
-      removeBtn.addEventListener('mouseenter',()=>{removeBtn.style.background='var(--accent)';removeBtn.style.color='#fff';});
-      removeBtn.addEventListener('mouseleave',()=>{removeBtn.style.background='var(--accent-bg)';removeBtn.style.color='var(--accent)';});
+      removeBtn.addEventListener('mouseenter',()=>{
+        removeBtn.style.background='var(--accent)';
+        removeBtn.style.color='#fff';
+      });
+      removeBtn.addEventListener('mouseleave',()=>{
+        removeBtn.style.background='var(--accent-bg)';
+        removeBtn.style.color='var(--accent)';
+      });
       removeBtn.addEventListener('click', e=>{
         e.stopPropagation();
-        _saveTocSnapshot(); // ★ Undo 스냅샷
         const idx=S.tocItems.indexOf(item);
+        // suspicious 항목(idx) 다음 항목(idx+1)이 오감지 — 그것을 제거
         if(idx>=0 && idx+1 < S.tocItems.length) S.tocItems.splice(idx+1, 1);
+        // ★ 목차 변경 → 캐시 즉시 무효화
         _chaptersCache=null;_chaptersCacheKey='';
         renderTocItems();
         updateTocStat();
         const remaining=S.tocItems.filter(t=>t.suspicious).length;
         if(remaining===0) document.getElementById('susp-toast')?.remove();
-        else { const ce=document.querySelector('#susp-toast b'); if(ce) ce.textContent=remaining; }
+        else {
+          const countEl=document.querySelector('#susp-toast b');
+          if(countEl) countEl.textContent=remaining;
+        }
       });
 
       d.appendChild(handle);d.appendChild(chk);d.appendChild(num);
-      if(charBadge.textContent) d.appendChild(charBadge);
       d.appendChild(titleInp);d.appendChild(badge);d.appendChild(removeBtn);
     } else {
-      d.appendChild(handle);d.appendChild(chk);d.appendChild(num);
-      if(charBadge.textContent) d.appendChild(charBadge);
-      d.appendChild(titleInp);
+      d.appendChild(handle);d.appendChild(chk);d.appendChild(num);d.appendChild(titleInp);
     }
 
     // ★ Ctrl+Click / Cmd+Click → 다중 선택 토글
@@ -1028,19 +976,13 @@ function updateTocStat(){
 }
 function toggleTocItem(i,v){
   S.tocItems[i].enabled=v;
+  // ★ tocItems 변경 → 캐시 즉시 무효화
   _chaptersCache=null;_chaptersCacheKey='';
-  // DOM만 업데이트 (전체 재렌더링 없음)
-  const el=document.querySelector(`.toc-item[data-idx="${i}"]`);
-  if(el){
-    el.classList.toggle('off',!v);
-    const chk=el.querySelector('.toc-chk');
-    if(chk) chk.checked=v;
-  }
-  updateTocStat();
+  renderTocItems();
 }
 function toggleAllToc(v){
-  _saveTocSnapshot(); // ★ Undo 스냅샷
   S.tocItems.forEach(t=>t.enabled=v);
+  // ★ tocItems 변경 → 캐시 즉시 무효화
   _chaptersCache=null;_chaptersCacheKey='';
   renderTocItems();
 }
@@ -1475,38 +1417,14 @@ async function renderHistory(){
   c.innerHTML='<div style="text-align:center;padding:12px 0;font-size:11px;color:var(--text2)">⏳ 로딩 중...</div>';
   const blobExists=await Promise.all(metas.map(m=>idbGet(m.key).then(b=>!!b).catch(()=>false)));
   c.innerHTML='';
-
-  // ★ 이전 변환 대비 비교 배지 생성
-  function _compareBadge(cur, prev){
-    if(!prev) return '';
-    const parts=[];
-    const chDiff=cur.chapterCount-prev.chapterCount;
-    if(chDiff!==0){
-      const sign=chDiff>0?'+':'';
-      const color=chDiff>0?'var(--green)':'var(--accent)';
-      parts.push(`<span style="color:${color};font-weight:600">${sign}${chDiff}화</span>`);
-    }
-    const sizeDiff=(parseFloat(cur.sizeMB)-parseFloat(prev.sizeMB)).toFixed(1);
-    if(Math.abs(parseFloat(sizeDiff))>=0.1){
-      const sign=parseFloat(sizeDiff)>0?'+':'';
-      parts.push(`<span style="color:var(--text2)">${sign}${sizeDiff}MB</span>`);
-    }
-    if(!parts.length) return '';
-    return `<span class="hist-compare-badge" title="이전 변환 대비">${parts.join(' / ')}</span>`;
-  }
-
-  // 같은 제목 기준으로 이전 변환 찾기
   metas.forEach((m,idx)=>{
     const row=document.createElement('div');
     row.className='hist-item';
     const hasBlob=blobExists[idx];
-    // 같은 제목의 이전 기록 찾기 (현재 항목 제외, 오래된 순 첫 번째)
-    const prevSameTitle=metas.slice(idx+1).find(p=>p.title===m.title);
-    const compareBadge=_compareBadge(m, prevSameTitle);
     row.innerHTML=
       '<div class="hist-thumb">📚</div>'+
       '<div class="hist-info">'+
-        '<div class="hist-title">'+escHtml(m.title)+(m.author?'<span style="font-weight:400;color:var(--text2);font-size:11px"> / '+escHtml(m.author)+'</span>':'')+(compareBadge?' '+compareBadge:'')+'</div>'+
+        '<div class="hist-title">'+escHtml(m.title)+(m.author?'<span style="font-weight:400;color:var(--text2);font-size:11px"> / '+escHtml(m.author)+'</span>':'')+'</div>'+
         '<div class="hist-meta">'+m.date+' · '+m.chapterCount+'화 · '+m.sizeMB+'MB · '+m.elapsed+'초</div>'+
       '</div>'+
       (hasBlob

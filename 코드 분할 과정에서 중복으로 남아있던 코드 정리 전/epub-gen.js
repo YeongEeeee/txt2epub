@@ -9,30 +9,26 @@
 // ════════════════════════════════════════════════
 
 /* global JSZip, escHtml, renderBodyHtml, convertImageFile, fileToAB,
-   yieldToMain, document, crypto, extractChNum */
-// ★ yieldToMain은 main.js에서 정의됨 (로드 순서: parser.js → epub-gen.js → main.js)
-// 런타임에는 main.js가 먼저 실행되므로 epub-gen.js의 buildEpub 호출 시점에는 항상 정의됨
+   document, crypto */
 
 'use strict';
-
-// ── toEm: em 단위 안전 처리 (모듈 레벨 — buildCss 호출마다 생성 방지) ──
-function toEm(val, def){
-  if(!val) return def;
-  const s=String(val).trim();
-  if(/em$|px$|%$|rem$/.test(s)) return s;
-  const n=parseFloat(s);
-  return isNaN(n)?def:n+'em';
-}
 function buildCss(){
   const font=document.getElementById('cssFont')?.value||'"Noto Serif KR",serif';
   const line=document.getElementById('cssLine')?.value||'1.9';
   const size=document.getElementById('cssFontSize')?.value||'1em';
 
-  // ★ toEm은 모듈 레벨 함수 사용 (buildCss 호출마다 재생성 없음)
-  const padTop=   toEm(document.getElementById('cssPadTop')?.value,    '1.5em');
-  const padBottom=toEm(document.getElementById('cssPadBottom')?.value,  '1.5em');
-  const padLeft=  toEm(document.getElementById('cssPadLeft')?.value,    '1.8em');
-  const padRight= toEm(document.getElementById('cssPadRight')?.value,   '1.8em');
+  // ★ em 단위 안전 처리: 숫자만 있으면 em 자동 부착, 이미 단위 있으면 그대로
+  function toEm(val, def){
+    if(!val) return def;
+    const s=String(val).trim();
+    if(/em$|px$|%$|rem$/.test(s)) return s;
+    const n=parseFloat(s);
+    return isNaN(n)?def:n+'em';
+  }
+  const padTop=   toEm(document.getElementById('cssPadTop')?.value    || document.getElementById('cssPadV')?.value, '1.5em');
+  const padBottom=toEm(document.getElementById('cssPadBottom')?.value  || document.getElementById('cssPadV')?.value, '1.5em');
+  const padLeft=  toEm(document.getElementById('cssPadLeft')?.value    || document.getElementById('cssPadH')?.value, '1.8em');
+  const padRight= toEm(document.getElementById('cssPadRight')?.value   || document.getElementById('cssPadH')?.value, '1.8em');
 
   const textColor=document.getElementById('cssTextColor')?.value||'';
   const bgColor=  document.getElementById('cssBgColor')?.value||'';

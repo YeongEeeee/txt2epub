@@ -355,13 +355,11 @@ window.addEventListener('DOMContentLoaded', ()=>{
   loadCssSettings();
   loadExtraSettings();
   loadApiSettings();
-  loadUserPrefs();           // ★ 사용자 설정 복원 (폰트/여백/다크모드 등)
   buildPatHelpers();
   setupDragDrop();
   setupEventListeners();
-  setupEventDelegate();
+  setupEventDelegate();   // ← data-action 이벤트 위임 활성화
   updateSettingsSummary();
-  renderCssPresetList();     // ★ 설정 프리셋 목록 렌더링
   // 슬라이더 초기값 select 기준으로 동기화
   const lineVal=document.getElementById('cssLine')?.value||'1.9';
   syncSelect('cssLine','cssLineSlider','cssLineVal',lineVal);
@@ -727,7 +725,6 @@ function setupEventDelegate(){
       const indices=[];
       S.tocItems.forEach((t,i)=>{ if(t.suspicious && i+1<S.tocItems.length) indices.push(i+1); });
       const toRemove=[...new Set(indices)].sort((a,b)=>b-a);
-      if(toRemove.length>0) _saveTocSnapshot&&_saveTocSnapshot(); // ★ Undo 스냅샷
       toRemove.forEach(i=>S.tocItems.splice(i,1));
       // ★ 목차 변경 → 캐시 즉시 무효화
       _chaptersCache=null;_chaptersCacheKey='';
@@ -1111,13 +1108,9 @@ function saveCssSettings(){
       font:document.getElementById('cssFont')?.value,
       line:document.getElementById('cssLine')?.value,
       size:document.getElementById('cssFontSize')?.value,
-      // ★ cssMargin 제거 → 4방향 여백으로 교체
-      padTop:   document.getElementById('cssPadTop')?.value||'1.5',
-      padBottom:document.getElementById('cssPadBottom')?.value||'1.5',
-      padLeft:  document.getElementById('cssPadLeft')?.value||'1.8',
-      padRight: document.getElementById('cssPadRight')?.value||'1.8',
+      margin:document.getElementById('cssMargin')?.value,
       textColor:document.getElementById('cssTextColor')?.value||'',
-      bgColor:  document.getElementById('cssBgColor')?.value||'',
+      bgColor:document.getElementById('cssBgColor')?.value||'',
       align:document.querySelector('input[name="cssAlign"]:checked')?.value||'justify',
       titleStyle:document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center',
       indentEm:indentSlider?parseFloat(indentSlider.value):1.0,
@@ -1384,13 +1377,7 @@ function loadCssSettings(){
       if(vl)vl.textContent=numVal.toFixed(2).replace(/\.?0+$/,'')+'em';
       if(sel)[...sel.options].forEach(o=>{if(o.value===saved.size)o.selected=true;});
     }
-    // ★ cssMargin → 4방향 여백 복원
-    const padMap=[['cssPadTop','cssPadTopSlider',saved.padTop,'1.5'],['cssPadBottom','cssPadBottomSlider',saved.padBottom,'1.5'],['cssPadLeft','cssPadLeftSlider',saved.padLeft,'1.8'],['cssPadRight','cssPadRightSlider',saved.padRight,'1.8']];
-    for(const[numId,sliderId,val,def]of padMap){
-      const v=val||def;
-      const n=document.getElementById(numId),s=document.getElementById(sliderId);
-      if(n)n.value=v; if(s)s.value=v;
-    }
+    if(saved.margin){const sel=document.getElementById('cssMargin');if(sel)[...sel.options].forEach(o=>{if(o.value===saved.margin)o.selected=true;});}
     if(saved.textColor&&document.getElementById('cssTextColor'))document.getElementById('cssTextColor').value=saved.textColor;
     if(saved.bgColor&&document.getElementById('cssBgColor'))document.getElementById('cssBgColor').value=saved.bgColor;
     if(saved.align){const r=document.querySelector('input[name="cssAlign"][value="'+saved.align+'"]');if(r)r.checked=true;}
@@ -2449,68 +2436,16 @@ function friendlyError(e){
 let _previewChapters=[], _previewIdx=0, _previewFont='', _previewLine='';
 
 function showPreview(){
-  if(!_previewChapters.length&&!S.epubBlob){
-    Toast.info('변환 후 사용할 수 있어요.');return;
-  }
+  if(!S.epubBlob){return;}
+  // 변환된 챕터 데이터로 미리보기 (최근 변환 기억)
+  if(!_previewChapters.length){Toast.info('변환 후 사용할 수 있어요.');return;}
   _previewIdx=0;
   _previewFont=document.getElementById('cssFont')?.value||'"Noto Serif KR",serif';
   _previewLine=document.getElementById('cssLine')?.value||'1.9';
-
-  // ★ EPUB Blob이 있으면 JSZip으로 파싱해 실제 본문 렌더링
-  if(S.epubBlob){
-    _renderEpubPreview(S.epubBlob);
-  } else {
-    renderPreview();
-  }
+  renderPreview();
   document.getElementById('previewModal').classList.add('show');
-  document.body.style.overflow='hidden';
+  document.body.style.overflow='hidden'; // 모달 열리면 배경 스크롤 차단
   document.body.style.touchAction='none';
-}
-
-// ★ EPUB Blob → JSZip 파싱 → 첫 챕터 HTML 렌더링
-async function _renderEpubPreview(blob){
-  const body=document.getElementById('previewBody');
-  body.innerHTML='<div style="text-align:center;padding:30px;color:var(--text2)">⏳ EPUB 파싱 중...</div>';
-  try{
-    const zip=await JSZip.loadAsync(blob);
-    // OPF 찾기
-    const container=await zip.file('META-INF/container.xml').async('text');
-    const opfPath=container.match(/full-path="([^"]+)"/)?.[1];
-    if(!opfPath){renderPreview();return;}
-    const opfBase=opfPath.replace(/[^/]+$/,'');
-    const opfText=await zip.file(opfPath).async('text');
-    // spine 순서 파싱
-    const idrefs=[...opfText.matchAll(/<itemref[^>]+idref="([^"]+)"/g)].map(m=>m[1]);
-    const manifest={};
-    for(const m of opfText.matchAll(/<item[^>]+id="([^"]+)"[^>]+href="([^"]+)"/g)){
-      manifest[m[1]]=m[2];
-    }
-    // 첫 3개 spine 항목 렌더링
-    const previewItems=idrefs.filter(id=>manifest[id]&&!manifest[id].includes('cover')).slice(0,3);
-    let html='';
-    for(const id of previewItems){
-      const href=opfBase+manifest[id];
-      const xhtml=await zip.file(href)?.async('text')||'';
-      // body 추출
-      const bodyMatch=xhtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-      if(bodyMatch){
-        // 이미지 src를 blob URL로 변환
-        let content=bodyMatch[1]
-          .replace(/<img[^>]+>/gi,'') // 이미지 제거 (미리보기에서 불필요)
-          .replace(/class="[^"]*"/g,'') // 클래스 제거
-          .replace(/<(\/?)h[1-6]/gi,'<$1h3'); // 헤딩 통일
-        html+=`<div class="preview-ch">${content}</div>`;
-      }
-    }
-    body.innerHTML=html||'<div style="padding:20px;color:var(--text2)">미리보기 내용을 불러올 수 없어요.</div>';
-    body.style.fontFamily=_previewFont;
-    body.style.lineHeight=_previewLine;
-    document.getElementById('previewPageInfo').textContent=
-      `EPUB 직접 렌더링 · 앞 ${previewItems.length}챕터`;
-  }catch(e){
-    // 파싱 실패 시 기존 텍스트 미리보기로 폴백
-    renderPreview();
-  }
 }
 
 function renderPreview(){
@@ -4881,7 +4816,7 @@ async function runCoverSearch(){
     <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">🖼 직접 등록</div>
     <div style="display:flex;gap:6px;margin-bottom:8px">
       <input id="coverDirectUrl" class="inp" placeholder="이미지 URL 붙여넣기 (https://...)" style="font-size:11px;flex:1">
-      <button class="btn btn-blue btn-sm" onclick="(async()=>{const u=document.getElementById('coverDirectUrl')?.value.trim();if(u)await applyCoverCard(u,'직접입력');})()" style="font-size:11px;white-space:nowrap">✅ 적용</button>
+      <button class="btn btn-blue btn-sm" onclick="applyDirectCoverUrl()" style="font-size:11px;white-space:nowrap">✅ 적용</button>
     </div>
     <div id="coverFileDrop"
          style="border:2px dashed var(--border);border-radius:8px;padding:14px;text-align:center;font-size:11px;color:var(--text2);cursor:pointer;transition:border-color .2s"
@@ -4930,8 +4865,11 @@ function abortCoverSearch(){
 }
 
 // ★ URL 직접 적용
-// applyDirectCoverUrl → 인라인 처리로 대체 (함수 제거, 버튼 onclick에서 직접 applyCoverCard 호출)
-// 호출부: onclick="(async()=>{const u=document.getElementById('coverDirectUrl')?.value.trim();if(u)await applyCoverCard(u,'직접입력');})()"
+async function applyDirectCoverUrl(){
+  const url=document.getElementById('coverDirectUrl')?.value.trim();
+  if(!url) return;
+  await applyCoverCard(url,'직접 입력');
+}
 
 // ★ 파일 드롭 핸들러
 async function handleCoverFileDrop(e){
@@ -5479,121 +5417,8 @@ async function fetchGoogle(q){
 // 표지 검색 모달 (전 플랫폼 동시 검색)
 
 // ════════════════════════════════════════════════
-// 🎨 Module: CssPreset — 설정 프리셋 저장/불러오기
+// 📐 Module: FontPanel — 5종 웹폰트 설정 컨트롤
 // ════════════════════════════════════════════════
-const CSS_PRESETS_KEY='novelepub_css_presets';
-const CSS_PRESET_DEFAULTS=[
-  {name:'웹소설 기본', font:'"Noto Serif KR",serif', line:'1.9', size:'1em', padTop:'1.5', padBottom:'1.5', padLeft:'1.8', padRight:'1.8'},
-  {name:'라이트 노벨',  font:'"Noto Sans KR",sans-serif', line:'2.0', size:'0.9em', padTop:'1.2', padBottom:'1.2', padLeft:'1.5', padRight:'1.5'},
-  {name:'넓은 여백',    font:'"Gowun Batang",serif', line:'2.2', size:'1em', padTop:'2.5', padBottom:'2.5', padLeft:'2.8', padRight:'2.8'},
-  {name:'좁은 여백',    font:'"Nanum Gothic",sans-serif', line:'1.7', size:'0.95em', padTop:'0.8', padBottom:'0.8', padLeft:'1.0', padRight:'1.0'},
-];
-
-function loadCssPresets(){
-  try{ return JSON.parse(localStorage.getItem(CSS_PRESETS_KEY)||'[]'); }
-  catch(e){ return []; }
-}
-function saveCssPresets(presets){
-  try{ localStorage.setItem(CSS_PRESETS_KEY, JSON.stringify(presets)); }
-  catch(e){}
-}
-
-function saveCurrentAsPreset(){
-  const name=prompt('프리셋 이름을 입력하세요:','');
-  if(!name||!name.trim()) return;
-  const preset={
-    name:name.trim(),
-    font:  document.getElementById('cssFont')?.value||'"Noto Serif KR",serif',
-    line:  document.getElementById('cssLine')?.value||'1.9',
-    size:  document.getElementById('cssFontSize')?.value||'1em',
-    padTop:   document.getElementById('cssPadTop')?.value||'1.5',
-    padBottom:document.getElementById('cssPadBottom')?.value||'1.5',
-    padLeft:  document.getElementById('cssPadLeft')?.value||'1.8',
-    padRight: document.getElementById('cssPadRight')?.value||'1.8',
-    textColor:document.getElementById('cssTextColor')?.value||'',
-    bgColor:  document.getElementById('cssBgColor')?.value||'',
-    align:    document.querySelector('input[name="cssAlign"]:checked')?.value||'justify',
-    titleStyle:document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center',
-  };
-  const presets=loadCssPresets();
-  // 같은 이름 있으면 덮어쓰기
-  const existing=presets.findIndex(p=>p.name===preset.name);
-  if(existing>=0) presets[existing]=preset;
-  else presets.unshift(preset);
-  saveCssPresets(presets);
-  renderCssPresetList();
-  Toast.success(`프리셋 "${preset.name}" 저장됨`);
-}
-
-function applyPreset(preset){
-  // 폰트
-  const fontSel=document.getElementById('cssFont');
-  if(fontSel&&preset.font) fontSel.value=preset.font;
-  // 줄간격
-  const lineSel=document.getElementById('cssLine');
-  if(lineSel&&preset.line){
-    lineSel.value=preset.line;
-    syncSelect('cssLine','cssLineSlider','cssLineVal',preset.line);
-  }
-  // 글자크기
-  const sizeSel=document.getElementById('cssFontSize');
-  if(sizeSel&&preset.size){
-    sizeSel.value=preset.size;
-    const n=parseFloat(preset.size);
-    const sl=document.getElementById('cssFontSizeSlider'),vl=document.getElementById('cssFontSizeVal');
-    if(sl)sl.value=n; if(vl)vl.textContent=n.toFixed(2).replace(/\.?0+$/,'')+'em';
-  }
-  // 4방향 여백
-  [['cssPadTop','cssPadTopSlider',preset.padTop],
-   ['cssPadBottom','cssPadBottomSlider',preset.padBottom],
-   ['cssPadLeft','cssPadLeftSlider',preset.padLeft],
-   ['cssPadRight','cssPadRightSlider',preset.padRight]
-  ].forEach(([nid,sid,v])=>{
-    if(!v) return;
-    const n=document.getElementById(nid),s=document.getElementById(sid);
-    if(n)n.value=v; if(s)s.value=v;
-  });
-  // 색상
-  if(preset.textColor!==undefined){const el=document.getElementById('cssTextColor');if(el)el.value=preset.textColor;}
-  if(preset.bgColor!==undefined){const el=document.getElementById('cssBgColor');if(el)el.value=preset.bgColor;}
-  // 정렬
-  if(preset.align){const r=document.querySelector('input[name="cssAlign"][value="'+preset.align+'"]');if(r)r.checked=true;}
-  if(preset.titleStyle){const r=document.querySelector('input[name="cssTitleStyle"][value="'+preset.titleStyle+'"]');if(r)r.checked=true;}
-
-  updateFontPreview();
-  updateCssPreview&&updateCssPreview();
-  saveCssSettings();
-  Toast.success(`"${preset.name}" 적용됨`);
-}
-
-function deletePreset(name){
-  const presets=loadCssPresets().filter(p=>p.name!==name);
-  saveCssPresets(presets);
-  renderCssPresetList();
-}
-
-function renderCssPresetList(){
-  const container=document.getElementById('cssPresetList');
-  if(!container) return;
-  const userPresets=loadCssPresets();
-  const all=[...CSS_PRESET_DEFAULTS,...userPresets];
-  container.innerHTML='';
-  if(!all.length){
-    container.innerHTML='<span style="font-size:11px;color:var(--text2)">저장된 프리셋 없음</span>';
-    return;
-  }
-  all.forEach((p,idx)=>{
-    const isDefault=idx<CSS_PRESET_DEFAULTS.length;
-    const chip=document.createElement('div');
-    chip.className='preset-chip';
-    chip.title=`폰트: ${p.font}\n줄간격: ${p.line}\n여백: ${p.padTop||'1.5'}/${p.padLeft||'1.8'}em`;
-    chip.innerHTML=
-      `<span>${escHtml(p.name)}</span>`+
-      (isDefault?'':'<button class="preset-del" onclick="deletePreset(\''+escAttr(p.name)+'\')" title="삭제">✕</button>');
-    chip.querySelector('span').addEventListener('click',()=>applyPreset(p));
-    container.appendChild(chip);
-  });
-}
 const SUPPORTED_FONTS=[
   {name:'Noto Sans KR',   label:'본고딕 (Noto Sans KR)',   family:"'Noto Sans KR',sans-serif",     cls:'noto-sans-kr'},
   {name:'Noto Serif KR',  label:'본명조 (Noto Serif KR)',   family:"'Noto Serif KR',serif",          cls:'noto-serif-kr'},
@@ -5631,12 +5456,14 @@ function saveUserPrefs(){
       font:        document.getElementById('cssFont')?.value||'',
       size:        document.getElementById('cssFontSize')?.value||'1em',
       line:        document.getElementById('cssLine')?.value||'1.9',
-      // ★ 4방향 여백 개별 저장
+      // ★ 4방향 여백 개별 저장 (cssPadH/V는 폴백용으로 유지)
       padTop:      document.getElementById('cssPadTop')?.value||'1.5',
       padBottom:   document.getElementById('cssPadBottom')?.value||'1.5',
       padLeft:     document.getElementById('cssPadLeft')?.value||'1.8',
       padRight:    document.getElementById('cssPadRight')?.value||'1.8',
       // 기존 호환 폴백
+      padH:        document.getElementById('cssPadH')?.value||'1.8em',
+      padV:        document.getElementById('cssPadV')?.value||'1.5em',
       dark:        document.documentElement.dataset.theme==='dark',
       italic:      document.getElementById('optItalic')?.checked??true,
       indent:      document.getElementById('optIndent')?.checked??true,
@@ -5679,6 +5506,9 @@ function loadUserPrefs(){
       if(slideEl) slideEl.value=v;
     }
 
+    // 기존 호환 폴백 (cssPadH/V가 남아있는 경우)
+    if(p.padH){ const el=document.getElementById('cssPadH'); if(el) el.value=p.padH; }
+    if(p.padV){ const el=document.getElementById('cssPadV'); if(el) el.value=p.padV; }
 
     // 다크모드
     if(p.dark===true) document.documentElement.dataset.theme='dark';
@@ -5696,8 +5526,6 @@ function loadUserPrefs(){
     if(p.bgColor){   const el=document.getElementById('cssBgColor');   if(el) el.value=p.bgColor; }
 
     updateFontPreview();
-    // ★ 설정 복원 후 CSS 미리보기 갱신
-    updateCssPreview&&updateCssPreview();
   }catch(e){}
 }
 
@@ -5716,96 +5544,69 @@ function loadUserPrefs(){
  * Worker 내부에 KEYWORD_PATS, bestPat, splitChaptersWorker 완전 인라인
  */
 function createParserWorker(){
-  // ★ parser.js와 완전 동기화된 Worker 코드
-  // - 48개 PATS 전체 포함
-  // - preprocessLine / calcSequenceWeight 포함
-  // - splitChaptersWorker 구버전 제거 → splitChaptersWorkerDetailed만 사용
+  // ★ PATS, bestPat, splitChapters, KEYWORD_PATS를 Worker 코드로 직렬화
+  // Worker는 독립 스코프이므로 필요한 함수를 모두 인라인
   const workerSrc=`
 'use strict';
-// ── 전처리: 줄 앞뒤 특수문자·과도한 공백 제거 ──
-function preprocessLine(raw){
-  return raw.trim()
-    .replace(/^[\\[\\(\\-\\s]+/,'').replace(/[\\]\\)\\-\\s]+$/,'')
-    .replace(/\\s{2,}/g,' ').trim();
-}
-// ── 연속성 체크 ──
-function calcSequenceWeight(nums){
-  if(nums.length<2)return 0;
-  let c=0;
-  for(let i=1;i<nums.length;i++){const p=nums[i-1],n=nums[i];if(p!=null&&n!=null&&(n===p+1||n===p))c++;}
-  return c/(nums.length-1);
-}
-// ── KEYWORD_PATS ──
+// ── Worker 내부 유틸 ──
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+${KEYWORD_PATS.toString().includes('KEYWORD_PATS') ? '' : ''}
+// KEYWORD_PATS 인라인
 const KEYWORD_PATS=[
-  /^(?:프롤로그|프롤)(?:\\s*.+)?$/i,/^(?:에필로그|에필)(?:\\s*.+)?$/i,
-  /^외전(?:\\s*.+)?$/,/^번외(?:\\s*.+)?$/,/^후기(?:\\s*.+)?$/,
-  /^작가\\s*후기(?:\\s*.+)?$/,/^작가의\\s*말(?:\\s*.+)?$/,/^작가\\s*노트(?:\\s*.+)?$/,
+  /^(?:프롤로그|프롤)(?:\\s*.+)?$/i,
+  /^(?:에필로그|에필)(?:\\s*.+)?$/i,
+  /^외전(?:\\s*.+)?$/,
+  /^번외(?:\\s*.+)?$/,
+  /^후기(?:\\s*.+)?$/,
+  /^작가\\s*후기(?:\\s*.+)?$/,
+  /^작가의\\s*말(?:\\s*.+)?$/,
+  /^작가\\s*노트(?:\\s*.+)?$/,
   /^(?:side\\s*story|side\\s*episode|special\\s*episode)(?:\\s*.+)?$/i,
   /^(?:prologue|epilogue|afterword|author.?s?\\s*note)(?:\\s*.+)?$/i,
-  /^서장(?:\\s*.+)?$/,/^종장(?:\\s*.+)?$/,/^서문(?:\\s*.+)?$/,
+  /^서장(?:\\s*.+)?$/,
+  /^종장(?:\\s*.+)?$/,
+  /^서문(?:\\s*.+)?$/,
 ];
-// ── PATS (parser.js와 48개 동일) ──
+
+// PATS 인라인 (parser.js와 동일)
 const PATS=[
   [/^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$/,'[EP.N]'],
   [/^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$/i,'[Prologue]'],
-  [/^\\[\\s*.+\\.txt\\s*\\]\\s*$/i,'[ 파일명.txt ]'],
   [/^\\d{3,6}\\s{2,}.+$/,'NNN제목'],
   [/^[〈<]\\s*\\d+\\s*화\\s*[〉>](?:\\s*.+)?$/i,'〈N화〉'],
   [/^제\\s*\\d+\\s*화(?:\\s*.+)?$/,'제N화'],
   [/^제\\s*\\d+\\s*장(?:\\s*.+)?$/,'제N장'],
-  [/^제\\s*[一二三四五六七八九十百千\\d]+\\s*[화장話章](?:\\s*.+)?$/,'제N화/장(한자)'],
   [/^\\d+화(?:\\s*.+)?$/,'N화'],
-  [/^\\d+장(?:\\s*.+)?$/,'N장'],
-  [/^\\[\\s*제?\\s*\\d+\\s*화\\s*\\](?:\\s*.+)?$/,'[N화]'],
-  [/^\\[\\s*제?\\s*\\d+\\s*장\\s*\\](?:\\s*.+)?$/,'[N장]'],
-  [/^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$/i,'화번호'],
   [/^\\d+화\\.\\s*.+$/,'화.제목'],
-  [/^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$/i,'===제N화==='],
+  [/^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$/i,'화번호'],
+  [/^\\[\\s*제?\\s*\\d+\\s*화\\s*\\](?:\\s*.+)?$/,'[N화]'],
   [/^(?:chapter|part|ch)\\.?\\s*\\d+(?:\\s*.+)?$/i,'Chapter'],
   [/^(?:EP|Ch|Scene|Act)\\.?\\s*\\d+(?:\\s*.+)?$/i,'EP/Scene'],
-  [/^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$/,'N부M화'],
-  [/^S\\d+E\\d+(?:\\s*.+)?$/i,'S1E01'],
-  [/^서장(?:\\s*.+)?$/,'서장'],[/^종장(?:\\s*.+)?$/,'종장'],
-  [/^서문(?:\\s*.+)?$/,'서문'],[/^서론(?:\\s*.+)?$/,'서론'],
-  [/^(?:프롤로그|프롤)(?:\\s*.+)?$/i,'프롤로그'],
-  [/^(?:에필로그|에필)(?:\\s*.+)?$/i,'에필로그'],
-  [/^외전(?:\\s*.+)?$/,'외전'],[/^번외(?:\\s*.+)?$/,'번외'],
-  [/^후기(?:\\s*.+)?$/,'후기'],[/^작가\\s*후기(?:\\s*.+)?$/,'작가후기'],
-  [/^작가의\\s*말(?:\\s*.+)?$/,'작가의말'],[/^작가\\s*노트(?:\\s*.+)?$/,'작가노트'],
-  [/^(?:prologue|epilogue|afterword|author.?s?\\s*note)(?:\\s*.+)?$/i,'영문키워드'],
   [/^\\d+\\.\\s+.{1,60}$/,'N.제목'],
-  [/^#\\d+\\.\\s+.{1,60}$/,'#N.제목'],
-  [/^.{1,60}\\s*\\(\\d+\\)\\s*$/,'소설(숫자)'],
-  [/^(?:제\\s*\\d+\\s*장|第\\s*\\d+\\s*章)(?:\\s*.+)?$/,'장번호'],
-  [/^【.+】.*$/,'타이틀【】'],
-  [/^#{1,3}\\s*.+$/,'#제목'],
-  [/^[■▶◆●►▷◇★☆]\\s*.{2,40}$/,'특수문자제목'],
-  [/^第\\s*[\\d一二三四五六七八九十百千]+\\s*[章話话](?:\\s*.+)?$/,'한자장/화'],
-  [/^(?:EP|제|Chapter|Ch|디|Scene|Prologue)\\.?\\s*\\d+/i,'EP/Ch시작'],
-  [/^\\d{1,3}\\.\\s*.+$/,'N.짧은'],
-  [/^\\d+권(?:\\s*.+)?$/,'N권'],
-  [/^.*[=\\-]{3,}$/,'구분선'],
-  [/^[\\*\\-─]+\\s*\\d+화?\\s*[\\*\\-─]+$/,'*N*'],
-  [/^(?:시즌\\s*\\d+\\s+)?\\d+화(?:\\s*.+)?$/,'시즌N화'],
-  [/^\\((?:외전|번외|특별편|side|bonus)\\)/i,'(외전)'],
-  [/^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|(?=\\d+화)\\d+화|\\d+).*/,'줄시작통합'],
+  [/^.{2,15}\\s+\\d+화$/,'소설명+N화'],
+  [/^\\d+$/,'숫자만'],
 ];
+
 function checkTitleWaPattern(lines,minGap=50){
-  const rx=/^.{2,15}\\s+\\d+화$/;const pos=[];
-  lines.forEach((l,i)=>{const t=preprocessLine(l);if(t&&rx.test(t))pos.push(i);});
+  const rx=/^.{2,15}\\s+\\d+화$/;
+  const pos=[];
+  lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))pos.push(i);});
   if(pos.length<3)return{cnt:0,rx:null};
   const real=pos.filter((p,j)=>Math.min(p-(pos[j-1]??-999),(pos[j+1]??p+999)-p)>=minGap);
   return real.length>=3?{cnt:real.length,rx}:{cnt:0,rx:null};
 }
 function checkNDotPattern(lines,minGap=50){
-  const rx=/^\\d+\\.\\s+.{1,60}$/;const pos=[];
-  lines.forEach((l,i)=>{const t=preprocessLine(l);if(t&&rx.test(t))pos.push(i);});
+  const rx=/^\\d+\\.\\s+.{1,60}$/;
+  const pos=[];
+  lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))pos.push(i);});
   if(pos.length<3)return{cnt:0,rx:null};
   const real=pos.filter((p,j)=>Math.min(p-(pos[j-1]??-999),(pos[j+1]??p+999)-p)>=minGap);
   if(real.length<3)return{cnt:0,rx:null};
-  const m=preprocessLine(lines[real[0]]).match(/^(\\d+)\\./);
-  return m&&parseInt(m[1])>5?{cnt:0,rx:null}:{cnt:real.length,rx};
+  const first=parseInt(lines[real[0]].trim().match(/^(\\d+)\\./)[1]);
+  return first>5?{cnt:0,rx:null}:{cnt:real.length,rx};
 }
+
 function bestPat(raw){
   const lines=raw.split('\\n');
   const totalLines=lines.length;
@@ -5819,17 +5620,15 @@ function bestPat(raw){
     if(lines[i].trim()&&(p||p2)&&(n||n2))blankWrapped.add(i);
   }
   for(const[rx,name]of PATS){
-    const idxs=[],nums=[];
-    for(let i=0;i<lines.length;i++){
-      const t=preprocessLine(lines[i]);  // ★ preprocessLine 적용
-      if(t&&rx.test(t)){idxs.push(i);const m=t.match(/\\d+/);nums.push(m?parseInt(m[0]):null);}
-    }
+    const idxs=[];
+    for(let i=0;i<lines.length;i++){const t=lines[i].trim();if(t&&rx.test(t))idxs.push(i);}
     if(idxs.length<3)continue;
     const isNum=rx.source==='^\\\\d+$';
-    let score=idxs.reduce((a,i)=>{if(i>=tailStart&&isNum)return a;return a+(blankWrapped.has(i)?3:1);},0);
+    const score=idxs.reduce((a,i)=>{
+      if(i>=tailStart&&isNum)return a;
+      return a+(blankWrapped.has(i)?3:1);
+    },0);
     if(!score)continue;
-    const seqW=calcSequenceWeight(nums);  // ★ 연속성 가중치 적용
-    if(seqW>=0.6)score=Math.round(score*(1+seqW*0.5));
     mixed.push({rx,name,cnt:idxs.length,score});
     if(score>bestScore){bestScore=score;best=rx;bestName=name;}
   }
@@ -5838,11 +5637,7 @@ function bestPat(raw){
   if(nDot.cnt>0&&nDot.cnt*3>bestScore){bestScore=nDot.cnt*3;best=nDot.rx;bestName='N.제목';mixed.push({rx:nDot.rx,name:'N.제목',cnt:nDot.cnt,score:nDot.cnt*3});}
   const tWa=checkTitleWaPattern(lines,dynGap);
   if(tWa.cnt>0&&tWa.cnt*3>bestScore){bestScore=tWa.cnt*3;best=tWa.rx;bestName='소설명+N화';mixed.push({rx:tWa.rx,name:'소설명+N화',cnt:tWa.cnt,score:tWa.cnt*3});}
-  if(bestScore<3){
-    const fb=/^\\d+$/;
-    const c=lines.filter((l,i)=>i<tailStart&&preprocessLine(l)&&fb.test(preprocessLine(l))).length;
-    if(c>=3){bestScore=c;best=fb;bestName='숫자만';}
-  }
+  if(bestScore<3){const fb=/^\\d+$/;const c=lines.filter((l,i)=>i<tailStart&&l.trim()&&fb.test(l.trim())).length;if(c>=3){bestScore=c;best=fb;bestName='숫자만';}}
   if(mixed.length>1){
     const tot=mixed.reduce((s,m)=>s+m.cnt,0);
     const dom=mixed.find(m=>m.cnt/tot>=0.75);
@@ -5852,64 +5647,38 @@ function bestPat(raw){
   const uniq=mixed.filter(m=>{if(seen.has(m.rx.source))return false;seen.add(m.rx.source);return true;});
   if(uniq.length>1){
     const comb=new RegExp('(?:'+uniq.map(m=>m.rx.source).join('|')+')','i');
-    const uc=[...new Set(lines.filter(l=>preprocessLine(l)&&comb.test(preprocessLine(l))).map(l=>preprocessLine(l)))];
+    const uc=[...new Set(lines.filter(l=>l.trim()&&comb.test(l.trim())).map(l=>l.trim()))];
     if(uc.length>bestScore)return{rx:comb,name:'혼합[자동]',cnt:uc.length,isMixed:true};
   }
   return{rx:best,name:bestName,cnt:bestScore};
 }
-// ★ Worker 메시지 핸들러 (splitChaptersWorkerDetailed만 사용 — 구버전 제거)
-self._aborted=false;
-self.onmessage=function(e){
-  const{type,payload,id}=e.data;
-  try{
-    if(type==='SPLIT'){
-      const{raw,customPat}=payload;
-      self._aborted=false;
-      self.postMessage({type:'PROGRESS',id,pct:5,msg:'② 텍스트 정규화 중...'});
-      const result=splitChaptersWorkerDetailed(raw,customPat,function(pct,msg){
-        self.postMessage({type:'PROGRESS',id,pct,msg});
-      });
-      self.postMessage({type:'DONE',id,result});
-    } else if(type==='ABORT'){
-      self._aborted=true;
-    }
-  }catch(err){
-    self.postMessage({type:'ERROR',id,error:err.message||String(err)});
-  }
-};
-function splitChaptersWorkerDetailed(raw,customPat,onProgress){
-  self._aborted=false;
-  raw=raw.replace(/\\r\\n/g,'\\n').replace(/\\r/g,'\\n')
-         .replace(/\\xad/g,'\\u2014').replace(/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]/g,'')
-         .replace(/[\\uFFFE\\uFFFF]/g,'');
-  onProgress(8,'② 패턴 분석 중...');
+
+function splitChaptersWorker(raw,customPat){
+  raw=raw.replace(/\\r\\n/g,'\\n').replace(/\\r/g,'\\n').replace(/\\xad/g,'\\u2014').replace(/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]/g,'').replace(/[\\uFFFE\\uFFFF]/g,'');
   let rx=null;
   if(customPat&&customPat.trim()){try{rx=new RegExp(customPat.trim(),'i');}catch(e){}}
   if(!rx){const r=bestPat(raw);rx=r.rx;}
-  if(rx){const kw=KEYWORD_PATS.map(k=>k.source).join('|');rx=new RegExp('(?:'+rx.source+'|'+kw+')','i');}
-  onProgress(12,'② 챕터 분리 시작...');
+  if(rx){
+    const kw=KEYWORD_PATS.map(k=>k.source).join('|');
+    rx=new RegExp('(?:'+rx.source+'|'+kw+')','i');
+  }
   if(!rx){
     const lines=raw.split('\\n'),total=lines.length;
     const PL=Math.max(200,Math.min(500,Math.floor(total/20)));
     const chs=[];
     for(let i=0;i<total;i+=PL){
-      if(self._aborted)return chs;
       const s=lines.slice(i,i+PL).join('\\n').trim();if(!s)continue;
       const pg=Math.floor(i/PL)+1,tp=Math.ceil(total/PL);
       chs.push([pg===1&&tp===1?'본문':'('+pg+'/'+tp+')',s]);
-      onProgress(12+Math.round((i/total)*80),'② 페이지 분할 중... '+pg+'/'+tp);
     }
     return chs.length?chs:[['본문',raw.trim()]];
   }
   const lines=raw.split('\\n');
-  const total=lines.length;
   const chs=[],seen=new Map();
   const sep=/^[-=*─━~·.‒—]{3,}\\s*$|^[─━═]{2,}$/;
-  let cur=null,body=[],lastPct=12;
-  for(let li=0;li<total;li++){
-    if(self._aborted)break;
-    const line=lines[li];
-    const t=preprocessLine(line);  // ★ preprocessLine 적용
+  let cur=null,body=[];
+  for(let li=0;li<lines.length;li++){
+    const line=lines[li],t=line.trim();
     if(t&&rx.test(t)){
       const pc=seen.get(t)||0;seen.set(t,pc+1);
       const ut=pc===0?t:t+' ('+(pc+1)+')';
@@ -5917,14 +5686,100 @@ function splitChaptersWorkerDetailed(raw,customPat,onProgress){
       if(cur===null&&body.length>0)chs.push(['서문',body.join('\\n').trim()]);
       else if(cur!==null)chs.push([cur,body.join('\\n').trim()]);
       cur=ut;body=[];
-      let ni=li+1;while(ni<total&&sep.test(lines[ni].trim()))ni++;
+      let ni=li+1;while(ni<lines.length&&sep.test(lines[ni].trim()))ni++;
       if(ni>li+1)li=ni-1;
     }else{body.push(line);}
-    const pct=12+Math.round((li/total)*80);
-    if(pct>lastPct){lastPct=pct;onProgress(pct,'② 챕터 파싱 중... '+(chs.length+1)+'화 / '+(li+1).toLocaleString()+'줄');}
   }
   if(cur!==null)chs.push([cur,body.join('\\n').trim()]);
   else if(body.length)chs.push(['본문',body.join('\\n').trim()]);
+  raw=null;
+  return chs.length?chs:[['본문','']];
+}
+
+// ── Worker 메시지 핸들러 ──
+self.onmessage=function(e){
+  const{type,payload,id}=e.data;
+  try{
+    if(type==='SPLIT'){
+      const{raw,customPat}=payload;
+      self.postMessage({type:'PROGRESS',id,pct:5,msg:'② 텍스트 정규화 중...'});
+
+      // ★ 1% 단위 세밀한 진행률 — 파싱 루프 내에서 직접 보고
+      const result=splitChaptersWorkerDetailed(raw,customPat,function(pct,msg){
+        self.postMessage({type:'PROGRESS',id,pct,msg});
+      });
+      self.postMessage({type:'DONE',id,result});
+    } else if(type==='ABORT'){
+      // Abort 요청 수신 — 플래그 설정
+      self._aborted=true;
+    }
+  }catch(err){
+    self.postMessage({type:'ERROR',id,error:err.message||String(err)});
+  }
+};
+
+function splitChaptersWorkerDetailed(raw,customPat,onProgress){
+  self._aborted=false;
+  raw=raw.replace(/\r\n/g,'\n').replace(/\r/g,'\n')
+         .replace(/\xad/g,'\u2014').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'')
+         .replace(/[\uFFFE\uFFFF]/g,'');
+
+  onProgress(8,'② 패턴 분석 중...');
+  let rx=null;
+  if(customPat&&customPat.trim()){try{rx=new RegExp(customPat.trim(),'i');}catch(e){}}
+  if(!rx){const r=bestPat(raw);rx=r.rx;}
+  if(rx){
+    const kw=KEYWORD_PATS.map(k=>k.source).join('|');
+    rx=new RegExp('(?:'+rx.source+'|'+kw+')','i');
+  }
+
+  onProgress(12,'② 챕터 분리 시작...');
+
+  if(!rx){
+    const lines=raw.split('\n'),total=lines.length;
+    const PL=Math.max(200,Math.min(500,Math.floor(total/20)));
+    const chs=[];
+    for(let i=0;i<total;i+=PL){
+      if(self._aborted) return chs;
+      const s=lines.slice(i,i+PL).join('\n').trim();if(!s)continue;
+      const pg=Math.floor(i/PL)+1,tp=Math.ceil(total/PL);
+      chs.push([pg===1&&tp===1?'본문':'('+pg+'/'+tp+')',s]);
+      // ★ 1% 단위 진행률
+      onProgress(12+Math.round((i/total)*80),'② 페이지 분할 중... '+pg+'/'+tp);
+    }
+    return chs.length?chs:[['본문',raw.trim()]];
+  }
+
+  const lines=raw.split('\n');
+  const total=lines.length;
+  const chs=[],seen=new Map();
+  const sep=/^[-=*─━~·.‒—]{3,}\s*$|^[─━═]{2,}$/;
+  let cur=null,body=[];
+  let lastPct=12;
+
+  for(let li=0;li<total;li++){
+    if(self._aborted) break;
+    const line=lines[li],t=line.trim();
+    if(t&&rx.test(t)){
+      const pc=seen.get(t)||0;seen.set(t,pc+1);
+      const ut=pc===0?t:t+' ('+(pc+1)+')';
+      while(body.length&&(sep.test(body[body.length-1].trim())||!body[body.length-1].trim()))body.pop();
+      if(cur===null&&body.length>0)chs.push(['서문',body.join('\n').trim()]);
+      else if(cur!==null)chs.push([cur,body.join('\n').trim()]);
+      cur=ut;body=[];
+      let ni=li+1;while(ni<total&&sep.test(lines[ni].trim()))ni++;
+      if(ni>li+1)li=ni-1;
+    }else{body.push(line);}
+
+    // ★ 1% 단위 진행률 보고 (총 라인의 1%마다)
+    const pct=12+Math.round((li/total)*80);
+    if(pct>lastPct){
+      lastPct=pct;
+      onProgress(pct,'② 챕터 파싱 중... '+(chs.length+1)+'화 / '+(li+1).toLocaleString()+'줄');
+    }
+  }
+  if(cur!==null)chs.push([cur,body.join('\n').trim()]);
+  else if(body.length)chs.push(['본문',body.join('\n').trim()]);
   raw=null;
   return chs.length?chs:[['본문','']];
 }
@@ -5932,10 +5787,15 @@ function splitChaptersWorkerDetailed(raw,customPat,onProgress){
   const blob=new Blob([workerSrc],{type:'application/javascript'});
   const url=URL.createObjectURL(blob);
   const worker=new Worker(url);
+  // URL은 Worker 생성 후 즉시 해제 가능 (Worker는 이미 로드됨)
   URL.revokeObjectURL(url);
   return worker;
 }
 
+// Worker 인스턴스 관리 (싱글턴 — 재사용)
+let _parserWorker=null;
+let _workerCallbacks=new Map(); // id → {resolve, reject}
+let _workerIdCounter=0;
 
 function getParserWorker(){
   if(!_parserWorker){
@@ -6000,7 +5860,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
   loadUserPrefs();
   updateFontPreview();
   // 폰트/슬라이더 change 이벤트에 saveUserPrefs 연결
-  ['cssFont','cssFontSize','cssLine',
+  ['cssFont','cssFontSize','cssLine','cssPadH','cssPadV',
    'cssPadTop','cssPadBottom','cssPadLeft','cssPadRight'].forEach(id=>{
     document.getElementById(id)?.addEventListener('change', ()=>{
       updateFontPreview();
@@ -6008,7 +5868,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
       saveCssSettings&&saveCssSettings();
     });
     // 숫자 input은 input 이벤트도 처리
-    if(id.startsWith('cssPad')){
+    if(id.startsWith('cssPad')&&id!=='cssPadH'&&id!=='cssPadV'){
       document.getElementById(id)?.addEventListener('input', ()=>{
         // 슬라이더 동기화
         const slEl=document.getElementById(id+'Slider');

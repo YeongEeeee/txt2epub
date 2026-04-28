@@ -768,6 +768,10 @@
             <span class="pad-unit">em</span>
           </div>
         </div>
+        <!-- 기존 cssMargin 호환 hidden (epub-gen.js 폴백용) -->
+        <select id="cssMargin" style="display:none">
+          <option value="1.5em 1.8em" selected>보통</option>
+        </select>
       </div>
     </div>
 
@@ -858,15 +862,6 @@
         <button class="btn btn-blue btn-sm" style="margin-left:8px" data-action="applyCssImport">✅ 선택 클래스 적용</button>
         <button class="btn btn-ghost btn-sm" style="margin-left:4px" data-action="clearCssImport">취소</button>
       </div>
-    </div>
-
-    <!-- ★ 설정 프리셋 저장/불러오기 -->
-    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:12px;font-weight:700;color:var(--text)">🎨 설정 프리셋</div>
-        <button class="btn btn-ghost btn-sm" onclick="saveCurrentAsPreset()" style="font-size:11px">💾 현재 설정 저장</button>
-      </div>
-      <div id="cssPresetList" style="display:flex;flex-wrap:wrap;gap:5px;min-height:28px"></div>
     </div>
 
     <!-- 추가 CSS 직접 입력 -->
