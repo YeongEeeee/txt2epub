@@ -407,3 +407,89 @@ body{background:var(--bg);color:var(--text);font-family:'Noto Sans KR',sans-seri
 @media (max-width: 560px){
   .font-panel{grid-template-columns:1fr}
 }
+
+/* ════════════════════════════════════════════
+   4방향 여백 컨트롤 패널 (pad-grid)
+   ════════════════════════════════════════════ */
+.pad-grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:8px 12px;
+  padding:6px 0;
+}
+.pad-field{
+  display:flex;
+  align-items:center;
+  gap:5px;
+}
+.pad-lbl{
+  font-size:11px;
+  color:var(--text2);
+  width:40px;
+  flex-shrink:0;
+  font-weight:500;
+}
+.pad-slider{
+  flex:1;
+  accent-color:var(--accent);
+  height:3px;
+  cursor:pointer;
+  min-width:0;
+}
+.pad-num{
+  width:44px;
+  padding:3px 5px;
+  border:1.5px solid var(--border);
+  border-radius:5px;
+  background:var(--bg);
+  color:var(--text);
+  font-size:11px;
+  font-family:inherit;
+  text-align:center;
+  -moz-appearance:textfield;
+  flex-shrink:0;
+}
+.pad-num::-webkit-inner-spin-button,
+.pad-num::-webkit-outer-spin-button{opacity:1;cursor:pointer;}
+.pad-num:focus{border-color:var(--accent);outline:none;}
+.pad-unit{
+  font-size:10px;
+  color:var(--text2);
+  flex-shrink:0;
+}
+
+/* 반응형 — 모바일에서 1열 */
+@media (max-width:480px){
+  .pad-grid{grid-template-columns:1fr;}
+}
+
+/* ═══════════════════════════════════════════
+   목차 다중 선택 & 병합 스타일
+   ═══════════════════════════════════════════ */
+.toc-item.multi-selected{
+  background:var(--blue-bg)!important;
+  border-left:3px solid var(--blue);
+  outline:2px solid var(--blue);
+  outline-offset:-2px;
+}
+.toc-item.multi-selected .toc-num{color:var(--blue);}
+#toc-merge-bar{
+  border-radius:8px;
+  animation:fadeUp .2s ease;
+}
+#toc-merge-btn:disabled{opacity:.4;cursor:not-allowed;}
+
+/* 표지 검색 — URL/파일 직접 등록 영역 */
+#coverFileDrop{
+  background:var(--bg2);
+  transition:background .2s, border-color .2s;
+}
+#coverFileDrop:hover{
+  background:var(--blue-bg);
+  border-color:var(--blue)!important;
+}
+
+/* 중단 버튼 */
+.platform-link:last-child{
+  margin-left:auto;
+}

@@ -16,21 +16,57 @@ function buildCss(){
   const font=document.getElementById('cssFont')?.value||'"Noto Serif KR",serif';
   const line=document.getElementById('cssLine')?.value||'1.9';
   const size=document.getElementById('cssFontSize')?.value||'1em';
-  const margin=document.getElementById('cssMargin')?.value||'1.5em 1.8em';
+  // ★ 상하좌우 여백 독립 설정
+  const padTop=   document.getElementById('cssPadTop')?.value   ||document.getElementById('cssPadV')?.value||'1.5em';
+  const padBottom=document.getElementById('cssPadBottom')?.value||document.getElementById('cssPadV')?.value||'1.5em';
+  const padLeft=  document.getElementById('cssPadLeft')?.value  ||document.getElementById('cssPadH')?.value||'1.8em';
+  const padRight= document.getElementById('cssPadRight')?.value ||document.getElementById('cssPadH')?.value||'1.8em';
   const textColor=document.getElementById('cssTextColor')?.value||'';
-  const bgColor=document.getElementById('cssBgColor')?.value||'';
+  const bgColor=  document.getElementById('cssBgColor')?.value||'';
   const align=document.querySelector('input[name="cssAlign"]:checked')?.value||'justify';
   const titleStyle=document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center';
   const indentSlider=document.getElementById('cssIndentSlider');
   const indentEm=indentSlider?parseFloat(indentSlider.value):1.0;
   const useIndent=document.getElementById('optIndent')?.checked;
-  const fontFaceBlock=customFontFace||'';
+  const fontFaceBlock=typeof customFontFace!=='undefined'?customFontFace||'':'';
   const extra=document.getElementById('cssExtra')?.value||'';
+  // ★ 문단 정합 옵션
+  const mergePara=document.getElementById('optMergeShortLines')?.checked;
   let h1Extra=`text-align:${titleStyle==='left'?'left':'center'};`;
-  if(titleStyle==='underline')h1Extra+='border-bottom:2px solid currentColor;padding-bottom:0.3em;text-align:center;';
-  if(titleStyle==='box')h1Extra+='border:1.5px solid currentColor;padding:0.25em 1em;border-radius:6px;display:inline-block;';
+  if(titleStyle==='underline') h1Extra+='border-bottom:2px solid currentColor;padding-bottom:0.3em;text-align:center;';
+  if(titleStyle==='box') h1Extra+='border:1.5px solid currentColor;padding:0.25em 1em;border-radius:6px;display:inline-block;';
   return `@charset "UTF-8";
-${fontFaceBlock}body{font-family:${font};line-height:${line};font-size:${size};margin:0;padding:${margin};word-break:keep-all;overflow-wrap:break-word;text-align:${align};${textColor?'color:'+textColor+';':''}${bgColor?'background:'+bgColor+';':''}}
+${fontFaceBlock}
+/* ── 기본 스타일 ── */
+body{
+  font-family:${font};
+  line-height:${line};
+  font-size:${size};
+  margin:0;
+  padding:${padTop} ${padRight} ${padBottom} ${padLeft};
+  word-break:keep-all;
+  overflow-wrap:break-word;
+  text-align:${align};
+  ${textColor?'color:'+textColor+';':''}
+  ${bgColor?'background-color:'+bgColor+';':''}
+}
+h1{font-size:1.3em;${h1Extra}margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}
+p{margin:0;padding:0.25em 0;text-indent:${useIndent?indentEm+'em':'0'}}
+p.noindent{text-indent:0}
+em.flashback{font-style:italic;opacity:.85}
+p.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}
+.illust-page{display:flex;align-items:center;justify-content:center;min-height:80vh;text-align:center;padding:0}
+.illust-page img{max-width:100%;max-height:100vh;object-fit:contain}
+
+/* ★ EPUB 다크 모드 전용 CSS — 미디어 쿼리로 삽입 */
+@media (prefers-color-scheme:dark){
+  body{
+    ${bgColor?'':"background-color:#1a1208;"}
+    ${textColor?'':"color:#e8d8c4;"}
+  }
+}
+${extra}`;
+}
 h1{font-size:1.3em;${h1Extra}margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}
 p{margin:0;padding:0.25em 0;text-indent:${useIndent?indentEm+'em':'0'}}
 p.noindent{text-indent:0}
@@ -149,11 +185,48 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
   oebps.file('style.css',buildCss());
   onProgress&&onProgress(5,'이미지 처리 중...');
 
+  // ★ EpubCheck 통과용 ID/파일명 정제 함수
+  function safeId(s){
+    return s.replace(/[^a-zA-Z0-9_\-]/g,'_').replace(/^(\d)/,'id_$1').replace(/__+/g,'_').slice(0,64)||'id_unknown';
+  }
+  function safeFilename(s){
+    return s.replace(/[^a-zA-Z0-9가-힣\-_.]/g,'_').replace(/__+/g,'_').slice(0,80)||'file';
+  }
+
+  // ★ 표지 이미지 리사이징: 세로 1200px 초과 시 Canvas로 리사이징
+  async function resizeCoverIfNeeded(file){
+    const MAX_H=1200;
+    return new Promise(resolve=>{
+      const url=URL.createObjectURL(file);
+      const img=new Image();
+      img.onload=()=>{
+        URL.revokeObjectURL(url);
+        if(img.naturalHeight<=MAX_H){ resolve(file); return; }
+        const ratio=MAX_H/img.naturalHeight;
+        const canvas=document.createElement('canvas');
+        canvas.width=Math.round(img.naturalWidth*ratio);
+        canvas.height=MAX_H;
+        const ctx=canvas.getContext('2d');
+        ctx.fillStyle='#ffffff';
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img,0,0,canvas.width,canvas.height);
+        canvas.toBlob(blob=>{
+          if(!blob){resolve(file);return;}
+          resolve(new File([blob],file.name,{type:'image/jpeg'}));
+        },'image/jpeg',0.92);
+      };
+      img.onerror=()=>{URL.revokeObjectURL(url);resolve(file);};
+      img.src=url;
+    });
+  }
+
   // 이미지 추가
   const imgStore=new Map();let imgIdx=0;
   async function addImg(file, forCover=false){
     if(!file||imgStore.has(file))return;
-    const {blob, ext:dext, mt}=await convertImageFile(file, forCover);
+    // 표지는 리사이징 후 변환
+    const target=forCover?await resizeCoverIfNeeded(file):file;
+    const {blob, ext:dext, mt}=await convertImageFile(target, forCover);
     const dest='img_'+String(imgIdx++).padStart(4,'0')+'.'+dext;
     imagesFolder.file(dest,await fileToAB(blob));
     imgStore.set(file,{filename:dest,mt});

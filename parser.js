@@ -238,138 +238,256 @@ function checkNDotPattern(lines, minGap=50){
   return {cnt:real.length, rx:/^\d+\.\s+.{1,60}$/};
 }
 
+// ─────────────────────────────────────────
+// 특수 키워드 우선순위 그룹 (별도 관리)
+// 에필로그·외전·작가 후기 등은 패턴 감지 여부와 무관하게 항상 목차로 인식
+// ─────────────────────────────────────────
+const KEYWORD_PATS=[
+  /^(?:프롤로그|프롤)(?:\s*.+)?$/i,
+  /^(?:에필로그|에필)(?:\s*.+)?$/i,
+  /^외전(?:\s*.+)?$/,
+  /^번외(?:\s*.+)?$/,
+  /^후기(?:\s*.+)?$/,
+  /^작가\s*후기(?:\s*.+)?$/,
+  /^작가의\s*말(?:\s*.+)?$/,
+  /^작가\s*노트(?:\s*.+)?$/,
+  /^(?:side\s*story|side\s*episode|special\s*episode)(?:\s*.+)?$/i,
+  /^(?:prologue|epilogue|afterword|author.?s?\s*note)(?:\s*.+)?$/i,
+  /^서장(?:\s*.+)?$/,
+  /^종장(?:\s*.+)?$/,
+  /^서문(?:\s*.+)?$/,
+];
+
+/**
+ * bestPat — 고도화된 패턴 선택 엔진
+ * 
+ * 개선 사항:
+ * 1. 패턴 지배도 검사: 한 패턴이 전체의 75% 이상이면 단독 우선 선택
+ * 2. 위치 기반 가중치: 하위 10% 구간의 짧은 숫자 매칭은 가중치 0
+ * 3. 키워드 우선순위 그룹: 에필로그·외전 등은 수량 무관 항상 포함
+ * 4. 지배 패턴이 없으면 혼합(OR) 결합
+ */
+// ─────────────────────────────────────────────────
+// 전처리: 줄 앞뒤 특수문자·과도한 공백 제거 후 정규식 검사
+// ─────────────────────────────────────────────────
+function preprocessLine(raw){
+  return raw
+    .trim()
+    // 앞뒤 대괄호 [ ] ( ) 제거 (내용은 보존)
+    .replace(/^[\[\(\-\s]+/, '')
+    .replace(/[\]\)\-\s]+$/, '')
+    // 내부 연속 공백 정규화
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+// ─────────────────────────────────────────────────
+// 연속성 체크: 숫자 시퀀스 가중치
+// matched = [{line, num}] 배열에서 n→n+1 연속성 비율 계산
+// ─────────────────────────────────────────────────
+function calcSequenceWeight(matchedNums){
+  if(matchedNums.length<2) return 0;
+  let consecutive=0;
+  for(let i=1;i<matchedNums.length;i++){
+    const prev=matchedNums[i-1], cur=matchedNums[i];
+    if(prev!=null&&cur!=null&&(cur===prev+1||cur===prev)) consecutive++;
+  }
+  return consecutive/(matchedNums.length-1); // 0.0~1.0
+}
+
 function bestPat(raw){
   const lines=raw.split('\n');
   const totalLines=lines.length;
+  const tailStart=Math.floor(totalLines*0.90);
   let best=null,bestScore=0,bestName='';
   const mixed=[];
 
-  // 빈 줄에 둘러싸인 줄 집합 (앞뒤 1~2줄 모두 빈줄이면 헤더 가능성 높음)
+  // 빈 줄에 둘러싸인 줄 집합
   const blankWrapped=new Set();
   for(let i=1;i<lines.length-1;i++){
-    const prevBlank=!lines[i-1].trim();
-    const nextBlank=!lines[i+1].trim();
-    const prev2Blank=i>=2&&!lines[i-2].trim();
-    const next2Blank=i<lines.length-2&&!lines[i+2].trim();
-    if(lines[i].trim()&&(prevBlank||prev2Blank)&&(nextBlank||next2Blank)) blankWrapped.add(i);
+    const prevB=!lines[i-1].trim(), nextB=!lines[i+1].trim();
+    const prev2B=i>=2&&!lines[i-2].trim(), next2B=i+2<lines.length&&!lines[i+2].trim();
+    if(lines[i].trim()&&(prevB||prev2B)&&(nextB||next2B)) blankWrapped.add(i);
   }
 
   for(const[rx,name]of PATS){
     const matchedIdxs=[];
-    lines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim())) matchedIdxs.push(i);});
+    const matchedNums=[];
+    for(let i=0;i<lines.length;i++){
+      // ★ 전처리 후 패턴 검사
+      const t=preprocessLine(lines[i]);
+      if(!t) continue;
+      if(rx.test(t)){
+        matchedIdxs.push(i);
+        // ★ 숫자 추출 (연속성 체크용)
+        const nm=t.match(/\d+/);
+        matchedNums.push(nm?parseInt(nm[0]):null);
+      }
+    }
     const cnt=matchedIdxs.length;
     if(cnt<3) continue;
-    // 가중치 점수: 빈줄 둘러싸인 경우 2배, 아니면 1배
-    const score=matchedIdxs.reduce((acc,i)=>acc+(blankWrapped.has(i)?2:1),0);
-    mixed.push({rx,name,cnt,score});
+
+    const isNumOnly=rx.source==='^\\d+$';
+    let score=matchedIdxs.reduce((acc,i)=>{
+      if(i>=tailStart&&isNumOnly) return acc;
+      const w=blankWrapped.has(i)?3:1;
+      return acc+w;
+    },0);
+    if(score===0) continue;
+
+    // ★ 연속성 가중치: n→n+1 비율이 0.6 이상이면 점수 50% 보너스
+    const seqW=calcSequenceWeight(matchedNums);
+    if(seqW>=0.6) score=Math.round(score*(1+seqW*0.5));
+
+    mixed.push({rx,name,cnt,score,seqW});
     if(score>bestScore){bestScore=score;best=rx;bestName=name;}
   }
 
-  // 동적 minGap: 전체 줄 수에 비례 (최소 30, 최대 200)
-  const dynGap=Math.max(30, Math.min(200, Math.floor(totalLines/50)));
+  const dynGap=Math.max(30,Math.min(200,Math.floor(totalLines/50)));
 
-  // N. 제목 패턴 (간격 검증)
   const nDot=checkNDotPattern(lines,dynGap);
-  if(nDot.cnt>0&&nDot.cnt>=bestScore){
-    bestScore=nDot.cnt; best=nDot.rx; bestName='N. 제목';
-    mixed.push({rx:nDot.rx,name:'N. 제목',cnt:nDot.cnt,score:nDot.cnt});
+  if(nDot.cnt>0&&nDot.cnt*3>=bestScore){
+    if(nDot.cnt*3>bestScore){bestScore=nDot.cnt*3;best=nDot.rx;bestName='N. 제목';}
+    mixed.push({rx:nDot.rx,name:'N. 제목',cnt:nDot.cnt,score:nDot.cnt*3});
   }
-  // 소설명+N화 패턴 (간격 검증)
   const titleWa=checkTitleWaPattern(lines,dynGap);
-  if(titleWa.cnt>0&&titleWa.cnt>=bestScore){
-    bestScore=titleWa.cnt; best=titleWa.rx; bestName='소설명+N화';
-    mixed.push({rx:titleWa.rx,name:'소설명+N화',cnt:titleWa.cnt,score:titleWa.cnt});
+  if(titleWa.cnt>0&&titleWa.cnt*3>=bestScore){
+    if(titleWa.cnt*3>bestScore){bestScore=titleWa.cnt*3;best=titleWa.rx;bestName='소설명+N화';}
+    mixed.push({rx:titleWa.rx,name:'소설명+N화',cnt:titleWa.cnt,score:titleWa.cnt*3});
   }
-  // 숫자만 폴백 (다른 패턴 없을 때만)
   if(bestScore<3){
     const fb=/^\d+$/;
-    const cnt=lines.filter(l=>l.trim()&&fb.test(l.trim())).length;
-    if(cnt>=3){bestScore=cnt;best=fb;bestName='숫자만';}
+    const validCnt=lines.filter((l,i)=>i<tailStart&&preprocessLine(l)&&fb.test(preprocessLine(l))).length;
+    if(validCnt>=3){bestScore=validCnt;best=fb;bestName='숫자만';}
   }
 
-  // 혼합 패턴 감지 — 소스 기준 중복 제거 후 결합
+  // 패턴 지배도 검사 — 75% 이상이면 단독 선택
+  if(mixed.length>1){
+    const totalMatches=mixed.reduce((s,m)=>s+m.cnt,0);
+    const dominant=mixed.find(m=>m.cnt/totalMatches>=0.75);
+    if(dominant){
+      return {rx:dominant.rx,name:dominant.name+'[지배적]',cnt:dominant.cnt,dominance:true};
+    }
+  }
+
+  // 혼합 패턴 결합
   const seen=new Set();
-  const uniq=mixed.filter(m=>{if(seen.has(m.rx.source))return false;seen.add(m.rx.source);return true;});
+  const uniq=mixed.filter(m=>{
+    if(seen.has(m.rx.source)) return false;
+    seen.add(m.rx.source); return true;
+  });
   if(uniq.length>1){
     const combined=new RegExp('(?:'+uniq.map(m=>m.rx.source).join('|')+')','i');
-    const uniqueMatches=[...new Set(lines.filter(l=>l.trim()&&combined.test(l.trim())).map(l=>l.trim()))];
-    const combinedCnt=uniqueMatches.length;
-    if(combinedCnt>bestScore){
-      return {rx:combined,name:'혼합('+uniq.map(m=>m.name).join('+')+') [자동]',cnt:combinedCnt,isMixed:true,mixedParts:uniq};
+    const uniqueMatches=[...new Set(lines.filter(l=>preprocessLine(l)&&combined.test(preprocessLine(l))).map(l=>preprocessLine(l)))];
+    if(uniqueMatches.length>bestScore){
+      return {rx:combined,name:'혼합('+uniq.map(m=>m.name).join('+')+')[자동]',cnt:uniqueMatches.length,isMixed:true,mixedParts:uniq};
     }
   }
   return {rx:best,name:bestName,cnt:bestScore};
 }
 
-// splitChapters: 동기 함수이지만 정규화 전처리가 무거울 수 있음
-// 호출부에서 await yieldToMain() 후 호출 권장 (startConvert에서 처리)
-function splitChapters(raw,customPat){
-  // 입력 텍스트 정규화: CRLF → LF, U+00AD 변환, XML 비허용 제어문자 제거
-  raw=raw
-    .replace(/\r\n/g,'\n')   // CRLF 정규화
-    .replace(/\r/g,'\n')      // 단독 CR 정규화
-    .replace(/\xad/g,'\u2014') // U+00AD soft hyphen → em dash
-    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'') // XML 비허용 제어문자 제거
-    .replace(/[\uFFFE\uFFFF]/g,''); // XML 비허용 유니코드 제거
+// splitChapters: 동기 함수. 대용량은 splitChaptersAsync 권장
+function splitChapters(raw, customPat, opts={}){
+  const {mergeShortLines=false}=opts;
 
+  // ── 입력 텍스트 정규화 ──
+  raw=raw
+    .replace(/\r\n/g,'\n')
+    .replace(/\r/g,'\n')
+    .replace(/\xad/g,'\u2014')
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'')
+    .replace(/[\uFFFE\uFFFF]/g,'');
+
+  // ★ 지능형 문단 정합: 짧은 줄(30자 미만)이 연속 4개 이상이면 합산
+  if(mergeShortLines){
+    const rawLines=raw.split('\n');
+    const merged=[];
+    let buf='';
+    for(let i=0;i<rawLines.length;i++){
+      const t=rawLines[i];
+      if(t.trim()&&t.trim().length<30&&!t.trim().match(/^[\-=*─]{3,}$/)){
+        buf+=(buf?' ':'')+t.trim();
+        // 다음 줄이 비어있거나 긴 줄이면 flush
+        if(!rawLines[i+1]?.trim()||rawLines[i+1].trim().length>=30){
+          merged.push(buf); buf='';
+        }
+      } else {
+        if(buf){merged.push(buf);buf='';}
+        merged.push(t);
+      }
+    }
+    if(buf) merged.push(buf);
+    raw=merged.join('\n');
+  }
+
+  // ── 패턴 결정 ──
   let rx=null;
+  // 사용자 정의 패턴 우선
   if(customPat&&customPat.trim()){
     try{rx=new RegExp(customPat.trim(),'i');}catch(e){rx=null;}
   }
   if(!rx){const r=bestPat(raw);rx=r.rx;}
 
-  // ── 패턴 없음 폴백: 일정 줄 수 단위로 페이지 분할 (텍스트 전체 보존) ──
+  // ★ 키워드 우선순위 그룹을 기본 패턴에 OR 결합
+  // KEYWORD_PATS는 수량 무관 항상 목차로 인식 (단, rx가 있을 때만 결합)
+  if(rx){
+    const kwSrc=KEYWORD_PATS.map(k=>k.source).join('|');
+    const combined=new RegExp('(?:'+rx.source+'|'+kwSrc+')','i');
+    rx=combined;
+  }
+
+  // ── 패턴 없음 폴백: 페이지 분할 ──
   if(!rx){
     const rawLines=raw.split('\n');
     const totalLines=rawLines.length;
-    // 파일 크기에 따라 페이지당 줄 수 조정 (작은 파일은 크게, 큰 파일은 작게)
-    const PAGE_LINES=Math.max(200, Math.min(500, Math.floor(totalLines/20)));
+    const PAGE_LINES=Math.max(200,Math.min(500,Math.floor(totalLines/20)));
     const chapters=[];
     for(let i=0;i<totalLines;i+=PAGE_LINES){
       const slice=rawLines.slice(i,i+PAGE_LINES).join('\n').trim();
       if(!slice) continue;
       const pageNum=Math.floor(i/PAGE_LINES)+1;
       const totalPages=Math.ceil(totalLines/PAGE_LINES);
-      chapters.push([pageNum===1&&totalPages===1?'본문':`(${pageNum}/${totalPages})`, slice]);
+      chapters.push([pageNum===1&&totalPages===1?'본문':`(${pageNum}/${totalPages})`,slice]);
     }
     return chapters.length?chapters:[['본문',raw.trim()]];
   }
 
   const rawLines=raw.split('\n');
   const chapters=[];
-  let cur=null,body=[];
-  // 중복 제목 카운터: 같은 제목이 여러 번 나오면 (2), (3)... 접미사 부여
-  const seenHeadings=new Map(); // title → count
-
-  // 구분선 패턴 (챕터 앞뒤 장식선)
+  let cur=null, body=[];
+  const seenHeadings=new Map();
   const sepRx=/^[-=*─━~·.‒—]{3,}\s*$|^[─━═]{2,}$/;
 
   for(let li=0;li<rawLines.length;li++){
     const line=rawLines[li];
-    const t=line.trim();
+    // ★ 전처리 후 패턴 검사 (원본 줄은 body에 보존)
+    const t=preprocessLine(line);
 
     if(t&&rx.test(t)){
-      // ★ 중복 제목 처리: 같은 제목이 또 나오면 (2), (3)... 접미사
+      // 중복 제목 → (2),(3)... 접미사
       const prevCount=seenHeadings.get(t)||0;
-      seenHeadings.set(t, prevCount+1);
-      const uniqueTitle=prevCount===0 ? t : `${t} (${prevCount+1})`;
+      seenHeadings.set(t,prevCount+1);
+      const uniqueTitle=prevCount===0?t:`${t} (${prevCount+1})`;
 
-      // 직전 body 끝 구분선/빈줄 제거
       while(body.length&&(sepRx.test(body[body.length-1].trim())||body[body.length-1].trim()==='')) body.pop();
       if(cur===null&&body.length>0) chapters.push(['서문',body.join('\n').trim()]);
       else if(cur!==null) chapters.push([cur,body.join('\n').trim()]);
       cur=uniqueTitle; body=[];
-      // 챕터 헤더 직후 구분선만 스킵 (빈줄은 본문에 포함)
+      // 챕터 헤더 직후 구분선 스킵
       let ni=li+1;
       while(ni<rawLines.length&&sepRx.test(rawLines[ni].trim())) ni++;
       if(ni>li+1) li=ni-1;
-    }else{
+    } else {
       body.push(line);
     }
   }
   if(cur!==null) chapters.push([cur,body.join('\n').trim()]);
   else if(body.length>0) chapters.push(['본문',body.join('\n').trim()]);
-  return chapters.length?chapters:[['본문',raw.trim()]];
+
+  // ★ 메모리 정리: 대용량 raw 문자열 참조 해제 유도
+  raw=null;
+
+  return chapters.length?chapters:[['본문','']];
 }
 
 function extractChNum(h){
@@ -599,7 +717,7 @@ function showSuspiciousToast(count){
 }
 
 function renderTocItems(){
-  let _tocDragSrc=null; // 드래그 소스 인덱스 (renderTocItems 스코프)
+  let _tocDragSrc=null;
   const c=document.getElementById('tb0');c.innerHTML='';
   if(!S.tocItems.length){c.innerHTML='<div class="toc-empty">⚠️ 챕터가 감지되지 않았습니다.</div>';return;}
 
@@ -609,7 +727,52 @@ function renderTocItems(){
   for(let i=0;i<Math.min(HEAD,total);i++) alwaysShow.add(i);
   for(let i=Math.max(0,total-TAIL);i<total;i++) alwaysShow.add(i);
 
-  // ── 드래그 상태 ──
+  // ★ 다중 선택 상태
+  const _selectedIdxs=new Set();
+
+  // ── 병합 툴바 ──
+  const toolbar=document.createElement('div');
+  toolbar.id='toc-merge-bar';
+  toolbar.style.cssText='display:none;align-items:center;gap:8px;padding:6px 8px;'+
+    'background:var(--blue-bg);border-radius:8px;margin-bottom:8px;border:1px solid var(--blue)';
+  toolbar.innerHTML=
+    '<span id="toc-sel-count" style="font-size:11px;color:var(--blue);font-weight:600">0개 선택됨</span>'+
+    '<button class="btn btn-sm" id="toc-merge-btn" style="font-size:11px;padding:3px 10px;background:var(--blue);color:#fff;border:none;border-radius:5px">🔗 병합</button>'+
+    '<button class="btn btn-sm" id="toc-sel-clear" style="font-size:11px;padding:3px 8px;background:none;border:1.5px solid var(--blue);color:var(--blue);border-radius:5px">✕ 선택 해제</button>';
+  c.appendChild(toolbar);
+
+  // 병합 실행
+  toolbar.querySelector('#toc-merge-btn').addEventListener('click',()=>{
+    const idxs=[..._selectedIdxs].sort((a,b)=>a-b);
+    if(idxs.length<2) return;
+    // 첫 항목으로 병합 (제목: 첫번째 화 ~ 마지막 화)
+    const first=S.tocItems[idxs[0]];
+    const merged={
+      ...first,
+      title: idxs.map(i=>S.tocItems[i].title).join(' + '),
+      enabled:true,
+      originalTitle: first.originalTitle||first.title,
+    };
+    // 나머지 제거 (뒤에서부터)
+    for(let k=idxs.length-1;k>=1;k--) S.tocItems.splice(idxs[k],1);
+    S.tocItems[idxs[0]]=merged;
+    _selectedIdxs.clear();
+    renderTocItems();
+    updateTocStat();
+  });
+  toolbar.querySelector('#toc-sel-clear').addEventListener('click',()=>{
+    _selectedIdxs.clear();
+    document.querySelectorAll('.toc-item.multi-selected').forEach(el=>el.classList.remove('multi-selected'));
+    updateMergeBar();
+  });
+
+  function updateMergeBar(){
+    const n=_selectedIdxs.size;
+    toolbar.style.display=n>0?'flex':'none';
+    toolbar.querySelector('#toc-sel-count').textContent=n+'개 선택됨';
+    toolbar.querySelector('#toc-merge-btn').disabled=n<2;
+  }
+
   let _dragSrcIdx=null;
 
   function buildTocRow(item, i, isHidden){
@@ -700,6 +863,21 @@ function renderTocItems(){
     } else {
       d.appendChild(handle);d.appendChild(chk);d.appendChild(num);d.appendChild(titleInp);
     }
+
+    // ★ Ctrl+Click / Cmd+Click → 다중 선택 토글
+    d.addEventListener('click',e=>{
+      if(e.ctrlKey||e.metaKey){
+        e.preventDefault();
+        if(_selectedIdxs.has(i)){
+          _selectedIdxs.delete(i);
+          d.classList.remove('multi-selected');
+        } else {
+          _selectedIdxs.add(i);
+          d.classList.add('multi-selected');
+        }
+        updateMergeBar();
+      }
+    });
 
     // 드래그 이벤트 — 상위 스코프 _tocDragSrc 사용
     d.addEventListener('dragstart',e=>{

@@ -128,6 +128,10 @@
         <button class="ttab" data-action="tocTab" data-idx="1">챕터 미리보기</button>
         <button class="ttab" data-action="tocTab" data-idx="2">원본 텍스트</button>
         <button class="ttab" data-action="tocTab" data-idx="3">정규식 수정</button>
+        <span style="margin-left:auto;font-size:10px;color:var(--text2);align-self:center;padding-right:4px"
+              title="Ctrl+클릭으로 여러 항목을 선택하면 병합할 수 있어요">
+          💡 Ctrl+클릭 = 다중 선택/병합
+        </span>
       </div>
       <div class="toc-body" id="tb0"></div>
       <div class="toc-body" id="tb1" style="display:none">
@@ -648,6 +652,13 @@
       <label class="sw"><input type="checkbox" id="optIndent" checked data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
     </div>
     <div class="toggle-row">
+      <div>
+        <label for="optMergeShortLines">문단 정합</label>
+        <small>30자 미만 짧은 줄을 자동으로 이어 붙여요 (대화체 소설에 적합)</small>
+      </div>
+      <label class="sw"><input type="checkbox" id="optMergeShortLines" data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
+    </div>
+    <div class="toggle-row">
       <div><label for="optEmptyLine">빈 줄 보존</label><small>단락 사이 빈 줄을 그대로 유지해요</small></div>
       <label class="sw"><input type="checkbox" id="optEmptyLine" checked data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
     </div>
@@ -713,11 +724,53 @@
         </select>
       </div>
       <div class="css-field">
-        <label style="margin-bottom:2px">여백 (상하/좌우)</label>
-        <select id="cssMargin" data-input-action="updateCssSave">
-          <option value="1em 1.2em">좁게</option>
+        <label style="margin-bottom:4px">여백 (개별 설정)</label>
+        <!-- 4방향 여백 — 슬라이더 + 숫자 입력 -->
+        <div class="pad-grid">
+          <div class="pad-field">
+            <label class="pad-lbl">위</label>
+            <input type="range" class="pad-slider" id="cssPadTopSlider"
+                   min="0" max="4" step="0.1" value="1.5"
+                   data-input-action="syncPadTop">
+            <input type="number" class="pad-num" id="cssPadTop"
+                   min="0" max="4" step="0.1" value="1.5"
+                   data-input-action="updateCssSave">
+            <span class="pad-unit">em</span>
+          </div>
+          <div class="pad-field">
+            <label class="pad-lbl">아래</label>
+            <input type="range" class="pad-slider" id="cssPadBottomSlider"
+                   min="0" max="4" step="0.1" value="1.5"
+                   data-input-action="syncPadBottom">
+            <input type="number" class="pad-num" id="cssPadBottom"
+                   min="0" max="4" step="0.1" value="1.5"
+                   data-input-action="updateCssSave">
+            <span class="pad-unit">em</span>
+          </div>
+          <div class="pad-field">
+            <label class="pad-lbl">왼쪽</label>
+            <input type="range" class="pad-slider" id="cssPadLeftSlider"
+                   min="0" max="4" step="0.1" value="1.8"
+                   data-input-action="syncPadLeft">
+            <input type="number" class="pad-num" id="cssPadLeft"
+                   min="0" max="4" step="0.1" value="1.8"
+                   data-input-action="updateCssSave">
+            <span class="pad-unit">em</span>
+          </div>
+          <div class="pad-field">
+            <label class="pad-lbl">오른쪽</label>
+            <input type="range" class="pad-slider" id="cssPadRightSlider"
+                   min="0" max="4" step="0.1" value="1.8"
+                   data-input-action="syncPadRight">
+            <input type="number" class="pad-num" id="cssPadRight"
+                   min="0" max="4" step="0.1" value="1.8"
+                   data-input-action="updateCssSave">
+            <span class="pad-unit">em</span>
+          </div>
+        </div>
+        <!-- 기존 cssMargin 호환 hidden (epub-gen.js 폴백용) -->
+        <select id="cssMargin" style="display:none">
           <option value="1.5em 1.8em" selected>보통</option>
-          <option value="2em 2.5em">넓게</option>
         </select>
       </div>
     </div>
