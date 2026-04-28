@@ -2560,73 +2560,35 @@ function extractFileNum(name){
 // 📑 Module: ChapterParser (패턴 감지·챕터 분리)
 // ══════════════════════════════════════════
 const PATS=[
-  // ── 최우선: 명확한 형식 ──
   [/^\[(?:EP|Ep|ep)\.\d+\](?:\s*.+)?$/,               '[EP.N] 형식'],
   [/^\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\s*.+)?\](?:\s*.+)?$/i, '[Prologue] 형식'],
   [/^\[\s*.+\.txt\s*\]\s*$/i,                         '[ 파일명.txt ] 형식'],
   [/^\d{3,6}\s{2,}.+$/,                               'NNN  제목 형식 (zero-pad)'],
-  [/^[〈<]\s*\d+\s*화\s*[〉>](?:\s*.+)?$/i,           '〈N화〉 꺽쇠 형식'],
-
-  // ── 화/장 번호 계열 (요구사항 핵심) ──
-  // 제 n 화 / 제n화 / 제 n화 (공백 유연)
-  [/^제\s*\d+\s*화(?:\s*.+)?$/,                       '제N화 형식'],
-  // 제 n 장 / 제n장
-  [/^제\s*\d+\s*장(?:\s*.+)?$/,                       '제N장 형식'],
-  // 한자 번호 대응: 제一화, 第一章 등
-  [/^제\s*[一二三四五六七八九十百千\d]+\s*[화장話章](?:\s*.+)?$/, '제N화/장 (한자 번호)'],
-  // n화 단독 (앞에 '제' 없이)
-  [/^\d+화(?:\s*.+)?$/,                               'N화 형식'],
-  // n장 단독
-  [/^\d+장(?:\s*.+)?$/,                               'N장 형식'],
-  // [제 n화] / [1화] 대괄호 패턴
-  [/^\[\s*제?\s*\d+\s*화\s*\](?:\s*.+)?$/,            '[N화] 대괄호 형식'],
-  [/^\[\s*제?\s*\d+\s*장\s*\](?:\s*.+)?$/,            '[N장] 대괄호 형식'],
-  [/^#?(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,               '화 번호 (#N화 포함)'],
-  [/^\d+화\.\s*.+$/,                                  '화. 제목 (리디북스형)'],
+  [/^[〈<]\s*\d+\s*화\s*[〉>](?:\s*.+)?$/i, '〈N화〉 꺽쇠 형식'],
+  [/^(?:\s?〈\s?\d+화\s?〉|EP\.\d+|(?=\d+화)\d+화|\d+).*/,'줄 시작 통합 (꺽쇠/EP/숫자)'],
   [/^={2,}\s*\[제\s*\d+\s*화\]\s*={0,}$/i,            '=== [제N화] ==='],
-
-  // ── 챕터/파트 계열 ──
-  [/^(?:chapter|part|ch)\.?\s*\d+(?:\s*.+)?$/i,       'Chapter/Part'],
-  [/^(?:EP|Ch|Scene|Act)\.?\s*\d+(?:\s*.+)?$/i,       'EP/Ch/Scene N'],
-  [/^[1-9]부\s+(?:\d+화|프롤로그)(?:\s*.+)?$/,         'N부 M화'],
-  [/^S\d+E\d+(?:\s*.+)?$/i,                           'S1E01 형식'],
-
-  // ── 특수 키워드 (요구사항 핵심) ──
-  [/^서장(?:\s*.+)?$/,                                 '서장'],
-  [/^종장(?:\s*.+)?$/,                                 '종장'],
-  [/^서문(?:\s*.+)?$/,                                 '서문'],
-  [/^서론(?:\s*.+)?$/,                                 '서론'],
-  [/^(?:프롤로그|프롤)(?:\s*.+)?$/i,                   '프롤로그'],
-  [/^(?:에필로그|에필)(?:\s*.+)?$/i,                   '에필로그'],
-  [/^외전(?:\s*.+)?$/,                                 '외전'],
-  [/^번외(?:\s*.+)?$/,                                 '번외'],
-  [/^후기(?:\s*.+)?$/,                                 '후기'],
-  [/^작가\s*후기(?:\s*.+)?$/,                          '작가 후기'],
-  [/^작가의\s*말(?:\s*.+)?$/,                          '작가의 말'],
-  [/^작가\s*노트(?:\s*.+)?$/,                          '작가 노트'],
-  [/^(?:prologue|epilogue|afterword|author.?s?\s*note)(?:\s*.+)?$/i, '영문 특수 키워드'],
-
-  // ── 숫자+점 형식 (1. 제목, 2. 제목) ──
-  [/^\d+\.\s+.{1,60}$/,                               'N. 제목'],
-  [/^#\d+\.\s+.{1,60}$/,                              '#N. 제목'],
-
-  // ── 제목 형식 ──
+  [/^#?(?:제\s*)?\d+\s*화(?:\s*.+)?$/i,               '화 번호'],
   [/^.{1,60}\s*\(\d+\)\s*$/,                          '소설제목(숫자)'],
-  [/^(?:제\s*\d+\s*장|第\s*\d+\s*章)(?:\s*.+)?$/,     '장 번호'],
-  [/^【.+】.*$/,                                       '타이틀【】'],
-  [/^#{1,3}\s*.+$/,                                   '# 제목 (Markdown)'],
-  [/^[■▶◆●►▷◇★☆]\s*.{2,40}$/,                        '특수문자 제목'],
-  [/^第\s*[\d一二三四五六七八九十百千]+\s*[章話话](?:\s*.+)?$/, '한자 장/화 형식'],
-
-  // ── 기타 형식 ──
+  [/^(?:chapter|part|ch)\s*\d+(?:\s*.+)?$/i,          'Chapter/Part'],
+  [/^[1-9]부\s+(?:\d+화|프롤로그)(?:\s*.+)?$/,         'N부 M화'],
+  [/^#\d+\.\s+.{1,60}$/,                              '#N. 제목'],
+  [/^(?:제\s*\d+\s*장|第\s*\d+\s*章)(?:\s*.+)?$/,      '장 번호'],
+  [/^(?:프롤로그|에필로그|외전|후일담|prologue|epilogue)(?:\s*.+)?$/i, '프롤로그류'],
+  [/^(?:서장|종장)(?:\s*.+)?$/,                         '서장/종장'],
+  [/^【.+】.*$/,                                        '타이틀'],
+  [/^#{1,3}\s*.+$/,                                    '# 제목'],
   [/^(?:EP|제|Chapter|Ch|디|Scene|Prologue)\.?\s*\d+/i,'EP/Ch/Scene N 시작'],
   [/^\d{1,3}\.\s*.+$/,                                'N. 제목 (짧은 번호)'],
-  [/^\d+권(?:\s*.+)?$/,                               'N권 형식'],
+  [/^\d+권(?:\s*.+)?$/,                                'N권 형식'],
   [/^.*[=\-]{3,}$/,                                   '제목+구분선(===,--)'],
-  [/^[\*\-─]+\s*\d+화?\s*[\*\-─]+$/,                 '* N * 구분자'],
-  [/^(?:시즌\s*\d+\s+)?\d+화(?:\s*.+)?$/,             '시즌 N화'],
-  [/^\((?:외전|번외|특별편|side|bonus)\)/i,            '(외전/번외) 형식'],
-  [/^(?:\s?〈\s?\d+화\s?〉|EP\.\d+|(?=\d+화)\d+화|\d+).*/, '줄 시작 통합 (꺽쇠/EP/숫자)'],
+  [/^\((?:외전|번외|특별편|side|bonus)\)/i,             '(외전/번외) 형식'],
+  // ── 추가 패턴 (리디북스·조아라·시즌제·한자·특수문자) ──
+  [/^\d+화\.\s*.+$/,                                    '화. 제목 (리디북스형)'],
+  [/^[\*\-─]+\s*\d+화?\s*[\*\-─]+$/,                  '* N * 구분자 형식'],
+  [/^(?:시즌\s*\d+\s+)?\d+화(?:\s*.+)?$/,               '시즌 N화 형식'],
+  [/^S\d+E\d+(?:\s*.+)?$/i,                              'S1E01 형식'],
+  [/^第\s*[\d一二三四五六七八九十百千]+\s*[章話话](?:\s*.+)?$/, '한자 장/화 형식'],
+  [/^[■▶◆●►▷◇]\s*.{2,40}$/,                              '특수문자 제목 형식'],
 ];
 
 // N. 제목 패턴: 줄 간격 필터 포함 (본문 내 번호 목록과 구별)
@@ -4968,96 +4930,10 @@ function setProgress(pct,msg){
 // ══════════════════════════════════════════
 // 📖 Module: EpubBuilder (EPUB3 생성 엔진)
 // ══════════════════════════════════════════
-// ── Canvas 텍스트 표지 생성 (이미지 없을 때 폴백) ──
-async function generateTextCover(title, author){
-  return new Promise(resolve=>{
-    const W=800, H=1120;
-    const canvas=document.createElement('canvas');
-    canvas.width=W; canvas.height=H;
-    const ctx=canvas.getContext('2d');
-
-    // 배경 — 세로 그라디언트
-    const isDark=document.documentElement.dataset.theme==='dark';
-    const grad=ctx.createLinearGradient(0,0,0,H);
-    if(isDark){
-      grad.addColorStop(0,'#1a1a2e');
-      grad.addColorStop(0.5,'#16213e');
-      grad.addColorStop(1,'#0f3460');
-    } else {
-      grad.addColorStop(0,'#2c3e50');
-      grad.addColorStop(0.5,'#3d5a80');
-      grad.addColorStop(1,'#1a2636');
-    }
-    ctx.fillStyle=grad;
-    ctx.fillRect(0,0,W,H);
-
-    // 장식 원
-    ctx.save();
-    ctx.globalAlpha=0.08;
-    ctx.fillStyle='#ffffff';
-    ctx.beginPath(); ctx.arc(W*0.8,H*0.15,220,0,Math.PI*2); ctx.fill();
-    ctx.beginPath(); ctx.arc(W*0.1,H*0.85,160,0,Math.PI*2); ctx.fill();
-    ctx.restore();
-
-    // 구분선
-    ctx.strokeStyle='rgba(255,255,255,0.3)';
-    ctx.lineWidth=1.5;
-    ctx.beginPath(); ctx.moveTo(60,H*0.45); ctx.lineTo(W-60,H*0.45); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(60,H*0.47); ctx.lineTo(W-60,H*0.47); ctx.stroke();
-
-    // 제목 (자동 줄바꿈, 최대 3줄)
-    ctx.fillStyle='#ffffff';
-    ctx.textAlign='center';
-    ctx.textBaseline='middle';
-    const maxW=W-120;
-    function wrapText(text, maxWidth, fontSize){
-      ctx.font=`bold ${fontSize}px "Noto Serif KR", "Malgun Gothic", serif`;
-      const words=text.split('');
-      let lines=[],cur='';
-      for(const ch of words){
-        const test=cur+ch;
-        if(ctx.measureText(test).width>maxWidth&&cur){lines.push(cur);cur=ch;}
-        else cur=test;
-      }
-      if(cur) lines.push(cur);
-      return lines.slice(0,3);
-    }
-    const fontSize=title.length<=10?68:title.length<=20?56:44;
-    const titleLines=wrapText(title,maxW,fontSize);
-    const lineH=fontSize*1.35;
-    const totalH=titleLines.length*lineH;
-    const startY=H*0.38-totalH/2;
-    titleLines.forEach((line,i)=>{
-      ctx.font=`bold ${fontSize}px "Noto Serif KR","Malgun Gothic",serif`;
-      ctx.fillText(line, W/2, startY+i*lineH);
-    });
-
-    // 저자
-    if(author&&author!=='작자 미상'){
-      ctx.font=`500 28px "Noto Sans KR","Malgun Gothic",sans-serif`;
-      ctx.fillStyle='rgba(255,255,255,0.75)';
-      ctx.fillText(author, W/2, H*0.56);
-    }
-
-    // 하단 로고 텍스트
-    ctx.font='16px monospace';
-    ctx.fillStyle='rgba(255,255,255,0.25)';
-    ctx.fillText('NovelEPUB', W/2, H-36);
-
-    canvas.toBlob(blob=>{
-      if(!blob){ resolve(null); return; }
-      // File 객체로 변환 (buildEpub의 addImg와 호환)
-      const file=new File([blob],'_cover_generated.jpg',{type:'image/jpeg'});
-      resolve(file);
-    },'image/jpeg',0.92);
-  });
-}
-
 async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=true},onProgress){
   const showChTitle=document.getElementById('optChTitle')?.checked!==false;
   const zip=new JSZip();
-  // ★ EPUB 표준: mimetype은 반드시 압축 없이(STORE) 첫 번째 파일로 배치
-  zip.file('mimetype','application/epub+zip',{compression:'STORE',compressionOptions:{level:0}});
+  zip.file('mimetype','application/epub+zip');
   zip.folder('META-INF').file('container.xml',
     '<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:schemas:container">'+
     '<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>'+
@@ -5207,14 +5083,8 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
   oebps.file('content.opf',opf);
 
   onProgress&&onProgress(92,'압축 중...');
-  const compressionLevel=parseInt(document.getElementById('optCompression')?.value||'6');
-  return zip.generateAsync({
-    type:'blob',
-    mimeType:'application/epub+zip',
-    // ★ 파일별 compression 지정으로 mimetype은 STORE 유지 (파일 추가 시 이미 설정됨)
-    compression:'DEFLATE',
-    compressionOptions:{level:compressionLevel}
-  }, meta=>onProgress&&onProgress(92+Math.floor(meta.percent*0.07),'압축 중 '+Math.floor(meta.percent)+'%...'));
+  return zip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:parseInt(document.getElementById('optCompression')?.value||'6')}},
+    meta=>onProgress&&onProgress(92+Math.floor(meta.percent*0.07),'압축 중 '+Math.floor(meta.percent)+'%...'));
 }
 
 function xhtmlPage(title,body){
@@ -5230,46 +5100,21 @@ async function startConvert(){
   document.getElementById('progWrap').classList.add('show');
   document.getElementById('resultBox').classList.remove('show');
   document.getElementById('errBox').classList.remove('show');
-
-  // ── 단계별 진행 표시 ──
-  // 1단계: 파일 읽기 (0~15%)
-  // 2단계: 텍스트 분석/챕터 분리 (15~30%)
-  // 3단계: 표지/이미지 처리 (30~40%)
-  // 4단계: EPUB 빌드 (40~92%)
-  // 5단계: 압축 완료 (92~100%)
-  setProgress(0,'① 파일 읽는 중...');
+  setProgress(0,'텍스트 읽는 중...');
   try{
-    const sorted=[...S.txtFiles];
-    const totalFiles=sorted.length;
-    // 파일별 진행률 표시
-    const raws=[];
-    for(let fi=0;fi<totalFiles;fi++){
-      setProgress(Math.round(fi/totalFiles*12)+1,
-        `① 파일 읽는 중... (${fi+1}/${totalFiles}) ${sorted[fi].name}`);
-      await yieldToMain();
-      raws.push(await fileToText(sorted[fi]));
-    }
+    const sorted=[...S.txtFiles]; // 사용자 정렬 순서 유지 (renderTxtFileList에서 이미 정렬됨)
+    const raws=await Promise.all(sorted.map(fileToText));
     const raw=raws.join('\n\n');
-    setProgress(14,'① 파일 읽기 완료');
-    await yieldToMain();
-
-    setProgress(15,'② 챕터 패턴 분석 중...');
-    await yieldToMain();
+    setProgress(8,'챕터 분리 중...');
     const customPat=document.getElementById('pattern').value.trim();
     const disabledTitles=new Set(S.tocItems.filter(t=>!t.enabled).map(t=>t.title));
 
     let chapters;
     if(_autoSplitActive&&_autoSplitLines&&S.tocItems.length>0){
-      setProgress(20,'② 간격 분할 적용 중...');
-      await yieldToMain();
       // 간격 분할 모드: tocItems 기반 챕터 조립 (enabled + 편집된 제목 반영)
       chapters=buildChaptersFromTocItems(_autoSplitLines, S.tocItems);
     } else {
-      setProgress(18,'② 목차 패턴 감지 중...');
-      await yieldToMain();
       chapters=splitChapters(raw,customPat);
-      setProgress(24,`② 챕터 분리 완료 (${chapters.length}개)`);
-      await yieldToMain();
       // ★ 인라인 편집된 tocItems 제목 반영 (originalTitle → 편집된 title)
       if(S.tocItems.length>0){
         const editedMap=new Map();
@@ -5282,8 +5127,6 @@ async function startConvert(){
       }
       // disabled 챕터는 인접 챕터 본문에 병합
       if(disabledTitles.size>0){
-        setProgress(28,'② 비활성 챕터 병합 중...');
-        await yieldToMain();
         const merged=[];let pb='';
         for(const[h,b]of chapters){
           if(disabledTitles.has(h)){
@@ -5305,8 +5148,6 @@ async function startConvert(){
         chapters=merged;
       }
     }
-    setProgress(30,'③ 삽화 파싱 중...');
-    await yieldToMain();
     // 삽화 파싱 — 파일명 숫자 = 챕터 인덱스(1-based)
     // 01.jpg → chapters[0] (첫 번째 챕터)
     // 100.jpg → chapters[99] (100번째 챕터)
@@ -5340,23 +5181,11 @@ async function startConvert(){
     const title=document.getElementById('title').value.trim()||'제목 없음';
     const author=document.getElementById('author').value.trim()||'작자 미상';
     const useItalic=document.getElementById('optItalic').checked;
-
-    // ★ 표지 폴백: 표지 이미지 없을 때 Canvas로 텍스트 커버 자동 생성
-    let effectiveCover=S.coverFile;
-    if(!effectiveCover){
-      setProgress(35,'③ 텍스트 표지 생성 중...');
-      await yieldToMain();
-      effectiveCover=await generateTextCover(title, author);
-    }
-
-    setProgress(40,'④ EPUB 빌드 중...');
-    await yieldToMain();
-    const blob=await buildEpub({title,author,chapters,coverFile:effectiveCover,illMap,useItalic},
-      (pct,msg)=>setProgress(40+Math.round(pct*0.52), msg));
+    const blob=await buildEpub({title,author,chapters,coverFile:S.coverFile,illMap,useItalic},(pct,msg)=>setProgress(pct,msg));
     S.epubBlob=blob;
     S.epubName=title.replace(/[\\/:*?"<>|]/g,'_')+'.epub';
     const elapsed=((Date.now()-convertStart)/1000).toFixed(1);
-    setProgress(100,'✅ 변환 완료! ('+elapsed+'초)');
+    setProgress(100,'완료! ('+elapsed+'초)');
     document.getElementById('resultMsg').textContent=S.epubName;
     showResultStats('resultStats',[
       {
