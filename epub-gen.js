@@ -16,25 +16,34 @@ function buildCss(){
   const font=document.getElementById('cssFont')?.value||'"Noto Serif KR",serif';
   const line=document.getElementById('cssLine')?.value||'1.9';
   const size=document.getElementById('cssFontSize')?.value||'1em';
-  // ★ 상하좌우 여백 독립 설정
-  const padTop=   document.getElementById('cssPadTop')?.value   ||document.getElementById('cssPadV')?.value||'1.5em';
-  const padBottom=document.getElementById('cssPadBottom')?.value||document.getElementById('cssPadV')?.value||'1.5em';
-  const padLeft=  document.getElementById('cssPadLeft')?.value  ||document.getElementById('cssPadH')?.value||'1.8em';
-  const padRight= document.getElementById('cssPadRight')?.value ||document.getElementById('cssPadH')?.value||'1.8em';
+
+  // ★ em 단위 안전 처리: 숫자만 있으면 em 자동 부착, 이미 단위 있으면 그대로
+  function toEm(val, def){
+    if(!val) return def;
+    const s=String(val).trim();
+    if(/em$|px$|%$|rem$/.test(s)) return s;
+    const n=parseFloat(s);
+    return isNaN(n)?def:n+'em';
+  }
+  const padTop=   toEm(document.getElementById('cssPadTop')?.value    || document.getElementById('cssPadV')?.value, '1.5em');
+  const padBottom=toEm(document.getElementById('cssPadBottom')?.value  || document.getElementById('cssPadV')?.value, '1.5em');
+  const padLeft=  toEm(document.getElementById('cssPadLeft')?.value    || document.getElementById('cssPadH')?.value, '1.8em');
+  const padRight= toEm(document.getElementById('cssPadRight')?.value   || document.getElementById('cssPadH')?.value, '1.8em');
+
   const textColor=document.getElementById('cssTextColor')?.value||'';
   const bgColor=  document.getElementById('cssBgColor')?.value||'';
   const align=document.querySelector('input[name="cssAlign"]:checked')?.value||'justify';
   const titleStyle=document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center';
   const indentSlider=document.getElementById('cssIndentSlider');
-  const indentEm=indentSlider?parseFloat(indentSlider.value):1.0;
+  const indentEm=indentSlider?parseFloat(indentSlider.value)||1.0:1.0;  // ★ NaN 방지
   const useIndent=document.getElementById('optIndent')?.checked;
   const fontFaceBlock=typeof customFontFace!=='undefined'?customFontFace||'':'';
   const extra=document.getElementById('cssExtra')?.value||'';
-  // ★ 문단 정합 옵션
-  const mergePara=document.getElementById('optMergeShortLines')?.checked;
+
   let h1Extra=`text-align:${titleStyle==='left'?'left':'center'};`;
   if(titleStyle==='underline') h1Extra+='border-bottom:2px solid currentColor;padding-bottom:0.3em;text-align:center;';
   if(titleStyle==='box') h1Extra+='border:1.5px solid currentColor;padding:0.25em 1em;border-radius:6px;display:inline-block;';
+
   return `@charset "UTF-8";
 ${fontFaceBlock}
 /* ── 기본 스타일 ── */
@@ -58,7 +67,7 @@ p.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}
 .illust-page{display:flex;align-items:center;justify-content:center;min-height:80vh;text-align:center;padding:0}
 .illust-page img{max-width:100%;max-height:100vh;object-fit:contain}
 
-/* ★ EPUB 다크 모드 전용 CSS — 미디어 쿼리로 삽입 */
+/* ★ EPUB 다크 모드 */
 @media (prefers-color-scheme:dark){
   body{
     ${bgColor?'':"background-color:#1a1208;"}
@@ -67,15 +76,6 @@ p.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}
 }
 ${extra}`;
 }
-h1{font-size:1.3em;${h1Extra}margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}
-p{margin:0;padding:0.25em 0;text-indent:${useIndent?indentEm+'em':'0'}}
-p.noindent{text-indent:0}
-em.flashback{font-style:italic;opacity:.85}
-p.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}
-.illust-page{display:flex;align-items:center;justify-content:center;min-height:80vh;text-align:center;padding:0}
-.illust-page img{max-width:100%;max-height:90vh;height:auto;display:block;margin:0 auto}
-${extra}
-`;}
 
 
 // ══════════════════════════════════════════

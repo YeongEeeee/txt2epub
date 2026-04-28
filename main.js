@@ -2262,15 +2262,18 @@ async function startConvert(){
       setProgress(20,'② 간격 분할 적용 중...');
       await yieldToMain();
       chapters=buildChaptersFromTocItems(_autoSplitLines, S.tocItems);
-    } else if(S.tocItems.length>0&&_fullRawLines&&_fullRawLines.length>0){
-      // ★ 일반 패턴 분할 모드에서도 tocItems가 있으면 tocItems 기반으로 조립
-      // disabledTitles 문자열 매칭 방식은 제목 편집 시 실패 → 완전히 대체
+    } else if(S.tocItems.length>0){
+      // ★ tocItems가 있으면 항상 tocItems 기반 조립
+      // _fullRawLines가 null이면(메모리 정리됨) raw에서 재생성
+      const sourceLines=(_fullRawLines&&_fullRawLines.length>0)
+        ? _fullRawLines
+        : raw.split('\n');
       setProgress(20,'② 목차 기반 챕터 조립 중...');
       await yieldToMain();
-      chapters=buildChaptersFromTocItems(_fullRawLines, S.tocItems);
+      chapters=buildChaptersFromTocItems(sourceLines, S.tocItems);
       setProgress(28,`② 챕터 조립 완료 (활성 ${S.tocItems.filter(t=>t.enabled).length}개 → ${chapters.length}개)`);
     } else {
-      // tocItems 없거나 _fullRawLines 없음 → 원본 텍스트 직접 파싱
+      // tocItems 없음 → 원본 텍스트 직접 파싱
       setProgress(18,'② 목차 패턴 감지 중...');
       await yieldToMain();
       const lineCount=(raw.match(/\n/g)||[]).length;
@@ -2556,8 +2559,14 @@ async function downloadSplitZip(){
 }
 
 function downloadEpub(){
-  if(!S.epubBlob)return;
-  const a=document.createElement('a');a.href=URL.createObjectURL(S.epubBlob);a.download=S.epubName;a.click();
+  if(!S.epubBlob){
+    Toast.warn('먼저 ✨ EPUB 만들기 버튼을 눌러 변환을 실행해주세요.');
+    return;
+  }
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(S.epubBlob);
+  a.download=S.epubName||'output.epub';
+  a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 
