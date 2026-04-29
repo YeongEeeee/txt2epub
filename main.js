@@ -337,6 +337,30 @@ const EI = new Proxy({}, {
 });
 
 let customFontFile=null, customFontName='', customFontFace='';
+
+async function handleCustomFont(files){
+  const f=files[0];if(!f)return;
+  customFontFile=f;
+  const ext=f.name.split('.').pop().toLowerCase();
+  const fontName=f.name.replace(/\.[^.]+$/,'');
+  customFontName=fontName;
+  // base64로 읽어서 @font-face에 임베드
+  const ab=await fileToAB(f);
+  const b64=btoa(String.fromCharCode(...new Uint8Array(ab)));
+  const mimeMap={'ttf':'font/truetype','otf':'font/opentype','woff':'font/woff','woff2':'font/woff2'};
+  const mime=mimeMap[ext]||'font/truetype';
+  customFontFace='@font-face{font-family:"'+fontName+'";src:url("data:'+mime+';base64,'+b64+'") format("'+ext+'");}\n';
+  // select에 커스텀 폰트 옵션 추가
+  const opt=document.getElementById('customFontOpt');
+  if(opt){opt.textContent='📁 '+fontName;opt.style.display='';opt.value='"'+fontName+'",serif';}
+  document.getElementById('cssFont').value='"'+fontName+'",serif';
+  document.getElementById('fontInfo').textContent='✅ '+f.name+' ('+( ab.byteLength/1024).toFixed(0)+'KB)';
+  document.getElementById('fontDrop').classList.add('ok');
+  updateCssPreview();
+  saveCssSettings();
+  updateSettingsSummary();
+}
+
 // B, E, EI 별칭 — Object.assign 호환을 위한 헬퍼
 // (reset 함수들이 Object.assign(S, {...}) 사용 → Proxy에서 직접 동작)
 
@@ -1093,13 +1117,16 @@ async function fileToText(file){
   _encCache.set(file,enc);
 
   // TextDecoder 직접 사용 — 대용량 파일(20MB+)에서 더 안정적
-  // FileReader.readAsText()는 브라우저 내부 구현에 따라 청크 경계에서 손실 가능
   return new Promise((res,rej)=>{
+    // ★ 타임아웃 안전망: 30초 내 응답 없으면 reject (채널 닫힘 방지)
+    const timer=setTimeout(()=>rej(new Error('fileToText timeout')), 30000);
+    const done=(text)=>{ clearTimeout(timer); res(text); };
+    const fail=(e)=>{ clearTimeout(timer); rej(e); };
+
     const r=new FileReader();
     r.onload=e=>{
       try{
         const ab=e.target.result;
-        // TextDecoder로 직접 디코딩 (fatal:false → 잘못된 바이트는 U+FFFD 대체)
         const decoder=new TextDecoder(enc,{fatal:false});
         const text=decoder.decode(new Uint8Array(ab));
         // U+FFFD(대체문자) 포함 여부 경고 — EUC-KR 오판 감지
@@ -1108,25 +1135,35 @@ async function fileToText(file){
           // UTF-8 판정인데 깨진 문자가 많으면 EUC-KR로 재시도
           const r2=new FileReader();
           r2.onload=e2=>{
-            const ab2=e2.target.result;
-            const text2=new TextDecoder('euc-kr',{fatal:false}).decode(new Uint8Array(ab2));
-            const bad2=(text2.match(/\ufffd/g)||[]).length;
-            res(bad2<badCount?text2:text);
+            try{
+              const ab2=e2.target.result;
+              const text2=new TextDecoder('euc-kr',{fatal:false}).decode(new Uint8Array(ab2));
+              const bad2=(text2.match(/\ufffd/g)||[]).length;
+              done(bad2<badCount?text2:text);
+            }catch(err2){
+              done(text); // 재시도 실패 → 원본 사용
+            }
           };
-          r2.onerror=()=>res(text);
+          r2.onerror=()=>done(text); // ★ 재시도 실패해도 원본 반환 (reject 아님)
           r2.readAsArrayBuffer(file);
         }else{
-          res(text);
+          done(text);
         }
       }catch(err){
         // fallback: readAsText
         const fr=new FileReader();
-        fr.onload=ev=>res(ev.target.result);
-        fr.onerror=rej;
+        fr.onload=ev=>done(ev.target.result||'');
+        fr.onerror=()=>done(''); // ★ 최후 폴백도 빈 문자열 반환 (절대 reject 안 함)
         fr.readAsText(file,enc);
       }
     };
-    r.onerror=rej;
+    r.onerror=()=>{
+      // ★ ArrayBuffer 읽기 실패 시 readAsText로 폴백 (메시지 채널 안전)
+      const fr=new FileReader();
+      fr.onload=ev=>done(ev.target.result||'');
+      fr.onerror=e2=>fail(e2);
+      fr.readAsText(file,enc);
+    };
     r.readAsArrayBuffer(file);
   });
 }
@@ -1279,22 +1316,23 @@ async function imgToJpgBlob(file, quality=0.92){
 // ══════════════════════════════════════════
 function saveCssSettings(){
   try{
-    const indentSlider=document.getElementById('cssIndentSlider');
+    // ★ DOM 캐싱: getElementById 반복 호출 최소화
+    const _el=id=>document.getElementById(id);
+    const indentSlider=_el('cssIndentSlider');
     localStorage.setItem('epub_css',JSON.stringify({
-      font:document.getElementById('cssFont')?.value,
-      line:document.getElementById('cssLine')?.value,
-      size:document.getElementById('cssFontSize')?.value,
-      // ★ cssMargin 제거 → 4방향 여백으로 교체
-      padTop:   document.getElementById('cssPadTop')?.value||'1.5',
-      padBottom:document.getElementById('cssPadBottom')?.value||'1.5',
-      padLeft:  document.getElementById('cssPadLeft')?.value||'1.8',
-      padRight: document.getElementById('cssPadRight')?.value||'1.8',
-      textColor:document.getElementById('cssTextColor')?.value||'',
-      bgColor:  document.getElementById('cssBgColor')?.value||'',
-      align:document.querySelector('input[name="cssAlign"]:checked')?.value||'justify',
+      font:     _el('cssFont')?.value,
+      line:     _el('cssLine')?.value,
+      size:     _el('cssFontSize')?.value,
+      padTop:   _el('cssPadTop')?.value||'1.5',
+      padBottom:_el('cssPadBottom')?.value||'1.5',
+      padLeft:  _el('cssPadLeft')?.value||'1.8',
+      padRight: _el('cssPadRight')?.value||'1.8',
+      textColor:_el('cssTextColor')?.value||'',
+      bgColor:  _el('cssBgColor')?.value||'',
+      align:    document.querySelector('input[name="cssAlign"]:checked')?.value||'justify',
       titleStyle:document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center',
-      indentEm:indentSlider?parseFloat(indentSlider.value):1.0,
-      extra:document.getElementById('cssExtra')?.value||'',
+      indentEm: indentSlider?parseFloat(indentSlider.value):1.0,
+      extra:    _el('cssExtra')?.value||'',
     }));
   }catch(e){}
 }
@@ -1604,22 +1642,23 @@ function resetColors(){
 }
 
 function updateCssPreview(){
-  const p=document.getElementById('cssPreview');if(!p)return;
-  const font=document.getElementById('cssFont')?.value||'"Noto Serif KR",serif';
-  const line=document.getElementById('cssLine')?.value||'1.9';
-  const size=document.getElementById('cssFontSize')?.value||'1em';
-  // ★ cssMargin(존재하지 않음) 제거 → 4방향 패딩 직접 읽기
-  const padTop   =document.getElementById('cssPadTop')?.value   ||'1.5';
-  const padBottom=document.getElementById('cssPadBottom')?.value||'1.5';
-  const padLeft  =document.getElementById('cssPadLeft')?.value  ||'1.8';
-  const padRight =document.getElementById('cssPadRight')?.value ||'1.8';
+  // ★ DOM 캐싱: 로컬 헬퍼로 반복 getElementById 최소화
+  const _el=id=>document.getElementById(id);
+  const p=_el('cssPreview'); if(!p) return;
+  const font=_el('cssFont')?.value||'"Noto Serif KR",serif';
+  const line=_el('cssLine')?.value||'1.9';
+  const size=_el('cssFontSize')?.value||'1em';
+  const padTop   =_el('cssPadTop')?.value   ||'1.5';
+  const padBottom=_el('cssPadBottom')?.value||'1.5';
+  const padLeft  =_el('cssPadLeft')?.value  ||'1.8';
+  const padRight =_el('cssPadRight')?.value ||'1.8';
   const paddingVal=`${padTop}em ${padRight}em ${padBottom}em ${padLeft}em`;
-  const textColor=document.getElementById('cssTextColor')?.value||'';
-  const bgColor  =document.getElementById('cssBgColor')?.value  ||'';
+  const textColor=_el('cssTextColor')?.value||'';
+  const bgColor  =_el('cssBgColor')?.value  ||'';
   const align=document.querySelector('input[name="cssAlign"]:checked')?.value||'justify';
   const titleStyle=document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center';
   p.style.cssText=`font-family:${font};line-height:${line};font-size:${size};padding:${paddingVal};${textColor?'color:'+textColor+';':''}${bgColor?'background:'+bgColor+';':''}text-align:${align};border-radius:8px`;
-  const te=document.getElementById('cssPreviewTitle');
+  const te=_el('cssPreviewTitle');
   if(te){
     te.style.textAlign=titleStyle==='left'?'left':'center';
     te.style.borderBottom=titleStyle==='underline'?'2px solid currentColor':'none';
@@ -1647,24 +1686,37 @@ function handleTxt(files, append=false){
     S.txtFiles=smartSortFiles(txts); // 스마트 정렬 적용
   }
 
-  document.getElementById('txtDz').className='dz ok';
-  document.getElementById('convertResetBar').style.display='flex';
+  const txtDz=document.getElementById('txtDz');
+  if(txtDz) txtDz.className='dz ok';
+  const resetBar=document.getElementById('convertResetBar');
+  if(resetBar) resetBar.style.display='flex';
   _chaptersCache=null; // 캐시 무효화
 
   renderTxtFileList();
 
-  // 자동 미리보기
-  if(document.getElementById('optAutoPreview').checked) setTimeout(()=>previewToc(),300);
+  // ★ 자동 미리보기 — optAutoPreview 없어도 파일 1개면 바로 실행
+  const autoEl=document.getElementById('optAutoPreview');
+  const autoPreview=autoEl?autoEl.checked:true; // 엘리먼트 없으면 기본 ON
+  if(autoPreview){
+    // 300ms 디바운스: 여러 파일 드롭 시 마지막 파일만 처리
+    clearTimeout(handleTxt._timer);
+    handleTxt._timer=setTimeout(()=>previewToc(),300);
+  }
 
   // 메타데이터 자동 채우기 (첫 파일 기준)
-  const stem=S.txtFiles[0].name.replace(/\.txt$/i,'');
-  let title=stem,author='';
-  let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
-  if(m){author=m[1].trim();title=m[2].trim();}
-  else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
-  if(!document.getElementById('title').value) document.getElementById('title').value=title;
-  if(!document.getElementById('author').value) document.getElementById('author').value=author;
+  if(S.txtFiles.length>0){
+    const stem=S.txtFiles[0].name.replace(/\.txt$/i,'');
+    let title=stem,author='';
+    let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
+    if(m){author=m[1].trim();title=m[2].trim();}
+    else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
+    const titleEl=document.getElementById('title');
+    const authorEl=document.getElementById('author');
+    if(titleEl&&!titleEl.value) titleEl.value=title;
+    if(authorEl&&!authorEl.value) authorEl.value=author;
+  }
 }
+handleTxt._timer=null; // 디바운스 타이머 초기화
 
 // ── 파일 리스트 렌더링 (드래그 정렬 포함) ──
 // ── 터치 정렬 헬퍼 (_attachTouchSort) ──
@@ -4033,7 +4085,7 @@ async function startEditEpub(){
     // 챕터별 NCX 구조 감지 (bookN_toc.ncx 패턴)
     const perChNcx=E.perChapterNcx;
     // 공통 renderBodyHtml 사용 (시스템창 처리·빈줄 제한 포함)
-    function bToHtml(body){ return renderBodyHtml(body,{useItalic,maxBlank:2}); }
+    // ★ bToHtml 제거 — renderBodyHtml 직접 사용으로 표준화
     function makeChNcx(id,title,contentSrc){
       return '<?xml version="1.0" encoding="UTF-8"?>\n'+
         '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n'+
@@ -4058,7 +4110,7 @@ const inlineFont=keepCss
   : '';
 newZip.file(fullPath,'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml"><head>\n<title>'+escHtml(heading)+'</title>\n<link rel="stylesheet" type="text/css" href="../'+cssHref+'"/>\n'+
   '<style>/* 커스텀 폰트 폰트 오버라이드 */\np,h1,h2,h3,h4,h5,span,a{font-family:\'Noto Serif KR\',\'Malgun Gothic\',\'Apple SD Gothic Neo\',sans-serif!important}</style>\n'+
-  '</head><body>\n<h1>'+escHtml(heading)+'</h1>\n'+bToHtml(body)+'</body></html>');
+  '</head><body>\n<h1>'+escHtml(heading)+'</h1>\n'+renderBodyHtml(body,{useItalic,maxBlank:2})+'</body></html>');
       newManifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
       // 챕터별 NCX 구조이면 개별 ncx 파일도 생성
       if(perChNcx){
@@ -6229,11 +6281,6 @@ function splitChaptersWorkerDetailed(raw,customPat,onProgress){
 
 function getParserWorker(){
   if(!_parserWorker){
-    // ★ 기존 Worker가 있으면 먼저 terminate하여 메모리 누수 방지
-    if(_parserWorker){
-      _parserWorker.terminate();
-      _parserWorker=null;
-    }
     _parserWorker=createParserWorker();
     _parserWorker.onmessage=function(e){
       const{type,id,result,error,pct,msg}=e.data;
@@ -6252,10 +6299,20 @@ function getParserWorker(){
         cb.reject(new Error('Worker 오류: '+e.message));
       }
       _workerCallbacks.clear();
-      _parserWorker=null;
+      _parserWorker=null; // 재생성 허용
     };
   }
   return _parserWorker;
+}
+
+// ★ Worker 교체: 기존 Worker terminate 후 새 생성
+function resetParserWorker(){
+  if(_parserWorker){
+    _parserWorker.terminate();
+    _parserWorker=null;
+    _workerCallbacks.clear();
+  }
+  return getParserWorker();
 }
 
 /**
@@ -6275,10 +6332,28 @@ async function splitChaptersAsync(raw, customPat, onProgress){
   return new Promise((resolve,reject)=>{
     const id=++_workerIdCounter;
     _workerCallbacks.set(id,{resolve,reject});
+
+    // ★ 타임아웃: Worker가 응답 없이 채널이 닫히는 경우 방지 (2분)
+    const timer=setTimeout(()=>{
+      if(_workerCallbacks.has(id)){
+        _workerCallbacks.delete(id);
+        // Worker 타임아웃 → 동기 폴백
+        try{resolve(splitChapters(raw,customPat));}
+        catch(e){reject(new Error('파싱 타임아웃: '+e.message));}
+      }
+    }, 120000);
+
     try{
       const worker=getParserWorker();
+      // ★ 원본 콜백을 타이머 정리 포함 버전으로 래핑
+      const orig=_workerCallbacks.get(id);
+      _workerCallbacks.set(id,{
+        resolve:(r)=>{ clearTimeout(timer); orig.resolve(r); },
+        reject: (e)=>{ clearTimeout(timer); orig.reject(e); }
+      });
       worker.postMessage({type:'SPLIT',payload:{raw,customPat},id});
     }catch(e){
+      clearTimeout(timer);
       _workerCallbacks.delete(id);
       // Worker 실패 시 동기 폴백
       try{resolve(splitChapters(raw,customPat));}catch(e2){reject(e2);}

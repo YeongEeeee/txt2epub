@@ -59,30 +59,7 @@ function renderBodyHtml(body, {useItalic=true, maxBlank=2}={}){
   }
   return html;
 }
-
-
-async function handleCustomFont(files){
-  const f=files[0];if(!f)return;
-  customFontFile=f;
-  const ext=f.name.split('.').pop().toLowerCase();
-  const fontName=f.name.replace(/\.[^.]+$/,'');
-  customFontName=fontName;
-  // base64로 읽어서 @font-face에 임베드
-  const ab=await fileToAB(f);
-  const b64=btoa(String.fromCharCode(...new Uint8Array(ab)));
-  const mimeMap={'ttf':'font/truetype','otf':'font/opentype','woff':'font/woff','woff2':'font/woff2'};
-  const mime=mimeMap[ext]||'font/truetype';
-  customFontFace='@font-face{font-family:"'+fontName+'";src:url("data:'+mime+';base64,'+b64+'") format("'+ext+'");}\n';
-  // select에 커스텀 폰트 옵션 추가
-  const opt=document.getElementById('customFontOpt');
-  if(opt){opt.textContent='📁 '+fontName;opt.style.display='';opt.value='"'+fontName+'",serif';}
-  document.getElementById('cssFont').value='"'+fontName+'",serif';
-  document.getElementById('fontInfo').textContent='✅ '+f.name+' ('+( ab.byteLength/1024).toFixed(0)+'KB)';
-  document.getElementById('fontDrop').classList.add('ok');
-  updateCssPreview();
-  saveCssSettings();
-  updateSettingsSummary();
-}
+// handleCustomFont → main.js로 이동 (customFontFile 등 main.js 전역 변수 의존)
 
 function showResultStats(containerId, stats){
   const c=document.getElementById(containerId);
@@ -133,8 +110,66 @@ function extractFileNum(name){
 }
 
 // ══════════════════════════════════════════
-// 📑 Module: ChapterParser (패턴 감지·챕터 분리)
+// 🖥️ Module: VirtualScroll
+// 대용량 텍스트를 스크롤 위치 기반으로 가변 렌더링
+// main.js보다 먼저 로드되어도 독립 동작 보장
 // ══════════════════════════════════════════
+/* global createVirtualScroll */
+// createVirtualScroll은 main.js에 정의됨. 없을 경우 아래 폴백 사용.
+if(typeof createVirtualScroll==='undefined'){
+  // eslint-disable-next-line no-global-assign, no-unused-vars
+  window.createVirtualScroll=function createVirtualScroll(container, lines, lineHeight=18, visibleBuffer=60){
+    if(!lines||!lines.length) return {destroy:()=>{}};
+
+    const ITEM_H=lineHeight;
+    const totalH=lines.length*ITEM_H;
+    const VIEW_H=320;
+
+    container.style.cssText='position:relative;overflow-y:auto;height:'+VIEW_H+'px';
+
+    // ① 전체 높이 더미 spacer (스크롤바 크기 결정)
+    const spacer=document.createElement('div');
+    spacer.style.cssText='position:absolute;top:0;left:0;width:1px;height:'+totalH+'px;pointer-events:none';
+    container.appendChild(spacer);
+
+    // ② 실제 텍스트 렌더링 pre (절대 위치)
+    const content=document.createElement('pre');
+    content.className='toc-raw';
+    content.style.cssText='position:absolute;top:0;left:0;right:0;margin:0;white-space:pre;font-size:11px;font-family:monospace';
+    container.appendChild(content);
+
+    let lastStart=-1, rafId=null;
+
+    function render(){
+      rafId=null;
+      const scrollTop=container.scrollTop;
+      const start=Math.max(0,Math.floor(scrollTop/ITEM_H)-visibleBuffer);
+      const end  =Math.min(lines.length,Math.ceil((scrollTop+VIEW_H)/ITEM_H)+visibleBuffer);
+      if(start===lastStart) return;
+      lastStart=start;
+      content.style.top=(start*ITEM_H)+'px';
+      content.textContent=lines.slice(start,end)
+        .map((l,i)=>String(start+i+1).padStart(5,' ')+' │ '+l)
+        .join('\n');
+    }
+
+    function onScroll(){
+      if(rafId) return;
+      rafId=requestAnimationFrame(render);
+    }
+
+    container.addEventListener('scroll',onScroll,{passive:true});
+    render();
+    return {
+      destroy(){
+        container.removeEventListener('scroll',onScroll);
+        if(rafId) cancelAnimationFrame(rafId);
+      }
+    };
+  };
+}
+
+
 const PATS=[
   // ── 최우선: 명확한 형식 ──
   [/^\[(?:EP|Ep|ep)\.\d+\](?:\s*.+)?$/,               '[EP.N] 형식'],
@@ -609,7 +644,7 @@ async function previewToc(){
   }
   _fullRawLines=text.split('\n');
 
-  const pat=document.getElementById('pattern').value.trim();
+  const pat=(document.getElementById('pattern')?.value||'').trim();
   let found=[],patLabel='';
   if(pat){
     try{
@@ -661,30 +696,36 @@ async function previewToc(){
   }
 
   // ★ 가상 스크롤: 스크롤 위치 기반 가변 렌더링 (고도화)
+  // ★ 수정: rawLines → _fullRawLines (previewToc 함수 내 전역변수 참조)
   const tb2=document.getElementById('tb2');
-  tb2.innerHTML='';
-  if(typeof createVirtualScroll==='function'){
-    createVirtualScroll(tb2, rawLines);
-  } else {
-    // createVirtualScroll 미로드 시 폴백 (최초 2000줄)
-    const pre=document.createElement('pre');
-    pre.className='toc-raw';
-    pre.textContent=rawLines.slice(0,2000).map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');
-    tb2.appendChild(pre);
-    if(rawLines.length>2000){
-      const btn=document.createElement('button');
-      btn.className='btn btn-ghost btn-sm';
-      btn.style.cssText='margin:8px 0;width:100%;font-size:11px';
-      btn.textContent=`▼ 나머지 ${(rawLines.length-2000).toLocaleString()}줄 더 보기`;
-      btn.onclick=()=>{pre.textContent=rawLines.map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');btn.remove();};
-      tb2.appendChild(btn);
+  if(tb2){
+    tb2.innerHTML='';
+    if(typeof createVirtualScroll==='function'){
+      createVirtualScroll(tb2, _fullRawLines);
+    } else {
+      // createVirtualScroll 미로드 시 폴백 (최초 2000줄)
+      const pre=document.createElement('pre');
+      pre.className='toc-raw';
+      pre.textContent=_fullRawLines.slice(0,2000).map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');
+      tb2.appendChild(pre);
+      if(_fullRawLines.length>2000){
+        const btn=document.createElement('button');
+        btn.className='btn btn-ghost btn-sm';
+        btn.style.cssText='margin:8px 0;width:100%;font-size:11px';
+        btn.textContent=`▼ 나머지 ${(_fullRawLines.length-2000).toLocaleString()}줄 더 보기`;
+        btn.onclick=()=>{
+          pre.textContent=_fullRawLines.map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');
+          btn.remove();
+        };
+        tb2.appendChild(btn);
+      }
     }
   }
-  document.getElementById('patEdit').value=pat;
+  document.getElementById('patEdit')?.value !== undefined && (document.getElementById('patEdit').value=pat);
   S._rawTextFull=_fullRawLines;
-  document.getElementById('tocPanel').classList.add('show');
+  document.getElementById('tocPanel')?.classList.add('show');
   tocTab(0);
-  document.getElementById('tb0').insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+patLabel+'</div>');
+  document.getElementById('tb0')?.insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+patLabel+'</div>');
   refreshDetectedChip();
   const splitBtn=document.querySelector('button[data-action="autoSplitByInterval"]');
   if(splitBtn){

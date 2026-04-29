@@ -268,7 +268,7 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
   }
 
   // 공통 renderBodyHtml 사용 (useItalic은 buildEpub 인자에서 전달)
-  function bodyToHtml(body){ return renderBodyHtml(body,{useItalic,maxBlank:2}); }
+  // ★ bodyToHtml 제거 — renderBodyHtml 직접 사용으로 표준화
 
   // 챕터별 삽화 매핑
   // il.idx: 파일명 기반 0-based 인덱스 매칭 (auto)
@@ -328,7 +328,7 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
     // 패턴 미감지 자동 페이지 분할 챕터는 제목 표시 안 함 (텍스트 우선)
     const isAutoPage=/^\(\d+\/\d+\)$/.test(heading)||heading==='본문'||/^Chapter\s+\d+$/.test(heading);
     const showTitle=showChTitle&&!isAutoPage;
-    textFolder.file(fname,xhtmlPage(heading,(showTitle?'<h1>'+escHtml(heading)+'</h1>\n':'')+bodyToHtml(body)));
+    textFolder.file(fname,xhtmlPage(heading,(showTitle?'<h1>'+escHtml(heading)+'</h1>\n':'')+renderBodyHtml(body,{useItalic,maxBlank:2})));
     manifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
     if(heading!=='서문') spineItems.push(chid);
 
@@ -388,13 +388,25 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
   // ★ optCompression: 기본값 6, 범위 0~9 클램프 (방어 코드)
   const compressionRaw=parseInt(document.getElementById('optCompression')?.value??'6',10);
   const compressionLevel=isNaN(compressionRaw)?6:Math.max(0,Math.min(9,compressionRaw));
-  return zip.generateAsync({
-    type:'blob',
-    mimeType:'application/epub+zip',
-    // ★ 파일별 compression 지정으로 mimetype은 STORE 유지 (파일 추가 시 이미 설정됨)
-    compression:'DEFLATE',
-    compressionOptions:{level:compressionLevel}
-  }, meta=>onProgress&&onProgress(92+Math.floor(meta.percent*0.07),'압축 중 '+Math.floor(meta.percent)+'%...'));
+
+  // ★ generateAsync try-catch: 채널 닫힘(Message channel closed) 방지
+  try{
+    const blob=await zip.generateAsync({
+      type:'blob',
+      mimeType:'application/epub+zip',
+      compression:'DEFLATE',
+      compressionOptions:{level:compressionLevel}
+    }, meta=>onProgress&&onProgress(92+Math.floor(meta.percent*0.07),'압축 중 '+Math.floor(meta.percent)+'%...'));
+    return blob;
+  }catch(zipErr){
+    // 압축 실패 시 무압축 재시도
+    onProgress&&onProgress(94,'압축 재시도 중...');
+    return await zip.generateAsync({
+      type:'blob',
+      mimeType:'application/epub+zip',
+      compression:'STORE',
+    }, meta=>onProgress&&onProgress(94+Math.floor(meta.percent*0.05),'압축 중 '+Math.floor(meta.percent)+'%...'));
+  }
 }
 
 function xhtmlPage(title,body){
