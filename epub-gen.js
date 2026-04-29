@@ -385,7 +385,9 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
   oebps.file('content.opf',opf);
 
   onProgress&&onProgress(92,'압축 중...');
-  const compressionLevel=parseInt(document.getElementById('optCompression')?.value||'6');
+  // ★ optCompression: 기본값 6, 범위 0~9 클램프 (방어 코드)
+  const compressionRaw=parseInt(document.getElementById('optCompression')?.value??'6',10);
+  const compressionLevel=isNaN(compressionRaw)?6:Math.max(0,Math.min(9,compressionRaw));
   return zip.generateAsync({
     type:'blob',
     mimeType:'application/epub+zip',

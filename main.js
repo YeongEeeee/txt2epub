@@ -918,43 +918,67 @@ function genUID(){
 }
 
 // ★ 가상 스크롤: 스크롤 위치 기반 가변 렌더링
-function createVirtualScroll(container, lines, lineHeight=18, visibleBuffer=50){
+// container: 스크롤 컨테이너 div
+// lines: 전체 텍스트 줄 배열
+// lineHeight: 줄당 픽셀 높이 (기본 18px)
+// visibleBuffer: 뷰포트 위아래 여분 렌더링 줄 수
+function createVirtualScroll(container, lines, lineHeight=18, visibleBuffer=60){
+  if(!lines||!lines.length) return {destroy:()=>{}};
+
   const ITEM_H=lineHeight;
   const totalH=lines.length*ITEM_H;
+  const VIEW_H=320; // 컨테이너 높이 고정
 
   // 컨테이너 설정
-  container.style.cssText='position:relative;overflow-y:auto;height:320px';
-  const sentinel=document.createElement('div');
-  sentinel.style.cssText=`height:${totalH}px;pointer-events:none`;
-  container.appendChild(sentinel);
+  container.style.cssText='position:relative;overflow-y:auto;height:'+VIEW_H+'px';
 
-  const viewport=document.createElement('div');
-  viewport.style.cssText='position:sticky;top:0;pointer-events:none';
-  container.appendChild(viewport);
+  // ① 전체 높이를 담당하는 더미 div (스크롤바 크기 결정)
+  const spacer=document.createElement('div');
+  spacer.style.cssText='position:absolute;top:0;left:0;width:1px;height:'+totalH+'px;pointer-events:none';
+  container.appendChild(spacer);
 
+  // ② 실제 텍스트 렌더링 pre (절대 위치)
   const content=document.createElement('pre');
   content.className='toc-raw';
-  content.style.cssText='position:absolute;left:0;right:0;margin:0';
-  sentinel.appendChild(content);
+  content.style.cssText='position:absolute;top:0;left:0;right:0;margin:0;white-space:pre';
+  container.appendChild(content);
 
   let lastStart=-1;
+  let rafId=null;
 
   function render(){
+    rafId=null;
     const scrollTop=container.scrollTop;
-    const viewH=container.clientHeight||320;
-    const start=Math.max(0,Math.floor(scrollTop/ITEM_H)-visibleBuffer);
-    const end=Math.min(lines.length,Math.ceil((scrollTop+viewH)/ITEM_H)+visibleBuffer);
+    const start=Math.max(0, Math.floor(scrollTop/ITEM_H)-visibleBuffer);
+    const end  =Math.min(lines.length, Math.ceil((scrollTop+VIEW_H)/ITEM_H)+visibleBuffer);
+
+    // 변경 없으면 DOM 업데이트 스킵
     if(start===lastStart) return;
     lastStart=start;
+
+    // 절대 위치 이동으로 렌더링 위치 지정
     content.style.top=(start*ITEM_H)+'px';
-    content.textContent=lines.slice(start,end)
+    content.textContent=lines
+      .slice(start, end)
       .map((l,i)=>String(start+i+1).padStart(5,' ')+' │ '+l)
       .join('\n');
   }
 
-  container.addEventListener('scroll',render,{passive:true});
-  render();
-  return {destroy:()=>container.removeEventListener('scroll',render)};
+  function onScroll(){
+    // rAF로 묶어서 불필요한 재렌더링 방지
+    if(rafId) return;
+    rafId=requestAnimationFrame(render);
+  }
+
+  container.addEventListener('scroll', onScroll, {passive:true});
+  render(); // 초기 렌더링
+
+  return {
+    destroy(){
+      container.removeEventListener('scroll', onScroll);
+      if(rafId) cancelAnimationFrame(rafId);
+    }
+  };
 }
   const el=document.getElementById('errorBoundary');
   const detail=document.getElementById('errorBoundaryDetail');
@@ -1591,12 +1615,17 @@ function updateCssPreview(){
   const font=document.getElementById('cssFont')?.value||'"Noto Serif KR",serif';
   const line=document.getElementById('cssLine')?.value||'1.9';
   const size=document.getElementById('cssFontSize')?.value||'1em';
-  const margin=document.getElementById('cssMargin')?.value||'1.5em 1.8em';
+  // ★ cssMargin(존재하지 않음) 제거 → 4방향 패딩 직접 읽기
+  const padTop   =document.getElementById('cssPadTop')?.value   ||'1.5';
+  const padBottom=document.getElementById('cssPadBottom')?.value||'1.5';
+  const padLeft  =document.getElementById('cssPadLeft')?.value  ||'1.8';
+  const padRight =document.getElementById('cssPadRight')?.value ||'1.8';
+  const paddingVal=`${padTop}em ${padRight}em ${padBottom}em ${padLeft}em`;
   const textColor=document.getElementById('cssTextColor')?.value||'';
-  const bgColor=document.getElementById('cssBgColor')?.value||'';
+  const bgColor  =document.getElementById('cssBgColor')?.value  ||'';
   const align=document.querySelector('input[name="cssAlign"]:checked')?.value||'justify';
   const titleStyle=document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center';
-  p.style.cssText=`font-family:${font};line-height:${line};font-size:${size};padding:${margin};${textColor?'color:'+textColor+';':''}${bgColor?'background:'+bgColor+';':''}text-align:${align};border-radius:8px`;
+  p.style.cssText=`font-family:${font};line-height:${line};font-size:${size};padding:${paddingVal};${textColor?'color:'+textColor+';':''}${bgColor?'background:'+bgColor+';':''}text-align:${align};border-radius:8px`;
   const te=document.getElementById('cssPreviewTitle');
   if(te){
     te.style.textAlign=titleStyle==='left'?'left':'center';
@@ -5851,20 +5880,24 @@ function saveUserPrefs(){
       font:        document.getElementById('cssFont')?.value||'',
       size:        document.getElementById('cssFontSize')?.value||'1em',
       line:        document.getElementById('cssLine')?.value||'1.9',
-      // ★ 4방향 여백 개별 저장
+      // 4방향 여백
       padTop:      document.getElementById('cssPadTop')?.value||'1.5',
       padBottom:   document.getElementById('cssPadBottom')?.value||'1.5',
       padLeft:     document.getElementById('cssPadLeft')?.value||'1.8',
       padRight:    document.getElementById('cssPadRight')?.value||'1.8',
-      // 기존 호환 폴백
+      // ★ 텍스트 정렬·챕터 제목 스타일 (라디오 복원용)
+      cssAlign:    document.querySelector('input[name="cssAlign"]:checked')?.value||'justify',
+      cssTitleStyle: document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center',
+      // 색상
+      textColor:   document.getElementById('cssTextColor')?.value||'',
+      bgColor:     document.getElementById('cssBgColor')?.value||'',
+      // 슬라이더 값
+      indentEm:    document.getElementById('cssIndentSlider')?.value||'1.0',
+      // 테마/옵션
       dark:        document.documentElement.dataset.theme==='dark',
       italic:      document.getElementById('optItalic')?.checked??true,
       indent:      document.getElementById('optIndent')?.checked??true,
       mergePara:   document.getElementById('optMergeShortLines')?.checked??false,
-      // 슬라이더 값도 함께 저장
-      indentEm:    document.getElementById('cssIndentSlider')?.value||'1.0',
-      textColor:   document.getElementById('cssTextColor')?.value||'',
-      bgColor:     document.getElementById('cssBgColor')?.value||'',
     };
     localStorage.setItem('novelepub_prefs', JSON.stringify(prefs));
   }catch(e){}
@@ -5872,19 +5905,41 @@ function saveUserPrefs(){
 
 // 저장된 설정 복원
 function loadUserPrefs(){
+  // ★ novelepub_prefs에서 복원 (슬라이더·레이블·라디오 완전 동기화)
   try{
     const raw=localStorage.getItem('novelepub_prefs');
     if(!raw) return;
     const p=JSON.parse(raw);
 
-    // 폰트
-    if(p.font){ const el=document.getElementById('cssFont'); if(el) el.value=p.font; }
-    // 글자 크기
-    if(p.size){ const el=document.getElementById('cssFontSize'); if(el) el.value=p.size; }
-    // 줄간격
-    if(p.line){ const el=document.getElementById('cssLine'); if(el) el.value=p.line; }
+    // ── 폰트 ──
+    if(p.font){
+      const el=document.getElementById('cssFont');
+      if(el) el.value=p.font;
+    }
 
-    // ★ 4방향 여백 복원 + 슬라이더 동기화
+    // ── 글자 크기 (select + 슬라이더 + 레이블 span 동기화) ──
+    if(p.size){
+      const numVal=parseFloat(p.size)||1.0;
+      const sel=document.getElementById('cssFontSize');
+      const sl =document.getElementById('cssFontSizeSlider');
+      const vl =document.getElementById('cssFontSizeVal');
+      if(sel) sel.value=p.size;
+      if(sl)  sl.value=numVal;
+      if(vl)  vl.textContent=numVal.toFixed(2).replace(/\.?0+$/,'')+'em';
+    }
+
+    // ── 줄간격 (select + 슬라이더 + 레이블 span 동기화) ──
+    if(p.line){
+      const numVal=parseFloat(p.line)||1.9;
+      const sel=document.getElementById('cssLine');
+      const sl =document.getElementById('cssLineSlider');
+      const vl =document.getElementById('cssLineVal');
+      if(sel) sel.value=p.line;
+      if(sl)  sl.value=numVal;
+      if(vl)  vl.textContent=numVal.toFixed(1);
+    }
+
+    // ── 4방향 여백 (숫자 input + 슬라이더 동기화) ──
     const padMap=[
       ['cssPadTop',    'cssPadTopSlider',    p.padTop,    '1.5'],
       ['cssPadBottom', 'cssPadBottomSlider', p.padBottom, '1.5'],
@@ -5892,31 +5947,51 @@ function loadUserPrefs(){
       ['cssPadRight',  'cssPadRightSlider',  p.padRight,  '1.8'],
     ];
     for(const [numId, sliderId, val, def] of padMap){
-      const v=val||def;
-      const numEl =document.getElementById(numId);
+      const v=String(val||def);
+      const numEl  =document.getElementById(numId);
       const slideEl=document.getElementById(sliderId);
       if(numEl)   numEl.value=v;
-      if(slideEl) slideEl.value=v;
+      if(slideEl) slideEl.value=parseFloat(v)||parseFloat(def);
     }
 
+    // ── 들여쓰기 슬라이더 + 레이블 ──
+    if(p.indentEm!=null){
+      const sl=document.getElementById('cssIndentSlider');
+      const vl=document.getElementById('cssIndentVal');
+      if(sl) sl.value=p.indentEm;
+      if(vl) vl.textContent=parseFloat(p.indentEm).toFixed(1)+'em';
+    }
 
-    // 다크모드
-    if(p.dark===true) document.documentElement.dataset.theme='dark';
+    // ── 텍스트 정렬 라디오버튼 복원 ──
+    if(p.cssAlign){
+      const r=document.querySelector(`input[name="cssAlign"][value="${p.cssAlign}"]`);
+      if(r) r.checked=true;
+    }
 
-    // 토글 옵션
-    if(p.italic!=null){  const el=document.getElementById('optItalic');          if(el) el.checked=p.italic; }
-    if(p.indent!=null){  const el=document.getElementById('optIndent');          if(el) el.checked=p.indent; }
-    if(p.mergePara!=null){ const el=document.getElementById('optMergeShortLines'); if(el) el.checked=p.mergePara; }
+    // ── 챕터 제목 스타일 라디오버튼 복원 ──
+    if(p.cssTitleStyle){
+      const r=document.querySelector(`input[name="cssTitleStyle"][value="${p.cssTitleStyle}"]`);
+      if(r) r.checked=true;
+    }
 
-    // 들여쓰기 슬라이더
-    if(p.indentEm!=null){ const el=document.getElementById('cssIndentSlider'); if(el) el.value=p.indentEm; }
-
-    // 텍스트/배경 색상
+    // ── 텍스트/배경 색상 ──
     if(p.textColor){ const el=document.getElementById('cssTextColor'); if(el) el.value=p.textColor; }
     if(p.bgColor){   const el=document.getElementById('cssBgColor');   if(el) el.value=p.bgColor; }
 
-    updateFontPreview();
-    // ★ 설정 복원 후 CSS 미리보기 갱신
+    // ── 다크모드 ──
+    if(p.dark===true){
+      document.documentElement.dataset.theme='dark';
+      const btn=document.getElementById('themeBtn');
+      if(btn) btn.textContent='☀️';
+    }
+
+    // ── 토글 옵션 ──
+    if(p.italic!=null){   const el=document.getElementById('optItalic');          if(el) el.checked=p.italic; }
+    if(p.indent!=null){   const el=document.getElementById('optIndent');          if(el) el.checked=p.indent; }
+    if(p.mergePara!=null){ const el=document.getElementById('optMergeShortLines'); if(el) el.checked=p.mergePara; }
+
+    // ── 폰트 프리뷰 + CSS 미리보기 갱신 ──
+    updateFontPreview&&updateFontPreview();
     updateCssPreview&&updateCssPreview();
   }catch(e){}
 }
