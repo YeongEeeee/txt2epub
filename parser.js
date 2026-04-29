@@ -1296,7 +1296,6 @@ async function _geminiRequest(url, body, modelId, maxRetries=2){
       }
 
       const waitMs=Math.min(baseWait, 30000); // 최대 30초 대기
-        +Math.round(waitMs/1000)+'초 후 재시도 ('+attempt+'/'+maxRetries+')...');
       await new Promise(r=>setTimeout(r,waitMs));
       continue; // 같은 모델 재시도
     }
@@ -1437,6 +1436,7 @@ async function idbSet(key,val){
       tx.objectStore(HIST_STORE).put(val,key);
       tx.oncomplete=res; tx.onerror=()=>rej(tx.error);
     });
+  }catch(e){return null;}
 }
 async function idbGet(key){
   try{
