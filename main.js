@@ -157,7 +157,6 @@ const EventBus = (() => {
     if (_listeners[event]) _listeners[event] = _listeners[event].filter(f => f !== fn);
   }
   function emit(event, data) {
-    (_listeners[event] || []).forEach(fn => { try { fn(data); } catch(e) { console.error(e); } });
   }
 
   return { on, off, emit };
@@ -352,16 +351,30 @@ const yieldToMain = (typeof scheduler !== 'undefined' && scheduler.yield)
   : () => new Promise(r => setTimeout(r, 0));
 
 window.addEventListener('DOMContentLoaded', ()=>{
+  initTheme();  // ★ 다크모드 OS 감지 + localStorage 복원
   loadCssSettings();
   loadExtraSettings();
   loadApiSettings();
-  loadUserPrefs();           // ★ 사용자 설정 복원 (폰트/여백/다크모드 등)
+  buildFontDropdown&&buildFontDropdown();
+  loadUserPrefs();
   buildPatHelpers();
   setupDragDrop();
   setupEventListeners();
   setupEventDelegate();
   updateSettingsSummary();
-  renderCssPresetList();     // ★ 설정 프리셋 목록 렌더링
+  renderCssPresetList();
+  renderHistory&&renderHistory();
+
+  // ★ 인라인 이벤트 → 이벤트 위임으로 처리
+  // histSearchInp: oninput="filterHistory()"
+  document.getElementById('histSearchInp')?.addEventListener('input', ()=>filterHistory&&filterHistory());
+  // histFilterHasFile: onclick="toggleHistFilter(this)"
+  document.getElementById('histFilterHasFile')?.addEventListener('click', function(){ toggleHistFilter&&toggleHistFilter(this); });
+  // coverSearchQ: onkeydown Enter → runCoverSearch
+  document.getElementById('coverSearchQ')?.addEventListener('keydown', e=>{ if(e.key==='Enter') runCoverSearch&&runCoverSearch(); });
+  // pad accordion toggle
+  document.getElementById('padAccordionToggle')?.addEventListener('click', ()=>togglePadAccordion&&togglePadAccordion());
+
   // 슬라이더 초기값 select 기준으로 동기화
   const lineVal=document.getElementById('cssLine')?.value||'1.9';
   syncSelect('cssLine','cssLineSlider','cssLineVal',lineVal);
@@ -544,12 +557,7 @@ function clearChipSelection(helperId){
 
 function setupEventListeners(){
   // file input onchange (드래그존 onclick과 같은 핸들러 연결)
-  document.getElementById('txtIn').onchange        =e=>{
-    // 이미 파일이 있으면 append 모드 (파일 추가 버튼 클릭 시)
-    const append=S.txtFiles.length>0;
-    handleTxt(e.target.files,append);
-    e.target.value=''; // 같은 파일 재선택 허용
-  };
+  document.getElementById('txtIn').onchange        =e=>{ const append=S.txtFiles.length>0; handleTxt(e.target.files,append); e.target.value=''; };
   document.getElementById('illIn').onchange        =e=>handleIll(e.target.files);
   document.getElementById('coverIn').onchange      =e=>handleCover(e.target.files);
   document.getElementById('epubIn').onchange       =e=>loadEpub(e.target.files[0]);
@@ -560,16 +568,49 @@ function setupEventListeners(){
   document.getElementById('batchCoverIn').onchange =e=>handleBatchCover(e.target.files);
   document.getElementById('fontIn').onchange       =e=>handleCustomFont(e.target.files);
   document.getElementById('cssImportIn').onchange  =e=>handleCssImportEpub(e.target.files);
-  // 표지 썸네일 클릭 (드래그존이 아닌 별도 버튼)
-  document.getElementById('coverThumb').onclick=()=>document.getElementById('coverIn').click();
-  // editIllMode 라디오
+  document.getElementById('coverThumb').onclick    =()=>document.getElementById('coverIn').click();
   document.querySelectorAll('input[name="editIllMode"]').forEach(r=>r.addEventListener('change',e=>{
     document.getElementById('editIllManual').style.display=e.target.value==='manual'?'block':'none';
   }));
-  // 삽입 위치 라디오
   document.querySelectorAll('input[name="insPos"]').forEach(r=>r.addEventListener('change',()=>{
     if(E.selectedChIdx!==null)selectCh(E.selectedChIdx);
   }));
+
+  // ★ 단축키 (추천 4)
+  document.addEventListener('keydown',e=>{
+    // 입력 중이면 무시
+    const tag=(e.target.tagName||'').toUpperCase();
+    if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') return;
+    if(e.ctrlKey||e.metaKey){
+      if(e.key==='Enter'){e.preventDefault();startConvert();}           // Ctrl+Enter: 변환 시작
+      else if(e.key==='d'||e.key==='D'){e.preventDefault();downloadEpub();}  // Ctrl+D: 다운로드
+      else if(e.key==='/'||e.key==='?'){e.preventDefault();showShortcutHelp();} // Ctrl+?: 도움말
+    }
+    if(e.key==='Escape'){                                               // Esc: 모달 닫기
+      document.querySelector('.modal-overlay.show')&&document.querySelector('.modal-overlay.show')
+        .querySelectorAll('[data-action]')
+        .forEach(el=>{if(el.dataset.action?.includes('close'))el.click();});
+    }
+  });
+}
+
+// ★ 단축키 도움말 패널
+function showShortcutHelp(){
+  const existing=document.getElementById('shortcutHelp');
+  if(existing){existing.remove();return;}
+  const el=document.createElement('div');
+  el.id='shortcutHelp';
+  el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:14px;padding:20px 24px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.3);font-size:12px;min-width:260px';
+  el.innerHTML='<div style="font-size:14px;font-weight:700;margin-bottom:12px;color:var(--text)">⌨️ 단축키</div>'+
+    '<table style="border-collapse:collapse;width:100%;line-height:2"><tbody>'+
+    '<tr><td style="color:var(--text2);padding-right:16px"><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+Enter</kbd></td><td>✨ 변환 시작</td></tr>'+
+    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+D</kbd></td><td>⬇ 다운로드</td></tr>'+
+    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+클릭</kbd></td><td>목차 다중 선택/병합</td></tr>'+
+    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+?</kbd></td><td>이 도움말 열기/닫기</td></tr>'+
+    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Esc</kbd></td><td>모달 닫기</td></tr>'+
+    '</tbody></table>'+
+    '<div style="text-align:right;margin-top:12px"><button onclick="document.getElementById(\'shortcutHelp\').remove()" class="btn btn-ghost btn-sm">닫기</button></div>';
+  document.body.appendChild(el);
 }
 
 // ── data-input-action 인풋 이벤트 위임 핸들러 ──
@@ -639,8 +680,9 @@ function setupEventListeners(){
 function setupEventDelegate(){
   EventDelegate.registerAll({
     // ── 헤더 ──
-    toggleTheme:      () => toggleTheme(),
-    resetAll:         () => resetAll(),
+    toggleTheme:          () => toggleTheme(),
+    resetAll:             () => resetAll(),
+    saveCurrentAsPreset:  () => saveCurrentAsPreset&&saveCurrentAsPreset(),
 
     // ── 탭 전환 ──
     switchPage:       (el) => switchPage(el.dataset.page),
@@ -723,16 +765,15 @@ function setupEventDelegate(){
       if(row) row.remove();
     },
     removeAllSuspicious: () => {
-      // suspicious 각 항목의 다음 항목(오감지)을 뒤에서부터 제거
       const indices=[];
       S.tocItems.forEach((t,i)=>{ if(t.suspicious && i+1<S.tocItems.length) indices.push(i+1); });
       const toRemove=[...new Set(indices)].sort((a,b)=>b-a);
-      if(toRemove.length>0) _saveTocSnapshot&&_saveTocSnapshot(); // ★ Undo 스냅샷
+      if(toRemove.length>0) _saveTocSnapshot&&_saveTocSnapshot();
       toRemove.forEach(i=>S.tocItems.splice(i,1));
-      // ★ 목차 변경 → 캐시 즉시 무효화
       _chaptersCache=null;_chaptersCacheKey='';
       renderTocItems();
       updateTocStat();
+      updateTocEditBanner&&updateTocEditBanner();
       document.getElementById('susp-toast')?.remove();
       if(toRemove.length>0) Toast.success('오감지 챕터 '+toRemove.length+'개를 목차에서 제거했어요.');
     },
@@ -821,12 +862,120 @@ function setupDz(id,fn,inputId){
 
 // ══════════════════════════════════════════
 // 🎨 Module: Theme  (다크/라이트 테마 전환)
+// ★ OS 자동 감지 + localStorage 저장/복원
 // ══════════════════════════════════════════
 function toggleTheme(){
-  const d=document.documentElement,dark=d.getAttribute('data-theme')==='dark';
-  d.setAttribute('data-theme',dark?'light':'dark');
-  document.getElementById('themeBtn').textContent=dark?'🌙':'☀️';
+  const d=document.documentElement;
+  const isDark=d.getAttribute('data-theme')==='dark';
+  const next=isDark?'light':'dark';
+  d.setAttribute('data-theme',next);
+  document.getElementById('themeBtn').textContent=isDark?'🌙':'☀️';
+  // ★ 사용자 선택을 localStorage에 저장
+  try{ localStorage.setItem('novelepub_theme',next); }catch(e){}
 }
+
+function initTheme(){
+  // ★ localStorage 우선 → 없으면 OS 테마 자동 감지
+  let theme=null;
+  try{ theme=localStorage.getItem('novelepub_theme'); }catch(e){}
+  if(!theme){
+    theme=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';
+  }
+  document.documentElement.setAttribute('data-theme',theme);
+  const btn=document.getElementById('themeBtn');
+  if(btn) btn.textContent=theme==='dark'?'☀️':'🌙';
+  // OS 테마 변경 감지 (사용자 직접 설정 없을 때만)
+  window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change',e=>{
+    try{
+      const saved=localStorage.getItem('novelepub_theme');
+      if(!saved){ // 사용자가 직접 선택한 적 없으면 OS 따라감
+        const t=e.matches?'dark':'light';
+        document.documentElement.setAttribute('data-theme',t);
+        const b=document.getElementById('themeBtn');
+        if(b) b.textContent=t==='dark'?'☀️':'🌙';
+      }
+    }catch(ex){}
+  });
+}
+
+// ★ 4방향 여백 아코디언 (모바일 UX)
+function togglePadAccordion(){
+  const btn=document.getElementById('padAccordionToggle');
+  const body=document.getElementById('padAccordionBody');
+  if(!btn||!body) return;
+  const open=body.classList.toggle('open');
+  btn.classList.toggle('open', open);
+}
+
+// ★ crypto.randomUUID 래퍼 (충돌 방지 ID 생성)
+function genUID(){
+  if(crypto.randomUUID) return crypto.randomUUID();
+  // 폴백 (구형 브라우저)
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+    const r=Math.random()*16|0;
+    return (c==='x'?r:(r&0x3|0x8)).toString(16);
+  });
+}
+
+// ★ 가상 스크롤: 스크롤 위치 기반 가변 렌더링
+function createVirtualScroll(container, lines, lineHeight=18, visibleBuffer=50){
+  const ITEM_H=lineHeight;
+  const totalH=lines.length*ITEM_H;
+
+  // 컨테이너 설정
+  container.style.cssText='position:relative;overflow-y:auto;height:320px';
+  const sentinel=document.createElement('div');
+  sentinel.style.cssText=`height:${totalH}px;pointer-events:none`;
+  container.appendChild(sentinel);
+
+  const viewport=document.createElement('div');
+  viewport.style.cssText='position:sticky;top:0;pointer-events:none';
+  container.appendChild(viewport);
+
+  const content=document.createElement('pre');
+  content.className='toc-raw';
+  content.style.cssText='position:absolute;left:0;right:0;margin:0';
+  sentinel.appendChild(content);
+
+  let lastStart=-1;
+
+  function render(){
+    const scrollTop=container.scrollTop;
+    const viewH=container.clientHeight||320;
+    const start=Math.max(0,Math.floor(scrollTop/ITEM_H)-visibleBuffer);
+    const end=Math.min(lines.length,Math.ceil((scrollTop+viewH)/ITEM_H)+visibleBuffer);
+    if(start===lastStart) return;
+    lastStart=start;
+    content.style.top=(start*ITEM_H)+'px';
+    content.textContent=lines.slice(start,end)
+      .map((l,i)=>String(start+i+1).padStart(5,' ')+' │ '+l)
+      .join('\n');
+  }
+
+  container.addEventListener('scroll',render,{passive:true});
+  render();
+  return {destroy:()=>container.removeEventListener('scroll',render)};
+}
+  const el=document.getElementById('errorBoundary');
+  const detail=document.getElementById('errorBoundaryDetail');
+  if(!el) return;
+  if(detail) detail.textContent=err instanceof Error
+    ?(err.message+(err.stack?'\n'+err.stack.split('\n').slice(0,3).join('\n'):''))
+    :String(err);
+  el.classList.add('show');
+}
+// ★ 에러 경계: 치명적 오류 화면 표시
+function showErrorBoundary(err){
+  const el=document.getElementById('errorBoundary');
+  const detail=document.getElementById('errorBoundaryDetail');
+  if(!el) return;
+  if(detail) detail.textContent=err instanceof Error
+    ?(err.message+(err.stack?'\n'+err.stack.split('\n').slice(0,3).join('\n'):''))
+    :String(err);
+  el.classList.add('show');
+}
+window.addEventListener('error',e=>{ if(e.error) showErrorBoundary(e.error); });
+window.addEventListener('unhandledrejection',e=>{ if(e.reason) showErrorBoundary(e.reason); });
 
 async function resetAll(){
   if(!await Toast.confirm('모든 설정을 초기화할까요?')) return;
@@ -1048,31 +1197,38 @@ async function fileToAB(file){
 // 이미지 변환 함수 — 설정에 따라 JPG 변환 or 원본 유지
 // forCover=true 이면 항상 JPG 변환 (표지는 뷰어 호환성 최우선)
 async function convertImageFile(file, forCover=false){
-  const ext=file.name.split('.').pop().toLowerCase();
-  const supportedAsIs=['jpg','jpeg'];
-  const convertable=['png','gif','webp','bmp','tiff','tif','avif','heic','heif'];
+  try{
+    const ext=(file.name.split('.').pop()||'').toLowerCase();
+    const supportedAsIs=['jpg','jpeg'];
+    const convertable=['png','gif','webp','bmp','tiff','tif','avif','heic','heif'];
 
-  if(supportedAsIs.includes(ext)) return {blob:file, ext:'jpg', mt:'image/jpeg'};
+    if(supportedAsIs.includes(ext)) return {blob:file, ext:'jpg', mt:'image/jpeg'};
 
-  const shouldConvert=forCover || document.getElementById('optImgConvert')?.checked!==false;
+    const shouldConvert=forCover || document.getElementById('optImgConvert')?.checked!==false;
 
-  if(shouldConvert && convertable.includes(ext)){
-    const quality=(parseInt(document.getElementById('optImgQuality')?.value||'92'))/100;
-    try{
-      const blob=await imgToJpgBlob(file, quality);
-      return {blob, ext:'jpg', mt:'image/jpeg'};
-    }catch(e){
-      console.warn('JPG 변환 실패, 원본 사용:', file.name, e);
+    if(shouldConvert && convertable.includes(ext)){
+      const quality=(parseInt(document.getElementById('optImgQuality')?.value||'92'))/100;
+      try{
+        const blob=await imgToJpgBlob(file, quality);
+        return {blob, ext:'jpg', mt:'image/jpeg'};
+      }catch(convErr){
+        // ★ 변환 실패 시 원본 사용 (전체 공정 중단 없음)
+        Toast.warn&&Toast.warn(`이미지 변환 실패 (원본 사용): ${file.name}`);
+      }
     }
-  }
 
-  const mimeMap={
-    'png':'image/png','gif':'image/gif','webp':'image/webp',
-    'bmp':'image/bmp','tiff':'image/tiff','tif':'image/tiff',
-    'avif':'image/avif','svg':'image/svg+xml',
-  };
-  const mt=mimeMap[ext]||'image/jpeg';
-  return {blob:file, ext, mt};
+    const mimeMap={
+      'png':'image/png','gif':'image/gif','webp':'image/webp',
+      'bmp':'image/bmp','tiff':'image/tiff','tif':'image/tiff',
+      'avif':'image/avif','svg':'image/svg+xml',
+    };
+    const mt=mimeMap[ext]||'image/jpeg';
+    return {blob:file, ext, mt};
+  }catch(e){
+    // ★ 이미지 처리 자체가 실패해도 null 반환으로 건너뜀 (전체 공정 유지)
+    Toast.warn&&Toast.warn(`이미지 처리 건너뜀: ${file.name}`);
+    return null;
+  }
 }
 
 // Canvas 기반 JPG 변환 (모든 포맷 대응)
@@ -2404,7 +2560,6 @@ async function startConvert(){
     document.getElementById('splitSec').style.display='block';
     document.getElementById('resultBox').classList.add('show');
   }catch(e){
-    console.error(e);
     document.getElementById('progWrap').classList.remove('show');
     document.getElementById('errBox').textContent='❌ '+friendlyError(e);
     document.getElementById('errBox').classList.add('show');
@@ -2633,6 +2788,76 @@ function downloadEpub(){
   a.download=S.epubName||'output.epub';
   a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+// ════ 결과 stat 카드 렌더링 (최적화 5) ════
+function showResultStats(containerId, stats){
+  const el=document.getElementById(containerId);
+  if(!el) return;
+  el.innerHTML=stats.map(s=>
+    `<div class="result-stat-card">
+       <div class="result-stat-val">${escHtml(String(s.value))}</div>
+       <div class="result-stat-lbl">${escHtml(String(s.label))}</div>
+     </div>`
+  ).join('');
+}
+
+// ════ 목차 편집 상태 배너 (추천 3) ════
+function updateTocEditBanner(){
+  const banner=document.getElementById('tocEditBanner');
+  const textEl=document.getElementById('tocEditBannerText');
+  if(!banner) return;
+  if(!S.tocItems||!S.tocItems.length){
+    banner.classList.remove('show');
+    return;
+  }
+  const total=S.tocItems.length;
+  const active=S.tocItems.filter(t=>t.enabled).length;
+  const edited=S.tocItems.some(t=>t.originalTitle&&t.title!==t.originalTitle);
+  const hasDisabled=active<total;
+  if(hasDisabled||edited){
+    if(textEl) textEl.textContent=`✏️ 목차 편집됨 — 활성 ${active} / 전체 ${total}개`+(edited?' · 제목 수정 있음':'');
+    banner.classList.add('show');
+  } else {
+    banner.classList.remove('show');
+  }
+}
+
+// ════ 히스토리 필터/검색 (추천 7) ════
+function filterHistory(){
+  const q=(document.getElementById('histSearchInp')?.value||'').toLowerCase().trim();
+  const onlyHasFile=document.getElementById('histFilterHasFile')?.classList.contains('on');
+  document.querySelectorAll('#histList .hist-item').forEach(el=>{
+    const title=(el.querySelector('.hist-title')?.textContent||'').toLowerCase();
+    const hasFile=!el.querySelector('.hist-del')?.closest('.hist-item')?.querySelector('[data-action="histDownload"]')?.disabled;
+    const matchQ=!q||title.includes(q);
+    const matchFile=!onlyHasFile||el.querySelector('[data-action="histDownload"]');
+    el.style.display=(matchQ&&matchFile)?'':'none';
+  });
+}
+function toggleHistFilter(btn){
+  btn.classList.toggle('on');
+  filterHistory();
+}
+
+// ════ 배치 변환 파일별 상태 렌더링 (추천 6) ════
+function renderBatchFileStatus(itemEl, files, statuses){
+  let container=itemEl.querySelector('.batch-file-status');
+  if(!container){
+    container=document.createElement('div');
+    container.className='batch-file-status';
+    itemEl.appendChild(container);
+  }
+  container.innerHTML=files.map((f,i)=>{
+    const st=statuses[i]||'pending';
+    const icon=st==='done'?'✅':st==='running'?'⏳':st==='error'?'❌':'⬜';
+    const detail=st==='done'?f.detail||'':'';
+    return `<div class="batch-file-row">
+      <span class="batch-file-icon">${icon}</span>
+      <span class="batch-file-name">${escHtml(f.name||'')}</span>
+      ${detail?`<span class="batch-file-detail">${escHtml(detail)}</span>`:''}
+    </div>`;
+  }).join('');
 }
 
 // ══════════════════════════════════════════
@@ -3353,7 +3578,6 @@ async function extractEpubImages(){
         const blob=await E.epubZip.file(href).async('arraybuffer');
         outZip.file(filename, blob);
       }catch(e){
-        console.warn('이미지 추출 실패:', href, e);
       }
       done++;
     }
@@ -3381,7 +3605,6 @@ async function extractEpubImages(){
     progMsg.textContent=`완료! ${totalImgs}개 이미지가 ZIP으로 다운로드됩니다.`;
 
   }catch(e){
-    console.error('이미지 추출 실패:', e);
     progMsg.textContent='❌ 오류: '+e.message;
     infoEl.textContent='⚠️ 이미지 추출 중 오류 발생';
   }finally{
@@ -3903,7 +4126,6 @@ newZip.file(fullPath,'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<ht
     document.getElementById('editResultMsg').textContent=E.resultName+' ('+(blob.size/1024/1024).toFixed(1)+'MB)';
     document.getElementById('editResultBox').classList.add('show');
   }catch(e){
-    console.error(e);
     document.getElementById('editProgWrap').classList.remove('show');
     document.getElementById('editErrBox').textContent='❌ '+friendlyError(e);
     document.getElementById('editErrBox').classList.add('show');
@@ -4279,7 +4501,6 @@ async function _eRunSmartPat(include, exclude){
       applyBtn.style.display='none';
       return;
     } else {
-      console.warn('[Gemini] _eRunSmartPat 오류:', e);
     }
     const rx2=guessPatternFromExample(include);
     if(rx2){ resultEl.textContent=rx2; resultBox.style.borderColor='var(--accent)'; applyBtn.style.display=''; }
@@ -4421,7 +4642,7 @@ function renderDirectEditIllTags(){
 function removeDirectEditIll(i){ _directEditIllFiles.splice(i,1); renderDirectEditIllTags(); }
 function addDirectEditIllRow(){
   const list=document.getElementById('directEditIllManualList');
-  const id=Date.now();
+  const id=typeof genUID==='function'?genUID():Date.now();
   const div=document.createElement('div');
   div.className='mill-row'; div.id='deir_'+id;
   div.style.marginBottom='8px';
@@ -4610,7 +4831,6 @@ async function applyDirectEdit(){
   }catch(e){
     errBox.textContent='❌ '+e.message; errBox.classList.add('show');
     progWrap.classList.remove('show');
-    console.error(e);
   }
 }
 
@@ -5939,6 +6159,11 @@ function splitChaptersWorkerDetailed(raw,customPat,onProgress){
 
 function getParserWorker(){
   if(!_parserWorker){
+    // ★ 기존 Worker가 있으면 먼저 terminate하여 메모리 누수 방지
+    if(_parserWorker){
+      _parserWorker.terminate();
+      _parserWorker=null;
+    }
     _parserWorker=createParserWorker();
     _parserWorker.onmessage=function(e){
       const{type,id,result,error,pct,msg}=e.data;
@@ -5953,12 +6178,11 @@ function getParserWorker(){
       else cb.reject(new Error(error||'Worker 오류'));
     };
     _parserWorker.onerror=function(e){
-      // 모든 대기 콜백에 에러 전파
       for(const[id,cb]of _workerCallbacks){
         cb.reject(new Error('Worker 오류: '+e.message));
       }
       _workerCallbacks.clear();
-      _parserWorker=null; // Worker 재생성 허용
+      _parserWorker=null;
     };
   }
   return _parserWorker;

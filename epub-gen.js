@@ -86,6 +86,24 @@ ${extra}`;
 function setProgress(pct,msg){
   document.getElementById('progBar').style.width=pct+'%';
   document.getElementById('progMsg').textContent=msg;
+  // ★ 진행 단계 스텝 인디케이터 자동 업데이트
+  if(pct<=15) updateProgStep(0);
+  else if(pct<=30) updateProgStep(1);
+  else if(pct<=45) updateProgStep(2);
+  else if(pct<=92) updateProgStep(3);
+  else updateProgStep(4);
+}
+// ★ 진행 단계 스텝 업데이터
+function updateProgStep(activeStep){
+  for(let i=0;i<=4;i++){
+    const el=document.getElementById('pstep'+i); if(!el) return;
+    el.classList.toggle('active', i===activeStep);
+    el.classList.toggle('done', i<activeStep);
+    if(i<4){
+      const line=document.getElementById('pline'+i);
+      if(line) line.classList.toggle('done', i<activeStep);
+    }
+  }
 }
 
 // ══════════════════════════════════════════

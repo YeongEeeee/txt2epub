@@ -25,12 +25,13 @@ function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(
 // XML 1.0 비허용 제어문자 제거 (U+0000~U+001F 중 허용 외)
 // 과도한 후행 공백 제거
 function sanitizeLine(s){
-  // U+00AD soft hyphen → em dash (소설에서 대화 표시로 사용됨)
-  s=s.replace(/­/g,'—');
-  // XML 1.0 비허용 제어문자 제거: U+0000-U+0008, U+000B, U+000C, U+000E-U+001F
-  s=s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g,'');
-  // U+FFFE, U+FFFF 제거 (XML 비허용)
-  s=s.replace(/[￾￿]/g,'');
+  if(typeof s!=='string') return '';
+  // U+00AD soft hyphen → em dash
+  s=s.replace(/\u00ad/g,'\u2014');
+  // XML 1.0 비허용 제어문자: U+0000-U+0008, U+000B, U+000C, U+000E-U+001F, U+007F
+  s=s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'');
+  // U+FFFE, U+FFFF, 서로게이트 쌍 범위 (XML 비허용)
+  s=s.replace(/[\uFFFE\uFFFF\uD800-\uDFFF]/g,'');
   // 후행 공백 제거
   return s.trimEnd();
 }
@@ -541,8 +542,10 @@ function buildChaptersFromTocItems(lines, tocItems){
       // 일반 패턴: 헤딩 줄 제외
       bodyLines=lines.slice(headLine+1, nextLine);
     }
-    // ★ 빈 본문 챕터도 포함 (제목만 있는 챕터)
-    chapters.push([item.title, bodyLines.join('\n').trim()]);
+    // ★ 빈 챕터 필터링: 공백/빈줄만 있는 챕터 제외
+    const bodyText=bodyLines.join('\n').trim();
+    if(!bodyText) continue; // 빈 챕터 건너뜀
+    chapters.push([item.title, bodyText]);
   }
 
   // 첫 챕터 앞에 내용이 있으면 서문으로
@@ -636,6 +639,7 @@ async function previewToc(){
 
   S.tocItems=found;
   renderTocItems();
+  updateTocEditBanner&&updateTocEditBanner(); // ★ 편집 배너 초기화
 
   // 감지 실패 시 안내 메시지 (변환은 정상 작동)
   if(!found.length){
@@ -656,7 +660,26 @@ async function previewToc(){
     );
   }
 
-  document.getElementById('tb2').innerHTML='<pre class="toc-raw">'+_fullRawLines.map((l,i)=>String(i+1).padStart(4,' ')+' | '+escHtml(l)).join('\n')+'</pre>';
+  // ★ 가상 스크롤: 스크롤 위치 기반 가변 렌더링 (고도화)
+  const tb2=document.getElementById('tb2');
+  tb2.innerHTML='';
+  if(typeof createVirtualScroll==='function'){
+    createVirtualScroll(tb2, rawLines);
+  } else {
+    // createVirtualScroll 미로드 시 폴백 (최초 2000줄)
+    const pre=document.createElement('pre');
+    pre.className='toc-raw';
+    pre.textContent=rawLines.slice(0,2000).map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');
+    tb2.appendChild(pre);
+    if(rawLines.length>2000){
+      const btn=document.createElement('button');
+      btn.className='btn btn-ghost btn-sm';
+      btn.style.cssText='margin:8px 0;width:100%;font-size:11px';
+      btn.textContent=`▼ 나머지 ${(rawLines.length-2000).toLocaleString()}줄 더 보기`;
+      btn.onclick=()=>{pre.textContent=rawLines.map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');btn.remove();};
+      tb2.appendChild(btn);
+    }
+  }
   document.getElementById('patEdit').value=pat;
   S._rawTextFull=_fullRawLines;
   document.getElementById('tocPanel').classList.add('show');
@@ -812,6 +835,7 @@ function renderTocItems(){
     _chaptersCache=null;_chaptersCacheKey='';
     renderTocItems();
     updateTocStat();
+    updateTocEditBanner&&updateTocEditBanner();
   });
   toolbar.querySelector('#toc-sel-clear').addEventListener('click',()=>{
     _selectedIdxs.clear();
@@ -914,12 +938,13 @@ function renderTocItems(){
       removeBtn.addEventListener('mouseleave',()=>{removeBtn.style.background='var(--accent-bg)';removeBtn.style.color='var(--accent)';});
       removeBtn.addEventListener('click', e=>{
         e.stopPropagation();
-        _saveTocSnapshot(); // ★ Undo 스냅샷
+        _saveTocSnapshot();
         const idx=S.tocItems.indexOf(item);
         if(idx>=0 && idx+1 < S.tocItems.length) S.tocItems.splice(idx+1, 1);
         _chaptersCache=null;_chaptersCacheKey='';
         renderTocItems();
         updateTocStat();
+        updateTocEditBanner&&updateTocEditBanner();
         const remaining=S.tocItems.filter(t=>t.suspicious).length;
         if(remaining===0) document.getElementById('susp-toast')?.remove();
         else { const ce=document.querySelector('#susp-toast b'); if(ce) ce.textContent=remaining; }
@@ -1037,12 +1062,14 @@ function toggleTocItem(i,v){
     if(chk) chk.checked=v;
   }
   updateTocStat();
+  updateTocEditBanner&&updateTocEditBanner();
 }
 function toggleAllToc(v){
-  _saveTocSnapshot(); // ★ Undo 스냅샷
+  _saveTocSnapshot();
   S.tocItems.forEach(t=>t.enabled=v);
   _chaptersCache=null;_chaptersCacheKey='';
   renderTocItems();
+  updateTocEditBanner&&updateTocEditBanner();
 }
 let tocTabActive=0;
 function tocTab(n){
@@ -1124,7 +1151,6 @@ async function _runSmartPat(include, exclude){
         if(aiLabel) aiLabel.style.display='none';
       } else {
         // 네트워크 오류 등 → 로컬 fallback
-        console.warn('Gemini API 오류:', e);
         _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
       }
     }
@@ -1190,7 +1216,6 @@ async function _askGeminiForPattern(apiKey, include, exclude){
     const modelId=m.id||m; // 문자열/객체 모두 지원
     // 세션 내 영구 차단된 모델 스킵
     if(_geminiModelCooldown[modelId]===Infinity){
-      console.info('[Gemini] '+modelId+' cooldown 중, 스킵');
       continue;
     }
     const url='https://generativelanguage.googleapis.com/v1beta/models/'+modelId
@@ -1247,7 +1272,6 @@ async function _geminiRequest(url, body, modelId, maxRetries=2){
 
       if(isHardLimit){
         // 재시도해도 의미 없음 → 즉시 다음 모델로
-        console.warn('[Gemini] '+modelId+' Free Tier 영구 한도 초과 (limit:0) — 다음 모델로 전환');
         _geminiModelCooldown[modelId]=Infinity; // 이 세션에서 이 모델 사용 안 함
         return {ok:false,fatal:false,msg:'hard_quota',model:modelId};
       }
@@ -1268,12 +1292,10 @@ async function _geminiRequest(url, body, modelId, maxRetries=2){
       // Free Tier 일일 한도 초과(RPD)는 재시도 의미 없음 → 다음 모델
       const isDailyLimit=violations.some(v=>v.quotaId?.includes('PerDay'));
       if(isDailyLimit||attempt>=maxRetries){
-        console.info('[Gemini] '+modelId+' 일일/분당 한도 초과 — 다음 모델로');
         return {ok:false,fatal:false,msg:'quota_exceeded',model:modelId};
       }
 
       const waitMs=Math.min(baseWait, 30000); // 최대 30초 대기
-      console.info('[Gemini] '+modelId+' 일시적 RPM 초과, '
         +Math.round(waitMs/1000)+'초 후 재시도 ('+attempt+'/'+maxRetries+')...');
       await new Promise(r=>setTimeout(r,waitMs));
       continue; // 같은 모델 재시도
@@ -1285,7 +1307,6 @@ async function _geminiRequest(url, body, modelId, maxRetries=2){
     // 500/503: 서버 오류 → 짧게 대기 후 재시도
     if(status>=500&&attempt<maxRetries){
       const waitMs=1000*(attempt+1);
-      console.info('[Gemini] '+modelId+' 서버 오류('+status+'), '+waitMs/1000+'초 후 재시도...');
       await new Promise(r=>setTimeout(r,waitMs));
       continue;
     }
@@ -1416,7 +1437,6 @@ async function idbSet(key,val){
       tx.objectStore(HIST_STORE).put(val,key);
       tx.oncomplete=res; tx.onerror=()=>rej(tx.error);
     });
-  }catch(e){console.warn('IDB set failed:',e);}
 }
 async function idbGet(key){
   try{
@@ -1451,7 +1471,7 @@ async function idbClear(){
 }
 
 async function saveHistory(entry){
-  const key='hist_'+Date.now();
+  const key='hist_'+(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Date.now());
   await idbSet(key, entry.blob);
   let metas=loadHistMetas();
   metas.unshift({key,title:entry.title,author:entry.author,chapterCount:entry.chapterCount,
@@ -1681,8 +1701,23 @@ async function autoSplitByInterval(){
 
   document.getElementById('tocPanel').classList.add('show');
   tocTab(0);
-  document.getElementById('tb2').innerHTML='<pre class="toc-raw">'+
-    lines.map((l,i)=>String(i+1).padStart(4,' ')+' | '+escHtml(l)).join('\n')+'</pre>';
+  // ★ 가상 스크롤 (스크롤 위치 기반)
+  const tb2b=document.getElementById('tb2');
+  tb2b.innerHTML='';
+  if(typeof createVirtualScroll==='function'){
+    createVirtualScroll(tb2b, lines);
+  } else {
+    const pre2=document.createElement('pre');pre2.className='toc-raw';
+    pre2.textContent=lines.slice(0,2000).map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');
+    tb2b.appendChild(pre2);
+    if(lines.length>2000){
+      const b2=document.createElement('button');b2.className='btn btn-ghost btn-sm';
+      b2.style.cssText='margin:8px 0;width:100%;font-size:11px';
+      b2.textContent=`▼ 나머지 ${(lines.length-2000).toLocaleString()}줄 더 보기`;
+      b2.onclick=()=>{pre2.textContent=lines.map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');b2.remove();};
+      tb2b.appendChild(b2);
+    }
+  }
   // 자동 분할 결과 중 본문 짧음 감지
   const _autoSuspCount=S.tocItems.filter(t=>t.suspicious).length;
   if(_autoSuspCount>0) showSuspiciousToast(_autoSuspCount);
