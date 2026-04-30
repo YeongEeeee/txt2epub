@@ -1019,7 +1019,21 @@
   </div>
 </div>
 
-  <!-- ④ 파싱/목차 모듈 (parser.js) -->
+  <!-- ════ 하단 고정 버튼 바 ════ -->
+<!-- 변환 탭 -->
+<div class="btm" id="btmConvert" style="display:flex">
+  <button class="btn btn-accent" data-action="startConvert">📖 EPUB 변환 시작</button>
+</div>
+<!-- 일괄변환 탭 -->
+<div class="btm" id="btmBatch" style="display:none">
+  <button class="btn btn-accent" data-action="startBatch">📚 일괄 변환 시작</button>
+</div>
+<!-- EPUB편집 탭 -->
+<div class="btm" id="btmEdit" style="display:none">
+  <button class="btn btn-accent" data-action="startEditEpub">✏️ EPUB 생성</button>
+</div>
+
+<!-- ④ 파싱/목차 모듈 (parser.js) -->
   <script src="parser.js"></script>
   <!-- ⑤ EPUB3 생성 엔진 (epub-gen.js) -->
   <script src="epub-gen.js"></script>
