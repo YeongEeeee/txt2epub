@@ -18,7 +18,7 @@
 <div class="hdr">
   <div class="hdr-title">📚 NovelEPUB<span class="hdr-sub">TXT → EPUB3 변환기</span></div>
   <div class="hdr-right">
-    <button class="ibtn" id="themeBtn" data-action="toggleTheme">🌙</button>
+    <button class="ibtn" id="themeBtn" data-action="toggleTheme" aria-label="테마 전환"><span class="ibtn-icon" style="display:inline-block">🌙</span></button>
     <button class="ibtn" data-action="resetAll">🔄</button>
   </div>
 </div>
@@ -136,7 +136,7 @@
           💡 Ctrl+클릭=병합
         </span>
       </div>
-      <div class="toc-body" id="tb0"></div>
+      <div class="toc-body" id="tb0"><div class="toc-empty"><div class="toc-empty-icon">📄</div><p>파일을 업로드하면<br>이곳에 목차가 생성됩니다</p></div></div>
       <div class="toc-body" id="tb1" style="display:none">
         <div id="tocPreviewList"></div>
       </div>

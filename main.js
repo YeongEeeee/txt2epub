@@ -546,7 +546,20 @@ window.addEventListener('DOMContentLoaded', ()=>{
   const sizeVal=document.getElementById('cssFontSize')?.value||'1em';
   syncSelect('cssFontSize','cssFontSizeSlider','cssFontSizeVal',sizeVal);
 
-  // ★ IDB에서 커스텀 폰트 복원
+  // ★ 복사 버튼 툴팁 마이크로인터랙션 (이벤트 위임)
+  document.addEventListener('click', e=>{
+    const copyBtn=e.target.closest('[data-copy]');
+    if(!copyBtn) return;
+    const text=copyBtn.getAttribute('data-copy-text')||copyBtn.textContent;
+    navigator.clipboard?.writeText(text).then(()=>{
+      copyBtn.querySelector('.copy-tooltip')?.remove();
+      const tip=document.createElement('span');
+      tip.className='copy-tooltip';
+      tip.textContent='복사됨!';
+      copyBtn.appendChild(tip);
+      setTimeout(()=>tip.remove(), 1050);
+    }).catch(()=>{});
+  });
   SettingsDB.get('customFontFace').then(face=>{
     if(face){
       SettingsDB.get('customFontName').then(name=>{
@@ -1055,7 +1068,17 @@ function toggleTheme(){
   const isDark=d.getAttribute('data-theme')==='dark';
   const next=isDark?'light':'dark';
   d.setAttribute('data-theme',next);
-  const _tb=document.getElementById('themeBtn'); if(_tb) _tb.textContent=isDark?'🌙':'☀️';
+  const _tb=document.getElementById('themeBtn');
+  if(_tb){
+    const iconSpan=_tb.querySelector('.ibtn-icon');
+    if(iconSpan){
+      // ★ 테마 스위처: 아이콘 회전 후 교체
+      _tb.classList.add('theme-anim');
+      setTimeout(()=>{ iconSpan.textContent=isDark?'🌙':'☀️'; _tb.classList.remove('theme-anim'); },250);
+    } else {
+      _tb.textContent=isDark?'🌙':'☀️';
+    }
+  }
   // ★ 사용자 선택을 localStorage에 저장
   try{ localStorage.setItem('novelepub_theme',next); }catch(e){}
 }
@@ -1074,7 +1097,11 @@ function initTheme(){
   }
   document.documentElement.setAttribute('data-theme',theme);
   const btn=document.getElementById('themeBtn');
-  if(btn) btn.textContent=theme==='dark'?'☀️':'🌙';
+  if(btn){
+    const icon=btn.querySelector('.ibtn-icon');
+    const emoji=theme==='dark'?'☀️':'🌙';
+    if(icon) icon.textContent=emoji; else btn.textContent=emoji;
+  }
   // OS 테마 변경 감지 (사용자 직접 설정 없을 때만)
   window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change',e=>{
     try{
@@ -1083,7 +1110,11 @@ function initTheme(){
         const t=e.matches?'dark':'light';
         document.documentElement.setAttribute('data-theme',t);
         const b=document.getElementById('themeBtn');
-        if(b) b.textContent=t==='dark'?'☀️':'🌙';
+        if(b){
+          const ic=b.querySelector('.ibtn-icon');
+          const em=t==='dark'?'☀️':'🌙';
+          if(ic) ic.textContent=em; else b.textContent=em;
+        }
       }
     }catch(ex){}
   });
