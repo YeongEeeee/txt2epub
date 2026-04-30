@@ -67,12 +67,25 @@ const Toast = (() => {
       'color:var(--text);box-shadow:0 4px 18px rgba(0,0,0,.15);' +
       'pointer-events:auto;display:flex;align-items:flex-start;gap:8px;' +
       'animation:toastIn .22s ease;max-width:340px;line-height:1.5';
-    el.innerHTML =
-      `<span style="flex-shrink:0;font-size:14px">${icons[type]}</span>` +
-      `<span style="flex:1">${msg}</span>` +
-      `<button style="background:none;border:none;cursor:pointer;color:var(--text2);` +
-      `font-size:14px;padding:0;line-height:1;margin-left:4px;flex-shrink:0" ` +
-      `onclick="this.closest('div').remove()">✕</button>`;
+
+    // ★ XSS 방지: innerHTML → DOM API
+    const iconSpan = document.createElement('span');
+    iconSpan.style.cssText = 'flex-shrink:0;font-size:14px';
+    iconSpan.textContent = icons[type];
+
+    const msgSpan = document.createElement('span');
+    msgSpan.style.cssText = 'flex:1';
+    // ★ textContent: 파일명 등 외부 입력이 msg에 포함될 수 있으므로 안전하게 처리
+    msgSpan.textContent = msg;
+
+    const closeBtn = document.createElement('button');
+    closeBtn.style.cssText =
+      'background:none;border:none;cursor:pointer;color:var(--text2);' +
+      'font-size:14px;padding:0;line-height:1;margin-left:4px;flex-shrink:0';
+    closeBtn.textContent = '✕';
+    closeBtn.onclick = () => el.remove();
+
+    el.append(iconSpan, msgSpan, closeBtn);
     _container.appendChild(el);
     if (duration > 0) setTimeout(() => el.remove(), duration);
     return el;
@@ -83,6 +96,7 @@ const Toast = (() => {
   function error(msg)   { _show(msg, 'error', 5000); }
   function warn(msg)    { _show(msg, 'warn'); }
 
+  // ★ confirm: innerHTML → DOM API
   function confirm(msg) {
     return new Promise(resolve => {
       _ensureContainer();
@@ -90,23 +104,41 @@ const Toast = (() => {
       overlay.style.cssText =
         'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;' +
         'display:flex;align-items:center;justify-content:center';
-      overlay.innerHTML =
-        `<div style="background:var(--panel);border-radius:14px;padding:24px 28px;` +
-        `max-width:360px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.25);` +
-        `font-family:inherit;border:1.5px solid var(--border)">` +
-        `<p style="font-size:13px;line-height:1.7;color:var(--text);margin-bottom:18px">` +
-        `${msg}</p>` +
-        `<div style="display:flex;gap:8px;justify-content:flex-end">` +
-        `<button id="_tc_cancel" class="btn btn-ghost" style="font-size:12px;padding:7px 16px">취소</button>` +
-        `<button id="_tc_ok"     class="btn btn-accent" style="font-size:12px;padding:7px 18px;border-radius:8px">확인</button>` +
-        `</div></div>`;
+
+      const box = document.createElement('div');
+      box.style.cssText =
+        'background:var(--panel);border-radius:14px;padding:24px 28px;' +
+        'max-width:360px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.25);' +
+        'font-family:inherit;border:1.5px solid var(--border)';
+
+      const p = document.createElement('p');
+      p.style.cssText = 'font-size:13px;line-height:1.7;color:var(--text);margin-bottom:18px';
+      p.textContent = msg; // ★ XSS 방지
+
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-ghost';
+      cancelBtn.style.cssText = 'font-size:12px;padding:7px 16px';
+      cancelBtn.textContent = '취소';
+      cancelBtn.onclick = () => { overlay.remove(); resolve(false); };
+
+      const okBtn = document.createElement('button');
+      okBtn.className = 'btn btn-accent';
+      okBtn.style.cssText = 'font-size:12px;padding:7px 18px;border-radius:8px';
+      okBtn.textContent = '확인';
+      okBtn.onclick = () => { overlay.remove(); resolve(true); };
+
+      btnRow.append(cancelBtn, okBtn);
+      box.append(p, btnRow);
+      overlay.appendChild(box);
       document.body.appendChild(overlay);
-      overlay.querySelector('#_tc_ok').onclick     = () => { overlay.remove(); resolve(true); };
-      overlay.querySelector('#_tc_cancel').onclick  = () => { overlay.remove(); resolve(false); };
       overlay.onclick = e => { if(e.target===overlay){overlay.remove();resolve(false);} };
     });
   }
 
+  // ★ prompt: innerHTML → DOM API
   function prompt(msg, placeholder = '', defaultVal = '') {
     return new Promise(resolve => {
       _ensureContainer();
@@ -114,27 +146,47 @@ const Toast = (() => {
       overlay.style.cssText =
         'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;' +
         'display:flex;align-items:center;justify-content:center';
-      overlay.innerHTML =
-        `<div style="background:var(--panel);border-radius:14px;padding:24px 28px;` +
-        `max-width:380px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.25);` +
-        `font-family:inherit;border:1.5px solid var(--border)">` +
-        `<p style="font-size:13px;line-height:1.7;color:var(--text);margin-bottom:12px">` +
-        `${msg}</p>` +
-        `<input id="_tp_inp" class="inp" style="width:100%;margin-bottom:16px" ` +
-        `placeholder="${placeholder}" value="${defaultVal}">` +
-        `<div style="display:flex;gap:8px;justify-content:flex-end">` +
-        `<button id="_tp_cancel" class="btn btn-ghost" style="font-size:12px;padding:7px 16px">취소</button>` +
-        `<button id="_tp_ok"     class="btn btn-accent" style="font-size:12px;padding:7px 18px;border-radius:8px">확인</button>` +
-        `</div></div>`;
+
+      const box = document.createElement('div');
+      box.style.cssText =
+        'background:var(--panel);border-radius:14px;padding:24px 28px;' +
+        'max-width:380px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.25);' +
+        'font-family:inherit;border:1.5px solid var(--border)';
+
+      const p = document.createElement('p');
+      p.style.cssText = 'font-size:13px;line-height:1.7;color:var(--text);margin-bottom:12px';
+      p.textContent = msg; // ★ XSS 방지
+
+      const inp = document.createElement('input');
+      inp.className = 'inp';
+      inp.style.cssText = 'width:100%;margin-bottom:16px';
+      inp.placeholder = placeholder; // ★ 속성 직접 설정 — 인젝션 방지
+      inp.value = defaultVal;
+
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn btn-ghost';
+      cancelBtn.style.cssText = 'font-size:12px;padding:7px 16px';
+      cancelBtn.textContent = '취소';
+      cancelBtn.onclick = () => { overlay.remove(); resolve(null); };
+
+      const okBtn = document.createElement('button');
+      okBtn.className = 'btn btn-accent';
+      okBtn.style.cssText = 'font-size:12px;padding:7px 18px;border-radius:8px';
+      okBtn.textContent = '확인';
+      okBtn.onclick = () => { overlay.remove(); resolve(inp.value); };
+
+      btnRow.append(cancelBtn, okBtn);
+      box.append(p, inp, btnRow);
+      overlay.appendChild(box);
       document.body.appendChild(overlay);
-      const inp = overlay.querySelector('#_tp_inp');
       inp.focus();
       inp.addEventListener('keydown', e => {
         if (e.key === 'Enter') { overlay.remove(); resolve(inp.value); }
         if (e.key === 'Escape'){ overlay.remove(); resolve(null); }
       });
-      overlay.querySelector('#_tp_ok').onclick    = () => { overlay.remove(); resolve(inp.value); };
-      overlay.querySelector('#_tp_cancel').onclick = () => { overlay.remove(); resolve(null); };
       overlay.onclick = e => { if(e.target===overlay){overlay.remove();resolve(null);} };
     });
   }
@@ -232,19 +284,31 @@ const SettingsDB = (() => {
   const DB_VER  = 1;
   const STORE   = 'settings';
   let _db = null;
+  // ★ 경합 조건 해결: 연결 중이면 기존 Promise 재사용 (중복 open() 방지)
+  let _dbPromise = null;
 
   function open(){
     if(_db) return Promise.resolve(_db);
-    return new Promise((res,rej)=>{
+    // ★ 이미 연결 중이면 같은 Promise 반환 → 병렬 호출이 중복 open 안 함
+    if(_dbPromise) return _dbPromise;
+    _dbPromise = new Promise((res,rej)=>{
       const req = indexedDB.open(DB_NAME, DB_VER);
       req.onupgradeneeded = e => {
         const db = e.target.result;
         if(!db.objectStoreNames.contains(STORE))
           db.createObjectStore(STORE);
       };
-      req.onsuccess = e => { _db=e.target.result; res(_db); };
-      req.onerror   = () => rej(req.error);
+      req.onsuccess = e => {
+        _db = e.target.result;
+        _dbPromise = null; // 연결 완료 후 Promise 슬롯 해제
+        res(_db);
+      };
+      req.onerror = () => {
+        _dbPromise = null; // 실패 시에도 재시도 허용
+        rej(req.error);
+      };
     });
+    return _dbPromise;
   }
 
   async function set(key, value){
@@ -354,8 +418,8 @@ const PAT_PRESETS = [
   {label:'[EP.N] 형식',        val:'^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$'},
   {label:'[Prologue] 형식',    val:'^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$'},
   {label:'NNN  제목 형식',     val:'^\\d{3,6}\\s{2,}.+$'},
-  {label:'〈N화〉 꺽쇠',          val:'^[〈<]\\s*(\\d+)\\s*화\\s*[〉>](?:\\s*(.*))?$'},
-  {label:'줄 시작 통합 ★',     val:'^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|(?=\\d+화)\\d+화|\\d+).*'},
+  {label:'〈N화〉 꺽쇠',          val:'^[〈<]\\s*(\\d+)\\s*화\\s*[〉>](?:\\s*([^\\r\\n]*))?$'},
+  {label:'줄 시작 통합 ★',     val:'^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|\\d+화|\\d+)[^\\r\\n]*'},
   {label:'화 번호 (#N화 포함)', val:'^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
   {label:'소설(숫자)',          val:'^.{1,60}\\s*\\(\\d+\\)\\s*$'},
   {label:'숫자만',              val:'^\\d+$'},
@@ -365,7 +429,7 @@ const PAT_PRESETS = [
   {label:'N권',                val:'^\\d+권(?:\\s*.+)?$'},
   {label:'제목+구분선',         val:'^.+[=\\-]{3,}$'},
   {label:'# 제목',             val:'^#{1,3}\\s*.+$'},
-  {label:'【제목】',            val:'^【.+】.*$'},
+  {label:'【제목】',            val:'^【.+】[^\\r\\n]*$'},
   {label:'=== [제N화] ===',    val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$'},
   {label:'N부 M화',            val:'^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$'},
   {label:'#N. 제목',           val:'^#\\d+\\.\\s+.{1,60}$'},
@@ -1052,58 +1116,88 @@ function genUID(){
 function createVirtualScroll(container, lines, lineHeight=18, visibleBuffer=60){
   if(!lines||!lines.length) return {destroy:()=>{}};
 
-  const ITEM_H=lineHeight;
-  const totalH=lines.length*ITEM_H;
-  const VIEW_H=320; // 컨테이너 높이 고정
+  const ITEM_H = lineHeight;
+  let totalH   = lines.length * ITEM_H;
 
-  // 컨테이너 설정
-  container.style.cssText='position:relative;overflow-y:auto;height:'+VIEW_H+'px';
+  // ★ VIEW_H 고정 320px 제거 → 실제 clientHeight 동적 측정
+  container.style.cssText = 'position:relative;overflow-y:auto;height:320px';
 
-  // ① 전체 높이를 담당하는 더미 div (스크롤바 크기 결정)
-  const spacer=document.createElement('div');
-  spacer.style.cssText='position:absolute;top:0;left:0;width:1px;height:'+totalH+'px;pointer-events:none';
+  // ① 전체 높이 spacer (스크롤바 크기 결정)
+  const spacer = document.createElement('div');
+  spacer.style.cssText =
+    'position:absolute;top:0;left:0;width:1px;height:'+totalH+'px;pointer-events:none';
   container.appendChild(spacer);
 
-  // ② 실제 텍스트 렌더링 pre (절대 위치)
-  const content=document.createElement('pre');
-  content.className='toc-raw';
-  content.style.cssText='position:absolute;top:0;left:0;right:0;margin:0;white-space:pre';
+  // ② 렌더링 pre — 화면에 보이는 구간만 채움
+  const content = document.createElement('pre');
+  content.className = 'toc-raw';
+  content.style.cssText =
+    'position:absolute;top:0;left:0;right:0;margin:0;white-space:pre;' +
+    'font-size:11px;line-height:'+ITEM_H+'px;font-family:monospace';
   container.appendChild(content);
 
-  let lastStart=-1;
-  let rafId=null;
+  // ★ start + end 모두 추적 → 변경 없으면 DOM 조작 완전 스킵
+  let lastStart = -1;
+  let lastEnd   = -1;
+  let rafId     = null;
+
+  function getViewH(){
+    // clientHeight는 display:none 상태에서 0일 수 있으므로 폴백
+    return container.clientHeight || 320;
+  }
 
   function render(){
-    rafId=null;
-    const scrollTop=container.scrollTop;
-    const start=Math.max(0, Math.floor(scrollTop/ITEM_H)-visibleBuffer);
-    const end  =Math.min(lines.length, Math.ceil((scrollTop+VIEW_H)/ITEM_H)+visibleBuffer);
+    rafId = null;
+    const scrollTop = container.scrollTop;
+    const viewH     = getViewH();
+    const start = Math.max(0,
+      Math.floor(scrollTop / ITEM_H) - visibleBuffer);
+    const end   = Math.min(lines.length,
+      Math.ceil((scrollTop + viewH) / ITEM_H) + visibleBuffer);
 
-    // 변경 없으면 DOM 업데이트 스킵
-    if(start===lastStart) return;
-    lastStart=start;
+    // ★ start와 end 모두 동일하면 스킵 (이전: start만 비교)
+    if(start === lastStart && end === lastEnd) return;
+    lastStart = start;
+    lastEnd   = end;
 
-    // 절대 위치 이동으로 렌더링 위치 지정
-    content.style.top=(start*ITEM_H)+'px';
-    content.textContent=lines
+    content.style.top = (start * ITEM_H) + 'px';
+    content.textContent = lines
       .slice(start, end)
-      .map((l,i)=>String(start+i+1).padStart(5,' ')+' │ '+l)
+      .map((l, i) => String(start + i + 1).padStart(5, ' ') + ' │ ' + l)
       .join('\n');
   }
 
   function onScroll(){
-    // rAF로 묶어서 불필요한 재렌더링 방지
     if(rafId) return;
-    rafId=requestAnimationFrame(render);
+    rafId = requestAnimationFrame(render);
+  }
+
+  // ★ ResizeObserver: 탭 전환·패널 접기 시 컨테이너 크기 변경 → 강제 재렌더
+  let resizeObs = null;
+  if(typeof ResizeObserver !== 'undefined'){
+    resizeObs = new ResizeObserver(() => {
+      lastStart = -1; lastEnd = -1; // 강제 재렌더링
+      onScroll();
+    });
+    resizeObs.observe(container);
   }
 
   container.addEventListener('scroll', onScroll, {passive:true});
   render(); // 초기 렌더링
 
   return {
+    // ★ update(): 파일 교체 시 외부에서 lines 갱신
+    update(newLines){
+      lines  = newLines;
+      totalH = newLines.length * ITEM_H;
+      spacer.style.height = totalH + 'px';
+      lastStart = -1; lastEnd = -1;
+      render();
+    },
     destroy(){
       container.removeEventListener('scroll', onScroll);
       if(rafId) cancelAnimationFrame(rafId);
+      resizeObs?.disconnect();
     }
   };
 }
@@ -1197,6 +1291,94 @@ function updateSettingsSummary(){
 // 마지막 감지된 인코딩 저장
 const _encCache=new Map();
 
+// ══════════════════════════════════════════
+// 🔧 Module: TextWorker (worker.js 연동)
+// 20MB+ 파일의 인코딩 감지·디코딩을 Worker에 위임 → 메인 스레드 비블로킹
+// ══════════════════════════════════════════
+const TextWorker = (() => {
+  let _worker = null;
+  let _pending = new Map(); // id → {resolve, reject, timer}
+  let _idSeq   = 0;
+  const LARGE_FILE_THRESHOLD = 5 * 1024 * 1024; // 5MB 이상 Worker 위임
+
+  function _getWorker(){
+    if(_worker) return _worker;
+    try{
+      _worker = new Worker('worker.js');
+      _worker.onmessage = function(e){
+        const { type, id, result, error } = e.data;
+        if(type === 'PROGRESS') return; // 진행률은 Worker에서 직접 처리
+        const entry = _pending.get(id);
+        if(!entry) return;
+        clearTimeout(entry.timer);
+        _pending.delete(id);
+        if(type === 'RESULT') entry.resolve(result);
+        else entry.reject(new Error(error || 'Worker 오류'));
+      };
+      _worker.onerror = function(e){
+        // Worker 오류 시 대기 중인 모든 요청 실패 처리
+        for(const [,entry] of _pending){
+          clearTimeout(entry.timer);
+          entry.reject(new Error('Worker 오류: ' + e.message));
+        }
+        _pending.clear();
+        _worker = null; // 재생성 허용
+      };
+    }catch(e){
+      _worker = null;
+    }
+    return _worker;
+  }
+
+  // ArrayBuffer를 Worker에 보내고 결과 Promise 반환
+  function post(type, payload, transferables=[], timeoutMs=30000){
+    return new Promise((resolve, reject) => {
+      const worker = _getWorker();
+      if(!worker){
+        reject(new Error('Worker 사용 불가'));
+        return;
+      }
+      const id = ++_idSeq;
+      const timer = setTimeout(() => {
+        _pending.delete(id);
+        reject(new Error('Worker timeout'));
+      }, timeoutMs);
+      _pending.set(id, { resolve, reject, timer });
+      try{
+        worker.postMessage({ type, id, payload }, transferables);
+      }catch(e){
+        clearTimeout(timer);
+        _pending.delete(id);
+        reject(e);
+      }
+    });
+  }
+
+  // ★ 파일 크기 기반 자동 라우팅
+  // 소형 파일: 메인 스레드 직접 처리 (Worker 오버헤드 없음)
+  // 대형 파일: Worker에 ArrayBuffer 전송 (Transferable → 복사 비용 없음)
+  async function fileToTextViaWorker(file, enc){
+    if(file.size < LARGE_FILE_THRESHOLD || !_getWorker()){
+      return null; // 메인 스레드 폴백 신호
+    }
+    const ab = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = e => res(e.target.result);
+      r.onerror = rej;
+      r.readAsArrayBuffer(file);
+    });
+    // ★ Transferable: ArrayBuffer 소유권을 Worker로 이전 (zero-copy)
+    const result = await post(
+      'FILE_TO_TEXT',
+      { buffer: ab },
+      [ab] // transferables
+    );
+    return result.text;
+  }
+
+  return { fileToTextViaWorker };
+})();
+
 async function detectEncoding(file){
   const ab=await fileToAB(file);
   // 샘플 크기 64KB (8KB → 64KB: 경계 잘림 문제 해소)
@@ -1246,7 +1428,15 @@ async function fileToText(file){
   const enc=await detectEncoding(file);
   _encCache.set(file,enc);
 
-  // TextDecoder 직접 사용 — 대용량 파일(20MB+)에서 더 안정적
+  // ★ 대용량 파일(5MB+)은 Worker에 위임 → 메인 스레드 UI 비블로킹
+  try{
+    const workerResult = await TextWorker.fileToTextViaWorker(file, enc);
+    if(workerResult !== null) return workerResult;
+  }catch(e){
+    // Worker 실패 시 메인 스레드 폴백 (아래 계속)
+  }
+
+  // 소형 파일 또는 Worker 미지원 시 메인 스레드 처리
   return new Promise((res,rej)=>{
     // ★ 타임아웃 안전망: 30초 내 응답 없으면 reject (채널 닫힘 방지)
     const timer=setTimeout(()=>rej(new Error('fileToText timeout')), 30000);
@@ -6260,7 +6450,7 @@ const PATS=[
   [/^[\\*\\-─]+\\s*\\d+화?\\s*[\\*\\-─]+$/,'*N*'],
   [/^(?:시즌\\s*\\d+\\s+)?\\d+화(?:\\s*.+)?$/,'시즌N화'],
   [/^\\((?:외전|번외|특별편|side|bonus)\\)/i,'(외전)'],
-  [/^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|(?=\\d+화)\\d+화|\\d+).*/,'줄시작통합'],
+  [/^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|\\d+화|\\d+)[^\\r\\n]*/,'줄시작통합'],
 ];
 function checkTitleWaPattern(lines,minGap=50){
   const rx=/^.{2,15}\\s+\\d+화$/;const pos=[];

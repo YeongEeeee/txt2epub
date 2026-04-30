@@ -604,17 +604,25 @@ async function getCachedChapters(){
   }
 
   // tocItems 없거나 sourceLines 없음 → 원본 텍스트 파싱 (캐시 사용)
-  const key=S.txtFiles.map(f=>f.name+f.size).join('|');
+  // ★ 캐시 키 정교화: 파일명+크기+최종수정시간+패턴+설정 해시
+  // → 같은 파일명이더라도 내용 변경 시(lastModified 변경) 캐시 무효화
   const pat=document.getElementById('pattern')?.value.trim()||'';
-  const cacheKey=key+'::'+pat;
-  if(_chaptersCache&&_chaptersCacheKey===cacheKey) return _chaptersCache;
+  const optItalic = document.getElementById('optItalic')?.checked??true;
+  const optMerge  = document.getElementById('optMergeShortLines')?.checked??false;
+  const settingHash = `${optItalic}:${optMerge}`;
+  const fileHash = S.txtFiles
+    .map(f=>`${f.name}:${f.size}:${f.lastModified||0}`)
+    .join('|');
+  const cacheKey = `${fileHash}§${pat}§${settingHash}`;
+
+  if(_chaptersCache && _chaptersCacheKey===cacheKey) return _chaptersCache;
 
   try{
     const sorted=[...S.txtFiles];
     const raws=await Promise.all(sorted.map(fileToText));
     const raw=raws.join('\n\n');
     await yieldToMain();
-    _chaptersCache=splitChapters(raw,pat);
+    _chaptersCache=splitChapters(raw,pat,{mergeShortLines:optMerge});
     _chaptersCacheKey=cacheKey;
   }catch(e){
     _chaptersCache=[];
