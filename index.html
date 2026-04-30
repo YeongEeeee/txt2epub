@@ -23,12 +23,12 @@
   </div>
 </div>
 <!-- 탭 -->
-<div class="page-tabs">
-  <button class="page-tab on" data-action="switchPage" data-page="convert">📚 TXT→EPUB</button>
-  <button class="page-tab" data-action="switchPage" data-page="batch">📦 일괄변환</button>
-  <button class="page-tab" data-action="switchPage" data-page="edit">✏️ EPUB편집</button>
-  <button class="page-tab" data-action="switchPage" data-page="history">🕘 히스토리</button>
-  <button class="page-tab" data-action="switchPage" data-page="settings">⚙️ 설정</button>
+<div class="page-tabs" role="tablist" aria-label="페이지 탭">
+  <button role="tab" class="page-tab on" data-action="switchPage" data-page="convert">📚 TXT→EPUB</button>
+  <button role="tab" class="page-tab" data-action="switchPage" data-page="batch">📦 일괄변환</button>
+  <button role="tab" class="page-tab" data-action="switchPage" data-page="edit">✏️ EPUB편집</button>
+  <button role="tab" class="page-tab" data-action="switchPage" data-page="history">🕘 히스토리</button>
+  <button role="tab" class="page-tab" data-action="switchPage" data-page="settings">⚙️ 설정</button>
 </div>
 
 <div class="wrap">
@@ -236,185 +236,6 @@
   </div>
 </div>
 </div><!-- /page-convert -->
-    <!-- 다중 파일 정렬 리스트 -->
-    <div id="txtFileList" style="display:none;margin-top:8px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:5px">
-        <span style="font-size:11px;color:var(--text2)" id="txtFileCount"></span>
-        <div style="display:flex;gap:5px">
-          <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="sortTxtAuto" title="파일명 숫자 기준 자동 정렬">⚡ 자동 정렬</button>
-          <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="sortTxtAlpha" title="사전순 정렬">가나다↑</button>
-          <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="addMoreTxt" title="파일 추가">＋ 파일 추가</button>
-        </div>
-      </div>
-      <div id="txtSortList" style="display:flex;flex-direction:column;gap:3px;max-height:220px;overflow-y:auto;padding:2px 0;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;touch-action:pan-y"></div>
-    </div>
-    <div class="reset-bar" id="convertResetBar" style="display:none">
-      <button class="btn-reset" data-action="resetConvertTxt">✕ TXT 파일 초기화</button>
-      <button class="btn-reset" data-action="resetConvertCover">✕ 표지 이미지 초기화</button>
-      <button class="btn-reset danger" data-action="resetConvertAll">🔄 전체 초기화</button>
-    </div>
-    <div style="height:12px"></div>
-    <div class="cover-wrap">
-      <div class="cover-thumb" id="coverThumb" title="클릭해서 표지 변경">
-        <span style="display:flex;flex-direction:column;align-items:center;gap:4px"><span style="font-size:22px">🖼</span><span>표지</span></span>
-      </div>
-      <div class="cover-right">
-        <div class="dz" id="coverDz" style="padding:10px">
-          <div style="font-size:12px;color:var(--text2)">🖼 표지 이미지 드래그 또는 클릭</div>
-          <div id="coverName" style="font-size:11px;color:var(--green);margin-top:3px"></div>
-        </div>
-        <input type="file" id="coverIn" accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.avif" hidden>
-        <div class="cover-search-row">
-          <button class="btn-search" data-action="openCoverModal" data-mode="convert" title="네이버·리디·노벨피아에서 표지 검색">🔍 표지 검색</button>
-          <span style="font-size:11px;color:var(--text2)">또는 URL 직접 입력</span>
-        </div>
-        <div class="cover-url-row">
-          <input class="cover-url-inp" id="coverUrlInp" placeholder="이미지 URL 붙여넣기 (https://...)" data-input-action="previewCoverUrlConvert">
-          <button class="btn-search" data-action="applyCoverUrl" data-inp="coverUrlInp" data-thumb="coverThumb" data-name="coverName" data-mode="convert">적용</button>
-        </div>
-        <div class="cover-search-hint">💡 표지 검색으로 네이버·리디·노벨피아 결과를 볼 수 있어요</div>
-      </div>
-    </div>
-  </div>
-</div>
-<div class="sec">
-  <div class="sec-hdr"><span class="sec-title">📝 메타데이터</span><div class="sec-line"></div></div>
-  <div class="card">
-    <div class="row"><span class="lbl">📖 제목</span><input class="inp" id="title" placeholder="소설 제목"></div>
-    <div class="row"><span class="lbl">✒️ 작가</span><input class="inp" id="author" placeholder="작가명"></div>
-    <div class="row">
-      <span class="lbl">⚙️ 챕터 정규식</span>
-      <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" data-input-action="clearChipPatHelper">
-      <button class="btn btn-blue btn-sm" data-action="previewToc">🔍 목차 확인</button><button class="btn btn-ghost btn-sm" data-action="autoSplitByInterval">⚡ 간격 분할</button>
-    </div>
-    <!-- 스마트 패턴 입력 (Gemini AI 연동) -->
-    <div style="display:flex;flex-direction:column;gap:5px;margin-top:4px">
-      <div style="display:flex;gap:6px;align-items:center">
-        <span style="font-size:11px;color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px">💡 예시 입력:</span>
-        <input class="inp" id="smartPatInput" placeholder="예) 1화 제목 / [EP.001] / Chapter 1 / 00001  제로 코드..." style="font-size:12px" data-input-action="smartPatConvert">
-      </div>
-      <div style="display:flex;gap:6px;align-items:center">
-        <span style="font-size:11px;color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px">🚫 제외할 예시:</span>
-        <input class="inp" id="smartPatExclude" placeholder="이 내용은 챕터 제목이 아님 (예: 작가의 말, 목차)" style="font-size:12px" data-input-action="smartPatConvert">
-      </div>
-    </div>
-    <!-- 변환 결과 인라인 표시 -->
-    <div id="smartPatResultBox" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:7px;align-items:center;gap:8px;flex-wrap:wrap">
-      <span style="font-size:10px;color:var(--text2);flex-shrink:0">변환된 정규식:</span>
-      <code id="smartPatResult" style="font-size:11px;color:var(--accent);font-family:monospace;flex:1;word-break:break-all;min-width:0"></code>
-      <span id="smartPatAiLabel" style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 5px;flex-shrink:0;display:none">✨ AI</span>
-      <button class="btn btn-accent btn-sm" id="smartPatApplyBtn" data-action="applySmartPat" style="flex-shrink:0;font-size:11px;padding:4px 10px">✅ 적용</button>
-    </div>
-    <div class="pat-helper" id="patHelper">
-      <span style="font-size:11px;color:var(--text2);align-self:center">빠른 선택:</span>
-    </div>
-    <!-- 선택 패턴 적용 버튼 -->
-    <div id="patApplyBar" style="display:none;margin-top:5px;gap:6px;align-items:center">
-      <button class="btn btn-accent btn-sm" data-action="applySelectedChips" style="font-size:12px;padding:6px 14px">✅ 선택한 패턴 적용</button>
-      <span id="patApplyInfo" style="font-size:11px;color:var(--text2)"></span>
-    </div>
-    <div class="hint">💡 혼합 패턴 예시: <code>^(소설명 \d+|\d+화|\d+$)</code> · <code>[ 파일명.txt ]</code> 형식: <code>^\[\s*.+\.txt\s*\]\s*$</code> · 정규식 문법은 아래 <strong>정규식 수정</strong> 탭 참고</div>
-    <div class="toc-panel" id="tocPanel">
-      <div class="toc-tabs">
-        <button class="ttab on" data-action="tocTab" data-idx="0">감지된 목차</button>
-        <button class="ttab" data-action="tocTab" data-idx="1">챕터 미리보기</button>
-        <button class="ttab" data-action="tocTab" data-idx="2">원본 텍스트</button>
-        <button class="ttab" data-action="tocTab" data-idx="3">정규식 수정</button>
-        <span style="margin-left:auto;font-size:10px;color:var(--text2);align-self:center;padding-right:4px"
-              title="Ctrl+클릭으로 여러 항목을 선택하면 병합할 수 있어요">
-          💡 Ctrl+클릭 = 다중 선택/병합
-        </span>
-      </div>
-      <div class="toc-body" id="tb0"></div>
-      <div class="toc-body" id="tb1" style="display:none">
-        <div id="tocPreviewList"></div>
-      </div>
-      <div class="toc-body" id="tb2" style="display:none"></div>
-      <div class="toc-body" id="tb3" style="display:none">
-        <div style="display:flex;gap:8px;padding:4px 0">
-          <input class="inp" id="patEdit" placeholder="새 정규식">
-          <button class="btn btn-accent btn-sm" data-action="applyPat">적용 후 재확인</button>
-        </div>
-        <div style="margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;line-height:1.9;color:var(--text2)">
-          <div style="font-weight:700;color:var(--text);margin-bottom:6px;font-size:12px">📖 정규식 작성 가이드</div>
-          <table style="border-collapse:collapse;width:100%">
-            <tr style="border-bottom:1px solid var(--border)">
-              <td style="padding:4px 8px 4px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top">기호</td>
-              <td style="padding:4px 0;color:var(--text2)">설명</td>
-              <td style="padding:4px 0 4px 12px;font-family:monospace;color:var(--accent);white-space:nowrap">예시</td>
-            </tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>^</code> <code>$</code></td><td style="padding:3px 0">줄의 시작 / 끝 — 반드시 한 줄 전체가 일치해야 할 때 사용</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">^1화$</td></tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>\d</code></td><td style="padding:3px 0">숫자 한 글자 (0–9)</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">\d → 1, 9</td></tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>\d+</code></td><td style="padding:3px 0">숫자 한 자리 이상 연속</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">\d+ → 1, 42, 450</td></tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>.+</code></td><td style="padding:3px 0">아무 문자 1자 이상 (한글·영문·특수문자 모두 포함)</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">.+ → 무엇이든</td></tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>.*</code></td><td style="padding:3px 0">아무 문자 0자 이상 (없어도 OK)</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">1화.*</td></tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>\s*</code></td><td style="padding:3px 0">공백 0개 이상 (스페이스·탭 무시할 때)</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">제\s*\d+화</td></tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>(?:A|B)</code></td><td style="padding:3px 0">A 또는 B — 여러 패턴 중 하나</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">(?:1화|Chapter)</td></tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>\[</code> <code>\]</code></td><td style="padding:3px 0">대괄호 문자 그대로 매칭 (특수문자는 <code>\</code> 앞에)</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">\[.+\.txt\]</td></tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top"><code>{2,15}</code></td><td style="padding:3px 0">앞 요소가 2자 이상 15자 이하</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">.{2,15}\s+\d+화</td></tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top">한글</td><td style="padding:3px 0">한글은 그대로 씀 — 이스케이프 불필요</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">^제\d+화</td></tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top">영문</td><td style="padding:3px 0">영문 그대로 씀, 끝에 <code>i</code> 플래그로 대소문자 무시</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">^chapter\s*\d+</td></tr>
-            <tr><td style="padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top">숫자</td><td style="padding:3px 0">숫자 그대로 쓰거나 <code>\d</code> 사용</td><td style="padding:3px 0 3px 12px;font-family:monospace;color:var(--accent)">^1화, ^\d+화</td></tr>
-          </table>
-          <div style="margin-top:8px;padding:7px 10px;background:var(--yellow-bg);border-radius:6px;color:var(--yellow);border-left:3px solid var(--accent2)">
-            💡 <strong>이 파일 패턴 예시</strong>: <code style="color:var(--accent)">^\[\s*.+\.txt\s*\]\s*$</code> → <code style="color:var(--text2)">[ 0001_어떤 길은 나를 통했다.txt ]</code> 형식 인식<br>
-            혼합 예: <code style="color:var(--accent)">^(?:\[\s*.+\.txt\s*\]|\d+화).*$</code> → 두 패턴 동시 지원
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-<div class="sec">
-  <div class="sec-hdr"><span class="sec-title">⚙️ 변환 옵션 · 스타일</span><div class="sec-line"></div></div>
-  <div class="card" style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
-    <div id="settingsSummary" style="font-size:12px;color:var(--text2)">설정 탭에서 폰트, 줄간격, 변환 옵션을 변경할 수 있어요.</div>
-    <button class="btn btn-blue" data-action="switchPage" data-page="settings" style="flex-shrink:0">⚙️ 설정 열기</button>
-  </div>
-</div>
-<div class="sec">
-  <div class="sec-hdr"><span class="sec-title">🖼 삽화 설정</span><div class="sec-line"></div></div>
-  <div class="card">
-    <div class="dz" id="illDz">
-      <div class="dz-icon">🖼</div>
-      <div class="dz-text">삽화 이미지 드래그하거나 클릭</div>
-      <div class="dz-sub">16.jpg → 16화 앞에 삽입 · 198_1.jpg, 198_2.jpg → 순서대로 · PNG·GIF·WebP 지원</div>
-    </div>
-    <input type="file" id="illIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
-    <div id="illTags" class="tags" style="margin-top:8px"></div>
-    <div style="margin:12px 0 8px;border-top:1px solid var(--border);padding-top:10px;font-size:12px;font-weight:600;color:var(--text2)">추가 삽화 (수동)</div>
-    <div id="manualIlls"></div>
-    <button class="btn btn-ghost btn-sm" data-action="addManualIll">＋ 수동 삽화 추가</button>
-  </div>
-</div>
-<div class="prog-wrap" id="progWrap">
-  <div class="prog-bg"><div class="prog-bar" id="progBar"></div></div>
-  <div class="prog-msg" id="progMsg"></div>
-</div>
-<div class="result" id="resultBox">
-  <h3>✅ 변환 완료!</h3>
-  <div id="resultStats" style="display:flex;justify-content:center;gap:16px;margin:8px 0 12px;flex-wrap:wrap"></div>
-  <p id="resultMsg" style="font-size:11px;margin-bottom:10px"></p>
-  <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-    <button class="btn btn-blue" data-action="showPreview">👁 미리보기</button>
-    <button class="btn btn-green" data-action="downloadEpub">⬇ EPUB 다운로드</button>
-  </div>
-</div>
-<div class="err-box" id="errBox"></div>
-<!-- 분리 기능 -->
-<div class="sec" id="splitSec" style="display:none">
-  <div class="sec-hdr"><span class="sec-title">✂️ EPUB 분리</span><div class="sec-line"></div></div>
-  <div class="card">
-    <div style="font-size:12px;color:var(--text2);margin-bottom:10px">변환된 epub을 N화씩 여러 파일로 나눠요.</div>
-    <div class="row">
-      <span class="lbl">분리 단위</span>
-      <input class="inp" id="splitN" type="number" min="1" value="100" style="max-width:80px"> 화씩
-      <button class="btn btn-blue" data-action="startSplit">✂️ 분리 시작</button>
-    </div>
-    <div id="splitList" class="split-grid" style="margin-top:10px"></div>
-  </div>
-</div>
-</div><!-- /page-convert -->
 
 <!-- ══ 일괄 변환 페이지 ══ -->
 <div id="page-batch" class="page">
@@ -452,7 +273,7 @@
     <div class="row" style="padding:3px 0"><span class="lbl" style="width:80px">챕터 정규식</span><input class="inp" id="batchPattern" placeholder="비워두면 자동 감지"></div>
     <div class="toggle-row" style="padding:6px 0">
       <div><label for="batchItalic">👻 회상 대사 이탤릭</label></div>
-      <label class="sw"><input type="checkbox" id="batchItalic" checked><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="batchItalic" checked><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
   </div>
 </div>
@@ -632,7 +453,7 @@
       </div>
       <div class="toggle-row" style="margin-bottom:10px">
         <div><label>기존 CSS 유지 후 추가</label><small>OFF 시 기존 CSS를 완전히 교체</small></div>
-        <label class="sw"><input type="checkbox" id="directEditCssAppend" checked><span class="sw-slider"></span></label>
+        <label class="sw"><input type="checkbox" id="directEditCssAppend" checked><span class="sw-slider" aria-hidden="true"></span></label>
       </div>
       <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:5px">추가할 CSS 입력:</div>
       <textarea id="directEditCssInput" class="inp"
@@ -687,7 +508,7 @@
   <div class="card">
     <div class="css-option-row">
       <div><span>🎨 원본 EPUB CSS 유지</span><small style="display:block;font-size:10px;color:var(--text2)">OFF시 변환기 스타일 적용 (폰트·줄간격 통일)</small></div>
-      <label class="sw"><input type="checkbox" id="keepOrigCss" checked><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="keepOrigCss" checked><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="insert-pos" id="insertPos">📍 위 목차에서 삽입 위치를 선택해주세요</div>
     <div class="dz" id="insTxtDrop">
@@ -842,31 +663,31 @@
   <div class="card">
     <div class="toggle-row">
       <div><label for="optItalic">👻 회상 대사 이탤릭</label><small>-, — 시작 문장 → 이탤릭체</small></div>
-      <label class="sw"><input type="checkbox" id="optItalic" checked data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="optItalic" checked data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="toggle-row">
       <div><label for="optIndent">들여쓰기</label><small>문단 첫 줄 들여쓰기</small></div>
-      <label class="sw"><input type="checkbox" id="optIndent" checked data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="optIndent" checked data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="toggle-row">
       <div><label for="optMergeShortLines">문단 정합</label><small>30자 미만 짧은 줄을 자동으로 이어 붙여요 (대화체 소설에 적합)</small></div>
-      <label class="sw"><input type="checkbox" id="optMergeShortLines" data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="optMergeShortLines" data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="toggle-row">
       <div><label for="optEmptyLine">빈 줄 보존</label><small>단락 사이 빈 줄을 그대로 유지해요</small></div>
-      <label class="sw"><input type="checkbox" id="optEmptyLine" checked data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="optEmptyLine" checked data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="toggle-row">
       <div><label for="optChTitle">챕터 제목 표시</label><small>각 챕터 시작에 h1 제목 표시</small></div>
-      <label class="sw"><input type="checkbox" id="optChTitle" data-input-action="saveExtraSettings" checked><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="optChTitle" data-input-action="saveExtraSettings" checked><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="toggle-row">
       <div><label for="optDarkCover">다크 커버 배경</label><small>표지 이미지 없을 때 배경색 어둡게</small></div>
-      <label class="sw"><input type="checkbox" id="optDarkCover" data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="optDarkCover" data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="toggle-row">
       <div><label for="optImgConvert">🖼 삽화 이미지 JPG 변환</label><small>PNG·GIF·WebP 등을 모두 JPG로 변환해요 (호환성 최대화)<br>OFF 시 원본 형식 그대로 삽입 (용량 최적화) · 표지는 항상 JPG로 변환</small></div>
-      <label class="sw"><input type="checkbox" id="optImgConvert" checked data-input-action="saveExtraSettingsRenderIll"><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="optImgConvert" checked data-input-action="saveExtraSettingsRenderIll"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="toggle-row" id="optImgQualityRow">
       <div><label>JPG 변환 품질</label><small>높을수록 화질 좋고 용량 큼 (기본: 92%)</small></div>
@@ -1052,11 +873,11 @@
   <div class="card">
     <div class="toggle-row">
       <div><label for="optAutoPreview">파일 선택 시 목차 자동 확인</label><small>TXT 파일 드롭 즉시 목차 감지 실행</small></div>
-      <label class="sw"><input type="checkbox" id="optAutoPreview" data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="optAutoPreview" data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="toggle-row">
       <div><label for="optShowLineNum">줄 번호 표시</label><small>목차 패널에 줄 번호 표시</small></div>
-      <label class="sw"><input type="checkbox" id="optShowLineNum" data-input-action="saveExtraSettings" checked><span class="sw-slider"></span></label>
+      <label class="sw"><input type="checkbox" id="optShowLineNum" data-input-action="saveExtraSettings" checked><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
       <div style="flex:1"><label class="txt-label-bold">기본 챕터 정규식</label><small class="txt-meta-sm" style="display:block">비워두면 자동 감지. 매번 같은 패턴 쓴다면 여기에 저장</small></div>
@@ -1146,362 +967,6 @@
   <button class="btn btn-ghost" data-action="resetAllSettings">🔄 설정 초기화</button>
 </div>
 </div><!-- /page-settings -->
-    <div class="toggle-row">
-      <div><label for="optIndent">들여쓰기</label><small>문단 첫 줄 들여쓰기</small></div>
-      <label class="sw"><input type="checkbox" id="optIndent" checked data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
-    </div>
-    <div class="toggle-row">
-      <div>
-        <label for="optMergeShortLines">문단 정합</label>
-        <small>30자 미만 짧은 줄을 자동으로 이어 붙여요 (대화체 소설에 적합)</small>
-      </div>
-      <label class="sw"><input type="checkbox" id="optMergeShortLines" data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
-    </div>
-    <div class="toggle-row">
-      <div><label for="optEmptyLine">빈 줄 보존</label><small>단락 사이 빈 줄을 그대로 유지해요</small></div>
-      <label class="sw"><input type="checkbox" id="optEmptyLine" checked data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
-    </div>
-    <div class="toggle-row">
-      <div><label for="optChTitle">챕터 제목 표시</label><small>각 챕터 시작에 h1 제목 표시</small></div>
-      <label class="sw"><input type="checkbox" id="optChTitle" data-input-action="saveExtraSettings" checked><span class="sw-slider"></span></label>
-    </div>
-    <div class="toggle-row">
-      <div><label for="optDarkCover">다크 커버 배경</label><small>표지 이미지 없을 때 배경색 어둡게</small></div>
-      <label class="sw"><input type="checkbox" id="optDarkCover" data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
-    </div>
-    <div class="toggle-row">
-      <div>
-        <label for="optImgConvert">🖼 삽화 이미지 JPG 변환</label>
-        <small>PNG·GIF·WebP 등을 모두 JPG로 변환해요 (호환성 최대화)<br>OFF 시 원본 형식 그대로 삽입 (용량 최적화) · 표지는 항상 JPG로 변환</small>
-      </div>
-      <label class="sw"><input type="checkbox" id="optImgConvert" checked data-input-action="saveExtraSettingsRenderIll"><span class="sw-slider"></span></label>
-    </div>
-    <div class="toggle-row" id="optImgQualityRow">
-      <div>
-        <label>JPG 변환 품질</label>
-        <small>높을수록 화질 좋고 용량 큼 (기본: 92%)</small>
-      </div>
-      <div style="display:flex;align-items:center;gap:8px">
-        <input type="range" id="optImgQuality" min="60" max="100" step="2" value="92"
-               style="width:90px" data-input-action="syncImgQuality">
-        <span id="optImgQualityVal" style="font-size:12px;font-weight:700;color:var(--accent);min-width:36px">92%</span>
-      </div>
-    </div>
-  </div>
-</div>
-<div class="sec">
-  <div class="sec-hdr"><span class="sec-title">🎨 CSS 커스터마이징</span><div class="sec-line"></div></div>
-  <div class="card">
-    <!-- 슬라이더 + 기존 select 동기화 -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:10px">
-      <div class="css-field">
-        <label>폰트</label>
-        <select id="cssFont" data-input-action="updateCssSave">
-          <optgroup label="── 구글 폰트 (사용률 높은 순) ──">
-          <option value='"Noto Sans KR",sans-serif'>Noto Sans KR ★ (범용 고딕)</option>
-          <option value='"Noto Serif KR",Georgia,serif' selected>Noto Serif KR ★ (범용 명조)</option>
-          <option value='"Nanum Gothic","Noto Sans KR",sans-serif'>나눔고딕 ★ (부드러운 고딕)</option>
-          <option value='"Nanum Myeongjo","Noto Serif KR",serif'>나눔명조 ★ (부드러운 명조)</option>
-          <option value='"Gowun Dodum",sans-serif'>고운돋움 (둥근 고딕)</option>
-          <option value='"Gowun Batang",serif'>고운바탕 (바탕 계열)</option>
-          <option value='"Hahmlet",serif'>함렛 (현대 명조)</option>
-          <option value='"Do Hyeon",sans-serif'>도현 (깔끔한 고딕)</option>
-          <option value='"Jua",sans-serif'>주아 (동글동글)</option>
-          <option value='"Black Han Sans",sans-serif'>검은고딕 (굵은 강조)</option>
-          <option value='"Gaegu",cursive'>개구 (손글씨)</option>
-          <option value='"Cute Font",cursive'>귀여운글씨</option>
-          <option value='"Nanum Gothic Coding",monospace'>나눔고딕코딩 (등폭)</option>
-          <option value='"Gugi",cursive'>구기 (개성체)</option>
-          </optgroup>
-          <optgroup label="── 시스템 폰트 ──">
-          <option value='"Batang","Noto Serif KR",serif'>바탕체</option>
-          <option value='"Malgun Gothic","Noto Sans KR",sans-serif'>맑은 고딕</option>
-          <option value='"Dotum","Noto Sans KR",sans-serif'>돋움체</option>
-          <option value='Georgia,serif'>Georgia (영문)</option>
-          </optgroup>
-          <option value="__custom__" id="customFontOpt" style="display:none">📁 커스텀 폰트</option>
-        </select>
-      </div>
-      <div class="css-field">
-        <label style="margin-bottom:4px">여백 (개별 설정)</label>
-        <!-- ★ 4방향 여백: 모바일에서 아코디언 그룹화 -->
-        <button type="button" class="pad-accordion-toggle" id="padAccordionToggle" onclick="togglePadAccordion()">
-          📐 여백 세부 설정
-        </button>
-        <div class="pad-accordion-body" id="padAccordionBody">
-        <div class="pad-grid">
-          <div class="pad-field">
-            <label class="pad-lbl">위</label>
-            <input type="range" class="pad-slider" id="cssPadTopSlider"
-                   min="0" max="4" step="0.1" value="1.5"
-                   data-input-action="syncPadTop">
-            <input type="number" class="pad-num" id="cssPadTop"
-                   min="0" max="4" step="0.1" value="1.5"
-                   data-input-action="updateCssSave">
-            <span class="pad-unit">em</span>
-          </div>
-          <div class="pad-field">
-            <label class="pad-lbl">아래</label>
-            <input type="range" class="pad-slider" id="cssPadBottomSlider"
-                   min="0" max="4" step="0.1" value="1.5"
-                   data-input-action="syncPadBottom">
-            <input type="number" class="pad-num" id="cssPadBottom"
-                   min="0" max="4" step="0.1" value="1.5"
-                   data-input-action="updateCssSave">
-            <span class="pad-unit">em</span>
-          </div>
-          <div class="pad-field">
-            <label class="pad-lbl">왼쪽</label>
-            <input type="range" class="pad-slider" id="cssPadLeftSlider"
-                   min="0" max="4" step="0.1" value="1.8"
-                   data-input-action="syncPadLeft">
-            <input type="number" class="pad-num" id="cssPadLeft"
-                   min="0" max="4" step="0.1" value="1.8"
-                   data-input-action="updateCssSave">
-            <span class="pad-unit">em</span>
-          </div>
-          <div class="pad-field">
-            <label class="pad-lbl">오른쪽</label>
-            <input type="range" class="pad-slider" id="cssPadRightSlider"
-                   min="0" max="4" step="0.1" value="1.8"
-                   data-input-action="syncPadRight">
-            <input type="number" class="pad-num" id="cssPadRight"
-                   min="0" max="4" step="0.1" value="1.8"
-                   data-input-action="updateCssSave">
-            <span class="pad-unit">em</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 줄간격 슬라이더 -->
-    <div class="css-slider-wrap" style="margin-bottom:10px">
-      <div class="css-slider-label">줄간격<span id="cssLineVal">1.9</span></div>
-      <input type="range" class="css-slider" id="cssLineSlider" min="1.4" max="2.8" step="0.1" value="1.9"
-             data-input-action="syncCssLineSlider">
-      <select id="cssLine" data-input-action="syncCssLine" style="margin-top:4px;font-size:11px;padding:3px 6px;border:1.5px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text)">
-        <option value="1.4">1.4 (좁게)</option>
-        <option value="1.6">1.6</option>
-        <option value="1.7">1.7</option>
-        <option value="1.9" selected>1.9 (기본)</option>
-        <option value="2.1">2.1</option>
-        <option value="2.3">2.3</option>
-        <option value="2.5">2.5</option>
-        <option value="2.8">2.8 (넓게)</option>
-      </select>
-    </div>
-
-    <!-- 글자 크기 슬라이더 -->
-    <div class="css-slider-wrap" style="margin-bottom:10px">
-      <div class="css-slider-label">글자 크기<span id="cssFontSizeVal">1.0em</span></div>
-      <input type="range" class="css-slider" id="cssFontSizeSlider" min="0.8" max="1.4" step="0.05" value="1.0"
-             data-input-action="syncCssFontSizeSlider">
-      <select id="cssFontSize" data-input-action="syncCssFontSize" style="margin-top:4px;font-size:11px;padding:3px 6px;border:1.5px solid var(--border);border-radius:5px;background:var(--bg);color:var(--text)">
-        <option value="0.8em">0.8em (매우 작게)</option>
-        <option value="0.9em">0.9em (작게)</option>
-        <option value="1em" selected>1.0em (보통)</option>
-        <option value="1.1em">1.1em (크게)</option>
-        <option value="1.2em">1.2em (매우 크게)</option>
-        <option value="1.4em">1.4em (최대)</option>
-      </select>
-    </div>
-
-    <!-- 문단 들여쓰기 슬라이더 -->
-    <div class="css-slider-wrap" style="margin-bottom:12px">
-      <div class="css-slider-label">들여쓰기<span id="cssIndentVal">1.0em</span></div>
-      <input type="range" class="css-slider" id="cssIndentSlider" min="0" max="2.5" step="0.1" value="1.0"
-             data-input-action="syncIndent">
-    </div>
-
-    <!-- 고급 옵션 -->
-    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px">
-      <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:8px">🔧 고급 옵션</div>
-      <div class="adv-css-row">
-        <span class="adv-css-lbl">본문 색상</span>
-        <input type="color" class="color-inp" id="cssTextColor" value="#2d1f14" data-input-action="updateCssSave" title="본문 글자색">
-        <span class="adv-css-val">기본: 진한 갈색</span>
-      </div>
-      <div class="adv-css-row">
-        <span class="adv-css-lbl">배경 색상</span>
-        <input type="color" class="color-inp" id="cssBgColor" value="#fdf6ee" data-input-action="updateCssSave" title="본문 배경색">
-        <span class="adv-css-val">기본: 아이보리</span>
-        <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="resetColors">리셋</button>
-      </div>
-      <div class="adv-css-row">
-        <span class="adv-css-lbl">텍스트 정렬</span>
-        <div style="display:flex;gap:5px">
-          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssAlign" value="justify" checked data-input-action="updateCssSave"> 양쪽</label>
-          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssAlign" value="left" data-input-action="updateCssSave"> 왼쪽</label>
-          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssAlign" value="center" data-input-action="updateCssSave"> 가운데</label>
-        </div>
-      </div>
-      <div class="adv-css-row">
-        <span class="adv-css-lbl">챕터 제목 스타일</span>
-        <div style="display:flex;gap:5px;flex-wrap:wrap">
-          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssTitleStyle" value="center" checked data-input-action="updateCssSave"> 가운데</label>
-          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssTitleStyle" value="left" data-input-action="updateCssSave"> 왼쪽</label>
-          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssTitleStyle" value="underline" data-input-action="updateCssSave"> 밑줄</label>
-          <label style="font-size:11px;cursor:pointer;display:flex;align-items:center;gap:3px"><input type="radio" name="cssTitleStyle" value="box" data-input-action="updateCssSave"> 박스</label>
-        </div>
-      </div>
-    </div>
-
-    <!-- EPUB에서 CSS 클래스 임포트 -->
-    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
-      <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">📥 EPUB에서 CSS 클래스 임포트</div>
-      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">기존 EPUB의 CSS 스타일을 가져와 변환에 적용할 수 있어요.</div>
-      <div class="dz" id="cssImportDrop" style="padding:8px">
-        <div style="font-size:12px;color:var(--text2)">📖 EPUB 파일 드래그 또는 클릭해서 CSS 임포트</div>
-        <div id="cssImportInfo" style="font-size:11px;color:var(--green);margin-top:3px"></div>
-      </div>
-      <input type="file" id="cssImportIn" accept=".epub" hidden>
-      <div id="cssImportClasses" class="css-cls-grid" style="margin-top:8px;display:none"></div>
-      <div id="cssImportApplyBar" style="display:none;margin-top:6px;font-size:11px;color:var(--text2)">
-        선택한 클래스를 추가 CSS로 적용해요.
-        <button class="btn btn-blue btn-sm" style="margin-left:8px" data-action="applyCssImport">✅ 선택 클래스 적용</button>
-        <button class="btn btn-ghost btn-sm" style="margin-left:4px" data-action="clearCssImport">취소</button>
-      </div>
-    </div>
-
-    <!-- ★ 설정 프리셋 저장/불러오기 -->
-    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
-      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
-        <div style="font-size:12px;font-weight:700;color:var(--text)">🎨 설정 프리셋</div>
-        <button class="btn btn-ghost btn-sm" data-action="saveCurrentAsPreset" style="font-size:11px">💾 현재 설정 저장</button>
-      </div>
-      <div id="cssPresetList" style="display:flex;flex-wrap:wrap;gap:5px;min-height:28px"></div>
-    </div>
-
-    <!-- 추가 CSS 직접 입력 -->
-    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
-      <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:4px">✏️ 추가 CSS 직접 입력</div>
-      <textarea id="cssExtra" style="width:100%;height:80px;font-family:monospace;font-size:11px;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);resize:vertical;outline:none" placeholder="/* 예) h1 { color: #c63; } */" data-input-action="saveCssSettings"></textarea>
-    </div>
-
-    <!-- 커스텀 폰트 업로드 -->
-    <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
-      <div style="font-size:12px;font-weight:600;color:var(--text2);margin-bottom:6px">📁 커스텀 폰트 파일 추가</div>
-      <div style="font-size:11px;color:var(--text2);margin-bottom:8px">TTF, OTF, WOFF, WOFF2 파일을 epub에 직접 포함시켜요.</div>
-      <div class="dz" id="fontDrop" style="padding:10px">
-        <div style="font-size:12px;color:var(--text2)">🔤 폰트 파일 드래그하거나 클릭 (.ttf .otf .woff .woff2)</div>
-        <div id="fontInfo" style="font-size:11px;color:var(--green);margin-top:3px"></div>
-      </div>
-      <input type="file" id="fontIn" accept=".ttf,.otf,.woff,.woff2" hidden>
-    </div>
-
-    <div class="css-preview" id="cssPreview">
-      <strong id="cssPreviewTitle" style="font-size:1.1em;display:block;text-align:center;margin-bottom:10px">미리보기 제목</strong>
-      <p>가나다라마바사아자차카타파하. 한글 소설 본문 미리보기입니다. 두 번째 문장이에요.</p>
-      <p style="font-style:italic;margin-top:6px">— 이것은 회상 대사입니다.</p>
-      <p style="margin-top:6px">【시스템 알림: 이것은 시스템창 예시입니다.】</p>
-    </div>
-  </div>
-</div>
-<div class="sec">
-  <div class="sec-hdr"><span class="sec-title">📋 목차 감지 설정</span><div class="sec-line"></div></div>
-  <div class="card">
-    <div class="toggle-row">
-      <div><label for="optAutoPreview">파일 선택 시 목차 자동 확인</label><small>TXT 파일 드롭 즉시 목차 감지 실행</small></div>
-      <label class="sw"><input type="checkbox" id="optAutoPreview" data-input-action="saveExtraSettings"><span class="sw-slider"></span></label>
-    </div>
-    <div class="toggle-row">
-      <div><label for="optShowLineNum">줄 번호 표시</label><small>목차 패널에 줄 번호 표시</small></div>
-      <label class="sw"><input type="checkbox" id="optShowLineNum" data-input-action="saveExtraSettings" checked><span class="sw-slider"></span></label>
-    </div>
-    <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
-      <div style="flex:1"><label style="font-size:12px;font-weight:600">기본 챕터 정규식</label><small style="display:block;font-size:10px;color:var(--text2)">비워두면 자동 감지. 매번 같은 패턴 쓴다면 여기에 저장</small></div>
-      <input class="inp" id="optDefaultPat" placeholder="자동 감지" style="max-width:220px;font-size:12px" data-input-action="saveExtraSettings">
-    </div>
-  </div>
-</div>
-<div class="sec">
-  <div class="sec-hdr"><span class="sec-title">📤 출력 설정</span><div class="sec-line"></div></div>
-  <div class="card">
-    <div class="row" style="padding:4px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
-      <span style="font-size:12px;font-weight:600;flex:1">EPUB 메타 언어</span>
-      <select id="optLang" data-input-action="saveExtraSettings" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text)">
-        <option value="ko" selected>한국어 (ko)</option>
-        <option value="en">영어 (en)</option>
-        <option value="ja">일본어 (ja)</option>
-        <option value="zh">중국어 (zh)</option>
-      </select>
-    </div>
-    <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
-      <span style="font-size:12px;font-weight:600;flex:1">출판사(publisher) 태그</span>
-      <input class="inp" id="optPublisher" placeholder="비워두면 미포함" style="max-width:180px;font-size:12px" data-input-action="saveExtraSettings">
-    </div>
-    <div class="row" style="padding:8px 0;gap:8px;align-items:center">
-      <span style="font-size:12px;font-weight:600;flex:1">EPUB 압축 수준</span>
-      <select id="optCompression" data-input-action="saveExtraSettings" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text)">
-        <option value="1">빠름 (낮은 압축)</option>
-        <option value="6" selected>보통 (권장)</option>
-        <option value="9">최대 압축 (느림)</option>
-      </select>
-    </div>
-  </div>
-</div>
-<div class="sec">
-  <div class="sec-hdr"><span class="sec-title">🤖 Gemini API 설정</span><div class="sec-line"></div></div>
-  <div class="card">
-    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;line-height:1.7">
-      Gemini API 키를 등록하면 <b>예시 입력</b>칸에서 AI가 정규식을 자동 생성해줘요.<br>
-      <span style="font-size:11px">키 없이도 내장 로직으로 변환되지만, AI가 훨씬 정확해요.</span>
-    </div>
-    <div class="adv-css-row" style="border:none">
-      <span class="adv-css-lbl" style="min-width:100px">API Key</span>
-      <input class="inp" id="geminiApiKey" type="text" autocomplete="off"
-        placeholder="AIza..." style="font-size:12px;-webkit-text-security:disc"
-        data-input-action="saveApiSettings">
-      <span id="geminiKeyStatus" style="font-size:10px;padding:2px 7px;border-radius:3px;white-space:nowrap;display:none"></span>
-    </div>
-    <div style="margin-top:8px;padding:8px 10px;background:var(--blue-bg);border-radius:7px;font-size:11px;color:var(--blue);line-height:1.7">
-      💡 <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--blue);font-weight:600">Google AI Studio</a>에서 무료 발급 →
-      키는 이 기기의 localStorage에만 저장되며 외부로 전송되지 않아요.
-    </div>
-  </div>
-</div>
-<div class="sec">
-  <div class="sec-hdr"><span class="sec-title">🔑 표지 검색 API 설정</span><div class="sec-line"></div></div>
-  <div class="card">
-    <div style="font-size:12px;color:var(--text2);margin-bottom:10px;line-height:1.7">
-      네이버 책 검색 API 키를 등록하면 표지 검색 품질이 향상돼요.<br>
-      <span style="color:var(--text2);font-size:11px">키 없이도 CORS 프록시를 통한 검색이 가능하지만 불안정할 수 있어요.</span>
-    </div>
-    <div class="adv-css-row" style="border:none;padding-bottom:4px">
-      <span class="adv-css-lbl" style="min-width:100px">Client ID</span>
-      <input class="inp" id="naverClientId" placeholder="네이버 API Client ID" style="font-size:12px" data-input-action="saveApiSettings">
-    </div>
-    <div class="adv-css-row" style="border:none;padding-top:4px">
-      <span class="adv-css-lbl" style="min-width:100px">Client Secret</span>
-      <input class="inp" id="naverClientSecret" type="text" autocomplete="off" placeholder="네이버 API Client Secret" style="font-size:12px;-webkit-text-security:disc" data-input-action="saveApiSettings">
-    </div>
-    <div style="margin-top:8px;padding:8px 10px;background:var(--blue-bg);border-radius:7px;font-size:11px;color:var(--blue);line-height:1.7">
-      💡 <a href="https://developers.naver.com/apps/#/register" target="_blank" style="color:var(--blue);font-weight:600">네이버 개발자 센터</a>에서 애플리케이션 등록 → <b>검색 (책)</b> API 사용 신청 → Client ID/Secret 발급<br>
-      키는 이 기기의 localStorage에만 저장되며 외부로 전송되지 않아요.
-    </div>
-    <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px">
-      <div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px">키 없이 사용 가능한 검색 방법</div>
-      <div style="font-size:11px;color:var(--text2);line-height:1.8">
-        • <b>CORS 프록시</b> — allorigins.win 경유로 네이버 책 검색 (불안정)<br>
-        • <b>리디북스 · 노벨피아</b> — 사이트 직접 링크 열기 (이미지 URL 복사 후 붙여넣기)<br>
-        • <b>구글 이미지 검색</b> — 제목으로 구글 검색 창 열기
-      </div>
-    </div>
-  </div>
-</div>
-<div style="padding:0 0 20px;display:flex;gap:10px">
-  <button class="btn btn-accent" data-action="switchPage" data-page="convert">← 변환으로 돌아가기</button>
-  <button class="btn btn-ghost" data-action="resetAllSettings">🔄 설정 초기화</button>
-</div>
-</div><!-- /page-settings -->
-
-<div class="btm" id="btmConvert"><button class="btn btn-accent" data-action="startConvert">✨ EPUB 만들기!</button></div>
-<div class="btm" id="btmBatch" style="display:none;flex-direction:column;gap:6px;padding:8px 16px">
-  <div id="batchSettingSummary" style="font-size:11px;color:var(--text2);text-align:center"></div>
-  <button class="btn btn-accent" data-action="startBatch">📦 일괄 변환 시작!</button>
-</div>
-<div class="btm" id="btmEdit" style="display:none"><button class="btn btn-accent" data-action="startEditEpub">✏️ 편집 적용!</button></div>
-<!-- ══ 미리보기 모달 ══ -->
 <div class="modal-overlay" id="previewModal" data-action-overlay="closePreview">
   <div class="modal">
     <div class="modal-hdr">

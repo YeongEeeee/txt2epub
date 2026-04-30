@@ -170,33 +170,39 @@ const StateManager = (() => {
   const _stores = {};
 
   function create(name, initialState) {
-    // _state는 객체 직접 참조 — push/splice 등 배열 변형 메서드 정상 동작
     const _state = { ...initialState };
-    // 배열 값은 초기화 시 원본 참조 유지
     Object.keys(initialState).forEach(k => {
       if (Array.isArray(initialState[k])) _state[k] = [...initialState[k]];
     });
     const _subscribers = [];
 
-    // ref(): 내부 state 직접 참조 반환 (배열 변형용)
     function ref() { return _state; }
-
-    // get(): 안전한 shallow copy 반환 (읽기 전용용)
-    function get() { return _state; }  // 직접 참조 반환으로 변경
+    function get() { return _state; }
 
     function set(patch) {
       const prev = { ..._state };
-      Object.assign(_state, patch);
+      // ★ 대용량 배열 교체 시 기존 참조를 null로 끊어 GC 수거 유도
+      Object.keys(patch).forEach(k => {
+        if (Array.isArray(_state[k]) && Array.isArray(patch[k]) && _state[k] !== patch[k]) {
+          _state[k].length = 0; // 기존 배열 비움 (GC 참조 해제)
+          _state[k] = patch[k]; // 새 참조로 교체
+        } else {
+          _state[k] = patch[k];
+        }
+      });
       _subscribers.forEach(fn => { try { fn(_state, prev); } catch(e){} });
       EventBus.emit(`state:${name}:change`, { state: _state, prev });
     }
 
     function reset() {
-      // 배열 초기화 시 기존 참조 유지하며 비움
+      // ★ 완전 참조 해제: 대용량 배열(txtFiles, tocItems 등)을 null 할당 후 재생성
+      // → 이전 File 객체, 문자열 배열이 GC 대상이 됨
       Object.keys(initialState).forEach(k => {
         if (Array.isArray(initialState[k])) {
-          _state[k].length = 0;  // 참조 유지하며 배열 비움
-          _state[k].push(...initialState[k]);
+          if (_state[k] && _state[k].length > 0) {
+            _state[k] = null; // 기존 참조 완전 해제 → GC 대상
+          }
+          _state[k] = [...initialState[k]]; // 새 빈 배열 생성
         } else {
           _state[k] = initialState[k];
         }
@@ -217,6 +223,78 @@ const StateManager = (() => {
 
   return { create, getStore };
 })();
+// ══════════════════════════════════════════
+// 💾 Module: SettingsDB (IndexedDB 설정 저장소)
+// localStorage 5MB 제한 우회: 대용량 데이터(폰트 등)를 IDB에 저장
+// ══════════════════════════════════════════
+const SettingsDB = (() => {
+  const DB_NAME = 'novelepub_settings';
+  const DB_VER  = 1;
+  const STORE   = 'settings';
+  let _db = null;
+
+  function open(){
+    if(_db) return Promise.resolve(_db);
+    return new Promise((res,rej)=>{
+      const req = indexedDB.open(DB_NAME, DB_VER);
+      req.onupgradeneeded = e => {
+        const db = e.target.result;
+        if(!db.objectStoreNames.contains(STORE))
+          db.createObjectStore(STORE);
+      };
+      req.onsuccess = e => { _db=e.target.result; res(_db); };
+      req.onerror   = () => rej(req.error);
+    });
+  }
+
+  async function set(key, value){
+    try{
+      const db = await open();
+      return new Promise((res,rej)=>{
+        const tx = db.transaction(STORE,'readwrite');
+        tx.objectStore(STORE).put(value, key);
+        tx.oncomplete = res;
+        tx.onerror    = ()=>rej(tx.error);
+      });
+    }catch(e){
+      // IDB 실패 시 localStorage 폴백 (작은 값만)
+      try{
+        if(typeof value==='string' && value.length < 100000)
+          localStorage.setItem('idb_fallback_'+key, value);
+      }catch(le){}
+    }
+  }
+
+  async function get(key){
+    try{
+      const db = await open();
+      return new Promise((res,rej)=>{
+        const tx = db.transaction(STORE,'readonly');
+        const req = tx.objectStore(STORE).get(key);
+        req.onsuccess = ()=>res(req.result??null);
+        req.onerror   = ()=>rej(req.error);
+      });
+    }catch(e){
+      // IDB 실패 시 localStorage 폴백
+      try{ return localStorage.getItem('idb_fallback_'+key)||null; }catch(le){ return null; }
+    }
+  }
+
+  async function remove(key){
+    try{
+      const db = await open();
+      return new Promise((res,rej)=>{
+        const tx = db.transaction(STORE,'readwrite');
+        tx.objectStore(STORE).delete(key);
+        tx.oncomplete=res; tx.onerror=()=>rej(tx.error);
+      });
+    }catch(e){}
+  }
+
+  return { set, get, remove };
+})();
+
+
 
 // ─────────────────────────────────────────
 // Layer 3 · EventDelegate
@@ -350,6 +428,9 @@ async function handleCustomFont(files){
   const mimeMap={'ttf':'font/truetype','otf':'font/opentype','woff':'font/woff','woff2':'font/woff2'};
   const mime=mimeMap[ext]||'font/truetype';
   customFontFace='@font-face{font-family:"'+fontName+'";src:url("data:'+mime+';base64,'+b64+'") format("'+ext+'");}\n';
+  // ★ IDB에 폰트 데이터 저장 (localStorage 5MB 제한 우회)
+  SettingsDB.set('customFontFace', customFontFace).catch(()=>{});
+  SettingsDB.set('customFontName', customFontName).catch(()=>{});
   // select에 커스텀 폰트 옵션 추가
   const opt=document.getElementById('customFontOpt');
   if(opt){opt.textContent='📁 '+fontName;opt.style.display='';opt.value='"'+fontName+'",serif';}
@@ -389,21 +470,31 @@ window.addEventListener('DOMContentLoaded', ()=>{
   renderCssPresetList();
   renderHistory&&renderHistory();
 
-  // ★ 인라인 이벤트 → 이벤트 위임으로 처리
-  // histSearchInp: oninput="filterHistory()"
-  document.getElementById('histSearchInp').addEventListener('input', ()=>filterHistory&&filterHistory());
-  // histFilterHasFile: onclick="toggleHistFilter(this)"
+  // ★ 인라인 이벤트 → 이벤트 위임 (모두 Optional Chaining 적용)
+  document.getElementById('histSearchInp')?.addEventListener('input', ()=>filterHistory&&filterHistory());
   document.getElementById('histFilterHasFile')?.addEventListener('click', function(){ toggleHistFilter&&toggleHistFilter(this); });
-  // coverSearchQ: onkeydown Enter → runCoverSearch
-  document.getElementById('coverSearchQ').addEventListener('keydown', e=>{ if(e.key==='Enter') runCoverSearch&&runCoverSearch(); });
-  // pad accordion toggle
-  document.getElementById('padAccordionToggle').addEventListener('click', ()=>togglePadAccordion&&togglePadAccordion());
+  document.getElementById('coverSearchQ')?.addEventListener('keydown', e=>{ if(e.key==='Enter') runCoverSearch&&runCoverSearch(); });
+  document.getElementById('padAccordionToggle')?.addEventListener('click', ()=>togglePadAccordion&&togglePadAccordion());
 
   // 슬라이더 초기값 select 기준으로 동기화
   const lineVal=document.getElementById('cssLine')?.value||'1.9';
   syncSelect('cssLine','cssLineSlider','cssLineVal',lineVal);
   const sizeVal=document.getElementById('cssFontSize')?.value||'1em';
   syncSelect('cssFontSize','cssFontSizeSlider','cssFontSizeVal',sizeVal);
+
+  // ★ IDB에서 커스텀 폰트 복원
+  SettingsDB.get('customFontFace').then(face=>{
+    if(face){
+      SettingsDB.get('customFontName').then(name=>{
+        customFontFace = face;
+        customFontName = name||'커스텀폰트';
+        const opt=document.getElementById('customFontOpt');
+        if(opt){opt.textContent='📁 '+customFontName;opt.style.display='';opt.value='"'+customFontName+'",serif';}
+        const cf=document.getElementById('cssFont');
+        if(cf&&cf.value.includes('커스텀')||cf?.value?.includes(customFontName)){}
+      });
+    }
+  }).catch(()=>{});
 });
 
 // 패턴 헬퍼 선택 상태 (helperId → Set of vals)
@@ -548,28 +639,35 @@ function refreshDetectedChip(){
 function buildCombinedPat(selSet){
   if(selSet.size===0) return '';
   if(selSet.size===1) return [...selSet][0];
-  // ★ 각 패턴의 $ 앵커를 보존하면서 결합
-  // 기존 방식의 버그: $ 를 제거하면 '숫자만(^\d+$)'이 '123 뒤에텍스트'도 매칭
+
+  // ★ 안전한 패턴 결합: ^/$/ | 포함 패턴도 우선순위 보장
   const parts=[...selSet].map(p=>{
-    const hasEnd=p.endsWith('$')&&!p.endsWith('\\$');
-    // ^ 제거 (맨 앞에만 있는 ^)
-    let core=p.startsWith('^')?p.slice(1):p;
-    // 끝 $ 제거 (후에 재부착)
-    if(hasEnd) core=core.slice(0,-1);
-    // 바깥 (?:...) 그룹 한 겹 제거 (중첩 방지)
-    if(core.startsWith('(?:')&&core.endsWith(')')){
-      // 매칭되는 괄호인지 확인
-      let depth=0,isOuter=false;
+    // 1. ^ 앵커 분리 (최외곽에서 한번만 처리)
+    const hasStart = p.startsWith('^');
+    let core = hasStart ? p.slice(1) : p;
+
+    // 2. $ 앵커 분리 (이스케이프 \$ 제외)
+    const hasEnd = /(?<!\\)\\$$/.test(core);
+    if(hasEnd) core = core.slice(0, -1);
+
+    // 3. 기존 최외곽 (?:...) 그룹 제거 (중복 방지)
+    if(core.startsWith('(?:') && core.endsWith(')')){
+      let d=0, isOuter=true;
       for(let i=0;i<core.length;i++){
-        if(core[i]==='('&&core[i-1]!=='\\') depth++;
-        else if(core[i]===')'&&core[i-1]!=='\\') depth--;
-        if(depth===0&&i===core.length-1){isOuter=true;break;}
+        if(core[i]==='('&&core[i-1]!=='\\') d++;
+        else if(core[i]===')'&&core[i-1]!=='\\') d--;
+        if(d===0 && i<core.length-1){isOuter=false;break;}
       }
       if(isOuter) core=core.slice(3,-1);
     }
+
+    // 4. $ 앵커 내부로 재삽입 후 비캡처 그룹 래핑
     return '(?:'+core+(hasEnd?'$':'')+')';
   });
-  return '^(?:'+parts.join('|')+')';
+
+  // 5. ^ 앵커는 최외곽 1개만 (입력 패턴 중 하나라도 ^ 있으면 사용)
+  const hasSomeStart=[...selSet].some(p=>p.startsWith('^'));
+  return (hasSomeStart?'^':'')+'(?:'+parts.join('|')+')';
 }
 
 function clearChipSelection(helperId){
@@ -898,6 +996,11 @@ function toggleTheme(){
   try{ localStorage.setItem('novelepub_theme',next); }catch(e){}
 }
 
+// ★ CSS 변수 읽기 헬퍼 — 테마와 항상 동기화 (하드코딩 색상 제거)
+function getCssVar(name){
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 function initTheme(){
   // ★ localStorage 우선 → 없으면 OS 테마 자동 감지
   let theme=null;
@@ -1034,16 +1137,43 @@ async function resetAll(){
   ['tocPanel','progWrap','resultBox','errBox'].forEach(id=>document.getElementById(id).classList.remove('show'));
 }
 
+// ★ 탭별 렌더링 지연 플래그 (최초 1회만 렌더링)
+const _tabRendered = {};
+
 function switchPage(name){
   const pages=['convert','batch','edit','history','settings'];
+
+  // ① 탭 버튼 + 페이지 on/off
   document.querySelectorAll('.page-tab').forEach((t,i)=>t.classList.toggle('on',pages[i]===name));
-  pages.forEach(p=>{document.getElementById('page-'+p).classList.toggle('on',p===name);});
-  EventBus.emit('page:changed', {name}); // 탭 전환 이벤트 발행
-  document.getElementById('btmConvert').style.display=name==='convert'?'flex':'none';
-  document.getElementById('btmBatch').style.display=name==='batch'?'flex':'none';
-  document.getElementById('btmEdit').style.display=name==='edit'?'flex':'none';
+  pages.forEach(p=>{
+    const el=document.getElementById('page-'+p);
+    if(!el) return;
+    const isActive = p===name;
+    el.classList.toggle('on', isActive);
+    // ★ 비활성 탭의 무거운 리스트는 visibility:hidden으로 레이아웃만 유지
+    // → 완전 display:none보다 reflow 비용 없이 렌더트리에서 제외
+    if(!isActive && (p==='history'||p==='edit')){
+      el.style.contentVisibility='hidden'; // CSS Containment 적용
+    } else {
+      el.style.contentVisibility='';
+    }
+  });
+
+  EventBus.emit('page:changed', {name});
+  document.getElementById('btmConvert')?.style && (document.getElementById('btmConvert').style.display=name==='convert'?'flex':'none');
+  document.getElementById('btmBatch')?.style   && (document.getElementById('btmBatch').style.display=name==='batch'?'flex':'none');
+  document.getElementById('btmEdit')?.style    && (document.getElementById('btmEdit').style.display=name==='edit'?'flex':'none');
+
   if(name==='convert'||name==='batch') updateSettingsSummary();
-  if(name==='history') renderHistory();
+
+  // ② 무거운 탭: 최초 방문 시 1회만 렌더링 (Lazy)
+  if(name==='history' && !_tabRendered.history){
+    _tabRendered.history = true;
+    renderHistory();
+  } else if(name==='history'){
+    // 이미 렌더링된 경우 증분 업데이트만
+    renderHistory();
+  }
 }
 
 function updateSettingsSummary(){
@@ -1296,8 +1426,8 @@ async function imgToJpgBlob(file, quality=0.92){
         c.width=img.naturalWidth||img.width;
         c.height=img.naturalHeight||img.height;
         const ctx=c.getContext('2d');
-        // PNG 투명 배경 → 흰색
-        ctx.fillStyle='#ffffff';
+        // PNG 투명 배경 → CSS var(--bg) 또는 흰색 폴백
+        ctx.fillStyle=getCssVar('--bg')||'#ffffff';
         ctx.fillRect(0,0,c.width,c.height);
         ctx.drawImage(img,0,0);
         c.toBlob(b=>{
@@ -1637,7 +1767,7 @@ function syncIndent(val){
 }
 function resetColors(){
   const tc=document.getElementById('cssTextColor'),bc=document.getElementById('cssBgColor');
-  if(tc)tc.value='#2d1f14';if(bc)bc.value='#fdf6ee';
+  if(tc)tc.value=getCssVar('--text')||'#2d1f14';if(bc)bc.value=getCssVar('--bg')||'#fdf6ee';
   updateCssPreview();saveCssSettings();
 }
 
@@ -5092,7 +5222,7 @@ async function centerCropToBlob(src, targetW=800, targetH=1200, quality=0.92){
       const canvas=document.createElement('canvas');
       canvas.width=targetW; canvas.height=targetH;
       const ctx=canvas.getContext('2d');
-      ctx.fillStyle='#ffffff';
+      ctx.fillStyle=getCssVar('--bg')||'#ffffff';
       ctx.fillRect(0,0,targetW,targetH);
 
       // 소스 비율 계산

@@ -15,7 +15,7 @@
 }
 /* ★ OS 다크모드 자동 감지 (JS 설정 없을 때만 적용) */
 @media(prefers-color-scheme:dark){
-  :root:not([data-theme=light]){
+  :root:not([data-theme]){
     --bg:#0f0b07;--bg2:#1a1208;--panel:#1f1510;--border:#4a3020;
     --text:#f5e8d8;--text2:#c8a880;--accent:#ff7060;--accent2:#ff9858;
     --accent-bg:#3d1a12;--blue:#8ec0f0;--blue-bg:#0e1e30;

@@ -245,13 +245,20 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
   // 이미지 추가
   const imgStore=new Map();let imgIdx=0;
   async function addImg(file, forCover=false){
-    if(!file||imgStore.has(file))return;
-    // 표지는 리사이징 후 변환
-    const target=forCover?await resizeCoverIfNeeded(file):file;
-    const {blob, ext:dext, mt}=await convertImageFile(target, forCover);
-    const dest='img_'+String(imgIdx++).padStart(4,'0')+'.'+dext;
-    imagesFolder.file(dest,await fileToAB(blob));
-    imgStore.set(file,{filename:dest,mt});
+    if(!file||imgStore.has(file)) return;
+    try{
+      // 표지는 리사이징 후 변환
+      const target=forCover?await resizeCoverIfNeeded(file):file;
+      const {blob, ext:dext, mt}=await convertImageFile(target, forCover);
+      const dest='img_'+String(imgIdx++).padStart(4,'0')+'.'+dext;
+      imagesFolder.file(dest,await fileToAB(blob));
+      imgStore.set(file,{filename:dest,mt});
+    }catch(imgErr){
+      // ★ 단일 이미지 실패 → 전체 공정 중단 없이 건너뜀
+      if(typeof Toast!=='undefined')
+        Toast.warn(`이미지 처리 실패 (건너뜀): ${file.name||'알 수 없는 파일'}`);
+      imgIdx++; // 인덱스는 증가시켜 파일명 충돌 방지
+    }
   }
   if(coverFile) await addImg(coverFile, true);  // 표지는 항상 JPG 변환
   for(const il of illMap){if(il&&il.file) await addImg(il.file);}
@@ -279,9 +286,9 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
     const[h,b]=chapters[idx];
     const cn=extractChNum(h);
     const ills=illMap.filter(il=>
-      (il.idx!==undefined ? il.idx===idx : false) ||  // 인덱스 매칭 (auto)
-      (il.ch!==undefined&&il.idx===undefined ? il.ch===cn : false) || // 제목번호 매칭 (manual)
-      (!il.ch&&!il.idx&&il.kw&&b.includes(il.kw))   // 키워드 매칭 (manual)
+      (typeof il.idx==='number' ? il.idx===idx : false) ||              // 인덱스 매칭 (0 포함)
+      (typeof il.ch ==='number' && typeof il.idx!=='number' ? il.ch===cn : false) || // 제목번호 매칭
+      (typeof il.idx!=='number'&&typeof il.ch!=='number'&&il.kw&&b.includes(il.kw))  // 키워드 매칭
     );
     chHasIll[idx]=ills.length>0;
   }
@@ -290,8 +297,8 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
   let illPageIdx=0;
   const _loopStart=Date.now();
   for(let idx=0;idx<tot;idx++){
-    // 50챕터마다 메인 스레드에 제어권 반납 → UI 응답 유지 (500화+ 무응답 방지)
-    if(idx%50===0){
+    // ★ 20챕터마다 메인 스레드에 제어권 반납 (compressInWorker 미구현 보완 — 더 자주 양보)
+    if(idx%20===0){
       const pct=15+Math.floor(idx/tot*65);
       const elapsed=Date.now()-_loopStart;
       const eta=idx>0?Math.round((elapsed/idx)*(tot-idx)/1000):0;
@@ -303,10 +310,11 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
     const cn=extractChNum(heading);
 
     // 인덱스 매칭(auto) + 제목번호 매칭(manual) + 키워드 매칭(manual)
+    // ★ il.idx가 0인 경우도 정상 매칭되도록 typeof 조건 사용
     function matchIll(il){
-      if(il.idx!==undefined) return il.idx===idx;           // 파일명 인덱스
-      if(il.ch!==undefined)  return il.ch===cn;             // 챕터 제목 숫자
-      if(il.kw)              return body.includes(il.kw);   // 키워드
+      if(typeof il.idx==='number') return il.idx===idx;         // 파일명 인덱스 (0 포함)
+      if(typeof il.ch ==='number') return il.ch===cn;           // 챕터 제목 숫자 (0 포함)
+      if(il.kw)                    return body.includes(il.kw); // 키워드
       return false;
     }
     const beforeIlls=illMap.filter(il=>matchIll(il)&&il.pos!=='after').map(il=>il.file);
@@ -385,27 +393,55 @@ async function buildEpub({title,author,chapters,coverFile,illMap=[],useItalic=tr
   oebps.file('content.opf',opf);
 
   onProgress&&onProgress(92,'압축 중...');
-  // ★ optCompression: 기본값 6, 범위 0~9 클램프 (방어 코드)
+  // ★ 압축 전 메인 스레드에 제어권 반납
+  if(typeof yieldToMain==='function') await yieldToMain();
+
+  // ★ optCompression: 기본값 6, 범위 0~9 클램프
   const compressionRaw=parseInt(document.getElementById('optCompression')?.value??'6',10);
   const compressionLevel=isNaN(compressionRaw)?6:Math.max(0,Math.min(9,compressionRaw));
 
-  // ★ generateAsync try-catch: 채널 닫힘(Message channel closed) 방지
+  // ★ Two-Pass 압축 전략: DEFLATE 1차 시도 → 실패 시 STORE 단 1회 재시도 → 최종 실패 throw
+  // compressInWorker 미구현이므로 yieldToMain 콜백으로 메인 스레드 양보
+  let _deflateBlob=null;
   try{
-    const blob=await zip.generateAsync({
+    // 1차: DEFLATE 압축
+    // ★ streamFiles:true — 대용량 파일 메모리 점유 최소화
+    _deflateBlob=await zip.generateAsync({
       type:'blob',
       mimeType:'application/epub+zip',
       compression:'DEFLATE',
-      compressionOptions:{level:compressionLevel}
-    }, meta=>onProgress&&onProgress(92+Math.floor(meta.percent*0.07),'압축 중 '+Math.floor(meta.percent)+'%...'));
-    return blob;
-  }catch(zipErr){
-    // 압축 실패 시 무압축 재시도
-    onProgress&&onProgress(94,'압축 재시도 중...');
-    return await zip.generateAsync({
-      type:'blob',
-      mimeType:'application/epub+zip',
-      compression:'STORE',
-    }, meta=>onProgress&&onProgress(94+Math.floor(meta.percent*0.05),'압축 중 '+Math.floor(meta.percent)+'%...'));
+      compressionOptions:{level:compressionLevel},
+      streamFiles:true,
+    }, meta=>{
+      onProgress&&onProgress(
+        92+Math.floor(meta.percent*0.07),
+        '압축 중 '+Math.floor(meta.percent)+'%...'
+      );
+      // ★ 50% 시점에 추가 yieldToMain — compressInWorker 미구현 보완
+      if(meta.percent>=50&&meta.percent<51&&typeof yieldToMain==='function'){
+        yieldToMain(); // 비동기 yield (await 없이 예약만 — callback 내부이므로)
+      }
+    });
+    return _deflateBlob;
+  }catch(deflateErr){
+    // 2차: STORE 무압축 — 딱 한 번만 재시도 (무한 재귀 없음)
+    onProgress&&onProgress(94,'압축 실패, 무압축으로 재시도 중...');
+    if(typeof yieldToMain==='function') await yieldToMain();
+    try{
+      const storeBlob=await zip.generateAsync({
+        type:'blob',
+        mimeType:'application/epub+zip',
+        compression:'STORE',
+        streamFiles:true,
+      }, meta=>onProgress&&onProgress(
+        94+Math.floor(meta.percent*0.05),
+        '무압축 패키징 '+Math.floor(meta.percent)+'%...'
+      ));
+      return storeBlob;
+    }catch(storeErr){
+      // 최종 실패 → 사용자 UI에 에러 표시되도록 throw
+      throw new Error('EPUB 압축 최종 실패: '+storeErr.message);
+    }
   }
 }
 

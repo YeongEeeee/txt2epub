@@ -900,11 +900,14 @@ function renderTocItems(){
     if(isHidden) d.style.display='none';
     d.draggable=true;
 
-    // 드래그 핸들
+    // 드래그 핸들 — ★ 접근성: tabindex + aria-label + role 추가
     const handle=document.createElement('span');
     handle.className='toc-drag-handle';
     handle.textContent='⠿';
     handle.title='드래그해서 순서 변경';
+    handle.setAttribute('tabindex','0');
+    handle.setAttribute('role','button');
+    handle.setAttribute('aria-label',`${item.title||''} 항목 순서 변경 핸들`);
 
     // 체크박스
     const chk=document.createElement('input');
