@@ -153,6 +153,17 @@ async function resizeCoverIfNeeded(file){
   });
 }
 
+// ★ C-07: 삽화 파일명 자동 인식 강화
+// cover.jpg / prologue.jpg 등 키워드 기반 + 16_1.jpg 다중 삽화 지원
+const COVER_KEYWORDS=/^(?:cover|표지|커버|thumbnail|thumb)(?:\.\w+)?$/i;
+const KEYWORD_MAP={
+  prologue:   '프롤로그', prolog: '프롤로그',
+  epilogue:   '에필로그', epilog: '에필로그',
+  afterword:  '후기',     note:   '후기',
+  side:       '외전',     extra:  '외전',
+  title:      '표제지',
+};
+
 async function processImagesParallel(coverFile, illMap){
   const result = { cover: null, ills: [] };
   if(coverFile){
@@ -168,6 +179,21 @@ async function processImagesParallel(coverFile, illMap){
   const illFiles = illMap
     .map((il,i)=>({ il, file_idx: i }))
     .filter(({il})=>il&&il.file);
+
+  // ★ C-07: 파일명 키워드 기반 자동 매핑 보강
+  // 16_1.jpg, 16_2.jpg → file_idx로 정렬 보장 (기존 로직으로 처리됨)
+  // cover.jpg / prologue.jpg 등 키워드 파일명 → il.kw 자동 설정
+  illFiles.forEach(({il})=>{
+    if(il.idx!==undefined||il.ch!==undefined||il.kw) return; // 이미 매핑 있음
+    const base=(il.file.name||'').replace(/\.\w+$/,'').toLowerCase();
+    // 숫자 계열: 16 → idx=16 자동 추론
+    const numMatch=base.match(/^(\d+)(?:_\d+)?$/);
+    if(numMatch){ il.idx=parseInt(numMatch[1],10); return; }
+    // 키워드 매핑
+    for(const [kw,mapped] of Object.entries(KEYWORD_MAP)){
+      if(base.includes(kw)){ il.kw=mapped; return; }
+    }
+  });
 
   for(let i=0;i<illFiles.length;i+=IMG_CONCURRENCY){
     const batch = illFiles.slice(i, i+IMG_CONCURRENCY);

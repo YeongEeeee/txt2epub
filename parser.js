@@ -1088,7 +1088,23 @@ function updateTocStat(){
   const active=S.tocItems.filter(t=>t.enabled).length;
   const suspCount=S.tocItems.filter(t=>t.suspicious).length;
 
-  // 일괄 제거 버튼 — '본문 짧음' 항목이 있을 때만 표시
+  // ★ C-05: 챕터별 글자 수 통계
+  let totalChars=0, minChars=Infinity, maxChars=0;
+  let shortCount=0, longCount=0;
+  S.tocItems.forEach(t=>{
+    if(!t.enabled) return;
+    const len=(t.body||'').replace(/\s/g,'').length;
+    totalChars+=len;
+    if(len<minChars) minChars=len;
+    if(len>maxChars) maxChars=len;
+    if(len<100) shortCount++;
+    if(len>50000) longCount++;
+  });
+  const avgChars=active>0?Math.round(totalChars/active):0;
+  const totalWan=(totalChars/10000).toFixed(1);
+  const warnShort=shortCount>0?`<span style="color:var(--accent);font-size:10px;margin-left:4px" title="본문 100자 미만 챕터">⚠ 짧은챕터 ${shortCount}개</span>`:'';
+  const warnLong=longCount>0?`<span style="color:var(--blue);font-size:10px;margin-left:4px" title="본문 5만자 초과 챕터">📌 긴챕터 ${longCount}개</span>`:'';
+
   const suspBtn=suspCount>0
     ? '<button class="btn btn-sm" data-action="removeAllSuspicious" '+
       'style="font-size:10px;background:var(--accent-bg);color:var(--accent);'+
@@ -1101,7 +1117,7 @@ function updateTocStat(){
     '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="true">전체 선택</button>'+
     '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="false">전체 해제</button>'+
     suspBtn+
-    '<span style="font-size:11px;color:var(--text2);margin-left:auto">총 '+total+'개 · 활성 '+active+'개</span>';
+    `<span style="font-size:11px;color:var(--text2);margin-left:auto">총 ${total}개 · 활성 ${active}개 · 총 ${totalWan}만자 · 평균 ${avgChars.toLocaleString()}자${warnShort}${warnLong}</span>`;
 }
 function toggleTocItem(i,v){
   S.tocItems[i].enabled=v;
