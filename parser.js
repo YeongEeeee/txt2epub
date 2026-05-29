@@ -17,6 +17,11 @@
    renderTocItems, tocTab, fileToText, sampleLines */
 
 'use strict';
+
+// ★ B4: 짧은 챕터 기준 상수 — 한 곳에서 관리
+// ★ I4: 짧은 챕터 기준 — localStorage에서 읽어 사용자 설정 반영 (기본값 50자)
+function getSuspThreshold(){ try{ return parseInt(localStorage.getItem('novelepub_susp_threshold')||'50',10)||50; }catch(e){ return 50; } }
+const SUSP_THRESHOLD = getSuspThreshold();
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 // ── 공통 본문 HTML 변환 함수 (bodyToHtml · bToHtml 통합) ──
 // useItalic: 대화/회상 이탤릭 여부 · maxBlank: 연속 빈줄 최대 허용 수
@@ -672,17 +677,68 @@ async function previewToc(){
     }
   }
 
-  // 최소 본문 글자 수 필터: 챕터 본문이 50자 미만이면 오감지 표시
-  found=found.map((f,fi)=>{
-    const nextLine=found[fi+1]?found[fi+1].line-1:_fullRawLines.length;
-    const bodyLen=_fullRawLines.slice(f.line,nextLine).join('').replace(/\s/g,'').length;
-    // ★ originalTitle 초기화 (인라인 편집 추적용)
-    return {...f,enabled:true,suspicious:bodyLen<50&&fi<found.length-1,originalTitle:f.title};
+  // ★ I1+B2+B5: tocItems에 body 직접 저장 — 드래그 재정렬/병합 후에도 정확한 글자수 보장
+  found = found.map((f, fi) => {
+    const nextLine = found[fi+1] ? found[fi+1].line - 1 : _fullRawLines.length;
+    const bodyText = _fullRawLines.slice(f.line, nextLine).join('\n').trimEnd();
+    const bodyLen  = bodyText.replace(/\s/g, '').length;
+    return {
+      ...f,
+      enabled:       true,
+      body:          bodyText,
+      bodyLen:       bodyLen,
+      suspicious:    bodyLen < SUSP_THRESHOLD && fi < found.length - 1,
+      originalTitle: f.title,
+    };
   });
+
+  // ★ I9: 재감지 전 통계 저장 (delta 비교용)
+  const _prevTotal = S.tocItems.length;
+  const _prevChars = S.tocItems.reduce((s,t)=>s+(typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length),0);
 
   S.tocItems=found;
   renderTocItems();
   updateTocEditBanner&&updateTocEditBanner(); // ★ 편집 배너 초기화
+
+  // ★ I9: delta 표시 (이전 목차가 있었을 때만)
+  if(_prevTotal > 0 && (found.length !== _prevTotal || Math.abs(_prevChars - found.reduce((s,t)=>s+t.bodyLen,0)) > 100)){
+    const newChars = found.reduce((s,t)=>s+t.bodyLen,0);
+    const dN = found.length - _prevTotal;
+    const dC = ((newChars - _prevChars)/10000).toFixed(1);
+    const dNStr = (dN>0?'+':'')+dN+'챕터';
+    const dCStr = (parseFloat(dC)>0?'+':'')+dC+'만자';
+    const col = dN>=0?'var(--green)':'var(--accent)';
+    Toast.info(`재감지 완료 — <span style="color:${col};font-weight:600">${dNStr}</span>, <span style="color:${col};font-weight:600">${dCStr}</span>`, 4000);
+  }
+
+  // ★ I8: 연속 짧은 챕터 자동 병합 제안
+  const _suspItems = found.filter(t=>t.suspicious);
+  if(_suspItems.length >= 3){
+    // 연속 구간 찾기
+    const _suspIdxs = found.reduce((arr,t,i)=>{if(t.suspicious)arr.push(i);return arr;},[]);
+    let maxRun=1, run=1;
+    for(let k=1;k<_suspIdxs.length;k++){
+      if(_suspIdxs[k]===_suspIdxs[k-1]+1) run++;
+      else run=1;
+      maxRun=Math.max(maxRun,run);
+    }
+    if(maxRun>=3){
+      Toast.warn(
+        `짧은 챕터 ${_suspItems.length}개 중 ${maxRun}개가 연속돼 있어요. 이전 챕터에 병합하거나 전체 제거를 권장해요.`,
+        6000
+      );
+    }
+  }
+
+  // ★ I5: updateTocStat의 짧은챕터 칩 클릭 → 해당 항목 스크롤
+  setTimeout(()=>{
+    document.querySelectorAll('#toc-stat [data-filter-short]').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        const firstSusp=document.querySelector('.toc-item .toc-char-badge[data-short]');
+        firstSusp?.closest('.toc-item')?.scrollIntoView({block:'center',behavior:'smooth'});
+      });
+    });
+  }, 100);
 
   // 감지 실패 시 안내 메시지 (변환은 정상 작동)
   if(!found.length){
@@ -872,10 +928,16 @@ function renderTocItems(){
     if(idxs.length<2) return;
     _saveTocSnapshot(); // ★ Undo 스냅샷 저장
     const first=S.tocItems[idxs[0]];
+    // ★ B8: 병합된 챕터들의 body/bodyLen을 합산해 정확한 글자수 유지
+    const mergedBody    = idxs.map(i=>S.tocItems[i].body||'').join('\n');
+    const mergedBodyLen = mergedBody.replace(/\s/g,'').length;
     const merged={
       ...first,
-      title: idxs.map(i=>S.tocItems[i].title).join(' + '),
-      enabled:true,
+      title:         idxs.map(i=>S.tocItems[i].title).join(' + '),
+      enabled:       true,
+      body:          mergedBody,
+      bodyLen:       mergedBodyLen,
+      suspicious:    false,
       originalTitle: first.originalTitle||first.title,
     };
     for(let k=idxs.length-1;k>=1;k--) S.tocItems.splice(idxs[k],1);
@@ -933,20 +995,45 @@ function renderTocItems(){
     const num=document.createElement('span');
     num.className='toc-num'; num.textContent=item.line+'줄';
 
-    // ★ 챕터 본문 글자수 배지
+    // ★ B2+B3+B6+B9: 글자수 배지 — item.bodyLen 직접 사용 (드래그 순서 무관)
     const charBadge=document.createElement('span');
     charBadge.className='toc-char-badge';
-    // 다음 챕터까지의 줄 수로 글자수 추정
-    if(_fullRawLines&&_fullRawLines.length>0){
-      const nextItemLine=S.tocItems[i+1]?.line||_fullRawLines.length+1;
-      const bodyLen=_fullRawLines.slice(item.line, nextItemLine-1)
-        .join('').replace(/\s/g,'').length;
-      const kLen=Math.round(bodyLen/1000);
-      charBadge.textContent=bodyLen<1000?bodyLen+'자':(kLen+'k자');
-      charBadge.title='본문 글자수 (공백 제외)';
+    const _bLen = typeof item.bodyLen==='number'
+      ? item.bodyLen
+      : (item.body||'').replace(/\s/g,'').length;
+    if(_bLen > 0 || item.body !== undefined){
+      // ★ B3: Math.floor로 내림 표시, 1만자 이상은 '만자' 단위
+      let _bTxt;
+      if(_bLen < 1000)       _bTxt = _bLen + '자';
+      else if(_bLen < 10000) _bTxt = (_bLen/1000).toFixed(1) + 'k';
+      else                   _bTxt = (_bLen/10000).toFixed(1) + '만';
+      charBadge.textContent = _bTxt;
+      charBadge.title = '본문 글자수 (공백 제외): ' + _bLen.toLocaleString() + '자';
+      // ★ B4: SUSP_THRESHOLD 상수 기준 통일 (50자)
+      const _isShort = _bLen < 50;
       charBadge.style.cssText=
-        'font-size:9px;padding:1px 5px;border-radius:3px;flex-shrink:0;white-space:nowrap;'+
-        (bodyLen<50?'background:#fff3cd;color:#856404;border:1px solid #f0c040':'background:var(--bg2);color:var(--text2);border:1px solid var(--border)');
+        'font-size:9px;padding:1px 5px;border-radius:3px;flex-shrink:0;white-space:nowrap;cursor:default;'+
+        (_isShort?'background:#fff3cd;color:#856404;border:1px solid #f0c040':'background:var(--bg2);color:var(--text2);border:1px solid var(--border)');
+
+      // ★ I6: hover 시 본문 앞 3줄 팝오버 표시
+      let _charPopTimer=null;
+      charBadge.addEventListener('mouseenter',()=>{
+        _charPopTimer=setTimeout(()=>{
+          const preview=(item.body||'').split('\n').filter(l=>l.trim()).slice(0,3).join('\n')||'(본문 없음)';
+          const pop=document.createElement('div');
+          pop.style.cssText='position:fixed;z-index:9999;background:var(--panel);border:1.5px solid var(--border);border-radius:8px;padding:8px 10px;font-size:11px;max-width:280px;box-shadow:var(--shadow-md);pointer-events:none;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-all';
+          pop.textContent=preview;
+          document.body.appendChild(pop);
+          const rect=charBadge.getBoundingClientRect();
+          pop.style.left=Math.min(rect.left,window.innerWidth-300)+'px';
+          pop.style.top=(rect.bottom+4)+'px';
+          charBadge._pop=pop;
+        },350);
+      });
+      charBadge.addEventListener('mouseleave',()=>{
+        clearTimeout(_charPopTimer);
+        charBadge._pop?.remove(); charBadge._pop=null;
+      });
     }
 
     // 제목 인라인 편집 input
@@ -975,7 +1062,7 @@ function renderTocItems(){
         'padding:1px 6px;flex-shrink:0;white-space:nowrap;cursor:default;'+
         'border:1px solid #f0c040;display:inline-flex;align-items:center;gap:3px';
       badge.innerHTML='<span>⚠</span><span>본문 짧음</span>';
-      badge.title='이 챕터 본문이 50자 미만이에요 — 오감지일 수 있어요';
+      badge.title='이 챕터 본문이 '+SUSP_THRESHOLD+'자 미만이에요 — 오감지일 수 있어요';
 
       const removeBtn=document.createElement('button');
       removeBtn.className='btn btn-sm';
@@ -1084,11 +1171,36 @@ function renderTocItems(){
 
 function updateTocStat(){
   const stat=document.getElementById('toc-stat'); if(!stat) return;
-  const total=S.tocItems.length;
-  const active=S.tocItems.filter(t=>t.enabled).length;
-  const suspCount=S.tocItems.filter(t=>t.suspicious).length;
+  const total    = S.tocItems.length;
+  // ★ B10: enabled 기준으로 분리 — 비활성 챕터는 통계에서 제외
+  const active   = S.tocItems.filter(t=>t.enabled).length;
+  const suspCount= S.tocItems.filter(t=>t.suspicious).length;
 
-  // 일괄 제거 버튼 — '본문 짧음' 항목이 있을 때만 표시
+  // ★ B1+B10: 활성 챕터만 글자수 집계
+  let totalChars = 0;
+  S.tocItems.forEach(t=>{
+    if(!t.enabled) return;
+    const bl = typeof t.bodyLen==='number' ? t.bodyLen : (t.body||'').replace(/\s/g,'').length;
+    totalChars += bl;
+  });
+  const avgChars  = active > 0 ? Math.round(totalChars / active) : 0;
+  const totalWan  = (totalChars / 10000).toFixed(1);
+  // ★ I2: 짧은/긴 챕터 경고 집계 (B10: enabled만)
+  const shortCount= S.tocItems.filter(t=>t.enabled&&(typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length)<SUSP_THRESHOLD).length;
+  const longCount = S.tocItems.filter(t=>t.enabled&&(typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length)>50000).length;
+
+  // ★ I2: 통계 칩 배지 스타일
+  const chip = (txt,color)=>
+    `<span style="display:inline-flex;align-items:center;font-size:10px;padding:1px 7px;border-radius:99px;white-space:nowrap;background:${color.bg};color:${color.fg};border:1px solid ${color.bd}">${txt}</span>`;
+
+  const statChips = [
+    chip('총 '+totalWan+'만자', {bg:'var(--blue-bg)',fg:'var(--blue)',bd:'var(--blue)'}),
+    chip('평균 '+avgChars.toLocaleString()+'자', {bg:'var(--bg2)',fg:'var(--text2)',bd:'var(--border)'}),
+    shortCount>0 ? chip('⚠ 짧은챕터 '+shortCount, {bg:'var(--accent-bg)',fg:'var(--accent)',bd:'var(--accent)'}) : '',
+    longCount>0  ? chip('📌 긴챕터 '+longCount,    {bg:'var(--blue-bg)',fg:'var(--blue)',bd:'var(--blue)'}) : '',
+  ].filter(Boolean).join('');
+
+  // ★ I5: 짧은 챕터 배지 클릭 시 스크롤 — 이벤트 위임으로 처리
   const suspBtn=suspCount>0
     ? '<button class="btn btn-sm" data-action="removeAllSuspicious" '+
       'style="font-size:10px;background:var(--accent-bg);color:var(--accent);'+
@@ -1101,9 +1213,12 @@ function updateTocStat(){
     '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="true">전체 선택</button>'+
     '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="false">전체 해제</button>'+
     suspBtn+
-    '<span style="font-size:11px;color:var(--text2);margin-left:auto">총 '+total+'개 · 활성 '+active+'개</span>';
+    '<span style="display:flex;gap:4px;align-items:center;margin-left:auto;flex-wrap:wrap">'+
+      statChips+
+      '<span style="font-size:10px;color:var(--text2)">'+total+'개 중 '+active+'개 활성</span>'+
+    '</span>';
 
-  // ★ A-04: 변환 탭 버튼에 챕터 수 배지 표시
+  // ★ A-04: 변환 탭 버튼 배지
   const convertTab = document.querySelector('.page-tab[data-page="convert"]');
   if(convertTab){
     const badgeId = 'convertTabBadge';
@@ -1116,6 +1231,21 @@ function updateTocStat(){
     }
     badge.textContent = active > 0 ? active.toLocaleString() : total.toLocaleString();
     badge.style.display = total > 0 ? '' : 'none';
+  }
+
+  // ★ I7: 미니 차트 갱신 (main.js에 함수 정의)
+  if(typeof renderTocMiniChart==='function') renderTocMiniChart();
+
+  // ★ I10: 내보내기 버튼 동적 추가 (한 번만)
+  if(!document.getElementById('tocExportBtn')){
+    const exportBtn=document.createElement('button');
+    exportBtn.id='tocExportBtn';
+    exportBtn.className='btn btn-ghost btn-sm';
+    exportBtn.style.cssText='font-size:10px;padding:2px 8px;margin-left:4px';
+    exportBtn.textContent='📋 내보내기';
+    exportBtn.title='목차를 글자수 포함 TXT로 내보내기';
+    exportBtn.onclick=()=>{ if(typeof exportTocWithStats==='function') exportTocWithStats(); };
+    document.getElementById('toc-stat')?.appendChild(exportBtn);
   }
 }
 function toggleTocItem(i,v){

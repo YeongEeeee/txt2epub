@@ -3342,6 +3342,44 @@ function downloadEpub(){
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 
+// ★ I7: 챕터별 글자수 분포 미니 SVG 차트
+function renderTocMiniChart(){
+  const el=document.getElementById('tocMiniChart');
+  if(!el||!S.tocItems.length) return;
+  const items=S.tocItems.filter(t=>t.enabled&&t.bodyLen>0);
+  if(!items.length){el.innerHTML='';return;}
+  const maxLen=Math.max(...items.map(t=>t.bodyLen),1);
+  const W=el.clientWidth||300, H=36, bw=Math.max(1,Math.floor((W-4)/items.length)-1);
+  const bars=items.map((t,i)=>{
+    const h=Math.max(2,Math.floor(t.bodyLen/maxLen*(H-4)));
+    const x=2+i*(bw+1);
+    const col=t.suspicious?'#e8764a':'var(--accent)';
+    const title=t.title.slice(0,20)+'… '+t.bodyLen.toLocaleString()+'자';
+    return `<rect x="${x}" y="${H-h}" width="${bw}" height="${h}" fill="${col}" rx="1" title="${title}"
+      onclick="document.querySelector('.toc-item:nth-child(${i+1})')?.scrollIntoView({block:'center',behavior:'smooth'})" style="cursor:pointer;opacity:.75"/>`;
+  }).join('');
+  el.innerHTML=`<svg width="${W}" height="${H}" style="display:block;width:100%">${bars}</svg>`;
+}
+
+// ★ I10: 목차 내보내기 (글자수 포함)
+function exportTocWithStats(){
+  if(!S.tocItems.length){Toast.warn('목차가 없어요. 먼저 목차 확인을 실행해주세요.');return;}
+  const lines=S.tocItems
+    .filter(t=>t.enabled)
+    .map((t,i)=>{
+      const bl=typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length;
+      const blStr=bl>=10000?(bl/10000).toFixed(1)+'만자':bl>=1000?(bl/1000).toFixed(1)+'k자':bl+'자';
+      return String(i+1).padStart(3,'0')+'. '+t.title+' ('+blStr+')';
+    }).join('\n');
+  const blob=new Blob([lines],{type:'text/plain;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=(document.getElementById('title')?.value||'목차')+'_목차.txt';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+  Toast.success('목차를 내보냈어요 ('+S.tocItems.filter(t=>t.enabled).length+'개 챕터)');
+}
+
 // ★ C-04: Web Share API — 모바일(iOS Safari, Android Chrome) EPUB 직접 공유
 async function shareEpub(){
   if(!S.epubBlob){ Toast.warn('변환 후 사용할 수 있어요.'); return; }
