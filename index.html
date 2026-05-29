@@ -38,7 +38,7 @@
   <div class="sec-hdr"><span class="sec-title">📂 파일 설정</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="dz" id="txtDz">
-      <div class="dz-icon">📄</div>
+      <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);display:block;margin:0 auto 6px" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></svg>
       <div class="dz-text">TXT 파일을 드래그하거나 클릭</div>
       <div class="dz-sub">여러 파일 가능 · 자동 정렬 병합 · EUC-KR 자동 감지</div>
     </div>
@@ -179,7 +179,7 @@
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">⚙️ 변환 옵션 · 스타일</span><div class="sec-line"></div></div>
   <div class="card flex-row-sb" style="flex-wrap:wrap;gap:12px">
-    <div id="settingsSummary" class="txt-label">설정 탭에서 폰트, 줄간격, 변환 옵션을 변경할 수 있어요.</div>
+    <div id="settingsSummary" class="settings-summary-chips">설정 탭에서 폰트, 줄간격, 변환 옵션을 변경할 수 있어요.</div>
     <button class="btn btn-blue" data-action="switchPage" data-page="settings" style="flex-shrink:0">⚙️ 설정 열기</button>
   </div>
 </div>
@@ -662,6 +662,20 @@
 
 <!-- ══ 설정 페이지 ══ -->
 <div id="page-settings" class="page">
+  <div class="sec">
+  <div class="sec-hdr"><span class="sec-title">🎨 컬러 테마</span><div class="sec-line"></div></div>
+  <div class="card">
+    <div style="font-size:12px;color:var(--text2);margin-bottom:6px">포인트 컬러를 선택하세요. 라이트·다크 모드와 독립적으로 동작합니다.</div>
+    <div class="skin-swatch-wrap">
+      <div class="skin-swatch active" id="skin-terracotta" onclick="setSkin('terracotta')" style="background:#d45a46" title="테라코타 (기본)" aria-label="테라코타 스킨"></div>
+      <span class="skin-swatch-label">테라코타</span>
+      <div class="skin-swatch" id="skin-indigo" onclick="setSkin('indigo')" style="background:#4855a8" title="인디고 블루" aria-label="인디고 블루 스킨"></div>
+      <span class="skin-swatch-label">인디고</span>
+      <div class="skin-swatch" id="skin-forest" onclick="setSkin('forest')" style="background:#2a7a4a" title="포레스트 그린" aria-label="포레스트 그린 스킨"></div>
+      <span class="skin-swatch-label">포레스트</span>
+    </div>
+  </div>
+  </div>
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">⚙️ 변환 옵션</span><div class="sec-line"></div></div>
   <div class="card">

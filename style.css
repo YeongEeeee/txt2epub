@@ -71,8 +71,8 @@ body{
 
 /* ── 헤더 ── */
 .hdr{background:linear-gradient(135deg,var(--accent) 0%,var(--accent2) 100%);color:#fff;padding:14px 20px;display:flex;align-items:center;box-shadow:0 2px 12px rgba(212,90,70,.25);position:sticky;top:0;z-index:200}
-.hdr-title{font-family:'Noto Serif KR',serif;font-size:1.15em;font-weight:700;letter-spacing:-.02em}
-.hdr-sub{font-size:11px;opacity:.75;margin-left:6px}
+.hdr-title{font-family:'Noto Serif KR',serif;font-size:1.18em;font-weight:900;letter-spacing:.04em;text-shadow:0 1px 4px rgba(0,0,0,.15)}
+.hdr-sub{font-size:10px;opacity:1;margin-left:8px;background:rgba(255,255,255,.2);padding:2px 8px;border-radius:99px;letter-spacing:.02em;font-weight:400}
 .hdr-right{display:flex;gap:8px}
 .ibtn{background:rgba(255,255,255,.18);border:none;color:#fff;border-radius:var(--radius-xs);padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit;transition:background var(--dur-fast),transform var(--dur-fast)}
 .ibtn:hover{background:rgba(255,255,255,.32);transform:translateY(-1px)}
@@ -90,17 +90,24 @@ body{
 .page-tab.on{color:var(--accent);border-bottom-color:var(--accent)}
 .page-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
 .page{display:none}.page.on{display:block;animation:slideIn .18s var(--ease)}
+/* ★ 06: 탭 방향성 전환 애니메이션 */
+@keyframes slideFromRight{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:translateX(0)}}
+@keyframes slideFromLeft{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:translateX(0)}}
+.page.on.slide-from-right{animation:slideFromRight .22s var(--ease)}
+.page.on.slide-from-left{animation:slideFromLeft .22s var(--ease)}
+
 
 /* ── 레이아웃 ── */
 .wrap{max-width:840px;margin:0 auto;padding:20px 14px 100px}
 .sec{margin-bottom:14px}
 .sec-hdr{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.sec-title{font-weight:700;font-size:13px;color:var(--text);letter-spacing:-.01em}
+.sec-title{font-weight:700;font-size:13px;color:var(--text);letter-spacing:-.01em;border-left:3px solid var(--accent);padding-left:8px}
 .sec-line{flex:1;height:1px;background:var(--border)}
 
 /* ── 카드 ── */
 .card{background:var(--panel);border-radius:var(--radius);box-shadow:var(--shadow-sm);padding:16px;border:1px solid var(--border);transition:box-shadow var(--dur-base)}
 .card:focus-within{box-shadow:var(--shadow-md)}
+.card:hover{transform:translateY(-2px);box-shadow:var(--shadow-md)}
 
 /* ── 텍스트 유틸 ── */
 .cell-key{padding:3px 8px 3px 0;font-weight:600;color:var(--text);white-space:nowrap;vertical-align:top}
@@ -359,7 +366,8 @@ body{
 .sw input:checked+.sw-slider:before{transform:translateX(18px)}
 
 /* ── 하단 버튼 바 ── */
-.btm{position:fixed;bottom:0;left:0;right:0;background:var(--panel);border-top:1px solid var(--border);padding:11px 16px;display:flex;justify-content:center;z-index:100;box-shadow:0 -4px 20px rgba(0,0,0,.08)}
+.btm{position:fixed;bottom:0;left:0;right:0;background:var(--panel);border-top:1px solid var(--border);padding:10px 16px;display:flex;justify-content:center;z-index:100;box-shadow:0 -4px 20px rgba(0,0,0,.08)}
+.btm .btn-accent{width:100%;max-width:480px;height:52px;font-size:16px;border-radius:14px;letter-spacing:.01em}
 ::-webkit-scrollbar{width:5px;height:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:99px}
@@ -528,6 +536,7 @@ body{
 .error-boundary-box h2{color:var(--accent);font-size:18px;margin-bottom:10px}
 .error-boundary-box p{font-size:13px;color:var(--text2);line-height:1.7;margin-bottom:16px}
 .error-boundary-detail{font-family:'JetBrains Mono','Fira Mono',monospace;font-size:11px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;padding:8px;text-align:left;max-height:120px;overflow-y:auto;color:var(--accent);margin-bottom:16px;word-break:break-all}
+.settings-summary-chips{display:flex;flex-wrap:wrap;gap:5px;padding:4px 0}
 .settings-group{background:var(--bg2);border-radius:var(--radius);padding:14px;margin-bottom:10px;border:1px solid var(--border);box-shadow:var(--shadow-xs)}
 .settings-group-title{font-size:12px;font-weight:700;color:var(--text2);margin-bottom:10px;display:flex;align-items:center;gap:6px}
 #coverFileDrop{background:var(--bg2);transition:background var(--dur-base),border-color var(--dur-base)}
@@ -563,6 +572,43 @@ input:-webkit-autofill:focus{
   -webkit-text-fill-color:var(--text);
   -webkit-box-shadow:0 0 0 1000px var(--bg2) inset;
 }
+
+
+/* ★ 07: 결과 카드 shimmer + count-up + pulse */
+@keyframes shimmerSlide{0%{opacity:0;transform:translateX(-100%)}50%{opacity:.35}100%{opacity:0;transform:translateX(200%)}}
+@keyframes pulseOnce{0%,100%{box-shadow:0 0 0 0 rgba(42,128,80,.4)}50%{box-shadow:0 0 0 8px rgba(42,128,80,0)}}
+.result-shimmer{position:relative;overflow:hidden}
+.result-shimmer::after{content:'';position:absolute;top:0;left:0;width:50%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent);animation:shimmerSlide .7s var(--ease);pointer-events:none}
+.pulse-once{animation:pulseOnce .8s ease}
+
+
+/* ════════════════════════════
+   ★ 09: 컬러 테마 스킨 3종
+   data-skin 속성으로 전환
+════════════════════════════ */
+
+/* 기본: 테라코타 (skin=terracotta 또는 미설정) */
+/* ─ 인디고 블루 스킨 ─ */
+[data-skin=indigo]{
+  --accent:#4855a8;--accent2:#6270c8;--accent-bg:#eef0fb;--accent-hover:#3a449a;
+}
+[data-skin=indigo][data-theme=dark]{
+  --accent:#7080d8;--accent2:#8a98e0;--accent-bg:#1a1c2e;--accent-hover:#6070cc;
+}
+/* ─ 포레스트 그린 스킨 ─ */
+[data-skin=forest]{
+  --accent:#2a7a4a;--accent2:#3a9460;--accent-bg:#edf7f1;--accent-hover:#226040;
+}
+[data-skin=forest][data-theme=dark]{
+  --accent:#3a9862;--accent2:#4ab074;--accent-bg:#121e18;--accent-hover:#2e8052;
+}
+
+/* 스킨 스와치 UI */
+.skin-swatch-wrap{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:8px 0}
+.skin-swatch{width:26px;height:26px;border-radius:50%;cursor:pointer;border:2px solid transparent;transition:transform .15s,border-color .15s;flex-shrink:0}
+.skin-swatch:hover{transform:scale(1.18)}
+.skin-swatch.active{border-color:var(--text);transform:scale(1.12)}
+.skin-swatch-label{font-size:11px;color:var(--text2);margin-left:4px}
 
 @media(max-width:768px){
   .wrap{max-width:100%;padding:14px 12px 100px}

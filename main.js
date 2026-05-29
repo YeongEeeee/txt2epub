@@ -1323,21 +1323,33 @@ async function resetAll(){
 // ★ 탭별 렌더링 지연 플래그 (최초 1회만 렌더링)
 const _tabRendered = {};
 
+// ★ 06: 탭 인덱스 추적 — 방향성 전환 애니메이션
+let _lastPageIndex = 0;
+
 function switchPage(name){
   const pages=['convert','batch','edit','history','settings'];
+  const nextIdx = pages.indexOf(name);
 
-  // ① 탭 버튼 + 페이지 on/off
+  // ① 방향 결정 → 애니메이션 클래스 선택
+  const dir = nextIdx > _lastPageIndex ? 'slide-from-right' : 'slide-from-left';
+  _lastPageIndex = nextIdx;
+
+  // ② 탭 버튼 + 페이지 on/off
   document.querySelectorAll('.page-tab').forEach((t,i)=>t.classList.toggle('on',pages[i]===name));
   pages.forEach(p=>{
     const el=document.getElementById('page-'+p);
     if(!el) return;
     const isActive = p===name;
     el.classList.toggle('on', isActive);
-    // ★ 비활성 탭의 무거운 리스트는 visibility:hidden으로 레이아웃만 유지
-    // → 완전 display:none보다 reflow 비용 없이 렌더트리에서 제외
+    if(isActive){
+      // 방향성 애니메이션 적용
+      el.classList.remove('slide-from-left','slide-from-right');
+      void el.offsetWidth; // reflow 강제로 애니메이션 재트리거
+      el.classList.add(dir);
+    }
     if(!isActive && (p==='history'||p==='edit')){
-      el.style.contentVisibility='hidden'; // CSS Containment 적용
-    } else {
+      el.style.contentVisibility='hidden';
+    } else if(isActive) {
       el.style.contentVisibility='';
     }
   });
@@ -1361,17 +1373,31 @@ function switchPage(name){
 
 function updateSettingsSummary(){
   const font=document.getElementById('cssFont');
-  const fontName=font&&font.options&&font.options[font.selectedIndex]?font.options[font.selectedIndex].text.split(' ')[0]:'Noto Serif KR';
+  const fontName=font&&font.options&&font.options[font.selectedIndex]?font.options[font.selectedIndex].text.split(' ')[0]:'Noto Serif';
   const line=document.getElementById('cssLine')?.value||'1.9';
   const size=document.getElementById('cssFontSize')?.value||'1em';
-  const italic=document.getElementById('optItalic')?.checked?'이탤릭 ON':'이탤릭 OFF';
-  const indent=document.getElementById('optIndent')?.checked?'들여쓰기 ON':'들여쓰기 OFF';
-  const imgConv=document.getElementById('optImgConvert')?.checked!==false?'삽화 JPG변환 ON':'삽화 JPG변환 OFF';
-  const summary='현재 설정: '+fontName+' · 줄간격 '+line+' · 크기 '+size+' · '+italic+' · '+indent+' · '+imgConv;
-  const el=document.getElementById('settingsSummary');
-  if(el) el.textContent=summary;
-  const el2=document.getElementById('batchSettingSummary');
-  if(el2) el2.textContent=summary;
+  const italic=document.getElementById('optItalic')?.checked;
+  const indent=document.getElementById('optIndent')?.checked;
+
+  // ★ 08: chip 스타일 배너 — 현재 설정 한눈에 확인
+  const files = typeof S!=='undefined'&&S.txtFiles ? S.txtFiles.length : 0;
+  const pat = document.getElementById('pattern')?.value.trim()||'자동감지';
+  const chips = [
+    files>0 ? `📄 ${files}개 파일` : '📄 파일 없음',
+    `⚙️ ${pat.length>14?pat.slice(0,14)+'…':pat}`,
+    `🖋 ${fontName}`,
+    `줄간격 ${line}`,
+    italic?'👻 이탤릭 ON':null,
+    indent?'⇥ 들여쓰기':null,
+  ].filter(Boolean);
+
+  const chipHtml = chips.map(c=>
+    `<span style="display:inline-flex;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:99px;padding:2px 9px;font-size:11px;color:var(--text2);white-space:nowrap">${c}</span>`
+  ).join('');
+
+  [document.getElementById('settingsSummary'), document.getElementById('batchSettingSummary')].forEach(el=>{
+    if(el) el.innerHTML=chipHtml;
+  });
 }
 
 // ══════════════════════════════════════════
@@ -3043,10 +3069,52 @@ async function startConvert(){
     document.getElementById('splitSec').style.display='block';
     document.getElementById('resultBox')?.classList.add('show');
     _showShareBtnIfSupported(); // ★ C-04: 공유 버튼 조건부 표시
+    // ★ 07: 결과 카드 count-up 애니메이션
+    _animateResultStats();
   }catch(e){
     document.getElementById('progWrap')?.classList.remove('show');
     document.getElementById('errBox').textContent='❌ '+friendlyError(e);
     document.getElementById('errBox')?.classList.add('show');
+  }
+}
+
+// ★ 07: 결과 카드 count-up + shimmer 애니메이션
+function _animateResultStats(){
+  const resultBox = document.getElementById('resultBox');
+  if(!resultBox) return;
+
+  // shimmer 효과 (0.6초)
+  resultBox.classList.add('result-shimmer');
+  setTimeout(()=>resultBox.classList.remove('result-shimmer'), 700);
+
+  // count-up: result-stat-val 요소들의 숫자를 0에서 올라가게
+  resultBox.querySelectorAll('.result-stat-val').forEach(el=>{
+    const raw = el.textContent.trim();
+    // 숫자 추출 (1,110화 → 1110, 4.2MB → 4.2)
+    const numMatch = raw.replace(/,/g,'').match(/[\d.]+/);
+    if(!numMatch) return;
+    const target = parseFloat(numMatch[0]);
+    const suffix = raw.replace(numMatch[0],'').replace(/,/g,'');
+    const isFloat = raw.includes('.');
+    const dur = 600;
+    const start = performance.now();
+    const tick = (now)=>{
+      const t = Math.min((now-start)/dur, 1);
+      // ease-out cubic
+      const ease = 1 - Math.pow(1-t, 3);
+      const cur = target * ease;
+      const disp = isFloat ? cur.toFixed(1) : Math.round(cur).toLocaleString();
+      el.textContent = disp + suffix;
+      if(t < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  });
+
+  // 다운로드 버튼 pulse 1회
+  const dlBtn = resultBox.querySelector('[data-action="downloadEpub"]');
+  if(dlBtn){
+    dlBtn.classList.add('pulse-once');
+    setTimeout(()=>dlBtn.classList.remove('pulse-once'), 1000);
   }
 }
 
@@ -6842,4 +6910,79 @@ window.addEventListener('DOMContentLoaded', ()=>{
   ['optItalic','optIndent','optMergeShortLines'].forEach(id=>{
     document.getElementById(id)?.addEventListener('change', saveUserPrefs);
   });
+
+  // ★ 09: 컬러 스킨 초기화
+  initSkin();
 });
+
+// ★ 09: 컬러 스킨 시스템
+function setSkin(skinName){
+  const skins = ['terracotta','indigo','forest'];
+  const d = document.documentElement;
+  if(skinName==='terracotta') d.removeAttribute('data-skin');
+  else d.setAttribute('data-skin', skinName);
+  // 스와치 active 상태 갱신
+  skins.forEach(s=>{
+    const sw = document.getElementById('skin-'+s);
+    if(sw) sw.classList.toggle('active', s===skinName);
+  });
+  // 헤더 그림자 색 동적 업데이트
+  const hdr = document.querySelector('.hdr');
+  if(hdr){
+    const colors = {terracotta:'rgba(212,90,70,.25)',indigo:'rgba(72,85,168,.25)',forest:'rgba(42,122,74,.25)'};
+    hdr.style.boxShadow = '0 2px 12px '+(colors[skinName]||colors.terracotta);
+  }
+  try{ localStorage.setItem('novelepub_skin', skinName); }catch(e){}
+}
+function initSkin(){
+  try{
+    const saved = localStorage.getItem('novelepub_skin')||'terracotta';
+    setSkin(saved);
+  }catch(e){}
+}
+
+// ★ 10: 모바일 스와이프로 탭 전환
+(function setupSwipe(){
+  const pages = ['convert','batch','edit','history','settings'];
+  let _swX = null, _swY = null, _swActive = false;
+
+  document.addEventListener('touchstart', e=>{
+    // 파일 드래그 정렬(.txt-file-row), 목차 드래그 등 기존 터치 영역 제외
+    if(e.target.closest('.txt-file-row,.toc-drag-handle,.toc-item,.ch-list,.toc-body,.modal-overlay'))
+      return;
+    if(e.touches.length !== 1) return;
+    _swX = e.touches[0].clientX;
+    _swY = e.touches[0].clientY;
+    _swActive = true;
+  }, {passive:true});
+
+  document.addEventListener('touchmove', e=>{
+    if(!_swActive || _swX===null || _swY===null) return;
+    // 수직 스크롤이 더 크면 탭 전환 무효화
+    const dx = e.touches[0].clientX - _swX;
+    const dy = e.touches[0].clientY - _swY;
+    if(Math.abs(dy) > Math.abs(dx)) _swActive = false;
+  }, {passive:true});
+
+  document.addEventListener('touchend', e=>{
+    if(!_swActive || _swX===null) return;
+    const dx = e.changedTouches[0].clientX - _swX;
+    _swX = null; _swY = null; _swActive = false;
+
+    if(Math.abs(dx) < 52) return; // 최소 52px 이상 스와이프
+
+    // 현재 활성 탭 인덱스
+    const curTab = document.querySelector('.page-tab.on');
+    if(!curTab) return;
+    const curPage = curTab.dataset.page;
+    const curIdx = pages.indexOf(curPage);
+    if(curIdx < 0) return;
+
+    // 왼쪽 스와이프(→ 다음), 오른쪽 스와이프(← 이전)
+    const nextIdx = dx < 0
+      ? Math.min(curIdx + 1, pages.length - 1)
+      : Math.max(curIdx - 1, 0);
+
+    if(nextIdx !== curIdx) switchPage(pages[nextIdx]);
+  }, {passive:true});
+})();
