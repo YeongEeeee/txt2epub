@@ -358,85 +358,11 @@ const SettingsDB = (() => {
   return { set, get, remove };
 })();
 
-// ★ C-06: 변환 설정 전체 프리셋 저장·불러오기
-const SettingsPreset = (() => {
-  const KEY = 'settingsPresets';
-
-  async function getAll(){ try{ return (await SettingsDB.get(KEY))||[]; }catch(e){ return []; } }
-  async function save(name){
-    const presets=await getAll();
-    const data={
-      name, ts: Date.now(),
-      pattern:     document.getElementById('pattern')?.value||'',
-      cssFont:     document.getElementById('cssFont')?.value||'',
-      cssLine:     document.getElementById('cssLine')?.value||'',
-      cssFontSize: document.getElementById('cssFontSize')?.value||'',
-      optItalic:   document.getElementById('optItalic')?.checked,
-      optIndent:   document.getElementById('optIndent')?.checked,
-      optMerge:    document.getElementById('optMergeShortLines')?.checked,
-      optChTitle:  document.getElementById('optChTitle')?.checked,
-      cssExtra:    document.getElementById('cssExtra')?.value||'',
-    };
-    const existing=presets.findIndex(p=>p.name===name);
-    if(existing>=0) presets[existing]=data; else presets.push(data);
-    await SettingsDB.set(KEY, presets);
-  }
-  async function load(name){
-    const presets=await getAll();
-    const data=presets.find(p=>p.name===name); if(!data) return false;
-    const set=(id,val,isCheck=false)=>{ const el=document.getElementById(id); if(el){ if(isCheck) el.checked=val; else el.value=val; el.dispatchEvent(new Event('change',{bubbles:true})); } };
-    set('pattern',    data.pattern||'');
-    set('cssFont',    data.cssFont||'');
-    set('cssLine',    data.cssLine||'');
-    set('cssFontSize',data.cssFontSize||'');
-    set('optItalic',  data.optItalic,true);
-    set('optIndent',  data.optIndent,true);
-    set('optMergeShortLines', data.optMerge,true);
-    set('optChTitle', data.optChTitle,true);
-    if(data.cssExtra!==undefined) set('cssExtra', data.cssExtra);
-    return true;
-  }
-  async function remove(name){
-    const presets=(await getAll()).filter(p=>p.name!==name);
-    await SettingsDB.set(KEY, presets);
-  }
-  async function renderUI(containerId){
-    const c=document.getElementById(containerId); if(!c) return;
-    const presets=await getAll();
-    c.innerHTML='';
-    if(!presets.length){
-      c.innerHTML='<span style="font-size:11px;color:var(--text2)">저장된 프리셋 없음</span>';
-    }
-    presets.forEach(p=>{
-      const row=document.createElement('div');
-      row.style.cssText='display:flex;align-items:center;gap:6px;margin-bottom:4px';
-      const btn=document.createElement('button');
-      btn.className='btn btn-ghost btn-sm'; btn.style.flex='1';
-      btn.textContent=p.name;
-      btn.onclick=async()=>{ await load(p.name); Toast.success('"'+p.name+'" 프리셋 적용됨'); renderUI(containerId); };
-      const del=document.createElement('button');
-      del.className='btn btn-ghost btn-sm'; del.textContent='✕'; del.style.cssText='padding:3px 7px;color:var(--accent)';
-      del.onclick=async()=>{ await remove(p.name); renderUI(containerId); };
-      row.append(btn, del); c.appendChild(row);
-    });
-    // 저장 버튼
-    const saveRow=document.createElement('div');
-    saveRow.style.cssText='display:flex;gap:6px;margin-top:6px';
-    const nameInp=document.createElement('input');
-    nameInp.className='inp'; nameInp.placeholder='프리셋 이름'; nameInp.style.flex='1';
-    const saveBtn=document.createElement('button');
-    saveBtn.className='btn btn-blue btn-sm'; saveBtn.textContent='저장';
-    saveBtn.onclick=async()=>{
-      const n=nameInp.value.trim();
-      if(!n){Toast.warn('프리셋 이름을 입력해주세요.');return;}
-      await save(n); Toast.success('"'+n+'" 프리셋 저장됨'); nameInp.value=''; renderUI(containerId);
-    };
-    saveRow.append(nameInp, saveBtn); c.appendChild(saveRow);
-  }
-  return { save, load, remove, getAll, renderUI };
-})();
 
 
+// ─────────────────────────────────────────
+// Layer 3 · EventDelegate
+// data-action 기반 이벤트 위임
 // inline onclick="" 완전 대체
 // ─────────────────────────────────────────
 const EventDelegate = (() => {
@@ -487,47 +413,28 @@ const EventDelegate = (() => {
 // ══════════════════════════════════════════
 // 📦 Module: State  (StateManager 기반 탭별 독립 상태)
 // ══════════════════════════════════════════
-// ★ 개선안 A-02: 카테고리별 그룹화 — 각 그룹은 label/val 배열 포함
-const PAT_PRESET_GROUPS = [
-  {
-    group:'화/장 번호', defaultOpen:true,
-    items:[
-      {label:'화 번호 (#N화 포함)', val:'^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
-      {label:'〈N화〉 꺽쇠',        val:'^[〈<]\\s*(\\d+)\\s*화\\s*[〉>](?:\\s*([^\\r\\n]*))?$'},
-      {label:'줄 시작 통합 ★',     val:'^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|\\d+화|\\d+)[^\\r\\n]*'},
-      {label:'N부 M화',            val:'^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$'},
-      {label:'소설명+N화',          val:'^.{2,15}\\s+\\d+화$'},
-    ]
-  },
-  {
-    group:'챕터/파트', defaultOpen:true,
-    items:[
-      {label:'Chapter N',          val:'^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$'},
-      {label:'EP/Ch/Scene N',      val:'^(?:EP|제|Chapter|Ch|Scene|Prologue)\\.?\\s*\\d+'},
-      {label:'N. 제목',            val:'^\\d{1,3}\\.\\s*.+$'},
-      {label:'#N. 제목',           val:'^#\\d+\\.\\s+.{1,60}$'},
-      {label:'N권',                val:'^\\d+권(?:\\s*.+)?$'},
-    ]
-  },
-  {
-    group:'특수 형식', defaultOpen:false,
-    items:[
-      {label:'[ 파일명.txt ]',     val:'^\\[\\s*.+\\.txt\\s*\\]\\s*$'},
-      {label:'[EP.N] 형식',        val:'^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$'},
-      {label:'[Prologue] 형식',    val:'^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$'},
-      {label:'NNN  제목',          val:'^\\d{3,6}\\s{2,}.+$'},
-      {label:'【제목】',            val:'^【.+】[^\\r\\n]*$'},
-      {label:'=== [제N화] ===',    val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$'},
-      {label:'# 제목',             val:'^#{1,3}\\s*.+$'},
-      {label:'제목+구분선',         val:'^.+[=\\-]{3,}$'},
-      {label:'소설(숫자)',          val:'^.{1,60}\\s*\\(\\d+\\)\\s*$'},
-      {label:'숫자만',              val:'^\\d+$'},
-    ]
-  },
+const PAT_PRESETS = [
+  {label:'[ 파일명.txt ] 형식', val:'^\\[\\s*.+\\.txt\\s*\\]\\s*$'},
+  {label:'[EP.N] 형식',        val:'^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$'},
+  {label:'[Prologue] 형식',    val:'^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$'},
+  {label:'NNN  제목 형식',     val:'^\\d{3,6}\\s{2,}.+$'},
+  {label:'〈N화〉 꺽쇠',          val:'^[〈<]\\s*(\\d+)\\s*화\\s*[〉>](?:\\s*([^\\r\\n]*))?$'},
+  {label:'줄 시작 통합 ★',     val:'^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|\\d+화|\\d+)[^\\r\\n]*'},
+  {label:'화 번호 (#N화 포함)', val:'^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
+  {label:'소설(숫자)',          val:'^.{1,60}\\s*\\(\\d+\\)\\s*$'},
+  {label:'숫자만',              val:'^\\d+$'},
+  {label:'Chapter N',          val:'^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$'},
+  {label:'EP/Ch/Scene N',      val:'^(?:EP|제|Chapter|Ch|디|Scene|Prologue)\\.?\\s*\\d+'},
+  {label:'N. 제목',            val:'^\\d{1,3}\\.\\s*.+$'},
+  {label:'N권',                val:'^\\d+권(?:\\s*.+)?$'},
+  {label:'제목+구분선',         val:'^.+[=\\-]{3,}$'},
+  {label:'# 제목',             val:'^#{1,3}\\s*.+$'},
+  {label:'【제목】',            val:'^【.+】[^\\r\\n]*$'},
+  {label:'=== [제N화] ===',    val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$'},
+  {label:'N부 M화',            val:'^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$'},
+  {label:'#N. 제목',           val:'^#\\d+\\.\\s+.{1,60}$'},
+  {label:'소설명+N화',          val:'^.{2,15}\\s+\\d+화$'},
 ];
-// 하위 호환 — 기존 코드(PAT_PRESETS 사용 부분)를 위해 flat 배열 유지
-const PAT_PRESETS = PAT_PRESET_GROUPS.flatMap(g=>g.items);
-
 
 // ── StateManager 기반 탭별 독립 상태 ──
 // S: 변환탭, B: 일괄탭, E: 편집탭, EI: 편집삽화
@@ -665,245 +572,109 @@ window.addEventListener('DOMContentLoaded', ()=>{
       });
     }
   }).catch(()=>{});
-
-  // ★ A-03: 사용자 정의 칩 복원
-  loadUserPatChips().then(()=>buildPatHelpers()).catch(()=>{});
-
-  // ★ C-06: 설정 프리셋 UI 초기화
-  SettingsPreset.renderUI('settingsPresetList').catch(()=>{});
-
-  // ★ C-03: Service Worker 등록 (오프라인/PWA)
-  if('serviceWorker' in navigator){
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
-  }
 });
 
 // 패턴 헬퍼 선택 상태 (helperId → Set of vals)
 const _chipSelected={patHelper:new Set(), insPatHelper:new Set(), eTocPatHelper:new Set()};
 
-// ★ A-03: 사용자 정의 칩 목록 (IndexedDB 저장)
-let _userPatChips = [];
-async function loadUserPatChips(){
-  try{ const s=await SettingsDB.get('userPatChips'); if(Array.isArray(s)) _userPatChips=s; }catch(e){}
-}
-async function saveUserPatChips(){
-  try{ await SettingsDB.set('userPatChips',_userPatChips); }catch(e){}
-}
-
-// ★ A-05: 다중 칩 충돌 감지
-function detectChipConflicts(selSet){
-  if(selSet.size<2||!_fullRawLines||!_fullRawLines.length) return false;
-  const patterns=[...selSet];
-  const matchSets=patterns.map(p=>{
-    try{ const rx=new RegExp(p,'i'); return new Set(_fullRawLines.filter(l=>l.trim()&&rx.test(l.trim()))); }
-    catch(e){ return new Set(); }
-  });
-  for(let i=0;i<matchSets.length;i++){
-    for(let j=i+1;j<matchSets.length;j++){
-      const a=matchSets[i],b=matchSets[j];
-      if(!a.size||!b.size) continue;
-      let inter=0; for(const x of a){ if(b.has(x)) inter++; }
-      if(inter/Math.min(a.size,b.size)>0.5) return true;
-    }
-  }
-  return false;
-}
-
-// ★ 칩 선택 공통 처리 (A-01 카운터 + A-05 충돌 감지)
-function _applyChipSelection(id, targetInput, sel){
-  const combined=buildCombinedPat(sel);
-  document.getElementById(targetInput).value=combined;
-  if(id==='patHelper'){
-    const applyBar=document.getElementById('patApplyBar');
-    const applyInfo=document.getElementById('patApplyInfo');
-    if(applyBar){
-      applyBar.style.display=sel.size?'flex':'none';
-      if(applyInfo) applyInfo.textContent=sel.size?sel.size+'개 패턴 선택됨':'';
-    }
-    // A-05 충돌 경고
-    const existing=document.getElementById('patConflictWarn');
-    if(detectChipConflicts(sel)){
-      if(!existing){
-        const warn=document.createElement('div');
-        warn.id='patConflictWarn';
-        warn.style.cssText='font-size:11px;color:var(--accent);margin-top:4px;padding:4px 8px;background:var(--accent-bg);border-radius:6px;border:1px solid var(--accent)';
-        warn.textContent='⚠️ 선택한 패턴 중 중복 매칭될 가능성이 있어요.';
-        document.getElementById('patHelper')?.after(warn);
-      }
-    } else { existing?.remove(); }
-    previewToc();
-  } else { reloadInsToc(); }
-}
-
 function buildPatHelpers(){
   ['patHelper','insPatHelper','eTocPatHelper'].forEach(id=>{
     const c=document.getElementById(id); if(!c) return;
-    const isMain=id==='patHelper';
     const targetInput=id==='patHelper'?'pattern':'insPattern';
-    c.innerHTML='';
+    c.innerHTML=''; // 매번 재빌드 가능하도록 초기화
 
-    // 안내 텍스트
+    // ── 안내 텍스트 ──
     const hint=document.createElement('span');
-    hint.style.cssText='font-size:11px;color:var(--text2);align-self:center;margin-right:4px;white-space:nowrap';
+    hint.style.cssText='font-size:11px;color:var(--text2);align-self:center;margin-right:2px';
     hint.textContent='빠른 선택:';
     c.appendChild(hint);
 
-    // 현재 감지됨 칩 (patHelper 전용)
-    if(isMain){
-      const dc=document.createElement('span');
-      dc.className='pat-chip detected'; dc.id='chip_detected';
+    // ── 현재 감지됨 칩 (patHelper 전용) ──
+    if(id==='patHelper'){
+      const detectedChip=document.createElement('span');
+      detectedChip.className='pat-chip detected';
+      detectedChip.id='chip_detected';
       const hasDet=S._detectedPat&&S._detectedName;
-      dc.textContent=hasDet?'✅ 감지됨: '+S._detectedName:'⬜ 감지 없음';
-      dc.style.cssText=hasDet?'':'opacity:.4;cursor:default';
-      dc.title=hasDet?'현재 자동 감지된 패턴':'아직 목차 확인 전';
+      detectedChip.textContent=hasDet?'✅ 감지됨: '+S._detectedName:'⬜ 감지 없음';
+      detectedChip.style.cssText=hasDet?'':'opacity:.4;cursor:default';
+      detectedChip.title=hasDet?'현재 자동 감지된 패턴을 선택에 추가':'아직 목차 확인을 실행하지 않았어요';
       if(hasDet){
-        dc.onclick=()=>{
-          const src=S._detectedPat.source; const sel=_chipSelected[id];
-          if(sel.has(src)){sel.delete(src);dc.classList.remove('active');}
-          else{sel.add(src);dc.classList.add('active');}
-          _applyChipSelection(id,targetInput,sel);
+        detectedChip.onclick=()=>{
+          const src=S._detectedPat.source;
+          const sel=_chipSelected[id];
+          if(sel.has(src)){
+            sel.delete(src);
+            detectedChip.classList.remove('active');
+          } else {
+            sel.add(src);
+            detectedChip.classList.add('active');
+          }
+          const combined=buildCombinedPat(sel);
+          document.getElementById(targetInput).value=combined;
+          previewToc();
         };
       }
-      c.appendChild(dc);
+      c.appendChild(detectedChip);
     }
 
-    // ★ A-02: 그룹별 접이식 칩
-    PAT_PRESET_GROUPS.forEach(grp=>{
-      const grpBtn=document.createElement('button');
-      grpBtn.className='pat-chip pat-chip-group';
-      grpBtn.textContent=(grp.defaultOpen?'▾ ':'▸ ')+grp.group;
-      grpBtn.dataset.open=grp.defaultOpen?'1':'0';
-      grpBtn.style.cssText='font-weight:600;background:var(--bg);border-color:var(--border-strong)';
-      const chipsWrap=document.createElement('div');
-      chipsWrap.style.cssText='display:'+(grp.defaultOpen?'contents':'none');
-      grpBtn.onclick=()=>{
-        const open=grpBtn.dataset.open==='1';
-        grpBtn.dataset.open=open?'0':'1';
-        grpBtn.textContent=(open?'▸ ':'▾ ')+grp.group;
-        chipsWrap.style.display=open?'none':'contents';
-      };
-      c.appendChild(grpBtn);
-
-      grp.items.forEach(p=>{
-        const chip=document.createElement('span');
-        chip.className='pat-chip'; chip.dataset.val=p.val;
-        chip.style.position='relative';
-        // A-01: 카운터 배지
-        const cb=document.createElement('sup');
-        cb.className='chip-count';
-        cb.style.cssText='display:none;margin-left:3px;font-size:9px;background:var(--accent);color:#fff;border-radius:99px;padding:0 4px';
-        const ls=document.createElement('span'); ls.textContent=p.label;
-        chip.appendChild(ls); chip.appendChild(cb);
-
-        // A-04: hover 미리보기 팝오버
-        let _ht=null;
-        chip.addEventListener('mouseenter',()=>{
-          _ht=setTimeout(()=>{
-            if(!_fullRawLines||!_fullRawLines.length) return;
-            try{
-              const rx=new RegExp(p.val,'i');
-              const matches=_fullRawLines.filter(l=>l.trim()&&rx.test(l.trim())).slice(0,5);
-              if(!matches.length) return;
-              const pop=document.createElement('div');
-              pop.style.cssText='position:fixed;z-index:9999;background:var(--panel);border:1.5px solid var(--accent);border-radius:8px;padding:8px 10px;font-size:11px;max-width:300px;box-shadow:var(--shadow-md);pointer-events:none';
-              const t=document.createElement('div');
-              t.style.cssText='font-weight:700;color:var(--accent);margin-bottom:4px;font-size:10px';
-              t.textContent='매칭 예시 ('+matches.length+'줄)';
-              pop.appendChild(t);
-              matches.forEach(m=>{
-                const d=document.createElement('div');
-                d.style.cssText='color:var(--text);margin:2px 0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px';
-                d.textContent=m.trim(); pop.appendChild(d);
-              });
-              document.body.appendChild(pop);
-              const rect=chip.getBoundingClientRect();
-              pop.style.left=Math.min(rect.left,window.innerWidth-320)+'px';
-              pop.style.top=(rect.bottom+4)+'px';
-              chip._pop=pop;
-            }catch(e){}
-          },400);
-        });
-        chip.addEventListener('mouseleave',()=>{
-          clearTimeout(_ht);
-          if(chip._pop){chip._pop.remove();chip._pop=null;}
-        });
-
-        chip.onclick=()=>{
-          if(chip._pop){chip._pop.remove();chip._pop=null;}
-          const sel=_chipSelected[id];
-          if(sel.has(p.val)){sel.delete(p.val);chip.classList.remove('active');cb.style.display='none';}
-          else{
-            sel.add(p.val); chip.classList.add('active');
-            // A-01: 카운터
-            if(_fullRawLines&&_fullRawLines.length){
-              try{
-                const rx=new RegExp(p.val,'i');
-                const cnt=_fullRawLines.filter(l=>l.trim()&&rx.test(l.trim())).length;
-                cb.textContent=cnt; cb.style.display=cnt>0?'':'none';
-              }catch(e){}
-            }
+    // ── 프리셋 칩들 ──
+    PAT_PRESETS.forEach(p=>{
+      const chip=document.createElement('span');
+      chip.className='pat-chip';
+      chip.textContent=p.label;
+      chip.dataset.val=p.val;
+      // 현재 감지된 패턴과 일치하면 미리 하이라이트
+      if(id==='patHelper'&&S._detectedPat){
+        try{
+          const detSrc=S._detectedPat.source;
+          const pRx=new RegExp(p.val.replace(/^\^/,'').replace(/\$$/,''));
+          // source에 이 프리셋 패턴의 핵심 부분이 포함되면 하이라이트
+          if(detSrc.includes(p.val.replace(/^\^/,'').replace(/\$$/,'').replace(/\(\?:/g,'').replace(/\)/g,'').split('|')[0].slice(0,8))){
+            chip.style.borderStyle='dashed';
+            chip.title='현재 감지된 패턴에 포함됨';
           }
-          _applyChipSelection(id,targetInput,sel);
-        };
-        chipsWrap.appendChild(chip);
-      });
-      c.appendChild(chipsWrap);
+        }catch(e){}
+      }
+      chip.onclick=()=>{
+        const sel=_chipSelected[id];
+        if(sel.has(p.val)){
+          sel.delete(p.val);
+          chip.classList.remove('active');
+        } else {
+          sel.add(p.val);
+          chip.classList.add('active');
+        }
+        const combined=buildCombinedPat(sel);
+        document.getElementById(targetInput).value=combined;
+        if(id==='patHelper'){
+          // 적용 버튼 바 표시/갱신
+          const applyBar=document.getElementById('patApplyBar');
+          const applyInfo=document.getElementById('patApplyInfo');
+          if(applyBar){
+            applyBar.style.display=sel.size?'flex':'none';
+            if(applyInfo) applyInfo.textContent=sel.size?sel.size+'개 패턴 선택됨':'';
+          }
+        } else {
+          reloadInsToc();
+        }
+      };
+      c.appendChild(chip);
     });
 
-    // A-03: 사용자 정의 칩 (patHelper 전용)
-    if(isMain&&_userPatChips.length>0){
-      const uh=document.createElement('span');
-      uh.style.cssText='font-size:10px;color:var(--text2);align-self:center;margin:0 3px;white-space:nowrap';
-      uh.textContent='내 패턴:'; c.appendChild(uh);
-      _userPatChips.forEach((up,ui)=>{
-        const chip=document.createElement('span');
-        chip.className='pat-chip preset-chip';
-        chip.style.cssText='display:inline-flex;align-items:center;gap:3px';
-        chip.dataset.val=up.val;
-        const ls=document.createElement('span'); ls.textContent=up.label;
-        const db=document.createElement('button');
-        db.className='preset-del'; db.textContent='✕'; db.title='삭제';
-        db.onclick=(e)=>{e.stopPropagation();_userPatChips.splice(ui,1);saveUserPatChips();buildPatHelpers();};
-        chip.appendChild(ls); chip.appendChild(db);
-        chip.onclick=()=>{
-          const sel=_chipSelected[id];
-          if(sel.has(up.val)){sel.delete(up.val);chip.classList.remove('active');}
-          else{sel.add(up.val);chip.classList.add('active');}
-          _applyChipSelection(id,targetInput,sel);
-        };
-        c.appendChild(chip);
-      });
-    }
-    // A-03: 저장 버튼
-    if(isMain){
-      const sv=document.createElement('span');
-      sv.className='pat-chip'; sv.title='현재 정규식을 내 패턴으로 저장';
-      sv.textContent='＋ 저장'; sv.style.cssText='opacity:.65;font-size:10px';
-      sv.onclick=async()=>{
-        const pat=document.getElementById(targetInput)?.value.trim();
-        if(!pat){Toast.warn('저장할 패턴이 없어요.');return;}
-        const name=await Toast.prompt('패턴 이름','예: 내 소설 형식',pat.slice(0,20));
-        if(!name) return;
-        _userPatChips.push({label:name,val:pat});
-        await saveUserPatChips(); buildPatHelpers();
-        Toast.success('패턴을 저장했어요!');
-      };
-      c.appendChild(sv);
-    }
-
-    // 초기화 버튼
+    // ── 초기화 버튼 ──
     const clr=document.createElement('span');
-    clr.className='pat-chip'; clr.textContent='✕ 초기화'; clr.style.opacity='.6';
+    clr.className='pat-chip';
+    clr.textContent='✕ 초기화';
+    clr.style.opacity='.6';
     clr.onclick=()=>{
       _chipSelected[id].clear();
       c.querySelectorAll('.pat-chip.active').forEach(el=>el.classList.remove('active'));
-      c.querySelectorAll('.chip-count').forEach(el=>{el.style.display='none';});
       document.getElementById(targetInput).value='';
-      const applyBar=document.getElementById('patApplyBar');
-      if(id==='patHelper'&&applyBar) applyBar.style.display='none';
-      document.getElementById('patConflictWarn')?.remove();
-      if(id==='patHelper') previewToc();
-      else reloadInsToc();
+      if(id==='patHelper'){
+        const applyBar=document.getElementById('patApplyBar');
+        if(applyBar) applyBar.style.display='none';
+        previewToc();
+      } else reloadInsToc();
     };
     c.appendChild(clr);
   });
@@ -1010,17 +781,11 @@ function setupEventListeners(){
     const tag=(e.target.tagName||'').toUpperCase();
     if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') return;
     if(e.ctrlKey||e.metaKey){
-      if(e.key==='Enter'){e.preventDefault();startConvert();}              // Ctrl+Enter: 변환 시작
-      else if(e.key==='d'||e.key==='D'){e.preventDefault();downloadEpub();}    // Ctrl+D: 다운로드
-      else if(e.key==='/'||e.key==='?'){e.preventDefault();showShortcutHelp();}// Ctrl+?: 도움말
-      // ★ C-09 추가 단축키
-      else if(e.key==='p'||e.key==='P'){
-        if(e.shiftKey){ e.preventDefault(); showPreview(); }               // Ctrl+Shift+P: 미리보기
-        else{ e.preventDefault(); previewToc(); }                          // Ctrl+P: 목차 확인
-      }
-      else if(e.key==='z'||e.key==='Z'){ e.preventDefault(); undoToc&&undoToc(); }  // Ctrl+Z: Undo
+      if(e.key==='Enter'){e.preventDefault();startConvert();}           // Ctrl+Enter: 변환 시작
+      else if(e.key==='d'||e.key==='D'){e.preventDefault();downloadEpub();}  // Ctrl+D: 다운로드
+      else if(e.key==='/'||e.key==='?'){e.preventDefault();showShortcutHelp();} // Ctrl+?: 도움말
     }
-    if(e.key==='Escape'){                                                   // Esc: 모달 닫기
+    if(e.key==='Escape'){                                               // Esc: 모달 닫기
       document.querySelector('.modal-overlay.show')&&document.querySelector('.modal-overlay.show')
         .querySelectorAll('[data-action]')
         .forEach(el=>{if(el.dataset.action?.includes('close'))el.click();});
@@ -1034,25 +799,17 @@ function showShortcutHelp(){
   if(existing){existing.remove();return;}
   const el=document.createElement('div');
   el.id='shortcutHelp';
-  el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:14px;padding:20px 24px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.3);font-size:12px;min-width:280px';
-  const kd='background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px';
-  const rows=[
-    ['Ctrl+Enter','✨ 변환 시작'],
-    ['Ctrl+P','🔍 목차 확인'],
-    ['Ctrl+Shift+P','👁 미리보기'],
-    ['Ctrl+D','⬇ 다운로드'],
-    ['Ctrl+Z','↩ 목차 Undo'],
-    ['Ctrl+클릭','목차 다중 선택/병합'],
-    ['Ctrl+?','⌨️ 이 도움말'],
-    ['Esc','모달 닫기'],
-  ];
+  el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:14px;padding:20px 24px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.3);font-size:12px;min-width:260px';
   el.innerHTML='<div style="font-size:14px;font-weight:700;margin-bottom:12px;color:var(--text)">⌨️ 단축키</div>'+
     '<table style="border-collapse:collapse;width:100%;line-height:2"><tbody>'+
-    rows.map(([k,v])=>`<tr><td style="color:var(--text2);padding-right:16px"><kbd style="${kd}">${k}</kbd></td><td>${v}</td></tr>`).join('')+
+    '<tr><td style="color:var(--text2);padding-right:16px"><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+Enter</kbd></td><td>✨ 변환 시작</td></tr>'+
+    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+D</kbd></td><td>⬇ 다운로드</td></tr>'+
+    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+클릭</kbd></td><td>목차 다중 선택/병합</td></tr>'+
+    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+?</kbd></td><td>이 도움말 열기/닫기</td></tr>'+
+    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Esc</kbd></td><td>모달 닫기</td></tr>'+
     '</tbody></table>'+
     '<div style="text-align:right;margin-top:12px"><button onclick="document.getElementById(\'shortcutHelp\').remove()" class="btn btn-ghost btn-sm">닫기</button></div>';
   document.body.appendChild(el);
-  el.onclick=e=>{ if(e.target===el) el.remove(); };
 }
 
 // ── data-input-action 인풋 이벤트 위임 핸들러 ──
@@ -1061,12 +818,62 @@ function showShortcutHelp(){
   const _inputHandlers = {
     previewCoverUrlConvert: (el) => previewCoverUrl('coverUrlInp','coverThumb','coverName','convert'),
     previewCoverUrlBatch:   (el) => previewCoverUrl('batchCoverUrlInp',null,null,'batch'),
-    clearChipPatHelper:     ()   => clearChipSelection('patHelper'),
+    // ★ A-01: 패턴 입력 실시간 유효성 검사 + 색상 피드백
+    patternValidate: (el) => {
+      const val = el.value.trim();
+      const patEl = document.getElementById('pattern');
+      if(!patEl) return;
+      if(!val){
+        patEl.style.borderColor='';
+        patEl.title='';
+        return;
+      }
+      try{
+        const rx = new RegExp(val,'i');
+        // 매칭 건수 실시간 카운트
+        const lines = typeof _fullRawLines!=='undefined'&&_fullRawLines ? _fullRawLines : [];
+        const cnt = lines.filter(l=>l.trim()&&rx.test(l.trim())).length;
+        if(cnt===0){
+          patEl.style.borderColor='var(--accent2)';
+          patEl.title='유효한 정규식이지만 현재 파일에서 매칭 0건';
+        } else {
+          patEl.style.borderColor='var(--green)';
+          patEl.title=`매칭 ${cnt.toLocaleString()}건 발견`;
+        }
+      }catch(e){
+        patEl.style.borderColor='var(--accent)';
+        patEl.title='정규식 오류: '+e.message;
+      }
+      clearChipSelection&&clearChipSelection('patHelper');
+      // ★ B-01: × 버튼 표시/숨김
+      const clearBtn = document.getElementById('patternClearBtn');
+      if(clearBtn) clearBtn.style.display = val ? '' : 'none';
+    },
     clearChipInsHelper:     ()   => clearChipSelection('insPatHelper'),
     smartPatConvert:        ()   => smartPatConvert(),
     eSmartPatConvert:   () => eSmartPatConvert(),
     clearEtocChip:      () => clearChipSelection('eTocPatHelper'),
     saveCssSettings:        ()   => saveCssSettings(),
+    // ★ A-02: 제목·작가 입력 → 텍스트 표지 실시간 반영
+    liveUpdateCover: (el) => {
+      // 커스텀 표지 파일이 없을 때만 텍스트 표지 업데이트
+      if(S.coverFile) return;
+      const title  = document.getElementById('title')?.value||'';
+      const author = document.getElementById('author')?.value||'';
+      if(!title) return;
+      generateTextCover(title, author).then(blob=>{
+        if(!blob) return;
+        const url = URL.createObjectURL(blob);
+        const thumb = document.getElementById('coverThumb');
+        if(!thumb) return;
+        // 기존 img 재사용 또는 생성
+        let img = thumb.querySelector('img');
+        if(!img){ img=document.createElement('img'); thumb.innerHTML=''; thumb.appendChild(img); }
+        const old = img.src;
+        img.src = url;
+        img.onload = ()=>{ if(old&&old.startsWith('blob:')) URL.revokeObjectURL(old); };
+      }).catch(()=>{});
+    },
     saveExtraSettings:      ()   => saveExtraSettings(),
     saveApiSettings:        ()   => saveApiSettings(),
     syncImgQuality:         (el) => {
@@ -1076,6 +883,13 @@ function showShortcutHelp(){
     },
     saveExtraSettingsRenderIll: () => { saveExtraSettings(); renderIllTags(); },
     updateCssSave:              () => { updateCssPreview(); saveCssSettings(); },
+    // ★ B-02: cssExtra textarea 자동 높이
+    cssExtraAutoResize: (el) => {
+      el.style.height = 'auto';
+      el.style.height = Math.min(el.scrollHeight, 300) + 'px';
+      updateCssPreview();
+      saveCssSettings();
+    },
     saveOptLang:   () => saveExtraSettings(),
     syncCssLine:   (el) => { syncSelect('cssLine','cssLineSlider','cssLineVal',el.value); updateCssPreview(); saveCssSettings(); },
     syncCssFontSize:   (el) => { syncSelect('cssFontSize','cssFontSizeSlider','cssFontSizeVal',el.value); updateCssPreview(); saveCssSettings(); },
@@ -1145,6 +959,7 @@ function setupEventDelegate(){
     addManualIll:     () => addManualIll(),
     showPreview:      () => showPreview(),
     downloadEpub:     () => downloadEpub(),
+    shareEpub:        () => shareEpub(),
     startConvert:     () => startConvert(),
     startSplit:       () => startSplit(),
 
@@ -2297,151 +2112,18 @@ function handleTxt(files, append=false){
     handleTxt._timer=setTimeout(()=>previewToc(),300);
   }
 
-  // ════════════════════════════════════════
-  // ★ B-01~05: 파일명·본문 메타 인식 개선
-  // ════════════════════════════════════════
-
-  // B-01: 파일명 구분자 패턴 대폭 확장 (우선순위 순)
-  function inferMetaFromFilename(stem){
-    const META_PATS = [
-      // 1. [작가] 제목
-      { rx:/^\[(.+?)\]\s*(.+)$/, order:'author-first' },
-      // 2. 제목 @작가 / 작가@ 제목
-      { rx:/^(.+?)\s*@\s*(.+)$/, order:'title-first' },
-      // 3. 제목 - 작가  (하이픈 앞뒤 공백)
-      { rx:/^(.+?)\s+-\s+(.+)$/, order:'title-first' },
-      // 4. 제목_작가  (언더스코어)
-      { rx:/^(.+?)_([^_]+)$/, order:'title-first', weak:true },
-      // 5. 제목(작가)
-      { rx:/^(.+?)\(([^)]{2,20})\)$/, order:'title-first' },
-      // 6. 제목[작가]
-      { rx:/^(.+?)\[([^\]]{2,20})\]$/, order:'title-first' },
-      // 7. 제목 by 작가  (영문)
-      { rx:/^(.+?)\s+by\s+(.+)$/i, order:'title-first' },
-      // 8. 작가의 제목  ('의' 키워드)
-      { rx:/^(.{2,10})의\s+(.{2,30})$/, order:'author-first' },
-    ];
-
-    for(const pat of META_PATS){
-      const m=stem.match(pat.rx);
-      if(!m) continue;
-      let title, author;
-      if(pat.order==='author-first'){ author=m[1].trim(); title=m[2].trim(); }
-      else { title=m[1].trim(); author=m[2].trim(); }
-      // 약한 패턴(언더스코어)은 작가명이 인명처럼 보일 때만 적용
-      if(pat.weak&&!/^[\uAC00-\uD7A3]{2,4}$/.test(author)&&!/^[A-Z][a-z]+ [A-Z][a-z]+$/.test(author)){
-        continue;
-      }
-      return { title: normalizeTitle(title), author, confidence:'high', source:'파일명' };
-    }
-    return { title: normalizeTitle(stem), author:'', confidence:'mid', source:'파일명(추정)' };
-  }
-
-  // B-03: 제목 후처리 정규화
-  function normalizeTitle(s){
-    if(!s) return s;
-    return s
-      // 날짜·시퀀스 접두사 제거: 20231001_, 001_
-      .replace(/^\d{6,8}[_\-\s]+/,'')
-      .replace(/^\d{1,4}[_\-\s]+/,'')
-      // 뒤에 붙은 범위 표시 제거: 1~100화, 완결, 1부, 1권
-      .replace(/\s*\d+~\d+화.*$/,'')
-      .replace(/\s*\(완결\)\s*$/,'')
-      .replace(/\s*완결\s*$/,'')
-      .replace(/\s*\d+부\s*$/,'')
-      .replace(/\s*\d+권\s*$/,'')
-      .replace(/\s*\[.*?\]\s*$/,'')
-      // UTF-8 깨짐·특수문자 정리
-      .replace(/[\uFFFD\uFFFE\uFFFF]/g,'')
-      .trim();
-  }
-
-  // B-04: 다중 파일 최장 공통 접두사 (Longest Common Prefix)
-  function longestCommonPrefix(strs){
-    if(!strs.length) return '';
-    let prefix=strs[0];
-    for(let i=1;i<strs.length;i++){
-      while(!strs[i].startsWith(prefix)&&prefix.length>0){
-        prefix=prefix.slice(0,-1);
-      }
-    }
-    // 숫자나 구분자로 끝나는 불필요한 꼬리 제거
-    return prefix.replace(/[\s\-_\d화권편]+$/,'').trim();
-  }
-
-  // B-02: TXT 본문 첫 10줄 스캔으로 제목·작가 추출
-  function inferMetaFromBody(lines){
-    const top=lines.slice(0,15).filter(l=>l.trim());
-    // 플랫폼 공통 레이블 패턴
-    for(const line of top){
-      const t=line.trim();
-      let m;
-      // "제목: XXX" / "작품명: XXX"
-      m=t.match(/^(?:제목|작품명|작품\s*제목)\s*[:：]\s*(.+)$/);
-      if(m) return { title:normalizeTitle(m[1]), source:'본문 레이블', confidence:'high' };
-      // "작가: XXX" / "저자: XXX" 형태로 작가만
-      m=t.match(/^(?:작가|저자|글쓴이|글)\s*[:：]\s*(.+)$/);
-      if(m) return { author:m[1].trim(), source:'본문 레이블', confidence:'high' };
-    }
-    // 첫 번째 짧은 비공백 줄을 제목 후보로
-    const firstShort=top.find(l=>l.trim().length>=2&&l.trim().length<=30&&!/^\d+화/.test(l.trim()));
-    if(firstShort) return { title:normalizeTitle(firstShort.trim()), source:'본문 첫줄 추정', confidence:'low' };
-    return null;
-  }
-
-  // B-05: 신뢰도 배지 표시
-  function showMetaConfidenceBadge(titleEl, authorEl, confidence, source){
-    ['metaBadgeTitle','metaBadgeAuthor'].forEach(id=>document.getElementById(id)?.remove());
-    const colors = { high:'var(--green)', mid:'var(--accent2)', low:'var(--yellow)' };
-    const labels = { high:'높음', mid:'보통', low:'낮음' };
-    if(titleEl&&titleEl.parentElement){
-      const badge=document.createElement('span');
-      badge.id='metaBadgeTitle';
-      badge.style.cssText=`font-size:10px;color:${colors[confidence]||'var(--text2)'};margin-left:4px;vertical-align:middle;cursor:default`;
-      badge.title=`인식 근거: ${source}`;
-      badge.textContent=`● ${labels[confidence]||confidence}`;
-      titleEl.after(badge);
-      if(confidence==='low') titleEl.style.borderColor='var(--accent2)';
-      else titleEl.style.borderColor='';
-    }
-  }
-
-  // 메타데이터 자동 채우기 — 통합 로직 (B-01~05)
-  function autoFillMeta(){
-    if(!S.txtFiles.length) return;
-
-    // B-04: 다중 파일이면 LCP로 제목 추론
-    let fileMeta;
-    if(S.txtFiles.length>1){
-      const stems=S.txtFiles.map(f=>f.name.replace(/\.txt$/i,''));
-      const lcp=longestCommonPrefix(stems);
-      if(lcp.length>=2){
-        fileMeta={ title:normalizeTitle(lcp), author:'', confidence:'mid', source:'파일명 공통 부분' };
-      }
-    }
-    if(!fileMeta) fileMeta=inferMetaFromFilename(S.txtFiles[0].name.replace(/\.txt$/i,''));
-
-    // B-02: 본문 스캔 (fullRawLines 있으면 우선 활용)
-    let bodyMeta=null;
-    if(_fullRawLines&&_fullRawLines.length){
-      bodyMeta=inferMetaFromBody(_fullRawLines);
-    }
-
-    // 최종 결정: 신뢰도 high 우선, 본문 레이블이 있으면 우선 적용
+  // 메타데이터 자동 채우기 (첫 파일 기준)
+  if(S.txtFiles.length>0){
+    const stem=S.txtFiles[0].name.replace(/\.txt$/i,'');
+    let title=stem,author='';
+    let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
+    if(m){author=m[1].trim();title=m[2].trim();}
+    else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
     const titleEl=document.getElementById('title');
     const authorEl=document.getElementById('author');
-
-    if(titleEl&&!titleEl.value){
-      const src=bodyMeta?.title&&bodyMeta.confidence==='high'?bodyMeta:fileMeta;
-      titleEl.value=src.title||'';
-      showMetaConfidenceBadge(titleEl, authorEl, src.confidence, src.source);
-    }
-    if(authorEl&&!authorEl.value){
-      const authorSrc=bodyMeta?.author&&bodyMeta.confidence==='high'?bodyMeta:fileMeta;
-      authorEl.value=authorSrc.author||'';
-    }
+    if(titleEl&&!titleEl.value) titleEl.value=title;
+    if(authorEl&&!authorEl.value) authorEl.value=author;
   }
-    autoFillMeta();
 }
 handleTxt._timer=null; // 디바운스 타이머 초기화
 
@@ -3177,22 +2859,6 @@ function extractTotalFromFilename(filename){
 // ══════════════════════════════════════════
 async function startConvert(){
   if(!S.txtFiles.length){Toast.warn('TXT 파일을 선택해주세요.');return;}
-
-  // ★ C-02: EPUB 예상 크기 계산 (변환 전 표시)
-  (()=>{
-    const txtBytes=S.txtFiles.reduce((s,f)=>s+f.size,0);
-    const imgBytes=(S.illFiles||[]).reduce((s,f)=>s+f.size,0)+(S.coverFile?.size||0);
-    const estKb=Math.round((txtBytes*0.6+imgBytes*0.85)/1024);
-    const sizeStr=estKb>1024?(estKb/1024).toFixed(1)+' MB':estKb+' KB';
-    const existing=document.getElementById('epubSizeEstimate');
-    if(existing) existing.remove();
-    const badge=document.createElement('span');
-    badge.id='epubSizeEstimate';
-    badge.style.cssText='font-size:11px;color:var(--text2);margin-left:8px;vertical-align:middle';
-    badge.textContent='예상 크기: '+sizeStr;
-    if(estKb>20480) badge.style.color='var(--accent)'; // 20MB 초과 경고
-    document.getElementById('btmConvert')?.querySelector('.btn')?.after(badge);
-  })();
   const convertStart=Date.now();
   document.getElementById('progWrap')?.classList.add('show');
   document.getElementById('resultBox')?.classList.remove('show');
@@ -3376,31 +3042,7 @@ async function startConvert(){
     });
     document.getElementById('splitSec').style.display='block';
     document.getElementById('resultBox')?.classList.add('show');
-
-    // ★ C-08: 변환 완료 오류·경고 리포트
-    (() => {
-      const warns = [];
-      // 짧은 챕터 경고 (100자 미만)
-      const shortChs=chapters.filter(([,b])=>b.replace(/\s/g,'').length<100&&b.trim().length>0);
-      if(shortChs.length) warns.push(`짧은 챕터 ${shortChs.length}개 (본문 100자 미만 — 오감지 가능)`);
-      // 삽화 건너뜀 경고
-      const skipImgs=(S.illFiles||[]).filter(f=>{const n=f.name||'';return n.endsWith('.png')||n.endsWith('.gif');}).length;
-      if(skipImgs) warns.push(`PNG/GIF 이미지 ${skipImgs}개 → JPG 변환 처리됨`);
-      // 파일 수 안내
-      if(S.txtFiles.length>1) warns.push(`${S.txtFiles.length}개 TXT 파일 합산 처리됨`);
-      if(warns.length){
-        let reportEl=document.getElementById('convertReport');
-        if(!reportEl){
-          reportEl=document.createElement('div');
-          reportEl.id='convertReport';
-          reportEl.style.cssText='margin-top:8px;padding:8px 10px;background:var(--yellow-bg);border:1px solid var(--border);border-radius:8px;font-size:11px;color:var(--yellow)';
-          document.getElementById('resultBox')?.appendChild(reportEl);
-        }
-        reportEl.innerHTML='<strong>📋 변환 리포트</strong><ul style="margin:4px 0 0 16px;padding:0">'+
-          warns.map(w=>`<li style="margin:2px 0">${w}</li>`).join('')+'</ul>';
-      }
-    })();
-
+    _showShareBtnIfSupported(); // ★ C-04: 공유 버튼 조건부 표시
   }catch(e){
     document.getElementById('progWrap')?.classList.remove('show');
     document.getElementById('errBox').textContent='❌ '+friendlyError(e);
@@ -3452,41 +3094,6 @@ function showPreview(){
   _previewIdx=0;
   _previewFont=document.getElementById('cssFont')?.value||'"Noto Serif KR",serif';
   _previewLine=document.getElementById('cssLine')?.value||'1.9';
-
-  // ★ C-04: 이북 리더 테마 스위처 삽입
-  const modalBody=document.getElementById('previewBody');
-  if(modalBody){
-    // 테마 버튼 바 (중복 방지)
-    if(!document.getElementById('readerThemeBar')){
-      const bar=document.createElement('div');
-      bar.id='readerThemeBar';
-      bar.style.cssText='display:flex;gap:6px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--border);flex-shrink:0;flex-wrap:wrap';
-      const themes=[
-        {id:'rt-white',label:'☀️ 화이트',bg:'#ffffff',color:'#1c1410'},
-        {id:'rt-sepia', label:'📜 세피아',bg:'#f5f0e8',color:'#3d2b1f'},
-        {id:'rt-dark',  label:'🌙 다크',  bg:'#1a1612',color:'#e0d5cb'},
-      ];
-      themes.forEach(th=>{
-        const btn=document.createElement('button');
-        btn.id=th.id; btn.className='btn btn-ghost btn-sm';
-        btn.textContent=th.label;
-        btn.onclick=()=>{
-          document.querySelectorAll('#readerThemeBar .btn').forEach(b=>b.classList.remove('active'));
-          btn.classList.add('active');
-          if(modalBody){
-            modalBody.style.background=th.bg;
-            modalBody.style.color=th.color;
-          }
-        };
-        bar.appendChild(btn);
-      });
-      const hint=document.createElement('span');
-      hint.style.cssText='font-size:10px;color:var(--text2);margin-left:auto';
-      hint.textContent='리더 배경 미리보기';
-      bar.appendChild(hint);
-      modalBody.parentElement?.insertBefore(bar, modalBody);
-    }
-  }
 
   // ★ EPUB Blob이 있으면 JSZip으로 파싱해 실제 본문 렌더링
   if(S.epubBlob){
@@ -3665,6 +3272,31 @@ function downloadEpub(){
   a.download=S.epubName||'output.epub';
   a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+// ★ C-04: Web Share API — 모바일(iOS Safari, Android Chrome) EPUB 직접 공유
+async function shareEpub(){
+  if(!S.epubBlob){ Toast.warn('변환 후 사용할 수 있어요.'); return; }
+  if(!navigator.share){ Toast.info('이 브라우저는 공유 기능을 지원하지 않아요.'); return; }
+  try{
+    const file=new File([S.epubBlob], S.epubName||'output.epub', {type:'application/epub+zip'});
+    await navigator.share({ files:[file], title: S.epubName||'EPUB', text:'NovelEPUB으로 변환된 파일입니다.' });
+  }catch(e){
+    if(e.name!=='AbortError') Toast.error('공유 실패: '+e.message);
+  }
+}
+
+// ★ C-04: 결과 카드에 공유 버튼 조건부 표시 (navigator.share 지원 환경만)
+function _showShareBtnIfSupported(){
+  if(!navigator.share&&!navigator.canShare) return;
+  const btnRow=document.querySelector('#resultBox .flex-row');
+  if(!btnRow||document.getElementById('shareEpubBtn')) return;
+  const btn=document.createElement('button');
+  btn.id='shareEpubBtn';
+  btn.className='btn btn-blue';
+  btn.setAttribute('data-action','shareEpub');
+  btn.textContent='📤 공유';
+  btnRow.appendChild(btn);
 }
 
 // ════ 결과 stat 카드 렌더링 (최적화 5) ════
@@ -4140,81 +3772,51 @@ function batchPickCover(idx){
 async function startBatch(){
   if(!B.txtFiles.length){Toast.warn('TXT 파일을 선택해주세요.');return;}
   B.results=[];
+  const _batchStartTime = Date.now(); // ★ C-05: 소요 시간 측정
   document.getElementById('batchProgWrap')?.classList.add('show');
   document.getElementById('batchResultBox')?.classList.remove('show');
   const total=B.txtFiles.length;
   const globalPat=document.getElementById('batchPattern')?.value.trim();
   const useItalicBatch=document.getElementById('batchItalic')?.checked;
 
-  // ★ C-10: 병렬 Worker 처리 — navigator.hardwareConcurrency 기반
-  const maxWorkers=Math.min(Math.max(2, navigator.hardwareConcurrency||2), 4, total);
-  document.getElementById('batchProgMsg').textContent=`병렬 변환 시작 (최대 ${maxWorkers}개 동시)...`;
-
-  // 작업 큐 생성
-  const queue=[...Array(total).keys()]; // 0..total-1
-  let completed=0, successCount=0;
-
-  // 단일 파일 변환 함수 (Worker 내부에서 실행하는 것이 아니라 각 "슬롯"에서 실행)
-  async function processOne(i){
+  for(let i=0;i<total;i++){
     const f=B.txtFiles[i];
     const stem=f.name.replace(/\.txt$/i,'');
-    let title=stem, author='';
-    (() => {
-      const META_PATS=[
-        {rx:/^\[(.+?)\]\s*(.+)$/,o:'af'},{rx:/^(.+?)\s*@\s*(.+)$/,o:'tf'},
-        {rx:/^(.+?)\s+-\s+(.+)$/,o:'tf'},{rx:/^(.+?)\(([^)]{2,20})\)$/,o:'tf'},
-        {rx:/^(.+?)\[([^\]]{2,20})\]$/,o:'tf'},{rx:/^(.+?)\s+by\s+(.+)$/i,o:'tf'},
-      ];
-      for(const pat of META_PATS){
-        const m=stem.match(pat.rx); if(!m) continue;
-        if(pat.o==='af'){author=m[1].trim();title=m[2].trim();}
-        else{title=m[1].trim();author=m[2].trim();}
-        break;
-      }
-    })();
+    let title=stem,author='';
+    let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
+    if(m){author=m[1].trim();title=m[2].trim();}
+    else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
     const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
     const item=document.getElementById('bi_'+i);
     if(item)item.className='batch-item running';
     document.getElementById('bst_'+i).textContent='변환 중...';
+    document.getElementById('batchProgMsg').textContent='('+(i+1)+'/'+total+') '+title+' 변환 중...';
+    document.getElementById('batchProgBar').style.width=Math.floor(i/total*100)+'%';
     try{
+      // 이벤트 루프 양보 — UI 갱신 보장 (파일 간 블로킹 방지)
       await new Promise(r=>setTimeout(r,0));
       const raw=await fileToText(f);
       const pattern=(B.patterns[i]||globalPat);
       const chapters=splitChapters(raw,pattern);
       const blob=await buildEpub({title,author,chapters,coverFile:cover,illMap:[],useItalic:useItalicBatch},
-        pct=>{const pb=document.getElementById('bpb_'+i);if(pb)pb.style.width=(30+pct*0.7)+'%';});
+        pct=>{document.getElementById('bpb_'+i).style.width=(30+pct*0.7)+'%';});
       B.results.push({name:title+'.epub',blob});
-      successCount++;
       if(item)item.className='batch-item done';
       document.getElementById('bst_'+i).textContent='✅ 완료';
-      const pb=document.getElementById('bpb_'+i);if(pb)pb.style.width='100%';
+      document.getElementById('bpb_'+i).style.width='100%';
     }catch(e){
       if(item)item.className='batch-item error';
       document.getElementById('bst_'+i).textContent='❌ '+e.message;
     }
-    completed++;
-    const pct=Math.round(completed/total*100);
-    document.getElementById('batchProgBar').style.width=pct+'%';
-    document.getElementById('batchProgMsg').textContent=
-      `(${completed}/${total}) 완료 중... [성공 ${successCount}개]`;
   }
-
-  // ★ 병렬 처리: maxWorkers개 슬롯이 각각 큐에서 가져와 처리
-  const workers=[];
-  async function runSlot(){
-    while(queue.length>0){
-      const i=queue.shift();
-      if(i===undefined) break;
-      await processOne(i);
-    }
-  }
-  for(let w=0;w<maxWorkers;w++) workers.push(runSlot());
-  await Promise.all(workers);
-
   document.getElementById('batchProgBar').style.width='100%';
-  document.getElementById('batchProgMsg').textContent='완료! '+successCount+'/'+total+'개 성공';
-  document.getElementById('batchResultMsg').textContent=successCount+'개 epub 생성 완료';
+  document.getElementById('batchProgMsg').textContent='완료! '+B.results.length+'/'+total+'개 성공';
+  document.getElementById('batchResultMsg').textContent=B.results.length+'개 epub 생성 완료';
   document.getElementById('batchResultBox')?.classList.add('show');
+  // ★ C-05: 일괄변환 완료 요약 토스트 (탭 이동 후에도 인지 가능)
+  const batchElapsed=((Date.now()-_batchStartTime)/1000).toFixed(1);
+  const totalMB=B.results.reduce((s,r)=>s+(r.blob?.size||0),0)/1024/1024;
+  Toast.success(`✅ 일괄변환 완료 — ${B.results.length}/${total}개 성공 · ${totalMB.toFixed(1)}MB · ${batchElapsed}초`, 6000);
 }
 
 async function downloadBatchZip(){

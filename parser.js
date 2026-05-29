@@ -1088,23 +1088,7 @@ function updateTocStat(){
   const active=S.tocItems.filter(t=>t.enabled).length;
   const suspCount=S.tocItems.filter(t=>t.suspicious).length;
 
-  // ★ C-05: 챕터별 글자 수 통계
-  let totalChars=0, minChars=Infinity, maxChars=0;
-  let shortCount=0, longCount=0;
-  S.tocItems.forEach(t=>{
-    if(!t.enabled) return;
-    const len=(t.body||'').replace(/\s/g,'').length;
-    totalChars+=len;
-    if(len<minChars) minChars=len;
-    if(len>maxChars) maxChars=len;
-    if(len<100) shortCount++;
-    if(len>50000) longCount++;
-  });
-  const avgChars=active>0?Math.round(totalChars/active):0;
-  const totalWan=(totalChars/10000).toFixed(1);
-  const warnShort=shortCount>0?`<span style="color:var(--accent);font-size:10px;margin-left:4px" title="본문 100자 미만 챕터">⚠ 짧은챕터 ${shortCount}개</span>`:'';
-  const warnLong=longCount>0?`<span style="color:var(--blue);font-size:10px;margin-left:4px" title="본문 5만자 초과 챕터">📌 긴챕터 ${longCount}개</span>`:'';
-
+  // 일괄 제거 버튼 — '본문 짧음' 항목이 있을 때만 표시
   const suspBtn=suspCount>0
     ? '<button class="btn btn-sm" data-action="removeAllSuspicious" '+
       'style="font-size:10px;background:var(--accent-bg);color:var(--accent);'+
@@ -1117,7 +1101,22 @@ function updateTocStat(){
     '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="true">전체 선택</button>'+
     '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="false">전체 해제</button>'+
     suspBtn+
-    `<span style="font-size:11px;color:var(--text2);margin-left:auto">총 ${total}개 · 활성 ${active}개 · 총 ${totalWan}만자 · 평균 ${avgChars.toLocaleString()}자${warnShort}${warnLong}</span>`;
+    '<span style="font-size:11px;color:var(--text2);margin-left:auto">총 '+total+'개 · 활성 '+active+'개</span>';
+
+  // ★ A-04: 변환 탭 버튼에 챕터 수 배지 표시
+  const convertTab = document.querySelector('.page-tab[data-page="convert"]');
+  if(convertTab){
+    const badgeId = 'convertTabBadge';
+    let badge = document.getElementById(badgeId);
+    if(!badge){
+      badge = document.createElement('sup');
+      badge.id = badgeId;
+      badge.style.cssText = 'margin-left:3px;font-size:9px;background:var(--accent);color:#fff;border-radius:99px;padding:0 5px;vertical-align:super;font-weight:700';
+      convertTab.appendChild(badge);
+    }
+    badge.textContent = active > 0 ? active.toLocaleString() : total.toLocaleString();
+    badge.style.display = total > 0 ? '' : 'none';
+  }
 }
 function toggleTocItem(i,v){
   S.tocItems[i].enabled=v;
@@ -1555,11 +1554,18 @@ function loadHistMetas(){
 }
 async function renderHistory(){
   const c=document.getElementById('histList'); if(!c) return;
-  const metas=loadHistMetas();
+  let metas=loadHistMetas();
   if(!metas.length){
     c.innerHTML='<div class="hist-empty">📭 아직 변환 기록이 없어요.<br>TXT→EPUB 탭에서 변환하면 여기에 저장돼요.</div>';
     return;
   }
+
+  // ★ B-05: 정렬 옵션 적용
+  const sortKey = document.getElementById('histSortSel')?.value || 'newest';
+  if(sortKey==='oldest')      metas=[...metas].reverse();
+  else if(sortKey==='size')   metas=[...metas].sort((a,b)=>parseFloat(b.sizeMB)-parseFloat(a.sizeMB));
+  else if(sortKey==='chapters') metas=[...metas].sort((a,b)=>b.chapterCount-a.chapterCount);
+
   c.innerHTML='<div style="text-align:center;padding:12px 0;font-size:11px;color:var(--text2)">⏳ 로딩 중...</div>';
   const blobExists=await Promise.all(metas.map(m=>idbGet(m.key).then(b=>!!b).catch(()=>false)));
   c.innerHTML='';

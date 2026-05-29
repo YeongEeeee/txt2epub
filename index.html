@@ -87,11 +87,14 @@
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">📝 메타데이터</span><div class="sec-line"></div></div>
   <div class="card">
-    <div class="row"><span class="lbl">📖 제목</span><input class="inp" id="title" placeholder="소설 제목"></div>
-    <div class="row"><span class="lbl">✒️ 작가</span><input class="inp" id="author" placeholder="작가명"></div>
+    <div class="row"><span class="lbl">📖 제목</span><input class="inp" id="title" placeholder="소설 제목" data-input-action="liveUpdateCover"></div>
+<div class="row"><span class="lbl">✒️ 작가</span><input class="inp" id="author" placeholder="작가명" data-input-action="liveUpdateCover"></div>eholder="소설 제목"></div>
     <div class="row">
       <span class="lbl">⚙️ 챕터 정규식</span>
-      <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" data-input-action="clearChipPatHelper">
+      <div style="position:relative;flex:1;min-width:0">
+        <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" data-input-action="patternValidate" style="transition:border-color .15s;width:100%;padding-right:28px">
+        <button id="patternClearBtn" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text2);font-size:14px;padding:0;line-height:1" title="입력 지우기">✕</button>
+      </div>
       <button class="btn btn-blue btn-sm" data-action="previewToc">🔍 목차 확인</button><button class="btn btn-ghost btn-sm" data-action="autoSplitByInterval">⚡ 간격 분할</button>
     </div>
     <div class="flex-col" style="margin-top:4px">
@@ -198,15 +201,15 @@
 <!-- ★ 진행 단계 스텝 인디케이터 -->
 <div class="prog-wrap" id="progWrap">
   <div class="prog-steps">
-    <div class="prog-step" id="pstep0"><div class="prog-step-dot">①</div><div class="prog-step-label">파일 읽기</div></div>
+    <div class="prog-step" id="pstep0"><div class="prog-step-dot">📂</div><div class="prog-step-label">파일 읽기</div></div>
     <div class="prog-step-line" id="pline0"></div>
-    <div class="prog-step" id="pstep1"><div class="prog-step-dot">②</div><div class="prog-step-label">챕터 분리</div></div>
+    <div class="prog-step" id="pstep1"><div class="prog-step-dot">✂️</div><div class="prog-step-label">챕터 분리</div></div>
     <div class="prog-step-line" id="pline1"></div>
-    <div class="prog-step" id="pstep2"><div class="prog-step-dot">③</div><div class="prog-step-label">이미지</div></div>
+    <div class="prog-step" id="pstep2"><div class="prog-step-dot">🖼</div><div class="prog-step-label">이미지</div></div>
     <div class="prog-step-line" id="pline2"></div>
-    <div class="prog-step" id="pstep3"><div class="prog-step-dot">④</div><div class="prog-step-label">EPUB 빌드</div></div>
+    <div class="prog-step" id="pstep3"><div class="prog-step-dot">📦</div><div class="prog-step-label">EPUB 빌드</div></div>
     <div class="prog-step-line" id="pline3"></div>
-    <div class="prog-step" id="pstep4"><div class="prog-step-dot">✓</div><div class="prog-step-label">완료</div></div>
+    <div class="prog-step" id="pstep4"><div class="prog-step-dot">✅</div><div class="prog-step-label">완료</div></div>
   </div>
   <div class="prog-bg"><div class="prog-bar" id="progBar"></div></div>
   <div class="prog-msg" id="progMsg"></div>
@@ -650,6 +653,7 @@
     <div class="hist-filter-bar">
       <input class="inp" id="histSearchInp" placeholder="제목 검색..." style="font-size:12px;padding:5px 10px;flex:1">
       <button class="hist-filter-toggle" id="histFilterHasFile" data-filter="hasFile">파일 있는 것만</button>
+      <select id="histSortSel" style="font-size:11px;padding:4px 7px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-family:inherit;cursor:pointer;height:30px" onchange="renderHistory&&renderHistory()"><option value="newest">최신순</option><option value="oldest">오래된순</option><option value="size">크기순</option><option value="chapters">챕터순</option></select>
     </div>
     <div id="histList"></div>
   </div>
@@ -658,13 +662,6 @@
 
 <!-- ══ 설정 페이지 ══ -->
 <div id="page-settings" class="page">
-<div class="sec">
-<div class="sec-hdr"><span class="sec-title">💾 설정 프리셋</span><div class="sec-line"></div></div>
-<div class="card">
-  <div style="font-size:11px;color:var(--text2);margin-bottom:6px">현재 패턴+CSS+옵션 전체를 프리셋으로 저장·불러오기 (IndexedDB 저장)</div>
-  <div id="settingsPresetList"></div>
-</div>
-</div>
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">⚙️ 변환 옵션</span><div class="sec-line"></div></div>
   <div class="card">
@@ -852,7 +849,7 @@
     <!-- 추가 CSS 직접 입력 -->
     <div class="sec-divider">
       <div class="txt-label-bold" style="margin-bottom:4px">✏️ 추가 CSS 직접 입력</div>
-      <textarea id="cssExtra" style="width:100%;height:80px;font-family:monospace;font-size:11px;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);resize:vertical;outline:none" placeholder="/* 예) h1 { color: #c63; } */" data-input-action="saveCssSettings"></textarea>
+      <textarea id="cssExtra" style="width:100%;height:auto;min-height:60px;overflow-y:hidden;resize:vertical;font-family:monospace;font-size:11px;padding:7px 9px;border:1.5px solid var(--border);border-radius:7px;background:var(--bg);color:var(--text);resize:vertical;outline:none" placeholder="/* 예) h1 { color: #c63; } */" data-input-action="cssExtraAutoResize"></textarea>
     </div>
     <!-- 커스텀 폰트 업로드 -->
     <details class="settings-details" style="margin-top:10px">
