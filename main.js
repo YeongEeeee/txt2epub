@@ -577,6 +577,18 @@ window.addEventListener('DOMContentLoaded', ()=>{
 // 패턴 헬퍼 선택 상태 (helperId → Set of vals)
 const _chipSelected={patHelper:new Set(), insPatHelper:new Set(), eTocPatHelper:new Set()};
 
+// ── 패턴 칩 접이식 토글 ──
+function toggleChipGroup(){
+  const wrap=document.getElementById('chipGroupWrap');
+  const btn=document.getElementById('chipGroupToggle');
+  if(!wrap||!btn) return;
+  const expanded=wrap.classList.toggle('expanded');
+  btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+  btn.innerHTML=expanded
+    ? '<span class="chip-group-toggle-icon" aria-hidden="true">▼</span> 접기'
+    : '<span class="chip-group-toggle-icon" aria-hidden="true">▼</span> 더 보기';
+}
+
 function buildPatHelpers(){
   ['patHelper','insPatHelper','eTocPatHelper'].forEach(id=>{
     const c=document.getElementById(id); if(!c) return;
@@ -1049,6 +1061,7 @@ function setupEventDelegate(){
     },
 
     // ── EPUB 직접 편집 탭 ──
+    toggleChipGroup:         ()   => toggleChipGroup(),
     switchEditTab:          (el) => switchEditTab(el.dataset.tab),
     eTocTab:                (el) => eTocTab(parseInt(el.dataset.idx)),
     eToggleAllToc:          (el) => eToggleAllToc(el.dataset.val==='true'),
@@ -1119,7 +1132,17 @@ function setupDz(id,fn,inputId){
   el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('over');});
   el.addEventListener('dragleave',()=>el.classList.remove('over'));
   el.addEventListener('drop',e=>{e.preventDefault();el.classList.remove('over');fn(e.dataTransfer.files);});
-  if(inputId) el.onclick=()=>{const inp=document.getElementById(inputId);if(inp)inp.click();};
+  if(inputId){
+    el.onclick=()=>{const inp=document.getElementById(inputId);if(inp)inp.click();};
+    // ★ A11y: 키보드(Enter/Space)로 파일 탐색기 열기
+    el.addEventListener('keydown',e=>{
+      if(e.key==='Enter'||e.key===' '){
+        e.preventDefault();
+        const inp=document.getElementById(inputId);
+        if(inp) inp.click();
+      }
+    });
+  }
 }
 
 // ══════════════════════════════════════════
@@ -1339,23 +1362,34 @@ function switchPage(name){
   const dir = nextIdx > _lastPageIndex ? 'slide-from-right' : 'slide-from-left';
   _lastPageIndex = nextIdx;
 
-  // ② 탭 버튼 + 페이지 on/off
-  document.querySelectorAll('.page-tab').forEach((t,i)=>t.classList.toggle('on',pages[i]===name));
+  // ② 탭 버튼 + 페이지 on/off + aria 동기화
+  document.querySelectorAll('.page-tab').forEach((t,i)=>{
+    const isActive = pages[i]===name;
+    t.classList.toggle('on', isActive);
+    // ★ A11y: aria-selected 실시간 동기화
+    t.setAttribute('aria-selected', isActive ? 'true' : 'false');
+  });
+
   pages.forEach(p=>{
     const el=document.getElementById('page-'+p);
     if(!el) return;
     const isActive = p===name;
     el.classList.toggle('on', isActive);
+
     if(isActive){
       // 방향성 애니메이션 적용
       el.classList.remove('slide-from-left','slide-from-right');
       void el.offsetWidth; // reflow 강제로 애니메이션 재트리거
       el.classList.add(dir);
-    }
-    if(!isActive && (p==='history'||p==='edit')){
-      el.style.contentVisibility='hidden';
-    } else if(isActive) {
+      // ★ A11y: aria-hidden 해제
+      el.removeAttribute('aria-hidden');
       el.style.contentVisibility='';
+    } else {
+      // ★ A11y: 비활성 패널 aria-hidden
+      el.setAttribute('aria-hidden', 'true');
+      if(p==='history'||p==='edit'){
+        el.style.contentVisibility='hidden';
+      }
     }
   });
 
@@ -1366,7 +1400,7 @@ function switchPage(name){
 
   if(name==='convert'||name==='batch') updateSettingsSummary();
 
-  // ② 무거운 탭: 최초 방문 시 1회만 렌더링 (Lazy)
+  // ③ 무거운 탭: 최초 방문 시 1회만 렌더링 (Lazy)
   if(name==='history' && !_tabRendered.history){
     _tabRendered.history = true;
     renderHistory();
@@ -1457,6 +1491,8 @@ function updateBtmBar(files){
   const hasFile=files&&files.length>0;
   bar.classList.toggle('ready',hasFile);
   btn.setAttribute('data-ready',hasFile?'true':'false');
+  // ★ A11y: aria-disabled 동기화
+  btn.setAttribute('aria-disabled', hasFile ? 'false' : 'true');
   if(stat){
     if(!hasFile){
       stat.className='btm-status-val none';

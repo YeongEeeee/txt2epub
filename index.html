@@ -18,44 +18,44 @@
 <div class="hdr">
   <div class="hdr-title">📚 NovelEPUB<span class="hdr-sub">TXT → EPUB3 변환기</span></div>
   <div class="hdr-right">
-    <button class="ibtn" id="themeBtn" data-action="toggleTheme" aria-label="테마 전환"><span class="ibtn-icon" style="display:inline-block">🌙</span></button>
+    <button class="ibtn" id="themeBtn" data-action="toggleTheme" aria-label="테마 전환"><span class="ibtn-icon">🌙</span></button>
     <button class="ibtn" data-action="resetAll">🔄</button>
   </div>
 </div>
 <!-- 탭 -->
 <div class="page-tabs" role="tablist" aria-label="페이지 탭">
-  <button role="tab" class="page-tab on" data-action="switchPage" data-page="convert">📚 TXT→EPUB</button>
-  <button role="tab" class="page-tab" data-action="switchPage" data-page="batch">📦 일괄변환</button>
-  <button role="tab" class="page-tab" data-action="switchPage" data-page="edit">✏️ EPUB편집</button>
-  <button role="tab" class="page-tab" data-action="switchPage" data-page="history">🕘 히스토리</button>
-  <button role="tab" class="page-tab" data-action="switchPage" data-page="settings">⚙️ 설정</button>
+  <button role="tab" class="page-tab on" id="tab-convert" data-action="switchPage" data-page="convert" aria-selected="true" aria-controls="page-convert">📚 TXT→EPUB</button>
+  <button role="tab" class="page-tab" id="tab-batch" data-action="switchPage" data-page="batch" aria-selected="false" aria-controls="page-batch">📦 일괄변환</button>
+  <button role="tab" class="page-tab" id="tab-edit" data-action="switchPage" data-page="edit" aria-selected="false" aria-controls="page-edit">✏️ EPUB편집</button>
+  <button role="tab" class="page-tab" id="tab-history" data-action="switchPage" data-page="history" aria-selected="false" aria-controls="page-history">🕘 히스토리</button>
+  <button role="tab" class="page-tab" id="tab-settings" data-action="switchPage" data-page="settings" aria-selected="false" aria-controls="page-settings">⚙️ 설정</button>
 </div>
 
 <div class="wrap">
 <!-- ══ 변환 페이지 ══ -->
-<div id="page-convert" class="page on">
+<div id="page-convert" class="page on" role="tabpanel" aria-labelledby="tab-convert" tabindex="0">
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">📂 파일 설정</span><div class="sec-line"></div></div>
   <div class="card">
-    <div class="dz" id="txtDz">
+    <div class="dz" id="txtDz" tabindex="0" role="button" aria-label="TXT 파일 업로드 영역. Enter나 Space로 파일 탐색기 열기">
       <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);display:block;margin:0 auto 6px" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></svg>
       <div class="dz-text">TXT 파일을 드래그하거나 클릭</div>
       <div class="dz-sub">여러 파일 가능 · 자동 정렬 병합 · EUC-KR 자동 감지</div>
     </div>
     <input type="file" id="txtIn" accept=".txt" multiple hidden>
-    <div id="txtInfo" class="txt-green-sm" style="display:none"></div>
-    <div id="txtFileList" style="display:none;margin-top:8px">
+    <div id="txtInfo" class="txt-green-sm" hidden></div>
+    <div id="txtFileList" class="file-list-wrap" hidden>
       <div class="flex-row-sb" style="margin-bottom:5px">
         <span class="txt-meta-sm" id="txtFileCount"></span>
-        <div class="flex-row" style="gap:5px">
+        <div class="flex-row gap-5">
           <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="sortTxtAuto" title="파일명 숫자 기준 자동 정렬">⚡ 자동 정렬</button>
           <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="sortTxtAlpha" title="사전순 정렬">가나다↑</button>
           <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="addMoreTxt" title="파일 추가">＋ 파일 추가</button>
         </div>
       </div>
-      <div id="txtSortList" style="display:flex;flex-direction:column;gap:3px;max-height:220px;overflow-y:auto;padding:2px 0;overscroll-behavior:contain;touch-action:pan-y"></div>
+      <div id="txtSortList" class="txt-sort-list"></div>
     </div>
-    <div class="reset-bar" id="convertResetBar" style="display:none">
+    <div class="reset-bar" id="convertResetBar" hidden>
       <button class="btn-reset" data-action="resetConvertTxt">✕ TXT 파일 초기화</button>
       <button class="btn-reset" data-action="resetConvertCover">✕ 표지 이미지 초기화</button>
       <button class="btn-reset danger" data-action="resetConvertAll">🔄 전체 초기화</button>
@@ -90,8 +90,14 @@
     <!-- ① 기본 정보 블록 -->
     <div class="meta-block">
       <div class="meta-block-title">📖 기본 정보</div>
-      <div class="row"><span class="lbl">📖 제목</span><input class="inp" id="title" placeholder="소설 제목" data-input-action="liveUpdateCover"></div>
-<div class="row"><span class="lbl">✒️ 작가</span><input class="inp" id="author" placeholder="작가명" data-input-action="liveUpdateCover"></div>eholder="소설 제목"></div>
+      <div class="row">
+        <label class="lbl" for="title">📖 제목</label>
+        <input class="inp" id="title" placeholder="소설 제목" data-input-action="liveUpdateCover">
+      </div>
+      <div class="row">
+        <label class="lbl" for="author">✒️ 작가</label>
+        <input class="inp" id="author" placeholder="작가명" data-input-action="liveUpdateCover">
+      </div>
     </div>
     <!-- ② 장/화 분할 규칙 블록 -->
     <div class="meta-block">
@@ -120,7 +126,11 @@
       <span id="smartPatAiLabel" style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 5px;flex-shrink:0;display:none">✨ AI</span>
       <button class="btn btn-accent btn-sm" id="smartPatApplyBtn" data-action="applySmartPat" style="flex-shrink:0;font-size:11px;padding:4px 10px">✅ 적용</button>
     </div>
-    <div class="pat-helper" id="patHelper">
+    <div class="chip-group-wrap" id="chipGroupWrap">
+      <div class="pat-helper chip-group-grid" id="patHelper"></div>
+      <button class="chip-group-toggle" id="chipGroupToggle" data-action="toggleChipGroup" aria-expanded="false" aria-controls="patHelper">
+        <span class="chip-group-toggle-icon" aria-hidden="true">▼</span> 더 보기
+      </button>
     </div>
     <div id="patApplyBar" class="flex-row" style="display:none;margin-top:5px">
       <button class="btn btn-accent btn-sm" data-action="applySelectedChips" style="font-size:12px;padding:6px 14px">✅ 선택한 패턴 적용</button>
@@ -274,7 +284,7 @@
   <div class="card">
     <div class="txt-hint-sm">변환된 epub을 N화씩 여러 파일로 나눠요.</div>
     <div class="row">
-      <span class="lbl">분리 단위</span>
+      <label class="lbl" for="splitN">분리 단위</label>
       <input class="inp" id="splitN" type="number" min="1" value="100" style="max-width:80px"> 화씩
       <button class="btn btn-blue" data-action="startSplit">✂️ 분리 시작</button>
     </div>
@@ -284,7 +294,7 @@
 </div><!-- /page-convert -->
 
 <!-- ══ 일괄 변환 페이지 ══ -->
-<div id="page-batch" class="page">
+<div id="page-batch" class="page" role="tabpanel" aria-labelledby="tab-batch" tabindex="0" style="contain-intrinsic-size:0 600px">
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">📦 일괄 변환</span><div class="sec-line"></div></div>
   <div class="card">
@@ -340,7 +350,7 @@
 </div><!-- /page-batch -->
 
 <!-- ══ EPUB 편집 페이지 ══ -->
-<div id="page-edit" class="page">
+<div id="page-edit" class="page" role="tabpanel" aria-labelledby="tab-edit" tabindex="0" style="contain-intrinsic-size:0 800px">
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">📖 기존 EPUB 불러오기</span><div class="sec-line"></div></div>
   <div class="card">
@@ -684,7 +694,7 @@
 </div><!-- /wrap -->
 
 <!-- ══ 히스토리 페이지 ══ -->
-<div id="page-history" class="page">
+<div id="page-history" class="page" role="tabpanel" aria-labelledby="tab-history" tabindex="0" style="contain-intrinsic-size:0 400px">
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">🕘 변환 히스토리</span><div class="sec-line"></div></div>
   <div class="card">
@@ -704,7 +714,7 @@
 </div><!-- /page-history -->
 
 <!-- ══ 설정 페이지 ══ -->
-<div id="page-settings" class="page">
+<div id="page-settings" class="page" role="tabpanel" aria-labelledby="tab-settings" tabindex="0" style="contain-intrinsic-size:0 600px">
   <div class="sec">
   <div class="sec-hdr"><span class="sec-title">🎨 컬러 테마</span><div class="sec-line"></div></div>
   <div class="card">
@@ -909,13 +919,15 @@
         </div>
       </div>
     </details>
-    <!-- ★ 설정 프리셋 -->
-    <div class="sec-divider">
-      <div class="flex-row-sb" style="margin-bottom:8px">
-        <div class="txt-label-bold">🎨 설정 프리셋</div>
-        <button class="btn btn-ghost btn-sm" data-action="saveCurrentAsPreset" style="font-size:11px">💾 현재 설정 저장</button>
+    <!-- ★ 설정 프리셋 — 마스터 컨트롤 바 -->
+    <div class="preset-master-bar">
+      <div class="preset-master-hdr">
+        <span class="preset-master-icon" aria-hidden="true">🎨</span>
+        <span class="preset-master-title">설정 프리셋</span>
+        <span class="preset-master-desc">현재 CSS·변환 설정 전체를 저장·불러와요</span>
+        <button class="btn btn-ghost btn-sm preset-master-save-btn" data-action="saveCurrentAsPreset">💾 현재 설정 저장</button>
       </div>
-      <div id="cssPresetList" style="display:flex;flex-wrap:wrap;gap:5px;min-height:28px"></div>
+      <div id="cssPresetList" class="preset-chip-list" role="list" aria-label="저장된 설정 프리셋 목록"></div>
     </div>
     <!-- 추가 CSS 직접 입력 -->
     <div class="sec-divider">
@@ -955,7 +967,7 @@
       <label class="sw"><input type="checkbox" id="optShowLineNum" data-input-action="saveExtraSettings" checked><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
-      <div style="flex:1"><label class="txt-label-bold">기본 챕터 정규식</label><small class="txt-meta-sm" style="display:block">비워두면 자동 감지. 매번 같은 패턴 쓴다면 여기에 저장</small></div>
+      <div style="flex:1"><label class="txt-label-bold" for="optDefaultPat">기본 챕터 정규식</label><small class="txt-meta-sm" style="display:block">비워두면 자동 감지. 매번 같은 패턴 쓴다면 여기에 저장</small></div>
       <input class="inp" id="optDefaultPat" placeholder="자동 감지" style="max-width:220px;font-size:12px" data-input-action="saveExtraSettings">
     </div>
   </div>
@@ -965,7 +977,7 @@
   <div class="sec-hdr"><span class="sec-title">📤 출력 설정</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="row" style="padding:4px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
-      <span class="txt-label-bold" style="flex:1">EPUB 메타 언어</span>
+      <label class="txt-label-bold" style="flex:1" for="optLang">EPUB 메타 언어</label>
       <select id="optLang" data-input-action="saveExtraSettings" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text)">
         <option value="ko" selected>한국어 (ko)</option>
         <option value="en">영어 (en)</option>
@@ -974,11 +986,11 @@
       </select>
     </div>
     <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
-      <span class="txt-label-bold" style="flex:1">출판사(publisher) 태그</span>
+      <label class="txt-label-bold" style="flex:1" for="optPublisher">출판사(publisher) 태그</label>
       <input class="inp" id="optPublisher" placeholder="비워두면 미포함" style="max-width:180px;font-size:12px" data-input-action="saveExtraSettings">
     </div>
     <div class="row" style="padding:8px 0;gap:8px;align-items:center">
-      <span class="txt-label-bold" style="flex:1">EPUB 압축 수준</span>
+      <label class="txt-label-bold" style="flex:1" for="optCompression">EPUB 압축 수준</label>
       <select id="optCompression" data-input-action="saveExtraSettings" style="font-size:12px;padding:4px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--panel);color:var(--text)">
         <option value="1">빠름 (낮은 압축)</option>
         <option value="6" selected>보통 (권장)</option>
@@ -1096,13 +1108,19 @@
 
   <!-- ════ 하단 고정 버튼 바 ════ -->
 <!-- 변환 탭 -->
-<div class="btm" id="btmConvert" style="display:flex">
-  <div class="btm-status" id="btmStatusWrap">
+<div class="btm" id="btmConvert" style="display:flex" role="toolbar" aria-label="변환 실행 바">
+  <div class="btm-status" id="btmStatusWrap" aria-live="polite" aria-atomic="true">
     <span class="btm-status-label">파일</span>
     <span class="btm-status-val none" id="btmFileStatus">선택 안 됨</span>
   </div>
-  <button class="btn btn-accent" id="convertBtn" data-action="startConvert" data-ready="false">📖 EPUB 변환 시작</button>
-  <div class="btm-hint"><kbd>Ctrl</kbd>+<kbd>Enter</kbd></div>
+  <button class="btn btn-accent" id="convertBtn" data-action="startConvert" data-ready="false"
+          aria-disabled="true" aria-describedby="btmConvertHint">
+    📖 EPUB 변환 시작
+  </button>
+  <div class="btm-hint" id="btmConvertHint">
+    <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+    <span class="btm-hint-notready" id="btmNotReadyHint">TXT 파일을 먼저 추가해주세요</span>
+  </div>
 </div>
 <!-- 일괄변환 탭 -->
 <div class="btm" id="btmBatch" style="display:none">
