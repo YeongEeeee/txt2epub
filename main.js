@@ -39,9 +39,7 @@ const Toast = (() => {
     if (_container) return;
     _container = document.createElement('div');
     _container.id = 'toast-container';
-    _container.style.cssText =
-      'position:fixed;top:16px;right:16px;z-index:9999;display:flex;' +
-      'flex-direction:column;gap:8px;pointer-events:none;max-width:340px';
+    // ★ FIX-03: 스타일은 style.css #toast-container 규칙으로 이관 (JS 인라인 제거)
     document.body.appendChild(_container);
   }
 
@@ -209,6 +207,9 @@ const EventBus = (() => {
     if (_listeners[event]) _listeners[event] = _listeners[event].filter(f => f !== fn);
   }
   function emit(event, data) {
+    if (_listeners[event]) {
+      _listeners[event].forEach(fn => { try { fn(data); } catch(e) {} });
+    }
   }
 
   return { on, off, emit };
@@ -312,20 +313,30 @@ const SettingsDB = (() => {
   }
 
   async function set(key, value){
-    try{
-      const db = await open();
-      return new Promise((res,rej)=>{
-        const tx = db.transaction(STORE,'readwrite');
-        tx.objectStore(STORE).put(value, key);
-        tx.oncomplete = res;
-        tx.onerror    = ()=>rej(tx.error);
-      });
-    }catch(e){
-      // IDB 실패 시 localStorage 폴백 (작은 값만)
+    // ★ LOGIC-06: IDB 트랜잭션 실패 시 1회 재시도 (Safari/모바일 간헐적 실패 방어)
+    for(let attempt = 0; attempt < 2; attempt++){
       try{
-        if(typeof value==='string' && value.length < 100000)
-          localStorage.setItem('idb_fallback_'+key, value);
-      }catch(le){}
+        const db = await open();
+        await new Promise((res,rej)=>{
+          const tx = db.transaction(STORE,'readwrite');
+          tx.objectStore(STORE).put(value, key);
+          tx.oncomplete = res;
+          tx.onerror    = ()=>rej(tx.error);
+        });
+        return; // 성공
+      }catch(e){
+        if(attempt === 0){
+          // 1회 실패 시 DB 연결 재설정 후 재시도
+          _db = null; _dbPromise = null;
+          await new Promise(r => setTimeout(r, 80));
+        } else {
+          // 2회 모두 실패 시 localStorage 폴백 (작은 값만)
+          try{
+            if(typeof value==='string' && value.length < 100000)
+              localStorage.setItem('idb_fallback_'+key, value);
+          }catch(le){}
+        }
+      }
     }
   }
 
@@ -395,20 +406,7 @@ const EventDelegate = (() => {
   return { register, registerAll, init };
 })();
 
-// ─────────────────────────────────────────
-// Toast CSS 주입 (한 번만)
-// ─────────────────────────────────────────
-(function injectToastCSS() {
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes toastIn {
-      from { opacity:0; transform:translateX(20px); }
-      to   { opacity:1; transform:none; }
-    }
-    #toast-container > div:hover { filter: brightness(.96); }
-  `;
-  document.head.appendChild(style);
-})();
+// ★ FIX-03: Toast CSS → style.css 이관 완료 (injectToastCSS 제거)
 
 // ══════════════════════════════════════════
 // 📦 Module: State  (StateManager 기반 탭별 독립 상태)
@@ -545,6 +543,16 @@ window.addEventListener('DOMContentLoaded', ()=>{
   syncSelect('cssLine','cssLineSlider','cssLineVal',lineVal);
   const sizeVal=document.getElementById('cssFontSize')?.value||'1em';
   syncSelect('cssFontSize','cssFontSizeSlider','cssFontSizeVal',sizeVal);
+
+  // ★ FIX-07: suspThresholdSlider 초기값 localStorage에서 복원
+  (()=>{
+    let savedThr = 50;
+    try{ savedThr = parseInt(localStorage.getItem('novelepub_susp_threshold')||'50')||50; }catch(e){}
+    const slider = document.getElementById('suspThresholdSlider');
+    const display = document.getElementById('suspThresholdVal');
+    if(slider){ slider.value = String(savedThr); }
+    if(display){ display.textContent = savedThr + '자'; }
+  })();
 
   // ★ 복사 버튼 툴팁 마이크로인터랙션 (이벤트 위임)
   document.addEventListener('click', e=>{
@@ -780,6 +788,25 @@ function setupEventListeners(){
   document.getElementById('fontIn').onchange       =e=>handleCustomFont(e.target.files);
   document.getElementById('cssImportIn').onchange  =e=>handleCssImportEpub(e.target.files);
   document.getElementById('coverThumb').onclick    =()=>document.getElementById('coverIn')?.click();
+
+  // ★ UI-07: 표지 썸네일 3D 틸트 효과 (mousemove)
+  (()=>{
+    const thumb = document.getElementById('coverThumb');
+    if(!thumb) return;
+    thumb.addEventListener('mousemove', e=>{
+      const r = thumb.getBoundingClientRect();
+      const cx = r.left + r.width/2, cy = r.top + r.height/2;
+      const dx = (e.clientX - cx) / (r.width/2);
+      const dy = (e.clientY - cy) / (r.height/2);
+      thumb.classList.add('tilting');
+      thumb.style.transform = `perspective(500px) rotateY(${dx*8}deg) rotateX(${-dy*8}deg) scale(1.03)`;
+    });
+    thumb.addEventListener('mouseleave', ()=>{
+      thumb.classList.remove('tilting');
+      thumb.style.transform = '';
+    });
+  })();
+
   document.querySelectorAll('input[name="editIllMode"]').forEach(r=>r.addEventListener('change',e=>{
     document.getElementById('editIllManual').style.display=e.target.value==='manual'?'block':'none';
   }));
@@ -903,6 +930,52 @@ function showShortcutHelp(){
       saveCssSettings();
     },
     saveOptLang:   () => saveExtraSettings(),
+    // ★ ADD-10: 브라우저 알림 토글
+    toggleNotification: (el) => {
+      if(!el.checked){ localStorage.removeItem(_notifKey); _initNotifStatus(); return; }
+      if(typeof Notification === 'undefined'){ el.checked=false; return; }
+      if(Notification.permission === 'granted'){
+        localStorage.setItem(_notifKey,'true'); _initNotifStatus();
+      } else if(Notification.permission !== 'denied'){
+        Notification.requestPermission().then(perm=>{
+          if(perm==='granted'){ localStorage.setItem(_notifKey,'true'); }
+          else { el.checked=false; }
+          _initNotifStatus();
+        });
+      } else {
+        el.checked=false; Toast.warn('브라우저 알림이 차단되어 있어요. 브라우저 주소창 자물쇠 아이콘에서 허용해주세요.');
+      }
+    },
+    // ★ FIX-07 + 슬라이더 실시간: suspThreshold 변경 → 목차 즉시 재계산
+    updateSuspThreshold: (el) => {
+      const val = parseInt(el.value) || 50;
+      const display = document.getElementById('suspThresholdVal');
+      if(display) display.textContent = val + '자';
+      try{ localStorage.setItem('novelepub_susp_threshold', String(val)); }catch(e){}
+      // 목차가 있으면 suspicious 상태 재계산 후 렌더 업데이트
+      if(typeof S !== 'undefined' && S.tocItems && S.tocItems.length > 0){
+        S.tocItems.forEach((t, fi) => {
+          const bl = typeof t.bodyLen === 'number' ? t.bodyLen : (t.body||'').replace(/\s/g,'').length;
+          t.suspicious = bl < val && fi < S.tocItems.length - 1;
+        });
+        typeof updateTocStat === 'function' && updateTocStat();
+        // 짧은챕터 배지 재렌더 (전체 재렌더는 부담이므로 스타일만 업데이트)
+        document.querySelectorAll('.toc-item[data-idx]').forEach(el => {
+          const idx = parseInt(el.dataset.idx);
+          const item = S.tocItems[idx];
+          if(!item) return;
+          const badge = el.querySelector('.toc-char-badge');
+          if(badge){
+            const bl = typeof item.bodyLen === 'number' ? item.bodyLen : (item.body||'').replace(/\s/g,'').length;
+            const isShort = bl > 0 && bl < val;
+            badge.style.background = isShort ? 'var(--yellow-bg)' : 'var(--bg2)';
+            badge.style.color      = isShort ? 'var(--yellow)' : 'var(--text2)';
+            badge.style.borderColor= isShort ? 'var(--accent2)' : 'var(--border)';
+          }
+        });
+        typeof updateFeedFromToc === 'function' && updateFeedFromToc(S.tocItems);
+      }
+    },
     syncCssLine:   (el) => { syncSelect('cssLine','cssLineSlider','cssLineVal',el.value); updateCssPreview(); saveCssSettings(); updateMiniReader&&updateMiniReader(); updateSettingsSummary&&updateSettingsSummary(); },
     syncCssFontSize:   (el) => { syncSelect('cssFontSize','cssFontSizeSlider','cssFontSizeVal',el.value); updateCssPreview(); saveCssSettings(); updateMiniReader&&updateMiniReader(); updateSettingsSummary&&updateSettingsSummary(); },
     syncCssLineSlider:    (el) => { syncSlider('cssLine','cssLineSlider','cssLineVal',el.value); updateCssPreview(); saveCssSettings(); updateMiniReader&&updateMiniReader(); updateSettingsSummary&&updateSettingsSummary(); },
@@ -1005,6 +1078,9 @@ function setupEventDelegate(){
     resetColors:      () => resetColors(),
     applyCssImport:   () => applyCssImport(),
     clearCssImport:   () => clearCssImport(),
+    // ★ ADD-05: 설정 JSON 내보내기/가져오기
+    exportSettings:    () => exportSettings(),
+    importSettingsBtn: () => importSettingsBtn(),
 
     // ── 표지 검색 ──
     openCoverModal:   (el) => openCoverModal(el.dataset.mode),
@@ -1130,7 +1206,12 @@ function setupDz(id,fn,inputId){
   if(!el) return;
   el.addEventListener('dragover',e=>{e.preventDefault();el.classList.add('over');});
   el.addEventListener('dragleave',()=>el.classList.remove('over'));
-  el.addEventListener('drop',e=>{e.preventDefault();el.classList.remove('over');fn(e.dataTransfer.files);});
+  el.addEventListener('drop',e=>{
+    e.preventDefault();el.classList.remove('over');
+    fn(e.dataTransfer.files);
+    // ★ UI-03: 드롭 성공 시 confetti 이펙트 (CSS-only, 6개 span)
+    _spawnDropConfetti(el);
+  });
   if(inputId){
     el.onclick=()=>{const inp=document.getElementById(inputId);if(inp)inp.click();};
     // ★ A11y: 키보드(Enter/Space)로 파일 탐색기 열기
@@ -1144,8 +1225,24 @@ function setupDz(id,fn,inputId){
   }
 }
 
-// ══════════════════════════════════════════
-// 🎨 Module: Theme  (다크/라이트 테마 전환)
+// ★ UI-03: 드롭존 confetti 이펙트
+function _spawnDropConfetti(container){
+  if(!container) return;
+  const colors = ['var(--accent)','var(--blue)','var(--green)','var(--accent2)','var(--yellow)','#9b59b6'];
+  for(let i=0; i<6; i++){
+    const c = document.createElement('span');
+    c.className = 'dz-confetti';
+    const left = 20 + Math.random() * 60;
+    const delay = Math.random() * 0.3;
+    c.style.cssText =
+      `left:${left}%;top:30%;background:${colors[i % colors.length]};` +
+      `animation-delay:${delay}s;border-radius:${Math.random()>0.5?'50%':'2px'}`;
+    container.appendChild(c);
+    setTimeout(()=>c.remove(), 900);
+  }
+}
+
+
 // ★ OS 자동 감지 + localStorage 저장/복원
 // ══════════════════════════════════════════
 function toggleTheme(){
@@ -1516,9 +1613,24 @@ function updateFeedFromToc(tocArray){
   if(!feed) return;
   feed.style.display='';
   const total=tocArray?tocArray.length:0;
-  let suspThreshold=50;
-  try{suspThreshold=parseInt(document.getElementById('suspThresholdSlider')?.value||'50')||50;}catch(e){}
-  const shortCount=total?tocArray.filter(c=>(c.bodyLen||0)>0&&(c.bodyLen||0)<suspThreshold).length:0;
+  // ★ FIX-07: getSuspThreshold() 사용 (DOM 슬라이더 실시간 반영)
+  const suspThreshold = typeof getSuspThreshold==='function' ? getSuspThreshold() : 50;
+  // ★ 글자수 집계 (bodyLen 기반)
+  let totalChars = 0;
+  if(total > 0){
+    tocArray.forEach(c=>{
+      const bl = typeof c.bodyLen === 'number' ? c.bodyLen : (c.body||'').replace(/\s/g,'').length;
+      totalChars += bl;
+    });
+  }
+  const avgChars = total > 0 ? Math.round(totalChars / total) : 0;
+  const totalCharsStr = totalChars >= 10000
+    ? (totalChars/10000).toFixed(1)+'만자'
+    : totalChars.toLocaleString()+'자';
+  const shortCount=total?tocArray.filter(c=>{
+    const bl = typeof c.bodyLen === 'number' ? c.bodyLen : (c.body||'').replace(/\s/g,'').length;
+    return bl > 0 && bl < suspThreshold;
+  }).length:0;
   if(badge){
     badge.className='detect-badge'+(total===0?' zero':shortCount>0?' warn':'');
     badge.innerHTML=total>0
@@ -1528,7 +1640,7 @@ function updateFeedFromToc(tocArray){
   if(list&&total>0){
     const preview=(tocArray||[]).slice(0,8);
     list.innerHTML=preview.map((ch,i)=>{
-      const chars=ch.bodyLen||0;
+      const chars = typeof ch.bodyLen === 'number' ? ch.bodyLen : (ch.body||'').replace(/\s/g,'').length;
       const isShort=chars>0&&chars<suspThreshold;
       const badgeCls='feed-item-badge'+(isShort?' short':chars>0?' ok':'');
       const badgeTxt=chars>0?(isShort?`⚠ ${chars}자`:`${chars.toLocaleString()}자`):'';
@@ -1541,8 +1653,16 @@ function updateFeedFromToc(tocArray){
     list.innerHTML='<div class="regex-feed-empty"><div class="regex-feed-empty-icon">📄</div>패턴을 입력하거나 목차 확인을 눌러주세요</div>';
   }
   if(stat){
-    stat.textContent=total>8?`1–8 / ${total}개 · ${shortCount>0?`⚠ 짧은 챕터 ${shortCount}개`:''}`
-      :(total>0?`총 ${total}개${shortCount>0?` · ⚠ 짧은 챕터 ${shortCount}개`:''}`:' ');
+    // ★ 총글자수 · 평균 글자수 표시
+    const charInfo = total > 0 ? `${totalCharsStr} · 평균 ${avgChars.toLocaleString()}자` : '';
+    const shortInfo = shortCount > 0 ? ` · ⚠ 짧은챕터 ${shortCount}개(기준:${suspThreshold}자)` : '';
+    if(total>8){
+      stat.textContent = `1–8 / ${total}개 · ${charInfo}${shortInfo}`;
+    } else if(total>0){
+      stat.textContent = `총 ${total}개 · ${charInfo}${shortInfo}`;
+    } else {
+      stat.textContent = ' ';
+    }
   }
 }
 
@@ -3222,6 +3342,8 @@ async function startConvert(){
     _showShareBtnIfSupported(); // ★ C-04: 공유 버튼 조건부 표시
     // ★ 07: 결과 카드 count-up 애니메이션
     _animateResultStats();
+    // ★ ADD-10: 변환 완료 브라우저 알림 (탭 백그라운드 시)
+    _sendConvertNotif(title || S.epubName, chapters.filter(([h])=>h!=='서문').length);
   }catch(e){
     document.getElementById('progWrap')?.classList.remove('show');
     document.getElementById('errBox').textContent='❌ '+friendlyError(e);
@@ -3497,19 +3619,64 @@ function downloadEpub(){
 function renderTocMiniChart(){
   const el=document.getElementById('tocMiniChart');
   if(!el||!S.tocItems.length) return;
-  const items=S.tocItems.filter(t=>t.enabled&&t.bodyLen>0);
+  const items=S.tocItems.filter(t=>t.enabled&&(t.bodyLen||0)>0);
   if(!items.length){el.innerHTML='';return;}
-  const maxLen=Math.max(...items.map(t=>t.bodyLen),1);
+  // ★ FIX-07 연동: getSuspThreshold 사용
+  const _suspThr = typeof getSuspThreshold==='function' ? getSuspThreshold() : 50;
+  const maxLen=Math.max(...items.map(t=>t.bodyLen||0),1);
   const W=el.clientWidth||300, H=36, bw=Math.max(1,Math.floor((W-4)/items.length)-1);
+
   const bars=items.map((t,i)=>{
-    const h=Math.max(2,Math.floor(t.bodyLen/maxLen*(H-4)));
+    const bl = t.bodyLen || 0;
+    const h=Math.max(2,Math.floor(bl/maxLen*(H-4)));
     const x=2+i*(bw+1);
-    const col=t.suspicious?'#e8764a':'var(--accent)';
-    const title=t.title.slice(0,20)+'… '+t.bodyLen.toLocaleString()+'자';
-    return `<rect x="${x}" y="${H-h}" width="${bw}" height="${h}" fill="${col}" rx="1" title="${title}"
-      onclick="document.querySelector('.toc-item:nth-child(${i+1})')?.scrollIntoView({block:'center',behavior:'smooth'})" style="cursor:pointer;opacity:.75"/>`;
+    // ★ ADD-03: 짧은챕터(주황), 긴챕터(파랑), 정상(accent)
+    const col = bl < _suspThr ? '#e8764a' : bl > 50000 ? '#4472a8' : 'var(--accent)';
+    const titleSafe = (t.title||'').replace(/"/g,'&quot;').slice(0,30);
+    const blStr = bl>=10000?(bl/10000).toFixed(1)+'만자':bl>=1000?(bl/1000).toFixed(1)+'k':bl+'자';
+    return `<rect x="${x}" y="${H-h}" width="${bw}" height="${h}" fill="${col}" rx="1"
+      data-idx="${i}" data-title="${titleSafe}" data-chars="${bl}" data-str="${blStr}"
+      style="cursor:pointer;opacity:.75;transition:opacity .1s"/>`;
   }).join('');
+
   el.innerHTML=`<svg width="${W}" height="${H}" style="display:block;width:100%">${bars}</svg>`;
+
+  // ★ ADD-03: SVG hover 툴팁
+  const svg = el.querySelector('svg');
+  if(!svg) return;
+  let _tipEl = null;
+  svg.addEventListener('mousemove', e=>{
+    const rect_svg = e.target;
+    if(rect_svg.tagName !== 'rect') return;
+    const idx  = parseInt(rect_svg.dataset.idx);
+    const chars= rect_svg.dataset.str || '';
+    const title= rect_svg.dataset.title || '';
+    // 툴팁 생성/재사용
+    if(!_tipEl){
+      _tipEl = document.createElement('div');
+      _tipEl.className = 'toc-chart-tooltip';
+      document.body.appendChild(_tipEl);
+    }
+    _tipEl.innerHTML = `<strong>${title||'챕터 '+(idx+1)}</strong><br>${chars}`;
+    _tipEl.style.left = Math.min(e.clientX+12, window.innerWidth-220)+'px';
+    _tipEl.style.top  = (e.clientY-38)+'px';
+    _tipEl.style.display='';
+    // 해당 rect hover 강조
+    svg.querySelectorAll('rect').forEach(r=>r.style.opacity='.45');
+    rect_svg.style.opacity='1';
+  });
+  svg.addEventListener('mouseleave', ()=>{
+    if(_tipEl){ _tipEl.style.display='none'; }
+    svg.querySelectorAll('rect').forEach(r=>r.style.opacity='.75');
+  });
+  // 클릭: 해당 챕터로 스크롤
+  svg.addEventListener('click', e=>{
+    const rect_svg = e.target;
+    if(rect_svg.tagName !== 'rect') return;
+    const idx = parseInt(rect_svg.dataset.idx);
+    const tocEl = document.querySelector(`.toc-item[data-idx="${idx}"]`);
+    tocEl?.scrollIntoView({block:'center',behavior:'smooth'});
+  });
 }
 
 // ★ I10: 목차 내보내기 (글자수 포함)
@@ -5294,10 +5461,9 @@ function switchEditTab(name){
     const btn=document.getElementById('editTab_'+t);
     const panel=document.getElementById('editPanel_'+t);
     const active=t===name;
-    btn.style.color=active?'var(--accent)':'var(--text2)';
-    btn.style.borderBottom=active?'2px solid var(--accent)':'2px solid transparent';
-    btn.style.background=active?'var(--accent-bg)':'none';
-    panel.style.display=active?'block':'none';
+    // ★ FIX-05: classList 토글 방식으로 변경 (style.css .edit-tab.on 클래스 사용)
+    if(btn) btn.classList.toggle('on', active);
+    if(panel) panel.style.display=active?'block':'none';
   });
   // 삽화 탭 열 때 드롭존 이벤트 초기화
   if(name==='ill') setupDirectEditIllDrop();
@@ -7170,3 +7336,157 @@ function initSkin(){
     if(nextIdx !== curIdx) switchPage(pages[nextIdx]);
   }, {passive:true});
 })();
+
+
+// ══════════════════════════════════════════
+// ★ ADD-05: 설정 JSON 내보내기 / 가져오기
+// ══════════════════════════════════════════
+function exportSettings(){
+  // 저장할 키 목록 (민감 정보 제외: API 키 미포함)
+  const EXPORT_KEYS = [
+    'novelepub_css','novelepub_extras','novelepub_prefs',
+    'novelepub_susp_threshold','novelepub_skin','novelepub_theme',
+    'novelepub_css_presets',
+  ];
+  const data = { _version: 2, _exported: new Date().toISOString() };
+  EXPORT_KEYS.forEach(k => {
+    try{ const v = localStorage.getItem(k); if(v !== null) data[k] = v; }catch(e){}
+  });
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:'application/json'});
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url;
+  a.download = 'novelepub-settings-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(url), 1000);
+  Toast.success('설정을 JSON 파일로 내보냈어요.');
+}
+
+function importSettingsBtn(){
+  document.getElementById('settingsImportIn')?.click();
+}
+
+// settingsImportIn onchange는 DOMContentLoaded 후 연결
+document.addEventListener('DOMContentLoaded', ()=>{
+  document.getElementById('settingsImportIn')?.addEventListener('change', async e=>{
+    const file = e.target.files?.[0];
+    if(!file) return;
+    try{
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if(!data._version) throw new Error('유효하지 않은 설정 파일이에요.');
+      let count = 0;
+      Object.keys(data).forEach(k=>{
+        if(k.startsWith('_')) return;
+        try{ localStorage.setItem(k, data[k]); count++; }catch(ex){}
+      });
+      e.target.value = '';
+      Toast.success(`설정 ${count}개를 불러왔어요. 페이지를 새로고침하면 완전히 적용돼요.`);
+      // 즉시 적용 가능한 것만 적용
+      loadCssSettings&&loadCssSettings();
+      loadExtraSettings&&loadExtraSettings();
+      updateSettingsSummary&&updateSettingsSummary();
+      updateMiniReader&&updateMiniReader();
+    }catch(err){
+      Toast.error('설정 파일 가져오기 실패: ' + (err.message||'알 수 없는 오류'));
+    }
+  });
+});
+
+// ══════════════════════════════════════════
+// ★ ADD-09: 표지 자동 생성 (Canvas 기반)
+// ══════════════════════════════════════════
+// generateTextCover는 이미 main.js에 구현되어 있으면 그걸 사용
+// 없으면 아래 기본 구현 사용
+if(typeof generateTextCover === 'undefined'){
+  window.generateTextCover = async function(title, author, preset=0){
+    const gradients = [
+      ['#2d1f14','#5a3a22'],  // 0: 워밍 브라운
+      ['#0a1628','#1a3a5c'],  // 1: 딥 네이비
+      ['#1a2810','#3a5a1a'],  // 2: 포레스트 그린
+    ];
+    const [c1,c2] = gradients[preset % gradients.length];
+    const W=300, H=450;
+    const canvas = document.createElement('canvas');
+    canvas.width=W; canvas.height=H;
+    const ctx = canvas.getContext('2d');
+    const grad = ctx.createLinearGradient(0,0,W,H);
+    grad.addColorStop(0, c1); grad.addColorStop(1, c2);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0,0,W,H);
+    // 장식선
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(20,20); ctx.lineTo(W-20,20);
+    ctx.lineTo(W-20,H-20); ctx.lineTo(20,H-20); ctx.closePath(); ctx.stroke();
+    // 제목
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${Math.min(28, Math.floor(W*0.08))}px 'Noto Serif KR', serif`;
+    ctx.textAlign = 'center';
+    const maxW = W-60;
+    // 긴 제목 자동 줄바꿈
+    const words = [...title];
+    let line='', lines=[], y=H*0.42;
+    for(const ch of words){
+      const test=line+ch;
+      if(ctx.measureText(test).width > maxW && line){
+        lines.push(line); line=ch;
+      } else { line=test; }
+    }
+    if(line) lines.push(line);
+    const lineH = 38;
+    const startY = y - ((lines.length-1)*lineH)/2;
+    lines.forEach((l,i)=>ctx.fillText(l, W/2, startY + i*lineH));
+    // 작가명
+    if(author){
+      ctx.font = `${Math.min(18,Math.floor(W*0.056))}px 'Noto Serif KR', serif`;
+      ctx.fillStyle = 'rgba(255,255,255,0.75)';
+      ctx.fillText(author, W/2, startY + lines.length*lineH + 20);
+    }
+    return new Promise(res=>canvas.toBlob(b=>res(b), 'image/jpeg', 0.92));
+  };
+}
+
+// ══════════════════════════════════════════
+// ★ ADD-10: 변환 완료 브라우저 알림
+// ══════════════════════════════════════════
+const _notifKey = 'novelepub_notification';
+
+function _initNotifStatus(){
+  const chk   = document.getElementById('optNotification');
+  const status= document.getElementById('notifStatus');
+  if(!chk||!status) return;
+  const perm = typeof Notification !== 'undefined' ? Notification.permission : 'unsupported';
+  const saved = localStorage.getItem(_notifKey) === 'true';
+  if(perm === 'unsupported'){
+    status.textContent = '미지원 브라우저';
+    chk.disabled = true; return;
+  }
+  if(perm === 'granted'){
+    status.textContent = '허용됨'; status.className = 'granted';
+    chk.checked = saved;
+  } else if(perm === 'denied'){
+    status.textContent = '차단됨'; status.className = 'denied';
+    chk.checked = false; chk.disabled = true;
+  } else {
+    status.textContent = '미설정';
+    chk.checked = false;
+  }
+}
+
+document.addEventListener('DOMContentLoaded', ()=>{
+  _initNotifStatus();
+});
+
+function _sendConvertNotif(title, chapterCount){
+  try{
+    const enabled = localStorage.getItem(_notifKey) === 'true';
+    if(!enabled) return;
+    if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if(document.visibilityState === 'visible') return; // 탭 활성 시 불필요
+    new Notification('📚 NovelEPUB 변환 완료', {
+      body: `"${title}" (${chapterCount}화) EPUB 생성 완료`,
+      icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><text y="26" font-size="28">📚</text></svg>',
+    });
+  }catch(e){}
+}

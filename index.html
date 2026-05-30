@@ -79,7 +79,7 @@
           <input class="cover-url-inp" id="coverUrlInp" placeholder="이미지 URL 붙여넣기 (https://...)" data-input-action="previewCoverUrlConvert">
           <button class="btn-search" data-action="applyCoverUrl" data-inp="coverUrlInp" data-thumb="coverThumb" data-name="coverName" data-mode="convert">적용</button>
         </div>
-        <div class="cover-search-hint">💡 표지 검색으로 네이버·리디·노벨피아 결과를 볼 수 있어요</div>
+        <div class="cover-search-hint">💡 표지 검색: 네이버·리디·카카오페이지·노벨피아에서 동시 검색해요</div>
       </div>
     </div>
   </div>
@@ -386,14 +386,11 @@
   <div class="card" style="padding:0;overflow:hidden">
     <!-- 탭 -->
     <div style="display:flex;border-bottom:1.5px solid var(--border)">
-      <button class="btn" id="editTab_toc"
-        style="flex:1;border-radius:0;border:none;padding:10px 6px;font-size:12px;font-weight:600;color:var(--accent);border-bottom:2px solid var(--accent);background:var(--accent-bg)"
+      <button class="edit-tab on" id="editTab_toc"
         data-action="switchEditTab" data-tab="toc">📋 목차 재생성</button>
-      <button class="btn" id="editTab_ill"
-        style="flex:1;border-radius:0;border:none;padding:10px 6px;font-size:12px;font-weight:600;color:var(--text2);border-bottom:2px solid transparent;background:none"
+      <button class="edit-tab" id="editTab_ill"
         data-action="switchEditTab" data-tab="ill">🖼 삽화 추가</button>
-      <button class="btn" id="editTab_css"
-        style="flex:1;border-radius:0;border:none;padding:10px 6px;font-size:12px;font-weight:600;color:var(--text2);border-bottom:2px solid transparent;background:none"
+      <button class="edit-tab" id="editTab_css"
         data-action="switchEditTab" data-tab="css">🎨 CSS 추가</button>
     </div>
 
@@ -732,15 +729,21 @@
 <div class="sec">
 <div class="sec-hdr"><span class="sec-title">⚠️ 짧은 챕터 기준</span><div class="sec-line"></div></div>
 <div class="card">
-  <div style="font-size:12px;color:var(--text2);margin-bottom:8px">목차에서 <strong>오감지 경고(본문 짧음)</strong>를 표시할 글자 수 기준입니다.</div>
-  <div class="slider-row">
-    <span class="lbl" style="width:auto;white-space:nowrap;font-size:12px">기준: </span>
-    <input type="range" id="suspThresholdSlider" min="20" max="500" step="10" value="50"
-      class="css-slider" style="flex:1"
-      oninput="document.getElementById('suspThresholdVal').textContent=this.value+'자';try{localStorage.setItem('novelepub_susp_threshold',this.value)}catch(e){}">
-    <span id="suspThresholdVal" class="slider-val" style="min-width:44px">50자</span>
+  <div style="font-size:12px;color:var(--text2);margin-bottom:10px;line-height:1.7">
+    목차에서 <strong>오감지 경고(본문 짧음 ⚠)</strong>를 표시할 글자 수 기준입니다.<br>
+    <span style="color:var(--accent);font-size:11px">슬라이더를 드래그하면 목차가 즉시 재계산돼요.</span>
   </div>
-  <div class="txt-hint-sm" style="margin-top:4px">변경 후 목차 확인을 다시 실행하면 새 기준이 적용돼요.</div>
+  <div class="susp-slider-wrap">
+    <label for="suspThresholdSlider">기준 글자수</label>
+    <input type="range" id="suspThresholdSlider" min="10" max="2000" step="10" value="50"
+      class="css-slider" style="flex:1"
+      data-input-action="updateSuspThreshold">
+    <span id="suspThresholdVal" class="susp-slider-val">50자</span>
+  </div>
+  <div class="susp-slider-hint">
+    💡 <strong>예시:</strong> 50자 기준 → 50자 미만 챕터에 ⚠ 배지 표시 · 변경 즉시 목차 재계산<br>
+    권장: 짧은 연재(50~100자) · 긴 소설(200~500자) · 단편(10~30자)
+  </div>
 </div>
 </div>
 <div class="sec">
@@ -1049,6 +1052,42 @@
     </div>
   </div>
 </details>
+
+<!-- ★ ADD-05: 설정 JSON 내보내기/가져오기 -->
+<details class="settings-details" style="margin:0 0 14px">
+  <summary class="settings-summary">💾 설정 백업 / 복원</summary>
+  <div class="settings-details-body">
+    <div class="txt-hint-sm" style="line-height:1.7;margin-bottom:10px">
+      현재 설정(폰트·스타일·정규식·옵션 등)을 JSON 파일로 내보내고,<br>
+      다른 기기나 다음 작업에서 불러와 사용할 수 있어요.
+    </div>
+    <div class="settings-io-bar">
+      <label>설정 파일 (.json)</label>
+      <button class="btn btn-blue btn-sm" data-action="exportSettings">⬇ 내보내기</button>
+      <button class="btn btn-ghost btn-sm" data-action="importSettingsBtn">⬆ 가져오기</button>
+      <input type="file" id="settingsImportIn" accept=".json" hidden>
+    </div>
+  </div>
+</details>
+
+<!-- ★ ADD-10: 브라우저 알림 설정 -->
+<details class="settings-details" style="margin:0 0 14px">
+  <summary class="settings-summary">🔔 변환 완료 알림</summary>
+  <div class="settings-details-body">
+    <div class="txt-hint-sm" style="line-height:1.7;margin-bottom:10px">
+      긴 변환 작업 중 탭을 벗어나도 완료 시 브라우저 알림을 받을 수 있어요.
+    </div>
+    <div class="notif-toggle-row">
+      <span style="font-size:12px;font-weight:600;color:var(--text);flex:1">변환 완료 알림</span>
+      <span id="notifStatus">미설정</span>
+      <label class="sw"><input type="checkbox" id="optNotification" data-input-action="toggleNotification"><span class="sw-track"><span class="sw-thumb"></span></span></label>
+    </div>
+    <div class="txt-hint-sm" style="margin-top:6px">
+      💡 브라우저 권한 허용 후 탭이 백그라운드일 때만 알림이 표시돼요.
+    </div>
+  </div>
+</details>
+
 <div style="padding:0 0 20px;display:flex;gap:10px">
   <button class="btn btn-accent" data-action="switchPage" data-page="convert">← 변환으로 돌아가기</button>
   <button class="btn btn-ghost" data-action="resetAllSettings">🔄 설정 초기화</button>

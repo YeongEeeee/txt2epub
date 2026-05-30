@@ -439,7 +439,7 @@ body{
 .toc-preview-item.active{border-color:var(--accent);background:var(--accent-bg)}
 .toc-preview-body{font-size:11px;color:var(--text2);line-height:1.7;margin-top:6px;white-space:pre-wrap;max-height:200px;overflow-y:auto;border-top:1px solid var(--border);padding-top:6px}
 .toc-split-badge{display:inline-block;background:var(--blue-bg);color:var(--blue);border-radius:4px;padding:1px 7px;font-size:10px;font-weight:600;margin-left:6px}
-.toc-auto-badge{display:inline-block;background:#fff3cd;color:#856404;border-radius:4px;padding:1px 7px;font-size:10px;font-weight:600;margin-left:6px}
+.toc-auto-badge{display:inline-block;background:var(--yellow-bg);color:var(--yellow);border-radius:4px;padding:1px 7px;font-size:10px;font-weight:600;margin-left:6px}
 
 /* ── 표지 검색 ── */
 .cover-search-row{display:flex;gap:6px;margin-top:8px;align-items:center;flex-wrap:wrap}
@@ -928,3 +928,223 @@ input:-webkit-autofill:focus{
 @media(max-width:600px){
   .btm-hint-notready{display:none}
 }
+
+/* ═══════════════════════════════════════════
+   ★ 모든 개선사항 통합 추가 스타일 (2025 v2)
+   ─────────────────────────────────────────── */
+
+/* ── FIX-03: Toast 컨테이너 CSS 이관 (JS인라인 제거) ── */
+#toast-container{
+  position:fixed;top:16px;right:16px;z-index:9999;
+  display:flex;flex-direction:column;gap:8px;
+  pointer-events:none;max-width:340px;
+}
+#toast-container > div:hover{filter:brightness(.96)}
+
+/* ── FIX-05: EPUB 편집 탭 버튼 컴포넌트화 ── */
+.edit-tab{
+  flex:1;border-radius:0;border:none;
+  padding:10px 6px;font-size:12px;font-weight:600;
+  color:var(--text2);border-bottom:2px solid transparent;
+  background:none;cursor:pointer;font-family:inherit;
+  transition:color var(--dur-base),background var(--dur-base),border-color var(--dur-base);
+}
+.edit-tab:hover{color:var(--accent);background:var(--accent-bg)}
+.edit-tab.on{color:var(--accent);border-bottom-color:var(--accent);background:var(--accent-bg)}
+
+/* ── FIX-08: chip-group fade-out 오버레이 위치 수정 ── */
+.chip-group-wrap:not(.expanded) .chip-group-grid::after{
+  bottom:0;height:32px;
+}
+
+/* ── FIX-09: btm-hint 미디어쿼리 정합 ── */
+@media(max-width:768px){
+  .btm-hint{display:none}
+}
+
+/* ── FIX-10: smartPatResultBox .show 클래스 패턴 ── */
+.smart-pat-result-box{
+  display:none;margin-top:5px;padding:7px 10px;
+  background:var(--bg2);border:1.5px solid var(--accent);
+  border-radius:7px;flex-wrap:wrap;align-items:center;gap:8px;
+}
+.smart-pat-result-box.show{
+  display:flex;animation:fadeUp2 .18s var(--ease);
+}
+
+/* ── UI-01: 헤더 타이포그래피 강화 ── */
+.hdr-title{letter-spacing:.02em}
+.hdr-sub{letter-spacing:.01em;font-weight:500}
+
+/* ── UI-02: 탭 바 스크롤 페이드 인디케이터 ── */
+.page-tabs-wrap{position:relative}
+.page-tabs-wrap::before,.page-tabs-wrap::after{
+  content:'';position:absolute;top:0;bottom:0;width:24px;z-index:1;pointer-events:none;transition:opacity .2s;
+}
+.page-tabs-wrap::before{left:0;background:linear-gradient(to right,var(--panel) 0%,transparent 100%)}
+.page-tabs-wrap::after{right:0;background:linear-gradient(to left,var(--panel) 0%,transparent 100%)}
+
+/* ── UI-03: 드롭존 성공 confetti ── */
+@keyframes confettiFall{
+  0%{transform:translateY(-20px) rotate(0deg);opacity:1}
+  100%{transform:translateY(40px) rotate(360deg);opacity:0}
+}
+.dz-confetti{
+  position:absolute;width:6px;height:6px;border-radius:2px;
+  animation:confettiFall .7s var(--ease) forwards;pointer-events:none;
+}
+
+/* ── UI-04: btm 바 글라스모피즘 ── */
+.btm{
+  backdrop-filter:blur(14px) saturate(1.4);
+  -webkit-backdrop-filter:blur(14px) saturate(1.4);
+  background:rgba(255,255,255,.82);
+  border-top:1px solid rgba(212,90,70,.12);
+}
+[data-theme=dark] .btm{
+  background:rgba(18,18,18,.88);
+  border-top:1px solid rgba(200,98,84,.15);
+}
+
+/* ── UI-05: 섹션 헤더 아이콘 배지 ── */
+.sec-icon-badge{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;border-radius:6px;font-size:12px;
+  background:var(--accent-bg);flex-shrink:0;margin-right:4px;
+}
+
+/* ── UI-06: chip 감지 바운스 애니메이션 ── */
+@keyframes chipBounce{
+  0%{transform:scale(1)}
+  40%{transform:scale(1.18) translateY(-3px)}
+  70%{transform:scale(.96)}
+  100%{transform:scale(1)}
+}
+.pat-chip.detected.just-detected{
+  animation:chipBounce .35s var(--ease) forwards;
+}
+
+/* ── UI-07: 표지 썸네일 3D 틸트 (CSS perspective 기반) ── */
+.cover-thumb{
+  transform-style:preserve-3d;
+  transition:transform .15s ease,border-color var(--dur-base),box-shadow var(--dur-base);
+}
+.cover-thumb.tilting{transition:none}
+
+/* ── UI-08: 진행 스텝 완료 강화 ── */
+.prog-step.done .prog-step-dot{
+  background:var(--green);color:#fff;border-radius:50%;
+  box-shadow:0 0 0 3px rgba(42,128,80,.2);
+}
+.prog-step.active .prog-step-dot{
+  animation:stepBlink .9s ease infinite;
+  background:var(--accent-bg);border:2px solid var(--accent);border-radius:50%;
+}
+.prog-step-line.done{
+  background:linear-gradient(to right,var(--green),var(--green));
+  background-size:100% 100%;
+}
+
+/* ── UI-09: 다운로드 버튼 상태 전환 ── */
+@keyframes downloadPulse{
+  0%,100%{transform:translateY(-1px)}
+  50%{transform:translateY(1px)}
+}
+.btn-downloading{animation:downloadPulse .4s ease infinite}
+.btn-downloaded{background:linear-gradient(135deg,var(--green) 0%,#3aaa66 100%)!important}
+
+/* ── ADD-02: 단축키 오버레이 ── */
+#shortcutHelp{
+  animation:fadeIn .18s var(--ease);
+}
+#shortcutHelp kbd{
+  font-family:inherit;font-size:11px;
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:4px;padding:2px 7px;color:var(--text);
+  display:inline-block;margin-right:4px;
+}
+
+/* ── ADD-03: tocMiniChart hover 툴팁 ── */
+.toc-chart-tooltip{
+  position:fixed;z-index:9999;
+  background:var(--panel);border:1.5px solid var(--border);
+  border-radius:8px;padding:6px 10px;font-size:11px;
+  box-shadow:var(--shadow-md);pointer-events:none;
+  color:var(--text);line-height:1.5;white-space:nowrap;
+}
+
+/* ── ADD-05: 설정 JSON 내보내기/가져오기 버튼 ── */
+.settings-io-bar{
+  display:flex;gap:8px;margin-bottom:14px;
+  padding:10px 12px;background:var(--bg2);
+  border:1.5px solid var(--border);border-radius:var(--radius-sm);
+}
+.settings-io-bar label{
+  font-size:12px;font-weight:600;color:var(--text);flex:1;
+  align-self:center;
+}
+
+/* ── ADD-07: 히스토리 별표 ── */
+.hist-star{
+  background:none;border:none;cursor:pointer;
+  font-size:14px;padding:0 4px;line-height:1;
+  color:var(--text3);transition:color var(--dur-fast),transform var(--dur-fast);
+}
+.hist-star:hover{color:var(--accent2);transform:scale(1.2)}
+.hist-star.starred{color:var(--accent2)}
+.hist-item.starred-item{border-left:3px solid var(--accent2)!important;background:var(--accent-bg)!important}
+
+/* ── ADD-09: 표지 자동 생성 탭 ── */
+.cover-gen-wrap{padding:12px}
+.cover-gen-select{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
+.cover-gen-preset{
+  flex:1;min-width:80px;height:56px;border-radius:8px;cursor:pointer;
+  border:2px solid transparent;display:flex;align-items:center;
+  justify-content:center;font-size:10px;font-weight:600;color:#fff;
+  transition:border-color .15s,transform .15s;text-shadow:0 1px 2px rgba(0,0,0,.3);
+}
+.cover-gen-preset:hover{transform:translateY(-2px)}
+.cover-gen-preset.selected{border-color:var(--text)!important}
+.cover-gen-preset-1{background:linear-gradient(135deg,#2d1f14,#5a3a22)}
+.cover-gen-preset-2{background:linear-gradient(135deg,#0a1628,#1a3a5c)}
+.cover-gen-preset-3{background:linear-gradient(135deg,#1a2810,#3a5a1a)}
+
+/* ── ADD-10: 브라우저 알림 설정 ── */
+.notif-toggle-row{
+  display:flex;align-items:center;gap:10px;
+  padding:8px 0;border-bottom:1px solid var(--border);
+}
+#notifStatus{
+  font-size:10px;padding:2px 7px;border-radius:3px;
+  background:var(--bg2);color:var(--text2);border:1px solid var(--border);
+}
+#notifStatus.granted{background:var(--green-bg);color:var(--green);border-color:var(--green)}
+#notifStatus.denied{background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
+
+/* ── LOGIC-04: 정규식 캐시 표시 배지 ── */
+.pat-cache-badge{
+  font-size:9px;padding:1px 5px;border-radius:3px;
+  background:var(--green-bg);color:var(--green);
+  border:1px solid var(--green);white-space:nowrap;
+}
+
+/* ── LOGIC-09: 챕터 빈줄 최적화 ── */
+/* 이미 renderBodyHtml에서 처리됨 — CSS는 EPUB 내 p.noindent 스타일만 */
+
+/* ── 짧은 챕터 기준 조정 슬라이더 ── */
+.susp-slider-wrap{
+  display:flex;align-items:center;gap:8px;padding:8px 0;
+  flex-wrap:wrap;
+}
+.susp-slider-wrap label{font-size:12px;font-weight:600;color:var(--text);flex-shrink:0}
+.susp-slider-wrap input[type=range]{flex:1;min-width:100px;accent-color:var(--accent)}
+.susp-slider-val{
+  font-size:12px;font-weight:700;color:var(--accent);min-width:38px;text-align:right;
+}
+.susp-slider-hint{font-size:10px;color:var(--text2);width:100%;line-height:1.5}
+
+/* ── 슬라이드 방향 애니메이션 ── */
+@keyframes slideFromRight{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
+@keyframes slideFromLeft{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
+.slide-from-right{animation:slideFromRight .22s var(--ease)}
+.slide-from-left{animation:slideFromLeft .22s var(--ease)}

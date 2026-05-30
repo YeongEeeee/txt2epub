@@ -18,10 +18,15 @@
 
 'use strict';
 
-// ★ B4: 짧은 챕터 기준 상수 — 한 곳에서 관리
-// ★ I4: 짧은 챕터 기준 — localStorage에서 읽어 사용자 설정 반영 (기본값 50자)
-function getSuspThreshold(){ try{ return parseInt(localStorage.getItem('novelepub_susp_threshold')||'50',10)||50; }catch(e){ return 50; } }
-const SUSP_THRESHOLD = getSuspThreshold();
+// ★ FIX-07: SUSP_THRESHOLD는 상수 대신 함수로만 사용 — 설정 변경이 즉시 반영됨
+// ★ B4/I4: 짧은 챕터 기준 — localStorage + DOM 슬라이더 실시간 반영 (기본값 50자)
+function getSuspThreshold(){
+  // 1순위: DOM 슬라이더 (설정 페이지에서 드래그 중인 값)
+  const slider = typeof document !== 'undefined' && document.getElementById('suspThresholdSlider');
+  if(slider) { const v = parseInt(slider.value); if(!isNaN(v) && v > 0) return v; }
+  // 2순위: localStorage
+  try{ const v = parseInt(localStorage.getItem('novelepub_susp_threshold')||'50',10); return v||50; }catch(e){ return 50; }
+}
 function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
 // ── 공통 본문 HTML 변환 함수 (bodyToHtml · bToHtml 통합) ──
 // useItalic: 대화/회상 이탤릭 여부 · maxBlank: 연속 빈줄 최대 허용 수
@@ -50,7 +55,8 @@ function renderBodyHtml(body, {useItalic=true, maxBlank=2}={}){
     const t=sanitizeLine(line).trim();
     if(!t){
       blankRun++;
-      if(blankRun<=maxBlank) html+='<p>&#160;</p>\n';
+      // ★ LOGIC-09: blankRun < maxBlank+1 → maxBlank개까지만 허용 (이전: <=는 +1개 허용 버그)
+      if(blankRun <= maxBlank) html+='<p>&#160;</p>\n';
       continue;
     }
     blankRun=0;
@@ -476,6 +482,7 @@ function splitChapters(raw, customPat, opts={}){
     const combined=new RegExp('(?:'+rx.source+'|'+kwSrc+')','i');
     rx=combined;
   }
+  // ★ LOGIC-04: 정규식은 루프 전 1회만 컴파일됨 (rx가 최종 컴파일된 RegExp 객체)
 
   // ── 패턴 없음 폴백: 페이지 분할 ──
   if(!rx){
@@ -687,7 +694,7 @@ async function previewToc(){
       enabled:       true,
       body:          bodyText,
       bodyLen:       bodyLen,
-      suspicious:    bodyLen < SUSP_THRESHOLD && fi < found.length - 1,
+      suspicious:    bodyLen < getSuspThreshold() && fi < found.length - 1,
       originalTitle: f.title,
     };
   });
@@ -698,11 +705,7 @@ async function previewToc(){
 
   S.tocItems=found;
   renderTocItems();
-  updateTocEditBanner&&updateTocEditBanner();
-  // ★ 4. 실시간 피드백 피드 갱신
-  if(typeof updatePatFeedback==='function') updatePatFeedback(S.tocItems);
-  // ★ 3. 미니 리더 샘플 갱신
-  if(typeof _refreshMiniReader==='function') _refreshMiniReader(); // ★ 편집 배너 초기화
+  updateTocEditBanner&&updateTocEditBanner(); // ★ 편집 배너 초기화
 
   // ★ I9: delta 표시 (이전 목차가 있었을 때만)
   if(_prevTotal > 0 && (found.length !== _prevTotal || Math.abs(_prevChars - found.reduce((s,t)=>s+t.bodyLen,0)) > 100)){
@@ -1012,12 +1015,16 @@ function renderTocItems(){
       else if(_bLen < 10000) _bTxt = (_bLen/1000).toFixed(1) + 'k';
       else                   _bTxt = (_bLen/10000).toFixed(1) + '만';
       charBadge.textContent = _bTxt;
-      charBadge.title = '본문 글자수 (공백 제외): ' + _bLen.toLocaleString() + '자';
-      // ★ B4: SUSP_THRESHOLD 상수 기준 통일 (50자)
-      const _isShort = _bLen < 50;
+      charBadge.title = '본문 글자수 (공백 제외): ' + _bLen.toLocaleString() + '자 (기준: ' + getSuspThreshold() + '자)';
+      // ★ FIX-07: getSuspThreshold() 호출 시점 평가 → 설정 변경 즉시 반영
+      const _suspThr = getSuspThreshold();
+      const _isShort = _bLen > 0 && _bLen < _suspThr;
+      // ★ FIX-04: CSS 변수로 교체 (하드코딩 색상 제거)
       charBadge.style.cssText=
         'font-size:9px;padding:1px 5px;border-radius:3px;flex-shrink:0;white-space:nowrap;cursor:default;'+
-        (_isShort?'background:#fff3cd;color:#856404;border:1px solid #f0c040':'background:var(--bg2);color:var(--text2);border:1px solid var(--border)');
+        (_isShort
+          ? 'background:var(--yellow-bg);color:var(--yellow);border:1px solid var(--accent2)'
+          : 'background:var(--bg2);color:var(--text2);border:1px solid var(--border)');
 
       // ★ I6: hover 시 본문 앞 3줄 팝오버 표시
       let _charPopTimer=null;
@@ -1062,11 +1069,11 @@ function renderTocItems(){
     if(item.suspicious){
       const badge=document.createElement('span');
       badge.style.cssText=
-        'font-size:9px;background:#fff3cd;color:#856404;border-radius:3px;'+
+        'font-size:9px;background:var(--yellow-bg);color:var(--yellow);border-radius:3px;'+
         'padding:1px 6px;flex-shrink:0;white-space:nowrap;cursor:default;'+
-        'border:1px solid #f0c040;display:inline-flex;align-items:center;gap:3px';
+        'border:1px solid var(--accent2);display:inline-flex;align-items:center;gap:3px';
       badge.innerHTML='<span>⚠</span><span>본문 짧음</span>';
-      badge.title='이 챕터 본문이 '+SUSP_THRESHOLD+'자 미만이에요 — 오감지일 수 있어요';
+      badge.title='이 챕터 본문이 '+getSuspThreshold()+'자 미만이에요 — 오감지일 수 있어요';
 
       const removeBtn=document.createElement('button');
       removeBtn.className='btn btn-sm';
@@ -1188,9 +1195,14 @@ function updateTocStat(){
     totalChars += bl;
   });
   const avgChars  = active > 0 ? Math.round(totalChars / active) : 0;
-  const totalWan  = (totalChars / 10000).toFixed(1);
+  // ★ 총글자수 표시: 1만자 미만이면 '자' 단위, 이상이면 '만자' 단위
+  const totalWanStr = totalChars >= 10000
+    ? (totalChars / 10000).toFixed(1) + '만자'
+    : totalChars.toLocaleString() + '자';
+  // ★ FIX-07: getSuspThreshold() 호출 시점 평가
+  const _suspThr = getSuspThreshold();
   // ★ I2: 짧은/긴 챕터 경고 집계 (B10: enabled만)
-  const shortCount= S.tocItems.filter(t=>t.enabled&&(typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length)<SUSP_THRESHOLD).length;
+  const shortCount= S.tocItems.filter(t=>t.enabled&&(typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length)<_suspThr).length;
   const longCount = S.tocItems.filter(t=>t.enabled&&(typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length)>50000).length;
 
   // ★ I2: 통계 칩 배지 스타일
@@ -1198,9 +1210,9 @@ function updateTocStat(){
     `<span style="display:inline-flex;align-items:center;font-size:10px;padding:1px 7px;border-radius:99px;white-space:nowrap;background:${color.bg};color:${color.fg};border:1px solid ${color.bd}">${txt}</span>`;
 
   const statChips = [
-    chip('총 '+totalWan+'만자', {bg:'var(--blue-bg)',fg:'var(--blue)',bd:'var(--blue)'}),
+    chip('총 '+totalWanStr, {bg:'var(--blue-bg)',fg:'var(--blue)',bd:'var(--blue)'}),
     chip('평균 '+avgChars.toLocaleString()+'자', {bg:'var(--bg2)',fg:'var(--text2)',bd:'var(--border)'}),
-    shortCount>0 ? chip('⚠ 짧은챕터 '+shortCount, {bg:'var(--accent-bg)',fg:'var(--accent)',bd:'var(--accent)'}) : '',
+    shortCount>0 ? chip('⚠ 짧은챕터 '+shortCount+'(기준:'+_suspThr+'자)', {bg:'var(--accent-bg)',fg:'var(--accent)',bd:'var(--accent)'}) : '',
     longCount>0  ? chip('📌 긴챕터 '+longCount,    {bg:'var(--blue-bg)',fg:'var(--blue)',bd:'var(--blue)'}) : '',
   ].filter(Boolean).join('');
 
@@ -1694,11 +1706,21 @@ async function renderHistory(){
     return;
   }
 
+  // ★ ADD-07: 별표 상태 로드
+  let _starred = {};
+  try{ _starred = JSON.parse(localStorage.getItem('novelepub_hist_starred')||'{}'); }catch(e){}
+
   // ★ B-05: 정렬 옵션 적용
   const sortKey = document.getElementById('histSortSel')?.value || 'newest';
   if(sortKey==='oldest')      metas=[...metas].reverse();
   else if(sortKey==='size')   metas=[...metas].sort((a,b)=>parseFloat(b.sizeMB)-parseFloat(a.sizeMB));
   else if(sortKey==='chapters') metas=[...metas].sort((a,b)=>b.chapterCount-a.chapterCount);
+
+  // ★ ADD-07: 별표 항목 상단 고정
+  metas = [
+    ...metas.filter(m=>_starred[m.key]),
+    ...metas.filter(m=>!_starred[m.key]),
+  ];
 
   c.innerHTML='<div style="text-align:center;padding:12px 0;font-size:11px;color:var(--text2)">⏳ 로딩 중...</div>';
   const blobExists=await Promise.all(metas.map(m=>idbGet(m.key).then(b=>!!b).catch(()=>false)));
@@ -1726,11 +1748,26 @@ async function renderHistory(){
   // 같은 제목 기준으로 이전 변환 찾기
   metas.forEach((m,idx)=>{
     const row=document.createElement('div');
-    row.className='hist-item';
+    const isStarred = !!_starred[m.key];
+    row.className='hist-item'+(isStarred?' starred-item':'');
     const hasBlob=blobExists[idx];
     // 같은 제목의 이전 기록 찾기 (현재 항목 제외, 오래된 순 첫 번째)
     const prevSameTitle=metas.slice(idx+1).find(p=>p.title===m.title);
     const compareBadge=_compareBadge(m, prevSameTitle);
+
+    // ★ ADD-07: 별표 버튼
+    const starBtn = document.createElement('button');
+    starBtn.className = 'hist-star' + (isStarred?' starred':'');
+    starBtn.title = isStarred ? '별표 해제' : '별표 (상단 고정)';
+    starBtn.textContent = isStarred ? '★' : '☆';
+    starBtn.addEventListener('click', e=>{
+      e.stopPropagation();
+      if(_starred[m.key]) delete _starred[m.key];
+      else _starred[m.key] = true;
+      try{ localStorage.setItem('novelepub_hist_starred', JSON.stringify(_starred)); }catch(ex){}
+      renderHistory();
+    });
+
     row.innerHTML=
       '<div class="hist-thumb">📚</div>'+
       '<div class="hist-info">'+
@@ -1741,6 +1778,7 @@ async function renderHistory(){
         ?'<button class="btn btn-green btn-sm" data-action="histDownload" data-key="'+m.key+'" data-name="'+escHtml(m.name)+'">⬇ 다운로드</button>'
         :'<span style="font-size:11px;color:var(--text2);white-space:nowrap">파일 없음</span>')+
       '<button class="hist-del" data-action="deleteHistory" data-key="'+m.key+'" title="기록 삭제">✕</button>';
+    row.insertBefore(starBtn, row.firstChild);
     c.appendChild(row);
   });
 }
@@ -1883,11 +1921,26 @@ async function autoSplitByInterval(){
   // (줄 내용 기반 제목 탐색 제거 → 정확한 화수 기준 분할)
   const interval=Math.floor(totalLines/totalChapters);
   const found=[];
+  const _suspThrAuto = getSuspThreshold();
 
   for(let ch=0;ch<totalChapters;ch++){
     const lineNum=Math.floor(ch*interval)+1; // 1-based
+    const nextLineNum = ch+1<totalChapters ? Math.floor((ch+1)*interval)+1 : totalLines+1;
     const title='Chapter '+(ch+1);
-    found.push({line:lineNum, title, enabled:true, autoSplit:true});
+    // ★ LOGIC BUG FIX: body/bodyLen을 생성 시점에 계산 → 글자수 통계 정확화
+    const bodyLines = lines.slice(lineNum, nextLineNum); // headLine 포함 (autoSplit)
+    const bodyText  = bodyLines.join('\n').trim();
+    const bodyLen   = bodyText.replace(/\s/g,'').length;
+    found.push({
+      line: lineNum,
+      title,
+      enabled:   true,
+      autoSplit: true,
+      body:      bodyText,
+      bodyLen:   bodyLen,
+      suspicious: bodyLen < _suspThrAuto && ch < totalChapters - 1,
+      originalTitle: title,
+    });
   }
 
   S.tocItems=found;
