@@ -73,8 +73,13 @@ const Toast = (() => {
 
     const msgSpan = document.createElement('span');
     msgSpan.style.cssText = 'flex:1';
-    // ★ textContent: 파일명 등 외부 입력이 msg에 포함될 수 있으므로 안전하게 처리
-    msgSpan.textContent = msg;
+    // ★ HTML 허용 여부: msg가 <...> 태그를 포함하면 innerHTML로 렌더링 (I9 delta 배지 등 내부 생성 HTML 한정)
+    // 외부 사용자 입력(파일명 등)은 반드시 textContent로 처리할 것
+    if (/<[a-z][\s\S]*>/i.test(msg)) {
+      msgSpan.innerHTML = msg; // 내부 로직(I9 delta)에서만 호출
+    } else {
+      msgSpan.textContent = msg;
+    }
 
     const closeBtn = document.createElement('button');
     closeBtn.style.cssText =
@@ -89,10 +94,11 @@ const Toast = (() => {
     return el;
   }
 
-  function info(msg)    { _show(msg, 'info'); }
-  function success(msg) { _show(msg, 'success'); }
-  function error(msg)   { _show(msg, 'error', 5000); }
-  function warn(msg)    { _show(msg, 'warn'); }
+  // ★ I8/I9: duration 인수를 선택적으로 받을 수 있도록 수정 (기본값 유지)
+  function info(msg, duration)    { _show(msg, 'info',    duration !== undefined ? duration : 3200); }
+  function success(msg, duration) { _show(msg, 'success', duration !== undefined ? duration : 3200); }
+  function error(msg, duration)   { _show(msg, 'error',   duration !== undefined ? duration : 5000); }
+  function warn(msg, duration)    { _show(msg, 'warn',    duration !== undefined ? duration : 3200); }
 
   // ★ confirm: innerHTML → DOM API
   function confirm(msg) {
