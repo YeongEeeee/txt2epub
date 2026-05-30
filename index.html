@@ -55,7 +55,7 @@
       </div>
       <div id="txtSortList" class="txt-sort-list"></div>
     </div>
-    <div class="reset-bar" id="convertResetBar" hidden>
+    <div class="reset-bar" id="convertResetBar" style="display:none">
       <button class="btn-reset" data-action="resetConvertTxt">✕ TXT 파일 초기화</button>
       <button class="btn-reset" data-action="resetConvertCover">✕ 표지 이미지 초기화</button>
       <button class="btn-reset danger" data-action="resetConvertAll">🔄 전체 초기화</button>
@@ -1187,36 +1187,96 @@
   <!-- ⑪ UI 상태/이벤트 바인딩/테마/드래그드롭/초기화 -->
   <script src="ui-state.js"></script>
 
-  <!-- ★ FIX-SW: Service Worker 등록 -->
-  <!-- sw.js가 존재하는 경우에만 등록 (오프라인 지원 + 자동 캐시 갱신) -->
+  <!-- ★ SW 등록 + 캐시 자동 무효화 -->
   <script>
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
+    // ── 하드 리프레시(Ctrl+Shift+R / Cmd+Shift+R) 감지 → SW 캐시 즉시 삭제 ──
+    // performance.navigation.type === 1 은 일반 F5 새로고침
+    // type === 0 은 최초 로드 / 주소 입력
+    // Ctrl+Shift+R 은 브라우저가 캐시 없이 요청을 보내므로 SW fetch 핸들러가 항상 네트워크 응답을 받음
+    // 하지만 SW가 구버전 캐시를 서빙하는 문제를 막기 위해
+    // 앱 로드 시 SW 등록과 동시에 "항상 최신 파일 체크" 전략을 사용
+
+    (function() {
+      if (!('serviceWorker' in navigator)) return;
+
+      // ── 캐시 버전 토큰 (sw.js의 CACHE_VERSION 과 동기화) ──
+      const EXPECTED_CACHE = 'novelepub-2026-05-31T00:00:00';
+
+      // ── F5/Ctrl+R 새로고침 감지 → 구버전 SW 캐시 정리 요청 ──
+      const navType = (performance.navigation && performance.navigation.type);
+      const isReload = navType === 1 || performance.getEntriesByType('navigation').some(e => e.type === 'reload');
+
+      window.addEventListener('load', function() {
         navigator.serviceWorker.register('./sw.js')
-          .then(reg => {
-            // ★ 새 SW 버전이 대기 중일 때 → Toast로 새로고침 안내
-            reg.addEventListener('updatefound', () => {
-              const newWorker = reg.installing;
+          .then(function(reg) {
+
+            // ── 새로고침 감지 시: 활성 SW에 캐시 검증 요청 ──
+            if (isReload && navigator.serviceWorker.controller) {
+              navigator.serviceWorker.controller.postMessage({ type: 'CHECK_CACHE', expected: EXPECTED_CACHE });
+            }
+
+            // ── 새 버전 설치 감지 ──
+            reg.addEventListener('updatefound', function() {
+              var newWorker = reg.installing;
               if (!newWorker) return;
-              newWorker.addEventListener('statechange', () => {
-                // 새 SW 설치 완료 + 기존 SW 활성 상태(= 업데이트 상황)일 때만 안내
+              newWorker.addEventListener('statechange', function() {
                 if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                  // Toast가 초기화된 이후 시점이므로 지연 없이 바로 호출 가능
-                  if (typeof Toast !== 'undefined') {
-                    Toast.info(
-                      '새 버전이 준비됐어요. <button onclick="(()=>{navigator.serviceWorker.controller?.postMessage({type:'SKIP_WAITING'});setTimeout(()=>location.reload(),300)})()" style="background:none;border:none;cursor:pointer;color:var(--accent);font-weight:600;font-size:inherit;padding:0;text-decoration:underline">새로고침</button>하면 적용돼요.',
-                      0
-                    );
-                  }
+                  // ★ Toast.info에 innerHTML 직접 주입 대신 DOM으로 알림 생성 (SyntaxError 방지)
+                  _showUpdateBanner();
                 }
               });
             });
+
+            // ── controllerchange: skipWaiting 후 새 SW 활성화 시 자동 새로고침 ──
+            navigator.serviceWorker.addEventListener('controllerchange', function() {
+              window.location.reload();
+            });
           })
-          .catch(err => {
-            // SW 등록 실패는 비-치명적 — 앱 동작에는 영향 없음
+          .catch(function(err) {
             console.warn('[SW] 등록 실패:', err);
           });
       });
-    }
+
+      // ── SW 메시지 수신: 캐시 불일치 시 자동 갱신 안내 ──
+      navigator.serviceWorker.addEventListener('message', function(e) {
+        if (e.data && e.data.type === 'CACHE_OUTDATED') {
+          _showUpdateBanner();
+        }
+      });
+
+      // ── 업데이트 배너 생성 (inline onclick 문자열 없이 addEventListener 사용) ──
+      function _showUpdateBanner() {
+        if (document.getElementById('_swUpdateBanner')) return;
+        var banner = document.createElement('div');
+        banner.id = '_swUpdateBanner';
+        banner.style.cssText = [
+          'position:fixed', 'bottom:80px', 'left:50%', 'transform:translateX(-50%)',
+          'background:var(--panel,#fff)', 'border:1.5px solid var(--accent,#d45a46)',
+          'border-radius:10px', 'padding:10px 16px', 'box-shadow:0 4px 20px rgba(0,0,0,.18)',
+          'z-index:99999', 'display:flex', 'align-items:center', 'gap:10px',
+          'font-size:13px', 'color:var(--text,#1c1410)', 'white-space:nowrap'
+        ].join(';');
+        banner.innerHTML = '🔄 새 버전이 준비됐어요.';
+        var btn = document.createElement('button');
+        btn.textContent = '지금 업데이트';
+        btn.style.cssText = 'background:var(--accent,#d45a46);color:#fff;border:none;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;font-weight:600';
+        btn.addEventListener('click', function() {
+          if (navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+          } else {
+            window.location.reload();
+          }
+        });
+        var closeBtn = document.createElement('button');
+        closeBtn.textContent = '✕';
+        closeBtn.style.cssText = 'background:none;border:none;cursor:pointer;color:var(--text2,#7a6a60);font-size:14px;padding:0 2px';
+        closeBtn.addEventListener('click', function() { banner.remove(); });
+        banner.appendChild(btn);
+        banner.appendChild(closeBtn);
+        document.body.appendChild(banner);
+        // 10초 후 자동 사라짐
+        setTimeout(function() { banner.remove(); }, 10000);
+      }
+    })();
   </script>
 </html>

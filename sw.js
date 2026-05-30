@@ -110,10 +110,27 @@ self.addEventListener('fetch', e => {
   );
 });
 
-// ★ FIX-SW: message 이벤트 — main.js에서 SKIP_WAITING 메시지를 보내면 즉시 활성화
-//   사용 예) navigator.serviceWorker.controller?.postMessage({ type: 'SKIP_WAITING' })
+// ★ FIX-SW: message 이벤트 — SKIP_WAITING + CHECK_CACHE 처리
 self.addEventListener('message', e => {
-  if (e.data && e.data.type === 'SKIP_WAITING') {
+  if (!e.data) return;
+
+  // 즉시 활성화 요청
+  if (e.data.type === 'SKIP_WAITING') {
     self.skipWaiting();
+    return;
+  }
+
+  // 캐시 버전 확인 — 클라이언트가 expected 값을 보내면 현재 캐시명과 비교
+  if (e.data.type === 'CHECK_CACHE') {
+    const expected = e.data.expected || '';
+    if (expected && expected !== CACHE_NAME) {
+      // 캐시 불일치 → 구버전 캐시 전부 삭제 후 클라이언트에 알림
+      caches.keys().then(keys =>
+        Promise.all(keys.map(k => caches.delete(k)))
+      ).then(() => {
+        e.source && e.source.postMessage({ type: 'CACHE_OUTDATED' });
+      });
+    }
+    return;
   }
 });
