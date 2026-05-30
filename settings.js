@@ -56,6 +56,24 @@ function saveExtraSettings(){
   }catch(e){}
 }
 
+// ★ API 키 저장/로드 (Gemini, Naver)
+function saveApiSettings(){
+  try{
+    const gemini=(document.getElementById('geminiApiKey')?.value||'').trim();
+    const naverId=(document.getElementById('naverClientId')?.value||'').trim();
+    const naverSecret=(document.getElementById('naverClientSecret')?.value||'').trim();
+    localStorage.setItem('novelepub_api',JSON.stringify({gemini,naverId,naverSecret}));
+  }catch(e){}
+}
+function loadApiSettings(){
+  try{
+    const s=JSON.parse(localStorage.getItem('novelepub_api')||'{}');
+    if(s.gemini){ const el=document.getElementById('geminiApiKey'); if(el) el.value=s.gemini; }
+    if(s.naverId){ const el=document.getElementById('naverClientId'); if(el) el.value=s.naverId; }
+    if(s.naverSecret){ const el=document.getElementById('naverClientSecret'); if(el) el.value=s.naverSecret; }
+  }catch(e){}
+}
+
 function loadExtraSettings(){
   try{
     const s=JSON.parse(localStorage.getItem('epub_extra')||'{}');
@@ -266,34 +284,8 @@ function resetColors(){
   updateCssPreview();saveCssSettings();
 }
 
-function updateCssPreview(){
-  // ★ DOM 캐싱: 로컬 헬퍼로 반복 getElementById 최소화
-  const _el=id=>document.getElementById(id);
-  const p=_el('cssPreview'); if(!p) return;
-  const font=_el('cssFont')?.value||'"Noto Serif KR",serif';
-  const line=_el('cssLine')?.value||'1.9';
-  const size=_el('cssFontSize')?.value||'1em';
-  const padTop   =_el('cssPadTop')?.value   ||'1.5';
-  const padBottom=_el('cssPadBottom')?.value||'1.5';
-  const padLeft  =_el('cssPadLeft')?.value  ||'1.8';
-  const padRight =_el('cssPadRight')?.value ||'1.8';
-  const paddingVal=`${padTop}em ${padRight}em ${padBottom}em ${padLeft}em`;
-  const textColor=_el('cssTextColor')?.value||'';
-  const bgColor  =_el('cssBgColor')?.value  ||'';
-  const align=document.querySelector('input[name="cssAlign"]:checked')?.value||'justify';
-  const titleStyle=document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center';
-  p.style.cssText=`font-family:${font};line-height:${line};font-size:${size};padding:${paddingVal};${textColor?'color:'+textColor+';':''}${bgColor?'background:'+bgColor+';':''}text-align:${align};border-radius:8px`;
-  const te=_el('cssPreviewTitle');
-  if(te){
-    te.style.textAlign=titleStyle==='left'?'left':'center';
-    te.style.borderBottom=titleStyle==='underline'?'2px solid currentColor':'none';
-    te.style.paddingBottom=titleStyle==='underline'?'6px':'0';
-    te.style.border=titleStyle==='box'?'1.5px solid currentColor':'none';
-    te.style.padding=titleStyle==='box'?'4px 14px':'0';
-    te.style.borderRadius=titleStyle==='box'?'5px':'0';
-    te.style.display='block';
-  }
-}
+// updateCssPreview — ui-state.js에 정의 (중복 방지, settings.js에서 typeof 체크로 호출)
+// function updateCssPreview() → ui-state.js:79
 
 const CSS_PRESETS_KEY='novelepub_css_presets';
 const CSS_PRESET_DEFAULTS=[

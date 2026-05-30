@@ -1157,10 +1157,21 @@ function setProgress(pct, msg){
     bar.setAttribute('aria-valuemax', '100');
     bar.setAttribute('aria-valuenow', String(pct));
     bar.setAttribute('aria-valuetext', msg ? `${pct}%, ${msg}` : `${pct}%`);
+    // ★ 진행 중 striped 애니메이션, 완료 시 정지
+    if(pct > 0 && pct < 100) bar.classList.add('animating');
+    else bar.classList.remove('animating');
   }
   if(txt) txt.textContent = msg || '';
   // ★ U-01: 타임라인에 기록 (스파크라인 렌더링용)
   _progressTimeline.push({ pct, msg, t: Date.now() });
+  // ★ 스텝 인디케이터 갱신 (epub-gen.js의 updateProgStep 호출)
+  if(typeof updateProgStep === 'function'){
+    if(pct <= 15)       updateProgStep(0);
+    else if(pct <= 30)  updateProgStep(1);
+    else if(pct <= 45)  updateProgStep(2);
+    else if(pct <= 92)  updateProgStep(3);
+    else                updateProgStep(4);
+  }
 }
 
 // ✨ Module: Convert (변환 실행 플로우)
@@ -2745,46 +2756,3 @@ async function resetConvertAll(){
     if(el){el.classList.remove('show');if(id==='splitSec')el.style.display='none';}
   });
 }
-
-function resetBatchTxt(){
-  _bStore.set({txtFiles:[],patterns:{},sampleTexts:{},totalChs:{}});
-  const dz=document.getElementById('batchTxtDrop');
-  dz.className='dz';dz.querySelector('.dz-text').textContent='TXT 파일 여러 개 드래그하거나 클릭';
-  document.getElementById('batchList').innerHTML='';
-  document.getElementById('batchListSec').style.display='none';
-  if(!Object.keys(B.coverMap).length&&!B.urlCoverFile) document.getElementById('batchResetBar').style.display='none';
-}
-function resetBatchCover(){
-  _bStore.set({coverMap:{},urlCoverFile:null});
-  const dz=document.getElementById('batchCoverDrop');
-  dz.className='dz';dz.querySelector('div').textContent='🖼 표지 이미지들 한꺼번에 드래그';
-  document.getElementById('batchCoverUrlInp').value='';
-  renderBatchList();
-}
-async function resetBatchAll(){
-  if(!await Toast.confirm('일괄 변환 탭의 모든 파일을 초기화할까요?')) return;
-  resetBatchTxt();resetBatchCover();
-  document.getElementById('batchResetBar').style.display='none';
-  ['batchProgWrap','batchResultBox','batchErrBox'].forEach(id=>{
-    const el=document.getElementById(id);if(el)el.classList.remove('show');
-  });
-}
-
-// ── EPUB 편집 탭 초기화 ──
-function resetEditEpub(){
-  _eStore.set({epubFile:null,epubZip:null,chapters:[],spineOrder:[],selectedChIdx:null,insTxtFiles:[],insTxtChapters:[],resultBlob:null,resultName:''});
-  _eiStore.set({files:[],manualRows:0});
-  document.getElementById('epubDrop').className='epub-drop';
-  document.getElementById('epubInfo').style.display='none';
-  document.getElementById('epubInfo').textContent='';
-  const eb=document.getElementById('extractImgBar');if(eb)eb.style.display='none';
-  const ep=document.getElementById('extractImgProgress');if(ep)ep.style.display='none';
-  ['editSec','insertSec','editIllSec','insTocSec','insIllSec'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
-  document.getElementById('editResetBar').style.display='none';
-  renderEditIllTags();
-}
-async function resetEditAll(){
-  if(!await Toast.confirm('EPUB 편집 탭을 전부 초기화할까요?')) return;
-  resetEditEpub();
-}
-

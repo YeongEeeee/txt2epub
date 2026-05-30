@@ -56,23 +56,8 @@ function buildCss(){
   return `@charset "UTF-8";\n${fontFaceBlock}\nbody{font-family:${font};line-height:${line};font-size:${size};margin:0;padding:${padTop} ${padRight} ${padBottom} ${padLeft};word-break:keep-all;overflow-wrap:break-word;text-align:${align};${textColor?'color:'+textColor+';':''}${bgColor?'background-color:'+bgColor+';':''}}\nh1{font-size:1.3em;${h1Extra}margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}\np{margin:0;padding:0.25em 0;text-indent:${useIndent?indentEm+'em':'0'}}\np.noindent{text-indent:0}\nem.flashback{font-style:italic;opacity:.85}\np.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}\n.illust-page{display:flex;align-items:center;justify-content:center;min-height:80vh;text-align:center;padding:0}\n.illust-page img{max-width:100%;max-height:100vh;object-fit:contain}\n@media (prefers-color-scheme:dark){body{${bgColor?'':"background-color:#1a1208;"}${textColor?'':"color:#e8d8c4;"}}}\n${extra}`;
 }
 
-// ── UI 진행률 (메인 스레드 전용) ──
-function setProgress(pct,msg){
-  const bar=document.getElementById('progBar');
-  const msgEl=document.getElementById('progMsg');
-  if(bar){
-    bar.style.width=pct+'%';
-    // ★ C-03: 변환 중(0~99%)이면 줄무늬 애니메이션, 완료(100%)면 정지
-    if(pct>0&&pct<100) bar.classList.add('animating');
-    else bar.classList.remove('animating');
-  }
-  if(msgEl) msgEl.textContent=msg;
-  if(pct<=15)       updateProgStep(0);
-  else if(pct<=30)  updateProgStep(1);
-  else if(pct<=45)  updateProgStep(2);
-  else if(pct<=92)  updateProgStep(3);
-  else              updateProgStep(4);
-}
+// ── UI 진행률 (setProgress → convert.js에 정의됨, 중복 제거)
+// updateProgStep은 convert.js의 setProgress에서 호출됨
 function updateProgStep(activeStep){
   for(let i=0;i<=4;i++){
     const el=document.getElementById('pstep'+i); if(!el) return;

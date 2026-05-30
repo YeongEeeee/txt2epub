@@ -18,9 +18,8 @@
 'use strict';
 
 // ── CSS 변수 읽기 헬퍼
-function getCssVar(name){
-  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-}
+// getCssVar — epub-gen.js에 정의 (먼저 로드되는 파일에 canonical 버전 유지)
+// function getCssVar(name) → epub-gen.js:31
 
 // ══════════════════════════════════════════
 // 🌙 Module: Theme (다크모드)
@@ -620,6 +619,16 @@ function _spawnDropConfetti(container){
         }, 80);
       };
     })(),
+    // ── CSS 슬라이더 ↔ 셀렉트 동기화 ──
+    syncCssLine:          (el) => { typeof syncSelect==='function'&&syncSelect('cssLine','cssLineSlider','cssLineVal',el.value); updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); updateMiniReader&&updateMiniReader(); },
+    syncCssLineSlider:    (el) => { typeof syncSlider==='function'&&syncSlider('cssLine','cssLineSlider','cssLineVal',el.value); updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); updateMiniReader&&updateMiniReader(); },
+    syncCssFontSize:      (el) => { typeof syncSelect==='function'&&syncSelect('cssFontSize','cssFontSizeSlider','cssFontSizeVal',el.value); updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); updateMiniReader&&updateMiniReader(); },
+    syncCssFontSizeSlider:(el) => { typeof syncSlider==='function'&&syncSlider('cssFontSize','cssFontSizeSlider','cssFontSizeVal',el.value); updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); updateMiniReader&&updateMiniReader(); },
+    syncIndent:           (el) => { typeof syncIndent==='function'&&syncIndent(parseFloat(el.value)||1.0); updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); updateMiniReader&&updateMiniReader(); },
+    syncPadTop:           (el) => { const v=document.getElementById('cssPadTop');if(v)v.value=el.value; const d=document.getElementById('cssPadTopVal');if(d)d.textContent=el.value+'em'; updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); },
+    syncPadBottom:        (el) => { const v=document.getElementById('cssPadBottom');if(v)v.value=el.value; const d=document.getElementById('cssPadBottomVal');if(d)d.textContent=el.value+'em'; updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); },
+    syncPadLeft:          (el) => { const v=document.getElementById('cssPadLeft');if(v)v.value=el.value; const d=document.getElementById('cssPadLeftVal');if(d)d.textContent=el.value+'em'; updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); },
+    syncPadRight:         (el) => { const v=document.getElementById('cssPadRight');if(v)v.value=el.value; const d=document.getElementById('cssPadRightVal');if(d)d.textContent=el.value+'em'; updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); },
   };
 
   document.addEventListener('input', e=>{
@@ -705,6 +714,23 @@ function setupEventDelegate(){
   EventDelegate.registerAll({
     toggleTheme:   () => toggleTheme(),
     switchPage:    (el) => switchPage(el.dataset.page),
+    // ── TXT 파일 목록 버튼 ──
+    addMoreTxt:    () => document.getElementById('txtIn')?.click(),
+    sortTxtAuto:   () => {
+      if(!S?.txtFiles?.length) return;
+      S.txtFiles = typeof smartSortFiles==='function' ? smartSortFiles(S.txtFiles) : [...S.txtFiles].sort((a,b)=>{
+        const n=(s)=>s.replace(/(\d+)/g,m=>m.padStart(10,'0'));
+        return n(a.name)<n(b.name)?-1:1;
+      });
+      typeof renderTxtFileList==='function'&&renderTxtFileList();
+      Toast.success('숫자 기준 자동 정렬 완료');
+    },
+    sortTxtAlpha:  () => {
+      if(!S?.txtFiles?.length) return;
+      S.txtFiles = [...S.txtFiles].sort((a,b)=>a.name.localeCompare(b.name,'ko'));
+      typeof renderTxtFileList==='function'&&renderTxtFileList();
+      Toast.success('사전순 정렬 완료');
+    },
     resetAll:      () => typeof resetAll==='function'&&resetAll(),
     resetConvertAll: () => typeof resetConvertAll==='function'&&resetConvertAll(),
     resetConvertTxt: () => typeof resetConvertTxt==='function'&&resetConvertTxt(),
@@ -877,14 +903,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
       });
     }
   });
-  ['cssPadTop','cssPadBottom','cssPadLeft','cssPadRight'].forEach(id=>{
-    document.getElementById(id+'Slider')?.addEventListener('input', e=>{
-      const numEl=document.getElementById(id);
-      if(numEl) numEl.value=e.target.value;
-      saveUserPrefs&&saveUserPrefs();
-      saveCssSettings&&saveCssSettings();
-    });
-  });
+  // cssPadXxxSlider의 input 이벤트는 data-input-action="syncPadXxx" 핸들러가 처리 (중복 제거)
   ['optItalic','optIndent','optMergeShortLines'].forEach(id=>{
     document.getElementById(id)?.addEventListener('change', saveUserPrefs);
   });
