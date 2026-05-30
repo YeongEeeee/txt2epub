@@ -1148,3 +1148,85 @@ input:-webkit-autofill:focus{
 @keyframes slideFromLeft{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
 .slide-from-right{animation:slideFromRight .22s var(--ease)}
 .slide-from-left{animation:slideFromLeft .22s var(--ease)}
+
+/* ══════════════════════════════════════════════
+   ★ U-16: prefers-contrast: more — 고대비 모드
+   시각 장애 사용자 환경 자동 대응
+   76개 CSS 변수 체계에 맞춰 오버라이드
+   ══════════════════════════════════════════════ */
+@media (prefers-contrast: more) {
+  :root {
+    --text:      #000000;
+    --text2:     #1a1a1a;
+    --text3:     #333333;
+    --bg:        #ffffff;
+    --bg2:       #f5f5f5;
+    --panel:     #ffffff;
+    --border:    #000000;
+    --border2:   #000000;
+    --accent:    #cc0000;
+    --accent2:   #990000;
+    --blue:      #0000cc;
+    --green:     #006600;
+    --yellow:    #805500;
+    --shadow-sm: 0 0 0 1px #000;
+    --shadow-md: 0 0 0 2px #000;
+  }
+  [data-theme=dark] {
+    --text:    #ffffff;
+    --text2:   #e0e0e0;
+    --bg:      #000000;
+    --bg2:     #111111;
+    --panel:   #0a0a0a;
+    --border:  #ffffff;
+    --accent:  #ff6666;
+    --blue:    #6699ff;
+    --green:   #66cc66;
+  }
+  /* 포커스 링 강화 */
+  :focus-visible {
+    outline: 3px solid var(--accent) !important;
+    outline-offset: 2px !important;
+  }
+  /* 버튼 대비 강화 */
+  .btn { border-width: 2px !important; }
+  .btn-accent { background: var(--accent) !important; color: #fff !important; }
+}
+
+/* ★ U-15: progressbar aria 지원 — 시각적 스타일은 기존 .prog-bar 유지 */
+#progBar[role=progressbar] { transition: width .3s ease; }
+
+/* ★ U-01: 진행 스파크라인 컨테이너 */
+#progressSparkline {
+  display: none;
+  margin: 8px 0 0;
+}
+
+/* ★ U-08: Toast 중복 카운터 배지 */
+.toast-cnt {
+  background: var(--text2);
+  color: var(--panel);
+  border-radius: 99px;
+  font-size: 9px;
+  padding: 0 4px;
+  margin-left: 4px;
+  font-weight: 700;
+  vertical-align: super;
+}
+
+/* ★ U-17: 변환 경고 리포트 */
+#convertReport {
+  display: none;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--accent-bg);
+  border: 1.5px solid var(--accent);
+  border-radius: 8px;
+}
+
+/* ★ U-14: 목차 핸들 키보드 잡기 상태 */
+.toc-drag-handle[aria-pressed=true] {
+  outline: 2px solid var(--accent);
+  border-radius: 3px;
+  background: var(--accent-bg);
+}

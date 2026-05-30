@@ -55,8 +55,8 @@ function renderBodyHtml(body, {useItalic=true, maxBlank=2}={}){
     const t=sanitizeLine(line).trim();
     if(!t){
       blankRun++;
-      // ★ LOGIC-09: blankRun < maxBlank+1 → maxBlank개까지만 허용 (이전: <=는 +1개 허용 버그)
-      if(blankRun <= maxBlank) html+='<p>&#160;</p>\n';
+      // ★ LOGIC-09: blankRun < maxBlank → maxBlank개까지만 허용 (<=는 +1개 허용 버그 수정)
+      if(blankRun < maxBlank) html+='<p>&#160;</p>\n';
       continue;
     }
     blankRun=0;
@@ -476,11 +476,15 @@ function splitChapters(raw, customPat, opts={}){
   if(!rx){const r=bestPat(raw);rx=r.rx;}
 
   // ★ 키워드 우선순위 그룹을 기본 패턴에 OR 결합
-  // KEYWORD_PATS는 수량 무관 항상 목차로 인식 (단, rx가 있을 때만 결합)
-  if(rx){
+  // KEYWORD_PATS는 수량 무관 항상 목차로 인식
+  // ★ L-15 FIX: rx=null (패턴 감지 실패) 시에도 KEYWORD_PATS 단독으로 사용
+  if(KEYWORD_PATS && KEYWORD_PATS.length){
     const kwSrc=KEYWORD_PATS.map(k=>k.source).join('|');
-    const combined=new RegExp('(?:'+rx.source+'|'+kwSrc+')','i');
-    rx=combined;
+    if(rx){
+      try{ rx=new RegExp('(?:'+rx.source+'|'+kwSrc+')','i'); }catch(e){}
+    } else {
+      try{ rx=new RegExp(kwSrc,'i'); }catch(e){}
+    }
   }
   // ★ LOGIC-04: 정규식은 루프 전 1회만 컴파일됨 (rx가 최종 컴파일된 RegExp 객체)
 
@@ -556,6 +560,8 @@ function escAttr(s){return s.replace(/'/g,"\\'").replace(/"/g,'&quot;');}
 // 챕터 목록 캐시 (변환 전 빠른 미리보기용)
 let _chaptersCache=null, _chaptersCacheKey='';
 let _autoSplitLines=null; // 간격 분할 시 원문 줄 배열
+// ★ L-09: 동시 다중 호출 방지 — 계산 중인 Promise 재사용
+let _chaptersComputePromise=null;
 function buildChaptersFromTocItems(lines, tocItems){
   // ★ enabled:true인 항목만 — UI 편집 결과 그대로 반영
   const enabled=tocItems.filter(t=>t.enabled);
@@ -574,6 +580,18 @@ function buildChaptersFromTocItems(lines, tocItems){
   }
 
   const chapters=[];
+
+  // ★ L-02 FIX: 서문 삽입을 루프 시작 전에 처리 — autoSplit 첫 챕터와 범위 중복 방지
+  // autoSplit=true 이면 headLine 자체가 본문에 포함되므로 서문 end = headLine(not headLine+1)
+  const firstItem=validEnabled[0];
+  const firstHeadLine=firstItem.line-1; // 0-based
+  if(firstHeadLine>0){
+    // autoSplit=false: 첫 챕터 헤딩줄(firstHeadLine)은 제목으로 소비되므로 서문은 0..firstHeadLine-1
+    // autoSplit=true : 첫 챕터가 headLine부터 시작하므로 서문은 0..firstHeadLine-1
+    const preamble=lines.slice(0, firstHeadLine).join('\n').trim();
+    if(preamble) chapters.push(['서문', preamble]);
+  }
+
   for(let i=0;i<validEnabled.length;i++){
     const item=validEnabled[i];
     const headLine=item.line-1; // 0-based
@@ -595,12 +613,6 @@ function buildChaptersFromTocItems(lines, tocItems){
     chapters.push([item.title, bodyText]);
   }
 
-  // 첫 챕터 앞에 내용이 있으면 서문으로
-  const firstLine=validEnabled[0].line-1;
-  if(firstLine>0){
-    const preamble=lines.slice(0,firstLine).join('\n').trim();
-    if(preamble) chapters.unshift(['서문',preamble]);
-  }
   return chapters;
 }
 
@@ -617,7 +629,6 @@ async function getCachedChapters(){
 
   // tocItems 없거나 sourceLines 없음 → 원본 텍스트 파싱 (캐시 사용)
   // ★ 캐시 키 정교화: 파일명+크기+최종수정시간+패턴+설정 해시
-  // → 같은 파일명이더라도 내용 변경 시(lastModified 변경) 캐시 무효화
   const pat=document.getElementById('pattern')?.value.trim()||'';
   const optItalic = document.getElementById('optItalic')?.checked??true;
   const optMerge  = document.getElementById('optMergeShortLines')?.checked??false;
@@ -629,17 +640,24 @@ async function getCachedChapters(){
 
   if(_chaptersCache && _chaptersCacheKey===cacheKey) return _chaptersCache;
 
-  try{
-    const sorted=[...S.txtFiles];
-    const raws=await Promise.all(sorted.map(fileToText));
-    const raw=raws.join('\n\n');
-    await yieldToMain();
-    _chaptersCache=splitChapters(raw,pat,{mergeShortLines:optMerge});
-    _chaptersCacheKey=cacheKey;
-  }catch(e){
-    _chaptersCache=[];
-  }
-  return _chaptersCache||[];
+  // ★ L-09 FIX: 동시 다중 호출 시 동일 Promise 재사용 → 중복 fileToText 방지
+  if(_chaptersComputePromise) return _chaptersComputePromise;
+
+  _chaptersComputePromise = (async()=>{
+    try{
+      const sorted=[...S.txtFiles];
+      const raws=await Promise.all(sorted.map(fileToText));
+      const raw=raws.join('\n\n');
+      await yieldToMain();
+      _chaptersCache=splitChapters(raw,pat,{mergeShortLines:optMerge});
+      _chaptersCacheKey=cacheKey;
+    }catch(e){
+      _chaptersCache=[];
+    }
+    return _chaptersCache||[];
+  })().finally(()=>{ _chaptersComputePromise=null; });
+
+  return _chaptersComputePromise;
 }
 
 
@@ -738,14 +756,15 @@ async function previewToc(){
   }
 
   // ★ I5: updateTocStat의 짧은챕터 칩 클릭 → 해당 항목 스크롤
-  setTimeout(()=>{
+  // ★ L-12 FIX: setTimeout(100) → double rAF — 저사양 기기 DOM 생성 전 바인딩 방지
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{
     document.querySelectorAll('#toc-stat [data-filter-short]').forEach(btn=>{
       btn.addEventListener('click',()=>{
         const firstSusp=document.querySelector('.toc-item .toc-char-badge[data-short]');
         firstSusp?.closest('.toc-item')?.scrollIntoView({block:'center',behavior:'smooth'});
       });
     });
-  }, 100);
+  }));
 
   // 감지 실패 시 안내 메시지 (변환은 정상 작동)
   if(!found.length){
@@ -770,9 +789,11 @@ async function previewToc(){
   // ★ 수정: rawLines → _fullRawLines (previewToc 함수 내 전역변수 참조)
   const tb2=document.getElementById('tb2');
   if(tb2){
+    // ★ L-18 FIX: 이전 인스턴스 destroy 후 재생성 — scroll 이벤트 리스너 누적 방지
+    _vsInstTb2?.destroy(); _vsInstTb2=null;
     tb2.innerHTML='';
     if(typeof createVirtualScroll==='function'){
-      createVirtualScroll(tb2, _fullRawLines);
+      _vsInstTb2=createVirtualScroll(tb2, _fullRawLines);
     } else {
       // createVirtualScroll 미로드 시 폴백 (최초 2000줄)
       const pre=document.createElement('pre');
@@ -844,18 +865,19 @@ function showSuspiciousToast(count){
 
   document.body.appendChild(el);
 
-  // 전체 제거 버튼 — suspicious 각 항목의 '다음 항목'(오감지)을 제거
+  // 전체 제거 버튼 — suspicious 항목을 직접 filter로 제거 (인덱스 밀림 없음)
   el.querySelector('#susp-remove-all-btn').addEventListener('click', ()=>{
-    // 뒤에서부터 제거해야 인덱스 밀림 없음
-    const indices=[];
-    S.tocItems.forEach((t,i)=>{ if(t.suspicious && i+1<S.tocItems.length) indices.push(i+1); });
-    // 중복 제거 후 내림차순
-    const toRemove=[...new Set(indices)].sort((a,b)=>b-a);
-    toRemove.forEach(i=>S.tocItems.splice(i,1));
+    _saveTocSnapshot();
+    const beforeLen = S.tocItems.length;
+    // ★ L-03 FIX: splice+Set 대신 filter로 한 번에 제거 — 연속 suspicious 구간 인덱스 오염 방지
+    S.tocItems = S.tocItems.filter((t, i) =>
+      !(t.suspicious && i < S.tocItems.length - 1)
+    );
+    const removed = beforeLen - S.tocItems.length;
     renderTocItems();
     updateTocStat();
     el.remove();
-    Toast.success('오감지 챕터 '+toRemove.length+'개를 목차에서 제거했어요.');
+    Toast.success('짧은 챕터 '+removed+'개를 목차에서 제거했어요.');
   });
 
   // 닫기
@@ -868,9 +890,21 @@ function showSuspiciousToast(count){
 // ── 목차 Undo 스택 (최대 10개 스냅샷) ──
 const _tocUndoStack=[];
 const _TOC_UNDO_MAX=10;
+// ★ L-06: tocExportBtn 중복 생성 방지 플래그
+let _tocExportBtnCreated=false;
 function _saveTocSnapshot(){
-  // 깊은 복사
-  _tocUndoStack.push(JSON.parse(JSON.stringify(S.tocItems||[])));
+  // ★ L-20 FIX: body 문자열 제외 → 대용량(3000화+) JSON 직렬화 블로킹 방지
+  // bodyLen(숫자)만 저장하고 body는 복원 시 재계산 (Undo 후 updateTocStat로 재집계)
+  const slim=(S.tocItems||[]).map(t=>({
+    line:          t.line,
+    title:         t.title,
+    enabled:       t.enabled,
+    autoSplit:     t.autoSplit,
+    suspicious:    t.suspicious,
+    originalTitle: t.originalTitle,
+    bodyLen:       typeof t.bodyLen==='number' ? t.bodyLen : 0,
+  }));
+  _tocUndoStack.push(slim);
   if(_tocUndoStack.length>_TOC_UNDO_MAX) _tocUndoStack.shift();
 }
 function undoToc(){
@@ -886,6 +920,8 @@ function undoToc(){
 function renderTocItems(){
   let _tocDragSrc=null;
   const c=document.getElementById('tb0');c.innerHTML='';
+  // ★ L-06: 전체 재렌더 시 내보내기 버튼 플래그 초기화 (updateTocStat에서 재생성)
+  _tocExportBtnCreated=false;
   if(!S.tocItems.length){c.innerHTML='<div class="toc-empty">⚠️ 챕터가 감지되지 않았습니다.</div>';return;}
 
   const total=S.tocItems.length;
@@ -1252,8 +1288,9 @@ function updateTocStat(){
   // ★ I7: 미니 차트 갱신 (main.js에 함수 정의)
   if(typeof renderTocMiniChart==='function') renderTocMiniChart();
 
-  // ★ I10: 내보내기 버튼 동적 추가 (한 번만)
-  if(!document.getElementById('tocExportBtn')){
+  // ★ I10: 내보내기 버튼 동적 추가 — L-06 FIX: flag 변수로 중복 생성 방지 (DOM 조회 경합 제거)
+  if(!_tocExportBtnCreated){
+    _tocExportBtnCreated = true;
     const exportBtn=document.createElement('button');
     exportBtn.id='tocExportBtn';
     exportBtn.className='btn btn-ghost btn-sm';
@@ -1481,7 +1518,8 @@ async function _geminiRequest(url, body, modelId, maxRetries=2){
       // quota violations에 limit:0 확인
       const isHardLimit=errMsg.includes('limit: 0')||
         violations.some(v=>v.quotaId?.includes('FreeTier')&&
-          (errMsg.match(new RegExp('model:\s*'+modelId))));
+          // ★ L-07 FIX: modelId 특수문자 이스케이프 + \s 올바른 정규식 처리
+          (()=>{ const safeId=modelId.replace(/[-.*+?^${}()|[\]\\]/g,'\\$&'); return errMsg.match(new RegExp('model:\\s*'+safeId)); })());
 
       if(isHardLimit){
         // 재시도해도 의미 없음 → 즉시 다음 모델로
@@ -1636,9 +1674,21 @@ function openHistDB(){
     req.onupgradeneeded=e=>{
       const db=e.target.result;
       if(!db.objectStoreNames.contains(HIST_STORE)) db.createObjectStore(HIST_STORE);
+      // ★ L-10: 다른 탭에서 버전 업 요청 시 현재 연결 닫기
+      db.onversionchange=()=>{ db.close(); _histDB=null; };
     };
-    req.onsuccess=e=>{_histDB=e.target.result;res(_histDB);};
+    req.onsuccess=e=>{
+      _histDB=e.target.result;
+      // ★ L-10: 연결 후에도 versionchange 핸들러 등록
+      _histDB.onversionchange=()=>{ _histDB.close(); _histDB=null; };
+      res(_histDB);
+    };
     req.onerror=()=>rej(req.error);
+    // ★ L-10 FIX: onblocked 핸들러 추가 — 다른 탭이 DB를 열고 있으면 reject
+    req.onblocked=()=>{
+      console.warn('NovelEPUB: IDB open blocked by another tab');
+      rej(new Error('IDB blocked by another tab'));
+    };
   });
 }
 async function idbSet(key,val){
@@ -1814,6 +1864,10 @@ async function clearAllHistory(){
 // ══════════════════════════════════════════
 // 👁  Module: ChapterPreview (챕터 본문 미리보기)
 // ══════════════════════════════════════════
+// ★ L-18: VirtualScroll 인스턴스 추적 — previewToc 재실행 시 destroy() 호출
+let _vsInstTb2=null;
+let _vsInstTb2b=null;
+
 let _previewActiveIdx=-1;
 let _fullRawLines=[];  // 전체 파일 원본 줄 (미리보기용)
 
@@ -1824,7 +1878,8 @@ async function renderTocPreview(){
   if(!enabled.length){c.innerHTML='<div class="toc-empty">감지된 목차가 없어요.<br>정규식 탭에서 패턴을 수정하거나 자동 간격 분할을 시도해보세요.</div>';return;}
 
   // 전체 파일 텍스트 로드 (캐시) — 다중 파일 모두 병합 (previewToc와 동일 처리)
-  if(!_fullRawLines.length&&S.txtFiles.length){
+  // ★ L-16 FIX: _fullRawLines null 가드 추가 (startConvert 후 메모리 해제된 경우 대비)
+  if((!_fullRawLines || !_fullRawLines.length)&&S.txtFiles.length){
     try{
       const sorted=[...S.txtFiles]; // 사용자 정렬 순서 유지 (renderTxtFileList에서 이미 정렬됨)
       const raws=await Promise.all(sorted.map(f=>fileToText(f).catch(()=>sampleLines(f))));
@@ -1925,7 +1980,9 @@ async function autoSplitByInterval(){
 
   for(let ch=0;ch<totalChapters;ch++){
     const lineNum=Math.floor(ch*interval)+1; // 1-based
-    const nextLineNum = ch+1<totalChapters ? Math.floor((ch+1)*interval)+1 : totalLines+1;
+    // ★ L-05 FIX: 마지막 화는 totalLines를 정확히 사용 — 오버슈트 방지 및 suspicious 정확화
+    const isLast = ch === totalChapters - 1;
+    const nextLineNum = isLast ? totalLines : Math.floor((ch+1)*interval)+1;
     const title='Chapter '+(ch+1);
     // ★ LOGIC BUG FIX: body/bodyLen을 생성 시점에 계산 → 글자수 통계 정확화
     const bodyLines = lines.slice(lineNum, nextLineNum); // headLine 포함 (autoSplit)
@@ -1938,7 +1995,7 @@ async function autoSplitByInterval(){
       autoSplit: true,
       body:      bodyText,
       bodyLen:   bodyLen,
-      suspicious: bodyLen < _suspThrAuto && ch < totalChapters - 1,
+      suspicious: bodyLen < _suspThrAuto && !isLast,
       originalTitle: title,
     });
   }
@@ -1964,9 +2021,11 @@ async function autoSplitByInterval(){
   tocTab(0);
   // ★ 가상 스크롤 (스크롤 위치 기반)
   const tb2b=document.getElementById('tb2');
+  // ★ L-18 FIX: 이전 인스턴스 destroy
+  _vsInstTb2b?.destroy(); _vsInstTb2b=null;
   tb2b.innerHTML='';
   if(typeof createVirtualScroll==='function'){
-    createVirtualScroll(tb2b, lines);
+    _vsInstTb2b=createVirtualScroll(tb2b, lines);
   } else {
     const pre2=document.createElement('pre');pre2.className='toc-raw';
     pre2.textContent=lines.slice(0,2000).map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');
