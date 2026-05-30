@@ -1176,4 +1176,37 @@
   <script src="epub-gen.js"></script>
   <!-- ⑥ 흐름 제어 & 이벤트 바인딩 (main.js) -->
   <script src="main.js"></script>
+
+  <!-- ★ FIX-SW: Service Worker 등록 -->
+  <!-- sw.js가 존재하는 경우에만 등록 (오프라인 지원 + 자동 캐시 갱신) -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => {
+            // ★ 새 SW 버전이 대기 중일 때 → Toast로 새로고침 안내
+            reg.addEventListener('updatefound', () => {
+              const newWorker = reg.installing;
+              if (!newWorker) return;
+              newWorker.addEventListener('statechange', () => {
+                // 새 SW 설치 완료 + 기존 SW 활성 상태(= 업데이트 상황)일 때만 안내
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  // Toast가 초기화된 이후 시점이므로 지연 없이 바로 호출 가능
+                  if (typeof Toast !== 'undefined') {
+                    Toast.info(
+                      '새 버전이 준비됐어요. <button onclick="(()=>{navigator.serviceWorker.controller?.postMessage({type:'SKIP_WAITING'});setTimeout(()=>location.reload(),300)})()" style="background:none;border:none;cursor:pointer;color:var(--accent);font-weight:600;font-size:inherit;padding:0;text-decoration:underline">새로고침</button>하면 적용돼요.',
+                      0
+                    );
+                  }
+                }
+              });
+            });
+          })
+          .catch(err => {
+            // SW 등록 실패는 비-치명적 — 앱 동작에는 영향 없음
+            console.warn('[SW] 등록 실패:', err);
+          });
+      });
+    }
+  </script>
 </html>
