@@ -85,55 +85,76 @@
   </div>
 </div>
 <div class="sec">
+<div class="sec">
   <div class="sec-hdr"><span class="sec-title">📝 메타데이터</span><div class="sec-line"></div></div>
   <div class="card">
-    <div class="row"><span class="lbl">📖 제목</span><input class="inp" id="title" placeholder="소설 제목" data-input-action="liveUpdateCover"></div>
-<div class="row"><span class="lbl">✒️ 작가</span><input class="inp" id="author" placeholder="작가명" data-input-action="liveUpdateCover"></div>eholder="소설 제목"></div>
-    <div class="row">
-      <span class="lbl">⚙️ 챕터 정규식</span>
-      <div style="position:relative;flex:1;min-width:0">
-        <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" data-input-action="patternValidate" style="transition:border-color .15s;width:100%;padding-right:28px">
-        <button id="patternClearBtn" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text2);font-size:14px;padding:0;line-height:1" title="입력 지우기">✕</button>
+
+    <!-- ① 기본 정보 서브카드 -->
+    <div class="meta-sub-card">
+      <div class="meta-sub-title">기본 정보</div>
+      <div class="row"><span class="lbl">📖 제목</span><input class="inp" id="title" placeholder="소설 제목" data-input-action="liveUpdateCover"></div>
+      <div class="row" style="margin-top:6px"><span class="lbl">✒️ 작가</span><input class="inp" id="author" placeholder="작가명" data-input-action="liveUpdateCover"></div>
+    </div>
+
+    <!-- ② 챕터 분할 규칙 서브카드 -->
+    <div class="meta-sub-card" style="margin-bottom:6px">
+      <div class="meta-sub-title">챕터 분할 규칙</div>
+      <div class="row">
+        <span class="lbl">⚙️ 정규식</span>
+        <div style="position:relative;flex:1;min-width:0">
+          <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래에서 선택 가능" data-input-action="patternValidate" style="width:100%;padding-right:28px">
+          <button id="patternClearBtn" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text2);font-size:14px;padding:0;line-height:1" title="입력 지우기">✕</button>
+        </div>
+        <button class="btn btn-blue btn-sm" data-action="previewToc">🔍 목차 확인</button>
+        <button class="btn btn-ghost btn-sm" data-action="autoSplitByInterval">⚡ 간격</button>
       </div>
-      <button class="btn btn-blue btn-sm" data-action="previewToc">🔍 목차 확인</button><button class="btn btn-ghost btn-sm" data-action="autoSplitByInterval">⚡ 간격 분할</button>
-    </div>
-    <div class="flex-col" style="margin-top:4px">
-      <div class="search-row">
-        <span class="txt-label-shrink">💡 예시 입력:</span>
-        <input class="inp" id="smartPatInput" placeholder="예) 1화 제목 / [EP.001] / Chapter 1 / 00001  제로 코드..." style="font-size:12px" data-input-action="smartPatConvert">
+
+      <!-- 예시 입력 -->
+      <div class="flex-col" style="margin-top:8px;gap:5px">
+        <div class="search-row">
+          <span class="txt-label-shrink">💡 예시 입력:</span>
+          <input class="inp" id="smartPatInput" placeholder="예) 1화 제목 / [EP.001] / Chapter 1 / 00001" style="font-size:12px" data-input-action="smartPatConvert">
+        </div>
+        <div class="search-row">
+          <span class="txt-label-shrink">🚫 제외 예시:</span>
+          <input class="inp" id="smartPatExclude" placeholder="챕터 제목이 아닌 예시 (예: 작가의 말, 목차)" style="font-size:12px" data-input-action="smartPatConvert">
+        </div>
       </div>
-      <div class="search-row">
-        <span class="txt-label-shrink">🚫 제외할 예시:</span>
-        <input class="inp" id="smartPatExclude" placeholder="이 내용은 챕터 제목이 아님 (예: 작가의 말, 목차)" style="font-size:12px" data-input-action="smartPatConvert">
+
+      <!-- 변환된 정규식 결과 -->
+      <div id="smartPatResultBox" class="flex-row" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:7px;flex-wrap:wrap">
+        <span class="txt-meta-sm" style="flex-shrink:0">변환된 정규식:</span>
+        <code id="smartPatResult" style="font-size:11px;color:var(--accent);font-family:monospace;flex:1;word-break:break-all;min-width:0"></code>
+        <span id="smartPatAiLabel" style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 5px;flex-shrink:0;display:none">✨ AI</span>
+        <button class="btn btn-accent btn-sm" id="smartPatApplyBtn" data-action="applySmartPat" style="flex-shrink:0;font-size:11px;padding:4px 10px">✅ 적용</button>
       </div>
+
+      <!-- ③ 빠른 선택 칩 — 기존 buildPatHelpers()가 여기 채움 -->
+      <div class="pat-helper" id="patHelper" style="margin-top:8px">
+        <span class="txt-meta-sm" style="align-self:center">빠른 선택:</span>
+      </div>
+      <div id="patApplyBar" class="flex-row" style="display:none;margin-top:5px">
+        <button class="btn btn-accent btn-sm" data-action="applySelectedChips" style="font-size:12px;padding:6px 14px">✅ 선택한 패턴 적용</button>
+        <span id="patApplyInfo" class="txt-meta-sm"></span>
+      </div>
+
+      <div class="hint" style="margin-top:8px">💡 혼합 패턴: <code>^(소설명 \d+|\d+화|\d+$)</code> · 정규식 문법은 하단 <strong>정규식 수정</strong> 탭 참고</div>
     </div>
-    <div id="smartPatResultBox" class="flex-row" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:7px;flex-wrap:wrap">
-      <span class="txt-meta-sm" style="flex-shrink:0">변환된 정규식:</span>
-      <code id="smartPatResult" style="font-size:11px;color:var(--accent);font-family:monospace;flex:1;word-break:break-all;min-width:0"></code>
-      <span id="smartPatAiLabel" style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 5px;flex-shrink:0;display:none">✨ AI</span>
-      <button class="btn btn-accent btn-sm" id="smartPatApplyBtn" data-action="applySmartPat" style="flex-shrink:0;font-size:11px;padding:4px 10px">✅ 적용</button>
-    </div>
-    <div class="pat-helper" id="patHelper">
-      <span class="txt-meta-sm" style="align-self:center">빠른 선택:</span>
-    </div>
-    <div id="patApplyBar" class="flex-row" style="display:none;margin-top:5px">
-      <button class="btn btn-accent btn-sm" data-action="applySelectedChips" style="font-size:12px;padding:6px 14px">✅ 선택한 패턴 적용</button>
-      <span id="patApplyInfo" class="txt-meta-sm"></span>
-    </div>
-    <div class="hint">💡 혼합 패턴 예시: <code>^(소설명 \d+|\d+화|\d+$)</code> · <code>[ 파일명.txt ]</code> 형식: <code>^\[\s*.+\.txt\s*\]\s*$</code> · 정규식 문법은 아래 <strong>정규식 수정</strong> 탭 참고</div>
-    <!-- ★ 목차 편집 상태 배너 -->
+
+    <!-- ④ 목차 편집 배너 -->
     <div class="toc-edit-banner" id="tocEditBanner">
       <span>✏️</span>
       <span id="tocEditBannerText">목차 편집됨</span>
       <span style="margin-left:auto;font-size:10px;opacity:.7">편집 내용이 EPUB에 반영돼요</span>
     </div>
+
+    <!-- ⑤ 목차 패널 -->
     <div class="toc-panel" id="tocPanel">
       <div class="toc-tabs">
         <button class="ttab on" data-action="tocTab" data-idx="0">감지된 목차</button>
         <button class="ttab" data-action="tocTab" data-idx="1">챕터 미리보기</button>
         <button class="ttab" data-action="tocTab" data-idx="2">원본 텍스트</button>
         <button class="ttab" data-action="tocTab" data-idx="3">정규식 수정</button>
-        <!-- ★ 단축키 힌트 -->
         <span id="tocShortcutHint" class="txt-meta-sm" style="margin-left:auto;align-self:center;padding-right:4px;transition:opacity .5s"
               title="Ctrl+클릭으로 여러 항목을 선택하면 병합 가능 | Ctrl+Enter: 변환 시작 | Ctrl+D: 다운로드">
           💡 Ctrl+클릭=병합
@@ -142,9 +163,7 @@
       <div id="toc-stat" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid var(--border);min-height:32px"></div>
       <div id="tocMiniChart" style="padding:4px 8px 0;cursor:pointer" title="챕터별 글자수 분포 — 클릭해서 해당 챕터로 이동"></div>
       <div class="toc-body" id="tb0"><div class="toc-empty"><div class="toc-empty-icon">📄</div><p>파일을 업로드하면<br>이곳에 목차가 생성됩니다</p></div></div>
-      <div class="toc-body" id="tb1" style="display:none">
-        <div id="tocPreviewList"></div>
-      </div>
+      <div class="toc-body" id="tb1" style="display:none"><div id="tocPreviewList"></div></div>
       <div class="toc-body" id="tb2" style="display:none"></div>
       <div class="toc-body" id="tb3" style="display:none">
         <div class="flex-row" style="padding:4px 0;gap:8px">
@@ -154,36 +173,56 @@
         <div style="margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:12px;font-size:11px;line-height:1.9;color:var(--text2)">
           <div class="txt-label-bold" style="margin-bottom:6px">📖 정규식 작성 가이드</div>
           <table style="border-collapse:collapse;width:100%">
-            <tr style="border-bottom:1px solid var(--border)">
-              <td class="cell-key">기호</td><td class="cell-val">설명</td><td class="cell-code">예시</td>
-            </tr>
-            <tr><td class="cell-key"><code>^</code> <code>$</code></td><td class="cell-val">줄의 시작 / 끝 — 반드시 한 줄 전체가 일치해야 할 때 사용</td><td class="cell-code">^1화$</td></tr>
-            <tr><td class="cell-key"><code>\d</code></td><td class="cell-val">숫자 한 글자 (0–9)</td><td class="cell-code">\d → 1, 9</td></tr>
-            <tr><td class="cell-key"><code>\d+</code></td><td class="cell-val">숫자 한 자리 이상 연속</td><td class="cell-code">\d+ → 1, 42, 450</td></tr>
-            <tr><td class="cell-key"><code>.+</code></td><td class="cell-val">아무 문자 1자 이상 (한글·영문·특수문자 모두 포함)</td><td class="cell-code">.+ → 무엇이든</td></tr>
-            <tr><td class="cell-key"><code>.*</code></td><td class="cell-val">아무 문자 0자 이상 (없어도 OK)</td><td class="cell-code">1화.*</td></tr>
-            <tr><td class="cell-key"><code>\s*</code></td><td class="cell-val">공백 0개 이상 (스페이스·탭 무시할 때)</td><td class="cell-code">제\s*\d+화</td></tr>
-            <tr><td class="cell-key"><code>(?:A|B)</code></td><td class="cell-val">A 또는 B — 여러 패턴 중 하나</td><td class="cell-code">(?:1화|Chapter)</td></tr>
-            <tr><td class="cell-key"><code>\[</code> <code>\]</code></td><td class="cell-val">대괄호 문자 그대로 매칭</td><td class="cell-code">\[.+\.txt\]</td></tr>
-            <tr><td class="cell-key"><code>{2,15}</code></td><td class="cell-val">앞 요소가 2자 이상 15자 이하</td><td class="cell-code">.{2,15}\s+\d+화</td></tr>
-            <tr><td class="cell-key">한글</td><td class="cell-val">한글은 그대로 씀 — 이스케이프 불필요</td><td class="cell-code">^제\d+화</td></tr>
-            <tr><td class="cell-key">영문</td><td class="cell-val">영문 그대로, 끝에 i 플래그로 대소문자 무시</td><td class="cell-code">^chapter\s*\d+</td></tr>
+            <tr style="border-bottom:1px solid var(--border)"><td class="cell-key">기호</td><td class="cell-val">설명</td><td class="cell-code">예시</td></tr>
+            <tr><td class="cell-key"><code>^ $</code></td><td class="cell-val">줄 시작/끝 — 한 줄 전체 일치</td><td class="cell-code">^1화$</td></tr>
+            <tr><td class="cell-key"><code>\d+</code></td><td class="cell-val">숫자 한 자리 이상</td><td class="cell-code">\d+ → 1, 42</td></tr>
+            <tr><td class="cell-key"><code>.+</code></td><td class="cell-val">아무 문자 1자 이상</td><td class="cell-code">.+ → 무엇이든</td></tr>
+            <tr><td class="cell-key"><code>(?:A|B)</code></td><td class="cell-val">A 또는 B</td><td class="cell-code">(?:1화|Chapter)</td></tr>
+            <tr><td class="cell-key"><code>\[</code></td><td class="cell-val">대괄호 그대로</td><td class="cell-code">\[.+\.txt\]</td></tr>
           </table>
-          <div style="margin-top:8px;padding:7px 10px;background:var(--yellow-bg);border-radius:6px;color:var(--yellow);border-left:3px solid var(--accent2)">
-            💡 <strong>이 파일 패턴 예시</strong>: <code style="color:var(--accent)">^\[\s*.+\.txt\s*\]\s*$</code> → <code style="color:var(--text2)">[ 0001_어떤 길은 나를 통했다.txt ]</code> 형식 인식<br>
-            혼합 예: <code style="color:var(--accent)">^(?:\[\s*.+\.txt\s*\]|\d+화).*$</code> → 두 패턴 동시 지원
-          </div>
         </div>
       </div>
     </div>
+
   </div>
 </div>
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">⚙️ 변환 옵션 · 스타일</span><div class="sec-line"></div></div>
-  <div class="card flex-row-sb" style="flex-wrap:wrap;gap:12px">
-    <div id="settingsSummary" class="settings-summary-chips">설정 탭에서 폰트, 줄간격, 변환 옵션을 변경할 수 있어요.</div>
-    <button class="btn btn-blue" data-action="switchPage" data-page="settings" style="flex-shrink:0">⚙️ 설정 열기</button>
+  <div class="card">
+    <div style="display:flex;gap:12px;align-items:flex-start;flex-wrap:wrap">
+      <!-- 설정 요약 칩 + 설정 열기 -->
+      <div style="flex:1;min-width:180px">
+        <div id="settingsSummary" class="settings-summary-chips">설정 탭에서 폰트·줄간격·변환 옵션을 변경할 수 있어요.</div>
+        <button class="btn btn-blue btn-sm" data-action="switchPage" data-page="settings" style="margin-top:8px;width:100%">⚙️ 설정 열기</button>
+      </div>
+      <!-- ★ 3. 미니 리더 미리보기 상시 배치 -->
+      <div class="mini-reader-wrap">
+        <div class="mini-reader-bar">
+          <span class="mini-reader-label">리더 미리보기</span>
+          <button class="mini-reader-btn active" id="rt-white" onclick="setMiniReaderTheme('white',this)" title="화이트">☀</button>
+          <button class="mini-reader-btn" id="rt-sepia"  onclick="setMiniReaderTheme('sepia',this)" title="세피아">📜</button>
+          <button class="mini-reader-btn" id="rt-dark"   onclick="setMiniReaderTheme('dark',this)" title="다크">🌙</button>
+        </div>
+        <div class="mini-reader-body rt-white" id="miniReaderBody">
+          <em style="color:var(--text3);font-size:12px">설정 변경 시 이곳에서 바로 확인할 수 있어요.</em>
+        </div>
+      </div>
+    </div>
+
+    <!-- ★ 4. 실시간 피드백 피드 (패턴 감지 결과) -->
+    <!-- ★ 4. 실시간 피드백 피드 (패턴 감지 결과) -->
+    <div class="pattern-feedback-wrap" id="patFeedbackWrap" style="margin-top:12px">
+      <div class="pattern-feedback-header" id="patFeedbackHeader">
+        <span class="pf-title">📡 챕터 감지 결과</span>
+        <span id="patFeedbackLabel" style="font-size:10px;color:var(--text2);flex-shrink:0">목차 확인 후 표시</span>
+        <span class="pattern-detect-badge muted" id="patDetectBadge">—</span>
+      </div>
+      <div class="pattern-feedback-list" id="patFeedbackList">
+        <div class="pfl-empty">🔍 패턴 확인 버튼을 눌러 챕터를 감지해보세요</div>
+      </div>
+    </div>
   </div>
+</div>
 </div>
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">🖼 삽화 설정</span><div class="sec-line"></div></div>
@@ -1054,9 +1093,17 @@
 </div>
 
   <!-- ════ 하단 고정 버튼 바 ════ -->
+  <!-- ════ 하단 고정 버튼 바 ════ -->
 <!-- 변환 탭 -->
-<div class="btm" id="btmConvert" style="display:flex">
-  <button class="btn btn-accent" data-action="startConvert">📖 EPUB 변환 시작</button>
+<div class="btm" id="btmConvert">
+  <div style="display:flex;align-items:center;gap:8px;width:100%;max-width:480px">
+    <span class="btm-status" id="btmConvertStatus">파일을 업로드해주세요</span>
+    <span id="btmEpubSizeHint" style="font-size:10px;color:var(--text2);margin-left:auto;flex-shrink:0"></span>
+  </div>
+  <button class="btn btn-accent not-ready" id="btnStartConvert" data-action="startConvert">
+    📖 EPUB 변환 시작
+    <span class="btm-file-badge" id="btmFileBadge" style="display:none"></span>
+  </button>
 </div>
 <!-- 일괄변환 탭 -->
 <div class="btm" id="btmBatch" style="display:none">

@@ -698,7 +698,11 @@ async function previewToc(){
 
   S.tocItems=found;
   renderTocItems();
-  updateTocEditBanner&&updateTocEditBanner(); // ★ 편집 배너 초기화
+  updateTocEditBanner&&updateTocEditBanner();
+  // ★ 4. 실시간 피드백 피드 갱신
+  if(typeof updatePatFeedback==='function') updatePatFeedback(S.tocItems);
+  // ★ 3. 미니 리더 샘플 갱신
+  if(typeof _refreshMiniReader==='function') _refreshMiniReader(); // ★ 편집 배너 초기화
 
   // ★ I9: delta 표시 (이전 목차가 있었을 때만)
   if(_prevTotal > 0 && (found.length !== _prevTotal || Math.abs(_prevChars - found.reduce((s,t)=>s+t.bodyLen,0)) > 100)){

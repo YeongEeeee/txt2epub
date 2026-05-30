@@ -1398,6 +1398,9 @@ function updateSettingsSummary(){
   [document.getElementById('settingsSummary'), document.getElementById('batchSettingSummary')].forEach(el=>{
     if(el) el.innerHTML=chipHtml;
   });
+
+  // ★ 3. 미니 리더도 함께 갱신
+  _refreshMiniReader();
 }
 
 // ══════════════════════════════════════════
@@ -2150,6 +2153,11 @@ function handleTxt(files, append=false){
     if(titleEl&&!titleEl.value) titleEl.value=title;
     if(authorEl&&!authorEl.value) authorEl.value=author;
   }
+
+  // ★ 5. btm 상태 피드백 갱신
+  _updateBtmStatus();
+  // ★ 3. 미니 리더 샘플 텍스트 갱신
+  _refreshMiniReader();
 }
 handleTxt._timer=null; // 디바운스 타이머 초기화
 
@@ -3076,6 +3084,125 @@ async function startConvert(){
     document.getElementById('errBox').textContent='❌ '+friendlyError(e);
     document.getElementById('errBox')?.classList.add('show');
   }
+}
+
+// ══════════════════════════════════════════
+// ★ UI/UX 개선 5가지 방향 — JS 기능
+// ══════════════════════════════════════════
+
+// ── 5. btm 상태 피드백 ──────────────────
+function _updateBtmStatus(){
+  const btn    = document.getElementById('btnStartConvert');
+  const status = document.getElementById('btmConvertStatus');
+  const badge  = document.getElementById('btmFileBadge');
+  const btm    = document.getElementById('btmConvert');
+  const sizeHint = document.getElementById('btmEpubSizeHint');
+  if(!btn) return;
+  const fileCount = (typeof S!=='undefined'&&S.txtFiles) ? S.txtFiles.length : 0;
+  const hasTitle  = !!document.getElementById('title')?.value.trim();
+  if(fileCount === 0){
+    btn.classList.add('not-ready');
+    btm?.classList.remove('btm-ready');
+    if(status){ status.textContent='파일을 업로드해주세요'; status.className='btm-status warn'; }
+    if(badge)  badge.style.display='none';
+    if(sizeHint) sizeHint.textContent='';
+  } else {
+    const wasNotReady = btn.classList.contains('not-ready');
+    btn.classList.remove('not-ready');
+    btm?.classList.add('btm-ready');
+    if(status){
+      const titlePreview = hasTitle?' · '+document.getElementById('title').value.trim().slice(0,18):'';
+      status.textContent = fileCount+'개 파일 준비 완료'+titlePreview;
+      status.className = 'btm-status ready';
+    }
+    if(badge){ badge.textContent=fileCount+'개'; badge.style.display=''; }
+    // 예상 크기 힌트
+    if(sizeHint){
+      const txtBytes = S.txtFiles.reduce((s,f)=>s+f.size,0);
+      const imgBytes = (S.illFiles||[]).reduce((s,f)=>s+f.size,0)+(S.coverFile?.size||0);
+      const estKb = Math.round((txtBytes*0.6+imgBytes*0.85)/1024);
+      const sizeStr = estKb>1024?(estKb/1024).toFixed(1)+'MB':estKb+'KB';
+      sizeHint.textContent = '예상 ' + sizeStr;
+      sizeHint.style.color = estKb>20480 ? 'var(--accent)' : 'var(--text2)';
+    }
+    if(wasNotReady){
+      btn.classList.add('just-ready');
+      setTimeout(()=>btn.classList.remove('just-ready'), 600);
+    }
+  }
+}
+
+// ── 3. 미니 리더 미리보기 ───────────────
+let _miniReaderTheme = 'white';
+function setMiniReaderTheme(theme){
+  _miniReaderTheme = theme;
+  const body = document.getElementById('miniReaderBody');
+  if(body){
+    body.classList.remove('rt-sepia','rt-dark');
+    if(theme==='sepia') body.classList.add('rt-sepia');
+    if(theme==='dark')  body.classList.add('rt-dark');
+  }
+  ['rt-white','rt-sepia','rt-dark'].forEach(id=>{
+    const b=document.getElementById(id);
+    if(b) b.classList.toggle('active', id==='rt-'+theme);
+  });
+}
+function _refreshMiniReader(){
+  const body = document.getElementById('miniReaderBody');
+  if(!body) return;
+  const fontVal = document.getElementById('cssFont')?.value || '"Noto Serif KR",serif';
+  const lineVal = document.getElementById('cssLine')?.value  || '1.9';
+  const sizeVal = document.getElementById('cssFontSize')?.value || '1em';
+  const useItalic = document.getElementById('optItalic')?.checked;
+  body.style.fontFamily = fontVal;
+  body.style.lineHeight = lineVal;
+  body.style.fontSize   = sizeVal;
+  let sampleHtml = '';
+  if(typeof S!=='undefined' && S.tocItems?.length){
+    const first = S.tocItems.find(t=>t.enabled&&t.body);
+    if(first){
+      sampleHtml = first.body.trim().split('\n').filter(l=>l.trim()).slice(0,4).map(l=>{
+        const esc = l.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+        return (useItalic && /^[-\u2014]/.test(l.trim()))
+          ? '<em style="color:var(--text2)">'+esc+'</em>'
+          : '<span>'+esc+'</span>';
+      }).join('<br>');
+    }
+  }
+  if(!sampleHtml) sampleHtml='<em style="color:var(--text3);font-size:12px">변환 옵션 설정 후 실제 본문이 표시돼요.</em>';
+  body.innerHTML = sampleHtml;
+  setMiniReaderTheme(_miniReaderTheme);
+}
+
+// ── 4. 실시간 피드백 피드 ───────────────
+function updatePatFeedback(tocItems){
+  const wrap   = document.getElementById('patFeedbackWrap');
+  const header = document.getElementById('patFeedbackLabel');
+  const badge  = document.getElementById('patDetectBadge');
+  const list   = document.getElementById('patFeedbackList');
+  if(!wrap||!list) return;
+  if(!tocItems||!tocItems.length){
+    wrap.classList.remove('has-result');
+    if(badge){ badge.textContent='—'; badge.className='pattern-detect-badge muted'; }
+    if(header) header.textContent='목차 확인 후 결과가 표시돼요';
+    list.innerHTML='<div class="pfl-empty">🔍 패턴 확인 버튼을 눌러 챕터를 감지해보세요</div>';
+    return;
+  }
+  wrap.classList.add('has-result');
+  const active = tocItems.filter(t=>t.enabled).length;
+  const suspN  = tocItems.filter(t=>t.suspicious).length;
+  const totalChars = tocItems.filter(t=>t.enabled)
+    .reduce((s,t)=>s+(typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length),0);
+  if(badge){ badge.textContent='총 '+active.toLocaleString()+'개 챕터 감지됨'; badge.className='pattern-detect-badge'+(suspN>0?' warn':''); }
+  if(header) header.textContent=(totalChars/10000).toFixed(1)+'만자'+(suspN>0?' · ⚠ 짧은챕터 '+suspN+'개':'');
+  const items = tocItems.filter(t=>t.enabled).slice(0,30);
+  list.innerHTML = items.map((t,i)=>{
+    const bl=typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length;
+    const blStr=bl>=10000?(bl/10000).toFixed(1)+'만':bl>=1000?(bl/1000).toFixed(1)+'k':bl+'자';
+    const susp=t.suspicious?'<span style="font-size:9px;color:var(--accent)">⚠</span>':'';
+    const title=t.title.replace(/&/g,'&amp;').replace(/</g,'&lt;').slice(0,40);
+    return '<div class="pfl-item"><span class="pfl-num">'+String(i+1).padStart(3,'0')+'</span>'+susp+'<span class="pfl-title">'+title+'</span><span class="pfl-chars">'+blStr+'</span></div>';
+  }).join('')+(tocItems.filter(t=>t.enabled).length>30?'<div class="pfl-empty">… 외 '+(tocItems.filter(t=>t.enabled).length-30)+'개 더</div>':'');
 }
 
 // ★ 07: 결과 카드 count-up + shimmer 애니메이션
@@ -6951,6 +7078,11 @@ window.addEventListener('DOMContentLoaded', ()=>{
 
   // ★ 09: 컬러 스킨 초기화
   initSkin();
+
+  // ★ UI 개선 초기화
+  _updateBtmStatus();
+  if(typeof _bindMiniReaderRefresh==='function') _bindMiniReaderRefresh();
+  setTimeout(_refreshMiniReader, 100);
 });
 
 // ★ 09: 컬러 스킨 시스템
