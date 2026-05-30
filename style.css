@@ -637,6 +637,11 @@ input:-webkit-autofill:focus{
 .skin-swatch.active{border-color:var(--text);transform:scale(1.12)}
 .skin-swatch-label{font-size:11px;color:var(--text2);margin-left:4px}
 
+/* ─ 스킨별 헤더 그림자 CSS 변수 이관 (수정 #2: setSkin() 하드코딩 제거) ─ */
+/* 기본 테라코타: .hdr 기본 box-shadow는 .hdr 규칙에서 정의됨 */
+[data-skin=indigo] .hdr{box-shadow:0 2px 12px rgba(72,85,168,.25)}
+[data-skin=forest] .hdr{box-shadow:0 2px 12px rgba(42,122,74,.25)}
+
 @media(max-width:768px){
   .wrap{max-width:100%;padding:14px 12px calc(var(--btm-bar-height) + 16px)}
   .css-grid,.css-cls-grid,.font-panel{grid-template-columns:1fr}

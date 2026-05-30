@@ -969,7 +969,6 @@ function setupEventDelegate(){
     applyPat:         () => applyPat(),
     tocTab:           (el) => tocTab(parseInt(el.dataset.idx)),
     addManualIll:     () => addManualIll(),
-    showPreview:      () => showPreview(),
     downloadEpub:     () => downloadEpub(),
     shareEpub:        () => shareEpub(),
     startConvert:     () => startConvert(),
@@ -1344,8 +1343,8 @@ async function resetAll(){
   document.getElementById('txtInfo').style.display='none';
   document.getElementById('illTags').innerHTML='';
   document.getElementById('manualIlls').innerHTML='';
-  ['title','author','pattern'].forEach(id=>document.getElementById(id).value='');
-  ['tocPanel','progWrap','resultBox','errBox'].forEach(id=>document.getElementById(id).classList.remove('show'));
+  ['title','author','pattern'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['tocPanel','progWrap','resultBox','errBox'].forEach(id=>document.getElementById(id)?.classList.remove('show'));
 }
 
 // ★ 탭별 렌더링 지연 플래그 (최초 1회만 렌더링)
@@ -7116,12 +7115,7 @@ function setSkin(skinName){
     const sw = document.getElementById('skin-'+s);
     if(sw) sw.classList.toggle('active', s===skinName);
   });
-  // 헤더 그림자 색 동적 업데이트
-  const hdr = document.querySelector('.hdr');
-  if(hdr){
-    const colors = {terracotta:'rgba(212,90,70,.25)',indigo:'rgba(72,85,168,.25)',forest:'rgba(42,122,74,.25)'};
-    hdr.style.boxShadow = '0 2px 12px '+(colors[skinName]||colors.terracotta);
-  }
+  // ★ 헤더 그림자는 style.css의 [data-skin] .hdr 규칙이 담당 (하드코딩 제거)
   try{ localStorage.setItem('novelepub_skin', skinName); }catch(e){}
 }
 function initSkin(){
