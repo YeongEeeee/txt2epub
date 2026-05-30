@@ -118,7 +118,8 @@ async function generateTextCover(title, author){
       ctx.fillStyle=getCssVar('--text2')||'#6b4f3a';
       ctx.fillText(author,W/2,sy+tl.length*tsz*1.5+60);
     }
-    canvas.toBlob(b=>resolve(b),'image/jpeg',0.9);
+    // ★ BUG-16 수정: toBlob null 체크 (일부 환경에서 null 반환 가능)
+    canvas.toBlob(b=>resolve(b||null),'image/jpeg',0.9);
   });
 }
 

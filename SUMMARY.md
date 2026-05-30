@@ -4,7 +4,7 @@
 
 **NovelEPUB** — TXT → EPUB3 변환기  
 순수 프론트엔드 SPA. 서버 없이 브라우저에서 모든 처리 완료.  
-총 코드량: **11,603줄** (main.js 7,498 + parser.js 1,985 + 기타)
+총 코드량: **13,121줄** (12개 파일)
 
 ---
 
@@ -176,9 +176,9 @@
 
 ---
 
-### Phase 9 — Toast 개선 및 드롭존 SVG 완결 (main.js + index.html)
+### Phase 9 — Toast 개선 및 드롭존 SVG 완결
 
-#### Toast 개선 (main.js)
+#### Toast 개선
 - **`_show()` HTML 지원**: msg에 `<tag>` 패턴 포함 시 innerHTML로 렌더링 (I9 delta 배지 색상 표시 목적). 외부 입력(파일명 등)은 textContent 유지
 - **public API duration 파라미터 추가**: `info(msg, duration?)`, `success(msg, duration?)`, `error(msg, duration?)`, `warn(msg, duration?)` — I8의 `Toast.warn(msg, 6000)` 정상 작동
 
@@ -189,18 +189,36 @@
 
 ---
 
-## 코드 품질 지표
+### Phase 10 — 파일 분리 리팩토링 + 기능 확장
 
-| 항목 | 수치 |
-|------|------|
-| 총 줄수 | 11,603줄 |
-| 구문 오류 | 0개 (전 파일 `node --check` 통과) |
-| 중복 ID | 0개 |
-| 하드코딩 색상 | 0개 (전부 CSS 변수) |
-| Toast innerHTML | 내부 생성 HTML만 허용 (I9 delta), 외부 입력 textContent |
-| Web API 폴백 | FileReader → ArrayBuffer → readAsText |
-| 타임아웃 보호 | fileToText 30초, splitChapters 2분 |
-| IndexedDB 경합 | `_dbPromise` 싱글톤 완전 해결 |
+#### 모놀리식 main.js → 6개 파일 분리
+| 파일 | 역할 | 줄수 |
+|------|------|------|
+| `core.js` | StateManager, Toast, SettingsDB, EventBus, 공통 유틸 | 530 |
+| `convert.js` | 변환 탭 전체: 파일 I/O, 인코딩, 이미지, 삽화 처리 | 2,790 |
+| `ui-state.js` | 테마, CSS 미리보기, 탭 전환, 칩 빌더, regexFeed, 스와이프 | 1,025 |
+| `settings.js` | CSS 설정, 폰트, 프리셋, 스마트 패턴, 히스토리, Gemini API | 1,317 |
+| `edit.js` | EPUB 편집 탭: OPF 파싱, 챕터 수정, 재생성, 연속 삽입 | 1,603 |
+| `cover-search.js` | 표지 검색 모달, 플랫폼 링크 스트립, 이미지 크롭 | 497 |
+
+#### 신규 기능
+- **스마트 패턴 변환**: `smartPatConvert()` — Gemini API + 로컬 `guessPatternFromExample()` 듀얼 모드, 지수 백오프 재시도
+- **표지 검색 모달**: `openCoverModal()` — 카카오페이지·리디북스·네이버시리즈·조아라·문피아 플랫폼 링크 스트립
+- **표지 이미지 크롭**: `centerCropToJpegBlob()` — 800×1200 중앙 크롭, WebP/PNG → JPEG 변환
+
+---
+
+### Phase 11 — settings.js 구문 오류 수정
+
+#### 수정 내용
+| # | 위치 | 문제 | 수정 |
+|---|------|------|------|
+| F1 | settings.js:568~585 | `createParserWorker` 주석 블록 + `tocTab()` 함수 끝 부분 + `applyPat()` 함수가 고아 코드로 잘못 삽입됨 | 해당 코드 블록 전체 제거 (동일 코드가 parser.js에 정상 존재) |
+| F2 | settings.js:1336~1340 | `setupSwipe()` IIFE가 파일 끝에서 불완전하게 잘림 | 잘린 코드 제거 (동일 코드가 ui-state.js:926~953에 완전히 존재) |
+
+#### 검증 결과
+- `node --check settings.js` → 구문 오류 0개 통과
+- 수정 후 줄수: 1,340 → 1,317줄
 
 ---
 
@@ -208,13 +226,34 @@
 
 | 파일 | 줄수 | 역할 |
 |------|------|------|
-| `main.js` | 7,498 | UI 제어, StateManager, 이벤트 위임, 변환 흐름, Toast |
-| `parser.js` | 1,985 | 챕터 파싱, 목차 렌더링, 인코딩, 캐시, 통계 |
-| `epub-gen.js` | 388 | EPUB3 생성, Blob Worker, 이미지 병렬 처리 |
+| `convert.js` | 2,790 | 변환 탭: 파일 I/O, 인코딩 감지, 이미지 처리, 삽화 자동/수동 |
+| `parser.js` | 2,044 | 챕터 파싱, 목차 렌더링, 가상 스크롤, 통계, 캐시 |
+| `edit.js` | 1,603 | EPUB 편집 탭: OPF 파싱, 챕터 수정, 재생성, 연속 삽입 |
+| `style.css` | 1,232 | 테마, 컴포넌트, 애니메이션, 스킨 시스템 |
+| `index.html` | 1,221 | SPA 마크업, 탭 구조, SVG 드롭존 |
+| `settings.js` | 1,317 | CSS 설정, 폰트, 프리셋, 스마트 패턴, 히스토리, Gemini |
+| `ui-state.js` | 1,025 | 테마, CSS 미리보기, 탭 전환, 칩 빌더, regexFeed, 스와이프 |
+| `cover-search.js` | 497 | 표지 검색 모달, 플랫폼 스트립, 이미지 크롭 |
+| `epub-gen.js` | 389 | EPUB3 생성, Blob Worker, 이미지 병렬 처리 |
 | `worker.js` | 354 | 인코딩 감지, 텍스트 디코딩, 경량 파서 |
-| `sw.js` | 50 | Service Worker, 오프라인 캐시 |
-| `index.html` | 1,178 | SPA 마크업, 탭 구조, SVG 드롭존 |
-| `style.css` | 1,150 | 테마, 컴포넌트, 애니메이션, 스킨 시스템 |
+| `core.js` | 530 | StateManager, Toast, SettingsDB, EventBus |
+| `sw.js` | 119 | Service Worker, 오프라인 캐시, PWA |
+| **합계** | **13,121** | |
+
+---
+
+## 코드 품질 지표
+
+| 항목 | 수치 |
+|------|------|
+| 총 줄수 | 13,121줄 |
+| 구문 오류 | 0개 (전 파일 `node --check` 통과) |
+| 중복 ID | 0개 |
+| 하드코딩 색상 | 0개 (:root 변수 정의부 제외, 컴포넌트 규칙은 전부 CSS 변수) |
+| Toast innerHTML | 내부 생성 HTML만 허용 (I9 delta), 외부 입력 textContent |
+| Web API 폴백 | FileReader → ArrayBuffer → readAsText |
+| 타임아웃 보호 | fileToText 30초, splitChapters 2분 |
+| IndexedDB 경합 | `_dbPromise` 싱글톤 완전 해결 |
 
 ---
 

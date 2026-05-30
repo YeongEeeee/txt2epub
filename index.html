@@ -1174,8 +1174,18 @@
   <script src="parser.js"></script>
   <!-- ⑤ EPUB3 생성 엔진 (epub-gen.js) -->
   <script src="epub-gen.js"></script>
-  <!-- ⑥ 흐름 제어 & 이벤트 바인딩 (main.js) -->
-  <script src="main.js"></script>
+  <!-- ⑥ 아키텍처 레이어: Toast/EventBus/StateManager/SettingsDB/EventDelegate/상태 프록시 -->
+  <script src="core.js"></script>
+  <!-- ⑦ 설정/프리셋/폰트/히스토리/알림/텍스트표지 -->
+  <script src="settings.js"></script>
+  <!-- ⑧ 표지 검색 모달 (플랫폼 어댑터 + 프록시) -->
+  <script src="cover-search.js"></script>
+  <!-- ⑨ 변환 탭/배치 탭/파일 핸들러/진행률/미리보기/Worker -->
+  <script src="convert.js"></script>
+  <!-- ⑩ EPUB 편집 탭/삽화 삽입/직접 편집 -->
+  <script src="edit.js"></script>
+  <!-- ⑪ UI 상태/이벤트 바인딩/테마/드래그드롭/초기화 -->
+  <script src="ui-state.js"></script>
 
   <!-- ★ FIX-SW: Service Worker 등록 -->
   <!-- sw.js가 존재하는 경우에만 등록 (오프라인 지원 + 자동 캐시 갱신) -->

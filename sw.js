@@ -1,18 +1,25 @@
 // ★ C-03: Service Worker — NovelEPUB 오프라인/PWA 지원
 // ★ FIX-SW: CACHE_NAME에 버전 타임스탬프 삽입 → 배포 시 자동 캐시 무효화
 // ★ 배포할 때마다 아래 CACHE_VERSION 값을 갱신하면 구버전 캐시가 자동으로 삭제됩니다.
-const CACHE_VERSION = '2025-05-31T00:00:00';
+const CACHE_VERSION = '2026-05-31T00:00:00'; // ★ 모듈 분할 버전
 const CACHE_NAME = 'novelepub-' + CACHE_VERSION;
 
 // ★ FIX-SW: '/' → './' 로 변경 (상대경로 안전성 — 서브경로 배포 및 로컬 환경 대응)
+// ★ 모듈 분할: main.js → core.js + settings.js + cover-search.js + convert.js + edit.js + ui-state.js
 const CORE_ASSETS = [
   './',
   './index.html',
-  './main.js',
   './parser.js',
   './epub-gen.js',
   './worker.js',
   './style.css',
+  // ★ 분할된 모듈들
+  './core.js',
+  './settings.js',
+  './cover-search.js',
+  './convert.js',
+  './edit.js',
+  './ui-state.js',
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
 ];
 
