@@ -882,7 +882,7 @@ function showShortcutHelp(){
       saveExtraSettings();
     },
     saveExtraSettingsRenderIll: () => { saveExtraSettings(); renderIllTags(); },
-    updateCssSave:              () => { updateCssPreview(); saveCssSettings(); },
+    updateCssSave:              () => { updateCssPreview(); saveCssSettings(); updateMiniReader&&updateMiniReader(); updateSettingsSummary&&updateSettingsSummary(); },
     // ★ B-02: cssExtra textarea 자동 높이
     cssExtraAutoResize: (el) => {
       el.style.height = 'auto';
@@ -891,10 +891,10 @@ function showShortcutHelp(){
       saveCssSettings();
     },
     saveOptLang:   () => saveExtraSettings(),
-    syncCssLine:   (el) => { syncSelect('cssLine','cssLineSlider','cssLineVal',el.value); updateCssPreview(); saveCssSettings(); },
-    syncCssFontSize:   (el) => { syncSelect('cssFontSize','cssFontSizeSlider','cssFontSizeVal',el.value); updateCssPreview(); saveCssSettings(); },
-    syncCssLineSlider:    (el) => { syncSlider('cssLine','cssLineSlider','cssLineVal',el.value); updateCssPreview(); saveCssSettings(); },
-    syncCssFontSizeSlider:(el) => { syncSlider('cssFontSize','cssFontSizeSlider','cssFontSizeVal',el.value+'em'); updateCssPreview(); saveCssSettings(); },
+    syncCssLine:   (el) => { syncSelect('cssLine','cssLineSlider','cssLineVal',el.value); updateCssPreview(); saveCssSettings(); updateMiniReader&&updateMiniReader(); updateSettingsSummary&&updateSettingsSummary(); },
+    syncCssFontSize:   (el) => { syncSelect('cssFontSize','cssFontSizeSlider','cssFontSizeVal',el.value); updateCssPreview(); saveCssSettings(); updateMiniReader&&updateMiniReader(); updateSettingsSummary&&updateSettingsSummary(); },
+    syncCssLineSlider:    (el) => { syncSlider('cssLine','cssLineSlider','cssLineVal',el.value); updateCssPreview(); saveCssSettings(); updateMiniReader&&updateMiniReader(); updateSettingsSummary&&updateSettingsSummary(); },
+    syncCssFontSizeSlider:(el) => { syncSlider('cssFontSize','cssFontSizeSlider','cssFontSizeVal',el.value+'em'); updateCssPreview(); saveCssSettings(); updateMiniReader&&updateMiniReader(); updateSettingsSummary&&updateSettingsSummary(); },
     syncIndent:           (el) => syncIndent(el.value),
     // ★ 4방향 여백 슬라이더 ↔ 숫자 input 양방향 동기화
     syncPadTop:    (el) => { const n=document.getElementById('cssPadTop');    if(n)n.value=el.value; saveCssSettings(); saveUserPrefs(); },
@@ -1089,6 +1089,11 @@ function setupEventDelegate(){
     // 변환탭 상태 변경 시 리셋바 표시 여부 자동 갱신
     const bar = document.getElementById('convertResetBar');
     if (bar) bar.style.display = (state.txtFiles.length || state.coverFile) ? 'flex' : 'none';
+    // ★ tocItems 변경 → 피드 갱신 + 미니 리더 갱신
+    if(state.tocItems) {
+      updateFeedFromToc&&updateFeedFromToc(state.tocItems);
+      updateMiniReader&&updateMiniReader();
+    }
   });
 }
 
@@ -1378,29 +1383,132 @@ function updateSettingsSummary(){
   const size=document.getElementById('cssFontSize')?.value||'1em';
   const italic=document.getElementById('optItalic')?.checked;
   const indent=document.getElementById('optIndent')?.checked;
+  const merge=document.getElementById('optMergeShortLines')?.checked;
+  const imgConv=document.getElementById('optImgConvert')?.checked!==false;
+  const files=typeof S!=='undefined'&&S.txtFiles?S.txtFiles.length:0;
 
-  // ★ 08: chip 스타일 배너 — 현재 설정 한눈에 확인
-  const files = typeof S!=='undefined'&&S.txtFiles ? S.txtFiles.length : 0;
-  const pat = document.getElementById('pattern')?.value.trim()||'자동감지';
-  const chips = [
-    files>0 ? `📄 ${files}개 파일` : '📄 파일 없음',
-    `⚙️ ${pat.length>14?pat.slice(0,14)+'…':pat}`,
-    `🖋 ${fontName}`,
-    `줄간격 ${line}`,
-    italic?'👻 이탤릭 ON':null,
-    indent?'⇥ 들여쓰기':null,
-  ].filter(Boolean);
-
-  const chipHtml = chips.map(c=>
-    `<span style="display:inline-flex;align-items:center;background:var(--bg2);border:1px solid var(--border);border-radius:99px;padding:2px 9px;font-size:11px;color:var(--text2);white-space:nowrap">${c}</span>`
-  ).join('');
+  // ★ 배지 형태 요약 (opt-badge)
+  function badge(icon, label, val, on){
+    const cls='opt-badge'+(on?' on':' off');
+    return `<span class="${cls}"><span class="opt-badge-icon">${icon}</span> ${label} <span class="opt-badge-val">${val}</span></span>`;
+  }
+  const chipHtml=
+    badge('🔤','폰트',fontName,true)+
+    badge('↕','줄간격',line,true)+
+    badge('📐','크기',size,true)+
+    badge('👻','이탤릭',italic?'ON':'OFF',italic)+
+    badge('⬛','들여쓰기',indent?'ON':'OFF',indent)+
+    badge('📏','문단정합',merge?'ON':'OFF',merge)+
+    badge('🖼','JPG변환',imgConv?'ON':'OFF',imgConv);
 
   [document.getElementById('settingsSummary'), document.getElementById('batchSettingSummary')].forEach(el=>{
     if(el) el.innerHTML=chipHtml;
   });
+  // 미니 리더도 함께 갱신
+  updateMiniReader&&updateMiniReader();
+}
 
-  // ★ 3. 미니 리더도 함께 갱신
-  _refreshMiniReader();
+// ── 미니 리더 실시간 반영 ──
+function updateMiniReader(){
+  const preview=document.getElementById('miniReaderPreview');
+  const title=document.getElementById('miniReaderTitle');
+  const body=document.getElementById('miniReaderBody');
+  const meta=document.getElementById('miniReaderMeta');
+  if(!preview) return;
+  const font=document.getElementById('cssFont')?.value||'"Noto Serif KR",serif';
+  const lineH=document.getElementById('cssLine')?.value||'1.9';
+  const fontSize=document.getElementById('cssFontSize')?.value||'1em';
+  const bgColor=document.getElementById('cssBgColor')?.value||'#fdf8f3';
+  const txColor=document.getElementById('cssTextColor')?.value||'#2d1f14';
+  preview.style.fontFamily=font;
+  preview.style.lineHeight=lineH;
+  preview.style.fontSize=fontSize;
+  preview.style.background=bgColor;
+  preview.style.color=txColor;
+  // 목차가 있으면 첫 챕터 반영
+  const toc=typeof S!=='undefined'&&S.tocItems?S.tocItems.filter(t=>t.enabled):[];
+  if(toc.length>0&&title&&body){
+    title.textContent=toc[0].title||'1화';
+    const previewText=(toc[0].body||'').slice(0,200).replace(/\n{2,}/g,'\n').trim();
+    if(previewText){
+      body.innerHTML=previewText
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/^—\s/gm,'<em>— ').replace(/\n/g,'<br>')
+        +(previewText.includes('—')?'</em>':'');
+    }
+  }
+  if(meta){
+    const fontName=font.split(',')[0].replace(/['"]/g,'').trim()||'Noto Serif KR';
+    meta.innerHTML=
+      `<span class="mini-reader-stat">폰트 <strong>${fontName}</strong></span>`+
+      `<span class="mini-reader-stat">줄간격 <strong>${lineH}</strong></span>`+
+      `<span class="mini-reader-stat">크기 <strong>${fontSize}</strong></span>`;
+  }
+  preview.classList.add('updating');
+  setTimeout(()=>preview.classList.remove('updating'),500);
+}
+
+// ── 하단 바 파일 상태 업데이트 ──
+function updateBtmBar(files){
+  const bar=document.getElementById('btmConvert');
+  const btn=document.getElementById('convertBtn');
+  const stat=document.getElementById('btmFileStatus');
+  if(!bar||!btn) return;
+  const hasFile=files&&files.length>0;
+  bar.classList.toggle('ready',hasFile);
+  btn.setAttribute('data-ready',hasFile?'true':'false');
+  if(stat){
+    if(!hasFile){
+      stat.className='btm-status-val none';
+      stat.textContent='선택 안 됨';
+    }else if(files.length===1){
+      const kb=Math.round(files[0].size/1024);
+      stat.className='btm-status-val ok';
+      stat.textContent=`${files[0].name.length>18?files[0].name.slice(0,18)+'…':files[0].name} (${kb}KB)`;
+    }else{
+      stat.className='btm-status-val ok';
+      stat.textContent=`${files.length}개 파일 선택됨`;
+    }
+  }
+}
+
+// ── 실시간 피드백 피드 갱신 ──
+function updateFeedFromToc(tocArray){
+  const feed=document.getElementById('regexFeed');
+  const list=document.getElementById('regexFeedList');
+  const badge=document.getElementById('detectBadge');
+  const stat=document.getElementById('regexFeedStat');
+  if(!feed) return;
+  feed.style.display='';
+  const total=tocArray?tocArray.length:0;
+  let suspThreshold=50;
+  try{suspThreshold=parseInt(document.getElementById('suspThresholdSlider')?.value||'50')||50;}catch(e){}
+  const shortCount=total?tocArray.filter(c=>(c.bodyLen||0)>0&&(c.bodyLen||0)<suspThreshold).length:0;
+  if(badge){
+    badge.className='detect-badge'+(total===0?' zero':shortCount>0?' warn':'');
+    badge.innerHTML=total>0
+      ?`<span class="detect-badge-num">${total}</span>개 장 감지됨`
+      :'감지된 챕터 없음';
+  }
+  if(list&&total>0){
+    const preview=(tocArray||[]).slice(0,8);
+    list.innerHTML=preview.map((ch,i)=>{
+      const chars=ch.bodyLen||0;
+      const isShort=chars>0&&chars<suspThreshold;
+      const badgeCls='feed-item-badge'+(isShort?' short':chars>0?' ok':'');
+      const badgeTxt=chars>0?(isShort?`⚠ ${chars}자`:`${chars.toLocaleString()}자`):'';
+      const prev=(ch.body||'').replace(/\n/g,' ').slice(0,60);
+      const titleSafe=(ch.title||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const prevSafe=prev.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      return `<div class="feed-item"><span class="feed-item-num">${i+1}</span><div class="feed-item-body"><div class="feed-item-title">${titleSafe}</div>${prevSafe?`<div class="feed-item-preview">${prevSafe}…</div>`:''}</div>${badgeTxt?`<span class="${badgeCls}">${badgeTxt}</span>`:''}</div>`;
+    }).join('');
+  }else if(list){
+    list.innerHTML='<div class="regex-feed-empty"><div class="regex-feed-empty-icon">📄</div>패턴을 입력하거나 목차 확인을 눌러주세요</div>';
+  }
+  if(stat){
+    stat.textContent=total>8?`1–8 / ${total}개 · ${shortCount>0?`⚠ 짧은 챕터 ${shortCount}개`:''}`
+      :(total>0?`총 ${total}개${shortCount>0?` · ⚠ 짧은 챕터 ${shortCount}개`:''}`:' ');
+  }
 }
 
 // ══════════════════════════════════════════
@@ -1837,6 +1945,9 @@ function resetConvertTxt(){
   document.getElementById('tocPanel')?.classList.remove('show');
   ['title','author','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('convertResetBar').style.display='none';
+  // ★ 피드 + 바 초기화
+  const regexFeed=document.getElementById('regexFeed');if(regexFeed)regexFeed.style.display='none';
+  updateBtmBar&&updateBtmBar([]);
 }
 function resetConvertCover(){
   S.coverFile=null;
@@ -2051,6 +2162,7 @@ function loadCssSettings(){
     }
     if(saved.extra&&document.getElementById('cssExtra'))document.getElementById('cssExtra').value=saved.extra;
     updateCssPreview();
+    updateMiniReader&&updateMiniReader();
   }catch(e){}
 }
 
@@ -2131,6 +2243,7 @@ function handleTxt(files, append=false){
   _chaptersCache=null; // 캐시 무효화
 
   renderTxtFileList();
+  updateBtmBar&&updateBtmBar(S.txtFiles); // ★ 스티키 바 상태 갱신
 
   // ★ 자동 미리보기 — optAutoPreview 없어도 파일 1개면 바로 실행
   const autoEl=document.getElementById('optAutoPreview');
@@ -2153,11 +2266,6 @@ function handleTxt(files, append=false){
     if(titleEl&&!titleEl.value) titleEl.value=title;
     if(authorEl&&!authorEl.value) authorEl.value=author;
   }
-
-  // ★ 5. btm 상태 피드백 갱신
-  _updateBtmStatus();
-  // ★ 3. 미니 리더 샘플 텍스트 갱신
-  _refreshMiniReader();
 }
 handleTxt._timer=null; // 디바운스 타이머 초기화
 
@@ -3084,125 +3192,6 @@ async function startConvert(){
     document.getElementById('errBox').textContent='❌ '+friendlyError(e);
     document.getElementById('errBox')?.classList.add('show');
   }
-}
-
-// ══════════════════════════════════════════
-// ★ UI/UX 개선 5가지 방향 — JS 기능
-// ══════════════════════════════════════════
-
-// ── 5. btm 상태 피드백 ──────────────────
-function _updateBtmStatus(){
-  const btn    = document.getElementById('btnStartConvert');
-  const status = document.getElementById('btmConvertStatus');
-  const badge  = document.getElementById('btmFileBadge');
-  const btm    = document.getElementById('btmConvert');
-  const sizeHint = document.getElementById('btmEpubSizeHint');
-  if(!btn) return;
-  const fileCount = (typeof S!=='undefined'&&S.txtFiles) ? S.txtFiles.length : 0;
-  const hasTitle  = !!document.getElementById('title')?.value.trim();
-  if(fileCount === 0){
-    btn.classList.add('not-ready');
-    btm?.classList.remove('btm-ready');
-    if(status){ status.textContent='파일을 업로드해주세요'; status.className='btm-status warn'; }
-    if(badge)  badge.style.display='none';
-    if(sizeHint) sizeHint.textContent='';
-  } else {
-    const wasNotReady = btn.classList.contains('not-ready');
-    btn.classList.remove('not-ready');
-    btm?.classList.add('btm-ready');
-    if(status){
-      const titlePreview = hasTitle?' · '+document.getElementById('title').value.trim().slice(0,18):'';
-      status.textContent = fileCount+'개 파일 준비 완료'+titlePreview;
-      status.className = 'btm-status ready';
-    }
-    if(badge){ badge.textContent=fileCount+'개'; badge.style.display=''; }
-    // 예상 크기 힌트
-    if(sizeHint){
-      const txtBytes = S.txtFiles.reduce((s,f)=>s+f.size,0);
-      const imgBytes = (S.illFiles||[]).reduce((s,f)=>s+f.size,0)+(S.coverFile?.size||0);
-      const estKb = Math.round((txtBytes*0.6+imgBytes*0.85)/1024);
-      const sizeStr = estKb>1024?(estKb/1024).toFixed(1)+'MB':estKb+'KB';
-      sizeHint.textContent = '예상 ' + sizeStr;
-      sizeHint.style.color = estKb>20480 ? 'var(--accent)' : 'var(--text2)';
-    }
-    if(wasNotReady){
-      btn.classList.add('just-ready');
-      setTimeout(()=>btn.classList.remove('just-ready'), 600);
-    }
-  }
-}
-
-// ── 3. 미니 리더 미리보기 ───────────────
-let _miniReaderTheme = 'white';
-function setMiniReaderTheme(theme){
-  _miniReaderTheme = theme;
-  const body = document.getElementById('miniReaderBody');
-  if(body){
-    body.classList.remove('rt-sepia','rt-dark');
-    if(theme==='sepia') body.classList.add('rt-sepia');
-    if(theme==='dark')  body.classList.add('rt-dark');
-  }
-  ['rt-white','rt-sepia','rt-dark'].forEach(id=>{
-    const b=document.getElementById(id);
-    if(b) b.classList.toggle('active', id==='rt-'+theme);
-  });
-}
-function _refreshMiniReader(){
-  const body = document.getElementById('miniReaderBody');
-  if(!body) return;
-  const fontVal = document.getElementById('cssFont')?.value || '"Noto Serif KR",serif';
-  const lineVal = document.getElementById('cssLine')?.value  || '1.9';
-  const sizeVal = document.getElementById('cssFontSize')?.value || '1em';
-  const useItalic = document.getElementById('optItalic')?.checked;
-  body.style.fontFamily = fontVal;
-  body.style.lineHeight = lineVal;
-  body.style.fontSize   = sizeVal;
-  let sampleHtml = '';
-  if(typeof S!=='undefined' && S.tocItems?.length){
-    const first = S.tocItems.find(t=>t.enabled&&t.body);
-    if(first){
-      sampleHtml = first.body.trim().split('\n').filter(l=>l.trim()).slice(0,4).map(l=>{
-        const esc = l.replace(/&/g,'&amp;').replace(/</g,'&lt;');
-        return (useItalic && /^[-\u2014]/.test(l.trim()))
-          ? '<em style="color:var(--text2)">'+esc+'</em>'
-          : '<span>'+esc+'</span>';
-      }).join('<br>');
-    }
-  }
-  if(!sampleHtml) sampleHtml='<em style="color:var(--text3);font-size:12px">변환 옵션 설정 후 실제 본문이 표시돼요.</em>';
-  body.innerHTML = sampleHtml;
-  setMiniReaderTheme(_miniReaderTheme);
-}
-
-// ── 4. 실시간 피드백 피드 ───────────────
-function updatePatFeedback(tocItems){
-  const wrap   = document.getElementById('patFeedbackWrap');
-  const header = document.getElementById('patFeedbackLabel');
-  const badge  = document.getElementById('patDetectBadge');
-  const list   = document.getElementById('patFeedbackList');
-  if(!wrap||!list) return;
-  if(!tocItems||!tocItems.length){
-    wrap.classList.remove('has-result');
-    if(badge){ badge.textContent='—'; badge.className='pattern-detect-badge muted'; }
-    if(header) header.textContent='목차 확인 후 결과가 표시돼요';
-    list.innerHTML='<div class="pfl-empty">🔍 패턴 확인 버튼을 눌러 챕터를 감지해보세요</div>';
-    return;
-  }
-  wrap.classList.add('has-result');
-  const active = tocItems.filter(t=>t.enabled).length;
-  const suspN  = tocItems.filter(t=>t.suspicious).length;
-  const totalChars = tocItems.filter(t=>t.enabled)
-    .reduce((s,t)=>s+(typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length),0);
-  if(badge){ badge.textContent='총 '+active.toLocaleString()+'개 챕터 감지됨'; badge.className='pattern-detect-badge'+(suspN>0?' warn':''); }
-  if(header) header.textContent=(totalChars/10000).toFixed(1)+'만자'+(suspN>0?' · ⚠ 짧은챕터 '+suspN+'개':'');
-  const items = tocItems.filter(t=>t.enabled).slice(0,30);
-  list.innerHTML = items.map((t,i)=>{
-    const bl=typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length;
-    const blStr=bl>=10000?(bl/10000).toFixed(1)+'만':bl>=1000?(bl/1000).toFixed(1)+'k':bl+'자';
-    const susp=t.suspicious?'<span style="font-size:9px;color:var(--accent)">⚠</span>':'';
-    const title=t.title.replace(/&/g,'&amp;').replace(/</g,'&lt;').slice(0,40);
-    return '<div class="pfl-item"><span class="pfl-num">'+String(i+1).padStart(3,'0')+'</span>'+susp+'<span class="pfl-title">'+title+'</span><span class="pfl-chars">'+blStr+'</span></div>';
-  }).join('')+(tocItems.filter(t=>t.enabled).length>30?'<div class="pfl-empty">… 외 '+(tocItems.filter(t=>t.enabled).length-30)+'개 더</div>':'');
 }
 
 // ★ 07: 결과 카드 count-up + shimmer 애니메이션
@@ -7078,11 +7067,6 @@ window.addEventListener('DOMContentLoaded', ()=>{
 
   // ★ 09: 컬러 스킨 초기화
   initSkin();
-
-  // ★ UI 개선 초기화
-  _updateBtmStatus();
-  if(typeof _bindMiniReaderRefresh==='function') _bindMiniReaderRefresh();
-  setTimeout(_refreshMiniReader, 100);
 });
 
 // ★ 09: 컬러 스킨 시스템
