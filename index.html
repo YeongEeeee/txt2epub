@@ -171,8 +171,8 @@
         <button class="ttab" data-action="tocTab" data-idx="3">정규식 수정</button>
         <!-- ★ 단축키 힌트 -->
         <span id="tocShortcutHint" class="txt-meta-sm" style="margin-left:auto;align-self:center;padding-right:4px;transition:opacity .5s"
-              title="Ctrl+클릭으로 여러 항목을 선택하면 병합 가능 | Ctrl+Enter: 변환 시작 | Ctrl+D: 다운로드">
-          💡 Ctrl+클릭=병합
+              title="Ctrl+클릭: 다중 선택 | Shift+클릭: 범위 선택 | 드래그 중앙: 병합 | ☑ 선택 모드: 터치 친화 | Ctrl+Enter: 변환 | Ctrl+D: 다운로드">
+          💡 Shift=범위선택 · 드래그중앙=병합
         </span>
       </div>
       <div id="toc-stat" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid var(--border);min-height:32px"></div>
@@ -1160,6 +1160,24 @@
     <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
     <span class="btm-hint-notready" id="btmNotReadyHint">TXT 파일을 먼저 추가해주세요</span>
   </div>
+</div>
+<!-- ★ EPUB 다운로드 완료 플로팅 바 (변환 완료 후 상시 노출) -->
+<div class="btm btm-dl" id="btmDownload" style="display:none" role="toolbar" aria-label="EPUB 다운로드 바">
+  <div class="btm-dl-info">
+    <span class="btm-dl-icon">📗</span>
+    <div class="btm-dl-meta">
+      <span class="btm-dl-label">변환 완료</span>
+      <span class="btm-dl-name" id="btmDlName">output.epub</span>
+    </div>
+  </div>
+  <button class="btn btn-green btm-dl-btn" id="btmDlBtn" data-action="downloadEpub"
+          aria-label="EPUB 다운로드 (Ctrl+D)">
+    ⬇ EPUB 다운로드
+  </button>
+  <div class="btm-hint" style="flex-shrink:0">
+    <kbd>Ctrl</kbd>+<kbd>D</kbd>
+  </div>
+  <button class="btm-dl-close" id="btmDlClose" aria-label="다운로드 바 닫기" title="닫기 (변환 결과는 위 카드에서 다시 다운로드 가능)">✕</button>
 </div>
 <!-- 일괄변환 탭 -->
 <div class="btm" id="btmBatch" style="display:none">

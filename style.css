@@ -1224,9 +1224,138 @@ input:-webkit-autofill:focus{
   border-radius: 8px;
 }
 
-/* ★ U-14: 목차 핸들 키보드 잡기 상태 */
-.toc-drag-handle[aria-pressed=true] {
-  outline: 2px solid var(--accent);
-  border-radius: 3px;
-  background: var(--accent-bg);
+
+/* ══════════════════════════════════════════════
+   ★ 목차 병합 UX 개선 + EPUB 다운로드 완료 바
+   ══════════════════════════════════════════════ */
+
+/* ── 개선 01: 행 호버 퀵 선택 버튼 ── */
+.toc-quick-sel-btn{
+  flex-shrink:0;
+  opacity:0;
+  width:18px;height:18px;
+  border-radius:4px;
+  border:1.5px solid var(--blue);
+  background:var(--blue-bg);
+  color:var(--blue);
+  font-size:12px;font-weight:700;
+  line-height:1;
+  cursor:pointer;
+  transition:opacity var(--dur-fast),background var(--dur-fast),color var(--dur-fast);
+  display:flex;align-items:center;justify-content:center;
+  padding:0;
+  margin-left:auto;
 }
+.toc-item:hover .toc-quick-sel-btn{opacity:1}
+.toc-item.multi-selected .toc-quick-sel-btn{
+  opacity:1;
+  background:var(--blue);color:#fff;
+  content:'✓';
+}
+.toc-quick-sel-btn:hover{background:var(--blue);color:#fff}
+
+/* ── 개선 09: 드래그 병합 드롭존 강조 ── */
+.toc-item.drag-merge-target{
+  background:var(--blue-bg)!important;
+  outline:2px dashed var(--blue);
+  outline-offset:-2px;
+  border-radius:6px;
+}
+.toc-item.drag-merge-target::after{
+  content:'🔗 병합';
+  position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  font-size:10px;color:var(--blue);font-weight:700;
+  background:var(--blue-bg);border:1px solid var(--blue);
+  border-radius:4px;padding:1px 6px;pointer-events:none;
+}
+.toc-item{position:relative}
+
+/* ── 개선 03: 병합 툴바 flex-direction column 지원 ── */
+#toc-merge-bar{border-radius:8px;animation:fadeUp2 .2s ease}
+#toc-merge-btn:disabled{opacity:.4;cursor:not-allowed}
+
+/* ── 개선 04: 병합 행 분리 버튼 ── */
+.toc-item[data-merged="1"]{border-left:3px solid var(--blue)}
+
+/* ══ EPUB 다운로드 완료 플로팅 바 ══ */
+@keyframes btmDlSlideUp{
+  from{opacity:0;transform:translateY(20px)}
+  to{opacity:1;transform:translateY(0)}
+}
+@keyframes btmDlPulse{
+  0%,100%{box-shadow:0 -4px 24px rgba(42,128,80,.25),0 0 0 0 rgba(42,128,80,.4)}
+  50%{box-shadow:0 -4px 24px rgba(42,128,80,.4),0 0 0 6px rgba(42,128,80,0)}
+}
+
+.btm-dl{
+  /* 변환 바 위에 레이어링 */
+  z-index:201;
+  justify-content:flex-start;
+  gap:12px;
+  padding:10px 20px;
+  border-top:2px solid var(--green);
+  background:rgba(255,255,255,.94);
+  animation:btmDlSlideUp .3s var(--ease);
+}
+[data-theme=dark] .btm-dl{
+  background:rgba(18,18,18,.94);
+}
+.btm-dl.pulse{animation:btmDlSlideUp .3s var(--ease),btmDlPulse 1.2s ease 0.3s 2}
+
+.btm-dl-info{
+  display:flex;align-items:center;gap:10px;flex:1;min-width:0;
+}
+.btm-dl-icon{font-size:22px;flex-shrink:0}
+.btm-dl-meta{
+  display:flex;flex-direction:column;gap:1px;min-width:0;
+}
+.btm-dl-label{
+  font-size:10px;color:var(--green);font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+}
+.btm-dl-name{
+  font-size:12px;font-weight:600;color:var(--text);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;
+}
+
+.btm-dl-btn{
+  flex-shrink:0;
+  height:44px;
+  font-size:14px;font-weight:700;
+  padding:0 22px;
+  border-radius:10px;
+  background:var(--green)!important;
+  border-color:var(--green)!important;
+  color:#fff!important;
+  box-shadow:0 4px 16px rgba(42,128,80,.35);
+  transition:transform var(--dur-fast),box-shadow var(--dur-fast);
+  white-space:nowrap;
+}
+.btm-dl-btn:hover{
+  transform:translateY(-2px);
+  box-shadow:0 6px 22px rgba(42,128,80,.5);
+}
+.btm-dl-btn:active{transform:scale(.97)}
+
+.btm-dl-close{
+  flex-shrink:0;
+  background:none;border:none;
+  color:var(--text2);font-size:14px;
+  cursor:pointer;padding:4px 6px;
+  border-radius:4px;
+  transition:color var(--dur-fast),background var(--dur-fast);
+  line-height:1;
+}
+.btm-dl-close:hover{color:var(--accent);background:var(--accent-bg)}
+
+/* 다운로드 바가 표시될 때 변환 바는 숨김 */
+#btmDownload:not([style*="none"]) ~ #btmBatch,
+#btmDownload:not([style*="none"]) ~ #btmEdit{ /* 아무 영향 없음, 별도 제어 */ }
+
+/* 모바일 대응 */
+@media(max-width:600px){
+  .btm-dl{padding:8px 12px;gap:8px}
+  .btm-dl-name{max-width:100px}
+  .btm-dl-btn{height:40px;font-size:13px;padding:0 14px}
+  .btm-dl-info{flex:1;min-width:0}
+}
+

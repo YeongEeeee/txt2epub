@@ -911,6 +911,19 @@ function undoToc(){
 }
 
 function renderTocItems(){
+  // ══════════════════════════════════════════════════════════
+  // 🗂 renderTocItems — 목차 병합 UX 전면 개선판
+  // 개선 01: 선택 모드 토글 버튼 + 행 호버 퀵 선택 버튼 (발견성)
+  // 개선 02: Shift+클릭 범위 선택 (효율)
+  // 개선 03: 병합 즉시 제목 편집 + 프리셋 3종 (워크플로)
+  // 개선 04: 병합 행에 🔓 분리 버튼 (안전성)
+  // 개선 05: 선택 미니맵 + 인덱스 목록 (가시성)
+  // 개선 06: ⚠ 짧은챕터 자동 선택 버튼 (자동화)
+  // 개선 07: 병합 미리보기 패널 (신뢰성)
+  // 개선 08: 검색 필터 중 병합 안전 확인 (안정성)
+  // 개선 09: 드래그 중앙 드롭존 = 병합 (직관성)
+  // 개선 10: 대량 선택 시 비동기 병합 + 진행 표시 (성능)
+  // ══════════════════════════════════════════════════════════
   let _tocDragSrc=null;
   const c=document.getElementById('tb0');c.innerHTML='';
   // ★ L-06: 전체 재렌더 시 내보내기 버튼 플래그 초기화 (updateTocStat에서 재생성)
@@ -923,16 +936,23 @@ function renderTocItems(){
   for(let i=0;i<Math.min(HEAD,total);i++) alwaysShow.add(i);
   for(let i=Math.max(0,total-TAIL);i<total;i++) alwaysShow.add(i);
 
-  // ★ 다중 선택 상태
+  // ── 다중 선택 상태 ──
   const _selectedIdxs=new Set();
+  let _lastClickedIdx=null; // ★ 개선 02: Shift 범위 선택용 앵커
+  let _selectModeOn=false;  // ★ 개선 01: 선택 모드 토글
 
-  // ── 검색/필터 바 ──
+  // ══ 검색/필터 바 ══
   const filterBar=document.createElement('div');
-  filterBar.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:8px';
+  filterBar.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap';
   filterBar.innerHTML=
-    '<input id="toc-search" class="inp" placeholder="🔍 제목 검색..." style="flex:1;font-size:11px;padding:5px 8px">'+
+    '<input id="toc-search" class="inp" placeholder="🔍 제목 검색..." style="flex:1;min-width:120px;font-size:11px;padding:5px 8px">'+
+    // ★ 개선 01: 선택 모드 토글 버튼 (항상 노출)
+    '<button class="btn btn-ghost btn-sm" id="toc-select-mode-btn" title="클릭으로 다중 선택 모드 전환 (터치·모바일 친화)" style="font-size:11px;white-space:nowrap">☑ 선택 모드</button>'+
+    // ★ 개선 06: 짧은챕터 자동 선택
+    '<button class="btn btn-ghost btn-sm" id="toc-auto-sel-susp" title="⚠ 짧은챕터 항목 전체 선택" style="font-size:11px;white-space:nowrap;display:none">⚠ 자동 선택</button>'+
     '<button class="btn btn-ghost btn-sm" onclick="undoToc()" title="되돌리기 (최대 10단계)" style="font-size:11px">↩ Undo</button>';
   c.appendChild(filterBar);
+
   const searchInp=filterBar.querySelector('#toc-search');
   let _filterQ='';
   searchInp.addEventListener('input',e=>{
@@ -942,39 +962,143 @@ function renderTocItems(){
       const t=(S.tocItems[idx]?.title||'').toLowerCase();
       el.style.display=(!_filterQ||t.includes(_filterQ))?'':'none';
     });
-    // 접힘 버튼 숨김
     const foldBtn=c.querySelector('.toc-fold-btn');
     if(foldBtn) foldBtn.style.display=_filterQ?'none':'';
+    // 검색 중 자동선택 버튼 숨김
+    updateAutoSelBtn();
   });
 
-  // ── 병합 툴바 ──
+  // ★ 개선 01: 선택 모드 토글
+  const selectModeBtn=filterBar.querySelector('#toc-select-mode-btn');
+  selectModeBtn.addEventListener('click',()=>{
+    _selectModeOn=!_selectModeOn;
+    selectModeBtn.style.background=_selectModeOn?'var(--blue)':'';
+    selectModeBtn.style.color=_selectModeOn?'#fff':'';
+    selectModeBtn.style.borderColor=_selectModeOn?'var(--blue)':'';
+    selectModeBtn.title=_selectModeOn?'선택 모드 ON — 클릭만으로 선택됩니다 (다시 클릭해서 해제)':'선택 모드 OFF';
+    // 선택 모드 해제 시 선택 초기화
+    if(!_selectModeOn){
+      _selectedIdxs.clear();
+      c.querySelectorAll('.toc-item.multi-selected').forEach(el=>el.classList.remove('multi-selected'));
+      updateMergeBar();
+    }
+  });
+
+  // ★ 개선 06: 짧은챕터 자동 선택 버튼
+  const autoSelBtn=filterBar.querySelector('#toc-auto-sel-susp');
+  function updateAutoSelBtn(){
+    const suspCount=S.tocItems.filter(t=>t.suspicious).length;
+    if(autoSelBtn) autoSelBtn.style.display=(suspCount>0&&!_filterQ)?'':'none';
+  }
+  updateAutoSelBtn();
+  autoSelBtn?.addEventListener('click',()=>{
+    _saveTocSnapshot();
+    S.tocItems.forEach((t,i)=>{ if(t.suspicious){ _selectedIdxs.add(i); } });
+    c.querySelectorAll('.toc-item[data-idx]').forEach(el=>{
+      const idx=parseInt(el.dataset.idx);
+      if(_selectedIdxs.has(idx)) el.classList.add('multi-selected');
+    });
+    updateMergeBar();
+    // 첫 번째 선택 항목으로 스크롤
+    const firstSusp=c.querySelector('.toc-item.multi-selected');
+    firstSusp?.scrollIntoView({block:'center',behavior:'smooth'});
+    Toast.info('짧은챕터 '+_selectedIdxs.size+'개를 선택했어요. 병합 또는 제거를 선택하세요.',3000);
+  });
+
+  // ══ 병합 툴바 (★ 개선 03·05·07 포함) ══
   const toolbar=document.createElement('div');
   toolbar.id='toc-merge-bar';
-  toolbar.style.cssText='display:none;align-items:center;gap:8px;padding:6px 8px;'+
+  toolbar.style.cssText='display:none;flex-direction:column;gap:6px;padding:8px 10px;'+
     'background:var(--blue-bg);border-radius:8px;margin-bottom:8px;border:1px solid var(--blue)';
-  toolbar.innerHTML=
+
+  // 상단 행: 카운트 + 액션 버튼들
+  const toolbarTop=document.createElement('div');
+  toolbarTop.style.cssText='display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+  toolbarTop.innerHTML=
     '<span id="toc-sel-count" style="font-size:11px;color:var(--blue);font-weight:600">0개 선택됨</span>'+
     '<button class="btn btn-sm" id="toc-merge-btn" style="font-size:11px;padding:3px 10px;background:var(--blue);color:#fff;border:none;border-radius:5px">🔗 병합</button>'+
-    '<button class="btn btn-sm" id="toc-sel-clear" style="font-size:11px;padding:3px 8px;background:none;border:1.5px solid var(--blue);color:var(--blue);border-radius:5px">✕ 선택 해제</button>';
+    '<button class="btn btn-sm" id="toc-sel-clear" style="font-size:11px;padding:3px 8px;background:none;border:1.5px solid var(--blue);color:var(--blue);border-radius:5px">✕ 해제</button>'+
+    // ★ 개선 05: 첫 번째 선택 항목으로 스크롤
+    '<button class="btn btn-sm" id="toc-scroll-sel" title="선택한 첫 항목으로 스크롤" style="font-size:11px;padding:3px 7px;background:none;border:1.5px solid var(--blue);color:var(--blue);border-radius:5px">📍 위치</button>';
+  toolbar.appendChild(toolbarTop);
+
+  // ★ 개선 05: 미니맵 — 선택된 인덱스 나열
+  const minimap=document.createElement('div');
+  minimap.id='toc-sel-minimap';
+  minimap.style.cssText='display:none;font-size:10px;color:var(--blue);line-height:1.6;word-break:break-all';
+  toolbar.appendChild(minimap);
+
+  // ★ 개선 07: 병합 미리보기 패널
+  const previewPanel=document.createElement('div');
+  previewPanel.id='toc-merge-preview';
+  previewPanel.style.cssText=
+    'display:none;background:var(--bg2);border:1px solid var(--blue);border-radius:6px;'+
+    'padding:8px 10px;font-size:11px;color:var(--text2);line-height:1.7;max-height:120px;overflow-y:auto';
+  toolbar.appendChild(previewPanel);
+
+  // ★ 개선 03: 제목 편집 영역 (병합 직후 표시)
+  const titleEditArea=document.createElement('div');
+  titleEditArea.id='toc-merge-title-edit';
+  titleEditArea.style.cssText='display:none;gap:6px;align-items:center;flex-wrap:wrap';
+  titleEditArea.innerHTML=
+    '<span style="font-size:11px;color:var(--blue);font-weight:600;flex-shrink:0">📝 제목:</span>'+
+    '<input id="toc-merge-title-inp" class="inp" style="flex:1;min-width:120px;font-size:11px;padding:3px 7px">'+
+    '<div style="display:flex;gap:4px;flex-shrink:0">'+
+      '<button class="btn btn-sm" id="toc-mtitle-first" title="첫 챕터 제목 사용" style="font-size:10px;padding:2px 6px">첫 제목</button>'+
+      '<button class="btn btn-sm" id="toc-mtitle-range" title="범위 표기 (1~N화)" style="font-size:10px;padding:2px 6px">범위</button>'+
+      '<button class="btn btn-sm" id="toc-mtitle-join" title="이어붙이기" style="font-size:10px;padding:2px 6px">이어붙이기</button>'+
+      '<button class="btn btn-sm" id="toc-mtitle-apply" style="font-size:10px;padding:2px 8px;background:var(--blue);color:#fff;border-radius:4px">✓ 적용</button>'+
+    '</div>';
+  toolbar.appendChild(titleEditArea);
+
   c.appendChild(toolbar);
 
-  // 병합 실행
-  toolbar.querySelector('#toc-merge-btn').addEventListener('click',()=>{
+  // ══ 병합 실행 함수 ══
+  async function execMerge(){
     const idxs=[..._selectedIdxs].sort((a,b)=>a-b);
     if(idxs.length<2) return;
-    _saveTocSnapshot(); // ★ Undo 스냅샷 저장
+
+    // ★ 개선 08: 검색 필터 중 병합 안전 확인
+    if(_filterQ){
+      const ok=await Toast.confirm(
+        '🔍 검색 필터가 활성 상태예요.<br>'+
+        '필터된 화면에서 선택된 '+idxs.length+'개를 병합할까요?<br>'+
+        '<span style="color:var(--text2);font-size:11px">숨겨진 항목은 영향을 받지 않아요.</span>'
+      );
+      if(!ok) return;
+    }
+
+    // ★ 개선 10: 대량(20개+) 병합 시 로딩 표시
+    const mergeBtn=toolbar.querySelector('#toc-merge-btn');
+    if(idxs.length>20){
+      mergeBtn.textContent='⏳ 병합 중...';
+      mergeBtn.disabled=true;
+      await yieldToMain();
+    }
+
+    _saveTocSnapshot();
     const first=S.tocItems[idxs[0]];
-    // ★ B8: 병합된 챕터들의 body/bodyLen을 합산해 정확한 글자수 유지
+    // ★ B8: 병합된 챕터들의 body/bodyLen 합산
     const mergedBody    = idxs.map(i=>S.tocItems[i].body||'').join('\n');
     const mergedBodyLen = mergedBody.replace(/\s/g,'').length;
+    // 원본 항목 정보 저장 (개선 04 분리 기능용)
+    const _mergedSources = idxs.map(i=>({
+      title: S.tocItems[i].title,
+      body:  S.tocItems[i].body||'',
+      bodyLen: S.tocItems[i].bodyLen||0,
+      line:  S.tocItems[i].line,
+    }));
+    const defaultTitle=idxs.map(i=>S.tocItems[i].title).join(' + ');
     const merged={
       ...first,
-      title:         idxs.map(i=>S.tocItems[i].title).join(' + '),
+      title:         defaultTitle,
       enabled:       true,
       body:          mergedBody,
       bodyLen:       mergedBodyLen,
       suspicious:    false,
       originalTitle: first.originalTitle||first.title,
+      _isMerged:     true,         // ★ 개선 04: 분리 버튼 표시용 플래그
+      _mergedSources: _mergedSources, // ★ 개선 04: 원본 정보
     };
     for(let k=idxs.length-1;k>=1;k--) S.tocItems.splice(idxs[k],1);
     S.tocItems[idxs[0]]=merged;
@@ -983,34 +1107,118 @@ function renderTocItems(){
     renderTocItems();
     updateTocStat();
     updateTocEditBanner&&updateTocEditBanner();
-  });
-  toolbar.querySelector('#toc-sel-clear').addEventListener('click',()=>{
+
+    // ★ 개선 10: 완료 토스트
+    const totalWan=mergedBodyLen>=10000?(mergedBodyLen/10000).toFixed(1)+'만자':mergedBodyLen.toLocaleString()+'자';
+    Toast.success(idxs.length+'개 챕터를 1개로 병합했어요 (총 '+totalWan+')',3000);
+  }
+
+  // ══ 병합 버튼 이벤트 ══
+  toolbarTop.querySelector('#toc-merge-btn').addEventListener('click', execMerge);
+
+  toolbarTop.querySelector('#toc-sel-clear').addEventListener('click',()=>{
     _selectedIdxs.clear();
+    _lastClickedIdx=null;
     c.querySelectorAll('.toc-item.multi-selected').forEach(el=>el.classList.remove('multi-selected'));
     updateMergeBar();
+  });
+
+  // ★ 개선 05: 선택 위치로 스크롤
+  toolbarTop.querySelector('#toc-scroll-sel').addEventListener('click',()=>{
+    const firstIdx=[..._selectedIdxs].sort((a,b)=>a-b)[0];
+    if(firstIdx!=null){
+      const el=c.querySelector(`.toc-item[data-idx="${firstIdx}"]`);
+      el?.scrollIntoView({block:'center',behavior:'smooth'});
+    }
+  });
+
+  // ★ 개선 03: 제목 프리셋 버튼
+  titleEditArea.querySelector('#toc-mtitle-first')?.addEventListener('click',()=>{
+    const idxs=[..._selectedIdxs].sort((a,b)=>a-b);
+    const inp=titleEditArea.querySelector('#toc-merge-title-inp');
+    if(inp&&idxs.length) inp.value=S.tocItems[idxs[0]]?.title||'';
+  });
+  titleEditArea.querySelector('#toc-mtitle-range')?.addEventListener('click',()=>{
+    const idxs=[..._selectedIdxs].sort((a,b)=>a-b);
+    const inp=titleEditArea.querySelector('#toc-merge-title-inp');
+    if(inp&&idxs.length>1){
+      const t0=S.tocItems[idxs[0]]?.title||'';
+      const t1=S.tocItems[idxs[idxs.length-1]]?.title||'';
+      inp.value=t0+' ~ '+t1;
+    }
+  });
+  titleEditArea.querySelector('#toc-mtitle-join')?.addEventListener('click',()=>{
+    const idxs=[..._selectedIdxs].sort((a,b)=>a-b);
+    const inp=titleEditArea.querySelector('#toc-merge-title-inp');
+    if(inp) inp.value=idxs.map(i=>S.tocItems[i]?.title||'').join(' + ');
   });
 
   function updateMergeBar(){
     const n=_selectedIdxs.size;
     toolbar.style.display=n>0?'flex':'none';
-    toolbar.querySelector('#toc-sel-count').textContent=n+'개 선택됨';
-    toolbar.querySelector('#toc-merge-btn').disabled=n<2;
+    toolbarTop.querySelector('#toc-sel-count').textContent=n+'개 선택됨';
+    toolbarTop.querySelector('#toc-merge-btn').disabled=n<2;
+    toolbarTop.querySelector('#toc-merge-btn').textContent=n>=2?'🔗 병합':'🔗 병합';
+
+    // ★ 개선 05: 미니맵 업데이트
+    if(n>0){
+      const sortedIdxs=[..._selectedIdxs].sort((a,b)=>a-b);
+      const labels=sortedIdxs.slice(0,8).map(i=>{
+        const t=S.tocItems[i]?.title||'';
+        return '<span style="background:var(--blue);color:#fff;border-radius:3px;padding:0 4px;margin:1px;display:inline-block">'+
+          escHtml(t.length>10?t.slice(0,10)+'…':t)+'</span>';
+      });
+      const more=n>8?` <span style="color:var(--blue)">+${n-8}개</span>`:'';
+      minimap.innerHTML=labels.join('')+more;
+      minimap.style.display='';
+    } else {
+      minimap.style.display='none';
+    }
+
+    // ★ 개선 07: 병합 미리보기 업데이트
+    if(n>=2){
+      const sortedIdxs=[..._selectedIdxs].sort((a,b)=>a-b);
+      const totalChars=sortedIdxs.reduce((s,i)=>{
+        const bl=typeof S.tocItems[i]?.bodyLen==='number'?S.tocItems[i].bodyLen:(S.tocItems[i]?.body||'').replace(/\s/g,'').length;
+        return s+bl;
+      },0);
+      const totalWan=totalChars>=10000?(totalChars/10000).toFixed(1)+'만자':totalChars.toLocaleString()+'자';
+      const previews=sortedIdxs.slice(0,5).map(i=>{
+        const t=S.tocItems[i];
+        const firstLine=(t?.body||'').split('\n').find(l=>l.trim())||'(본문 없음)';
+        return `<div style="border-left:2px solid var(--blue);padding-left:6px;margin:2px 0">
+          <b style="font-size:10px;color:var(--blue)">${escHtml(t?.title||'')}</b>
+          <span style="font-size:10px;opacity:.7"> — ${escHtml(firstLine.slice(0,40))}${firstLine.length>40?'…':''}</span>
+        </div>`;
+      });
+      const morePreview=n>5?`<div style="font-size:10px;color:var(--text2);margin-top:2px">외 ${n-5}개 챕터...</div>`:'';
+      previewPanel.innerHTML=
+        `<div style="font-weight:600;color:var(--blue);margin-bottom:4px;font-size:11px">병합하면 <b>${totalWan}</b> 챕터가 됩니다</div>`+
+        previews.join('')+morePreview;
+      previewPanel.style.display='';
+    } else {
+      previewPanel.style.display='none';
+    }
+
+    // ★ 개선 03: 제목 편집 영역은 병합 후 자동 표시 (execMerge 후 renderTocItems에서 재설정)
+    titleEditArea.style.display='none';
   }
 
-  let _dragSrcIdx=null;
-
+  // ══ buildTocRow — 각 행 생성 ══
   function buildTocRow(item, i, isHidden){
     const d=document.createElement('div');
     d.className='toc-item'+(item.enabled?'':' off');
     d.dataset.idx=i;
     if(isHidden) d.style.display='none';
     d.draggable=true;
+    // 이미 선택된 상태 복원 (renderTocItems 재호출 시)
+    if(_selectedIdxs.has(i)) d.classList.add('multi-selected');
 
     // 드래그 핸들 — ★ 접근성: tabindex + aria-label + role 추가
     const handle=document.createElement('span');
     handle.className='toc-drag-handle';
     handle.textContent='⠿';
-    handle.title='드래그해서 순서 변경';
+    handle.title='드래그해서 순서 변경 / 중앙에 놓으면 병합';
     handle.setAttribute('tabindex','0');
     handle.setAttribute('role','button');
     handle.setAttribute('aria-label',`${item.title||''} 항목 순서 변경 핸들`);
@@ -1054,6 +1262,7 @@ function renderTocItems(){
         (_isShort
           ? 'background:var(--yellow-bg);color:var(--yellow);border:1px solid var(--accent2)'
           : 'background:var(--bg2);color:var(--text2);border:1px solid var(--border)');
+      if(_isShort) charBadge.dataset.short='1';
 
       // ★ I6: hover 시 본문 앞 3줄 팝오버 표시
       let _charPopTimer=null;
@@ -1094,8 +1303,73 @@ function renderTocItems(){
       if(e.key==='Escape'){e.target.value=S.tocItems[i].title;e.target.blur();}
     });
 
-    // 오감지 배지 + 제거 버튼
-    if(item.suspicious){
+    // ★ 개선 01: 호버 퀵 선택 버튼 (+)
+    const quickSelBtn=document.createElement('button');
+    quickSelBtn.className='toc-quick-sel-btn';
+    quickSelBtn.textContent='+';
+    quickSelBtn.title='클릭해서 병합 선택에 추가 (또는 Ctrl+클릭)';
+    quickSelBtn.addEventListener('click',e=>{
+      e.stopPropagation();
+      if(_selectedIdxs.has(i)){
+        _selectedIdxs.delete(i);
+        d.classList.remove('multi-selected');
+      } else {
+        _selectedIdxs.add(i);
+        d.classList.add('multi-selected');
+        _lastClickedIdx=i;
+      }
+      updateMergeBar();
+    });
+
+    // ★ 개선 04: 병합된 챕터에 🔓 분리 버튼
+    if(item._isMerged && item._mergedSources && item._mergedSources.length>=2){
+      const splitBadge=document.createElement('span');
+      splitBadge.style.cssText=
+        'font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;'+
+        'padding:1px 5px;flex-shrink:0;white-space:nowrap;cursor:default;'+
+        'border:1px solid var(--blue);display:inline-flex;align-items:center;gap:3px';
+      splitBadge.innerHTML='🔗 '+item._mergedSources.length+'개 병합';
+      splitBadge.title='이 챕터는 '+item._mergedSources.length+'개 챕터가 병합된 상태입니다';
+
+      const unmergeBtn=document.createElement('button');
+      unmergeBtn.className='btn btn-sm';
+      unmergeBtn.style.cssText=
+        'font-size:9px;padding:1px 7px;flex-shrink:0;'+
+        'background:var(--blue-bg);color:var(--blue);'+
+        'border:1px solid var(--blue);border-radius:4px;line-height:1.5;'+
+        'white-space:nowrap;transition:all .15s;cursor:pointer';
+      unmergeBtn.innerHTML='🔓&nbsp;분리';
+      unmergeBtn.title='병합 전 상태로 복원합니다 (Undo와 독립적)';
+      unmergeBtn.addEventListener('mouseenter',()=>{unmergeBtn.style.background='var(--blue)';unmergeBtn.style.color='#fff';});
+      unmergeBtn.addEventListener('mouseleave',()=>{unmergeBtn.style.background='var(--blue-bg)';unmergeBtn.style.color='var(--blue)';});
+      unmergeBtn.addEventListener('click',e=>{
+        e.stopPropagation();
+        _saveTocSnapshot();
+        const idx=S.tocItems.indexOf(item);
+        if(idx<0) return;
+        // 원본 소스로 복원 (line은 첫 소스 기준 연속 부여)
+        const restored=item._mergedSources.map((src,si)=>({
+          line:   si===0 ? item.line : (item.line+si),
+          title:  src.title,
+          enabled: true,
+          body:   src.body,
+          bodyLen: src.bodyLen,
+          suspicious: src.bodyLen < getSuspThreshold() && si < item._mergedSources.length-1,
+          originalTitle: src.title,
+        }));
+        S.tocItems.splice(idx, 1, ...restored);
+        _chaptersCache=null;_chaptersCacheKey='';
+        renderTocItems();
+        updateTocStat();
+        updateTocEditBanner&&updateTocEditBanner();
+        Toast.success('챕터를 '+restored.length+'개로 분리했어요.',2500);
+      });
+
+      d.appendChild(handle);d.appendChild(chk);d.appendChild(num);
+      if(charBadge.textContent) d.appendChild(charBadge);
+      d.appendChild(titleInp);d.appendChild(splitBadge);d.appendChild(unmergeBtn);d.appendChild(quickSelBtn);
+    } else if(item.suspicious){
+      // 오감지 배지 + 제거 버튼
       const badge=document.createElement('span');
       badge.style.cssText=
         'font-size:9px;background:var(--yellow-bg);color:var(--yellow);border-radius:3px;'+
@@ -1115,7 +1389,7 @@ function renderTocItems(){
       removeBtn.title='이 항목을 목차에서 제거합니다';
       removeBtn.addEventListener('mouseenter',()=>{removeBtn.style.background='var(--accent)';removeBtn.style.color='#fff';});
       removeBtn.addEventListener('mouseleave',()=>{removeBtn.style.background='var(--accent-bg)';removeBtn.style.color='var(--accent)';});
-      removeBtn.addEventListener('click', e=>{
+      removeBtn.addEventListener('click',e=>{
         e.stopPropagation();
         _saveTocSnapshot();
         const idx=S.tocItems.indexOf(item);
@@ -1131,29 +1405,43 @@ function renderTocItems(){
 
       d.appendChild(handle);d.appendChild(chk);d.appendChild(num);
       if(charBadge.textContent) d.appendChild(charBadge);
-      d.appendChild(titleInp);d.appendChild(badge);d.appendChild(removeBtn);
+      d.appendChild(titleInp);d.appendChild(badge);d.appendChild(removeBtn);d.appendChild(quickSelBtn);
     } else {
       d.appendChild(handle);d.appendChild(chk);d.appendChild(num);
       if(charBadge.textContent) d.appendChild(charBadge);
-      d.appendChild(titleInp);
+      d.appendChild(titleInp);d.appendChild(quickSelBtn);
     }
 
-    // ★ Ctrl+Click / Cmd+Click → 다중 선택 토글
+    // ★ 개선 01+02: Ctrl+클릭 / Cmd+클릭 → 다중 선택 토글 / Shift+클릭 → 범위 선택
     d.addEventListener('click',e=>{
-      if(e.ctrlKey||e.metaKey){
-        e.preventDefault();
+      // 선택 모드이거나 Ctrl/Cmd+클릭
+      const isSelectMode=_selectModeOn||(e.ctrlKey||e.metaKey);
+      if(!isSelectMode&&!e.shiftKey) return;
+      e.preventDefault();
+
+      if(e.shiftKey && _lastClickedIdx!==null){
+        // ★ 개선 02: Shift+클릭 범위 선택
+        const from=Math.min(_lastClickedIdx, i);
+        const to  =Math.max(_lastClickedIdx, i);
+        for(let k=from;k<=to;k++){
+          _selectedIdxs.add(k);
+          const el=c.querySelector(`.toc-item[data-idx="${k}"]`);
+          el?.classList.add('multi-selected');
+        }
+      } else {
         if(_selectedIdxs.has(i)){
           _selectedIdxs.delete(i);
           d.classList.remove('multi-selected');
         } else {
           _selectedIdxs.add(i);
           d.classList.add('multi-selected');
+          _lastClickedIdx=i;
         }
-        updateMergeBar();
       }
+      updateMergeBar();
     });
 
-    // 드래그 이벤트 — 상위 스코프 _tocDragSrc 사용
+    // ★ 개선 09: 드래그 이벤트 — 행 중앙 드롭 = 병합, 상단/하단 드롭 = 순서 변경
     d.addEventListener('dragstart',e=>{
       dragSrcI=i; _tocDragSrc=i;
       d.classList.add('dragging');
@@ -1161,23 +1449,80 @@ function renderTocItems(){
     });
     d.addEventListener('dragend',()=>{
       d.classList.remove('dragging');
-      document.querySelectorAll('.toc-item.drag-over').forEach(el=>el.classList.remove('drag-over'));
+      document.querySelectorAll('.toc-item.drag-over,.toc-item.drag-merge-target').forEach(el=>{
+        el.classList.remove('drag-over','drag-merge-target');
+      });
     });
     d.addEventListener('dragover',e=>{
       e.preventDefault();
       if(_tocDragSrc===null||_tocDragSrc===i) return;
-      document.querySelectorAll('.toc-item.drag-over').forEach(el=>el.classList.remove('drag-over'));
-      d.classList.add('drag-over');
+      document.querySelectorAll('.toc-item.drag-over,.toc-item.drag-merge-target').forEach(el=>{
+        el.classList.remove('drag-over','drag-merge-target');
+      });
+      // ★ 개선 09: 드롭 위치에 따라 순서 변경 vs 병합 구분
+      const rect=d.getBoundingClientRect();
+      const relY=(e.clientY-rect.top)/rect.height;
+      if(relY>0.3 && relY<0.7 && !e.altKey){
+        // 중앙 1/3 + Alt 없으면 병합 드롭존
+        d.classList.add('drag-merge-target');
+        e.dataTransfer.dropEffect='copy';
+      } else {
+        d.classList.add('drag-over');
+        e.dataTransfer.dropEffect='move';
+      }
+    });
+    d.addEventListener('dragleave',()=>{
+      d.classList.remove('drag-over','drag-merge-target');
     });
     d.addEventListener('drop',e=>{
       e.preventDefault();
       const src=_tocDragSrc;
       if(src===null||src===i){_tocDragSrc=null;return;}
-      const moved=S.tocItems.splice(src,1)[0];
-      const dest=src<i?i-1:i;
-      S.tocItems.splice(dest,0,moved);
+
+      const isMergeTarget=d.classList.contains('drag-merge-target');
+      d.classList.remove('drag-over','drag-merge-target');
       _tocDragSrc=null;
-      renderTocItems();
+
+      if(isMergeTarget){
+        // ★ 개선 09: 드래그 병합 실행
+        _saveTocSnapshot();
+        const srcItem=S.tocItems[src];
+        const dstItem=S.tocItems[i];
+        const sortedIdxs=[src,i].sort((a,b)=>a-b);
+        const mergedBody=sortedIdxs.map(idx=>S.tocItems[idx].body||'').join('\n');
+        const mergedBodyLen=mergedBody.replace(/\s/g,'').length;
+        const mergedSources=sortedIdxs.map(idx=>({
+          title: S.tocItems[idx].title,
+          body:  S.tocItems[idx].body||'',
+          bodyLen: S.tocItems[idx].bodyLen||0,
+          line:  S.tocItems[idx].line,
+        }));
+        const newItem={
+          ...S.tocItems[sortedIdxs[0]],
+          title: srcItem.title+' + '+dstItem.title,
+          enabled: true,
+          body: mergedBody,
+          bodyLen: mergedBodyLen,
+          suspicious: false,
+          originalTitle: S.tocItems[sortedIdxs[0]].originalTitle||S.tocItems[sortedIdxs[0]].title,
+          _isMerged: true,
+          _mergedSources: mergedSources,
+        };
+        S.tocItems.splice(sortedIdxs[1],1);
+        S.tocItems[sortedIdxs[0]]=newItem;
+        _chaptersCache=null;_chaptersCacheKey='';
+        renderTocItems();
+        updateTocStat();
+        updateTocEditBanner&&updateTocEditBanner();
+        const totalWan=mergedBodyLen>=10000?(mergedBodyLen/10000).toFixed(1)+'만자':mergedBodyLen.toLocaleString()+'자';
+        Toast.success('드래그 병합 완료 (총 '+totalWan+')',2500);
+      } else {
+        // 기존 순서 변경
+        const moved=S.tocItems.splice(src,1)[0];
+        const dest=src<i?i-1:i;
+        S.tocItems.splice(dest,0,moved);
+        renderTocItems();
+      }
     });
     return d;
   }

@@ -236,7 +236,19 @@ function switchPage(name){
   });
 
   EventBus.emit('page:changed', {name});
-  document.getElementById('btmConvert')?.style && (document.getElementById('btmConvert').style.display=name==='convert'?'flex':'none');
+  // ★ 변환/다운로드/일괄/편집 바 탭별 표시 제어
+  const dlBar=document.getElementById('btmDownload');
+  const cvBar=document.getElementById('btmConvert');
+  if(name==='convert'){
+    // 변환 탭: EPUB 있으면 다운로드 바, 없으면 변환 바
+    const hasEpub=typeof S!=='undefined'&&S.epubBlob;
+    if(dlBar) dlBar.style.display=hasEpub?'flex':'none';
+    if(cvBar) cvBar.style.display=hasEpub?'none':'flex';
+  } else {
+    // 다른 탭: 두 바 모두 숨김
+    if(dlBar) dlBar.style.display='none';
+    if(cvBar) cvBar.style.display='none';
+  }
   document.getElementById('btmBatch')?.style   && (document.getElementById('btmBatch').style.display=name==='batch'?'flex':'none');
   document.getElementById('btmEdit')?.style    && (document.getElementById('btmEdit').style.display=name==='edit'?'flex':'none');
 
@@ -457,16 +469,19 @@ function clearChipSelection(helperId){
 function showShortcutHelp(){
   const existing=document.getElementById('shortcutHelp');
   if(existing){existing.remove();return;}
+  const kbdStyle='background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px';
   const el=document.createElement('div');
   el.id='shortcutHelp';
-  el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:14px;padding:20px 24px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.3);font-size:12px;min-width:260px';
+  el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:14px;padding:20px 24px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.3);font-size:12px;min-width:280px';
   el.innerHTML='<div style="font-size:14px;font-weight:700;margin-bottom:12px;color:var(--text)">⌨️ 단축키</div>'+
     '<table style="border-collapse:collapse;width:100%;line-height:2"><tbody>'+
-    '<tr><td style="color:var(--text2);padding-right:16px"><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+Enter</kbd></td><td>✨ 변환 시작</td></tr>'+
-    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+D</kbd></td><td>⬇ 다운로드</td></tr>'+
-    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+클릭</kbd></td><td>목차 다중 선택/병합</td></tr>'+
-    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Ctrl+?</kbd></td><td>이 도움말 열기/닫기</td></tr>'+
-    '<tr><td><kbd style="background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px">Esc</kbd></td><td>모달 닫기</td></tr>'+
+    '<tr><td style="color:var(--text2);padding-right:16px"><kbd style="'+kbdStyle+'">Ctrl+Enter</kbd></td><td>✨ 변환 시작</td></tr>'+
+    '<tr><td><kbd style="'+kbdStyle+'">Ctrl+D</kbd></td><td>⬇ EPUB 다운로드</td></tr>'+
+    '<tr><td><kbd style="'+kbdStyle+'">Ctrl+클릭</kbd></td><td>목차 다중 선택 (병합용)</td></tr>'+
+    '<tr><td><kbd style="'+kbdStyle+'">Shift+클릭</kbd></td><td>목차 범위 선택</td></tr>'+
+    '<tr><td><kbd style="'+kbdStyle+'">드래그 중앙</kbd></td><td>두 챕터 드래그 병합</td></tr>'+
+    '<tr><td><kbd style="'+kbdStyle+'">Ctrl+?</kbd></td><td>이 도움말 열기/닫기</td></tr>'+
+    '<tr><td><kbd style="'+kbdStyle+'">Esc</kbd></td><td>모달 닫기</td></tr>'+
     '</tbody></table>'+
     '<div style="text-align:right;margin-top:12px"><button class="btn btn-ghost btn-sm" id="shortcutHelpClose">닫기</button></div>';
   document.body.appendChild(el);

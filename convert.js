@@ -1377,6 +1377,9 @@ async function startConvert(){
     document.getElementById('splitSec').style.display='block';
     document.getElementById('resultBox')?.classList.add('show');
     _showShareBtnIfSupported(); // ★ C-04: 공유 버튼 조건부 표시
+
+    // ★ EPUB 다운로드 완료 플로팅 바 활성화
+    _showEpubDownloadBar(S.epubName);
     // ★ 07: 결과 카드 count-up 애니메이션
     _animateResultStats();
     // ★ U-01: 진행 스파크라인 렌더링
@@ -1703,6 +1706,37 @@ function downloadEpub(){
   a.download=S.epubName||'output.epub';
   a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+
+// ★ EPUB 다운로드 완료 플로팅 바 — 변환 완료 시 하단에 상시 표시
+function _showEpubDownloadBar(epubName){
+  const bar=document.getElementById('btmDownload');
+  const nameEl=document.getElementById('btmDlName');
+  const convertBar=document.getElementById('btmConvert');
+  if(!bar) return;
+
+  // 파일명 표시
+  if(nameEl) nameEl.textContent=epubName||'output.epub';
+
+  // 변환 바를 숨기고 다운로드 바 표시
+  if(convertBar) convertBar.style.display='none';
+  bar.style.display='flex';
+
+  // pulse 애니메이션 1회
+  bar.classList.remove('pulse');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>bar.classList.add('pulse')));
+
+  // 닫기 버튼 — 닫으면 기존 변환 바로 복귀
+  const closeBtn=document.getElementById('btmDlClose');
+  if(closeBtn){
+    // 이벤트 중복 방지: 기존 리스너 제거 후 재등록
+    const newClose=closeBtn.cloneNode(true);
+    closeBtn.parentNode.replaceChild(newClose, closeBtn);
+    newClose.addEventListener('click',()=>{
+      bar.style.display='none';
+      if(convertBar) convertBar.style.display='flex';
+    });
+  }
 }
 
 // ★ I7: 챕터별 글자수 분포 미니 SVG 차트
