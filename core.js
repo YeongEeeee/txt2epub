@@ -432,39 +432,98 @@ const EventDelegate = (() => {
 
 // ══════════════════════════════════════════
 // 📦 패턴 프리셋 (PAT_PRESETS)
-// ══════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════
+// parser.js PATS 79종 + KEYWORD_PATS 18종과 완전 동기화
 // cat: 'popular'(자주쓰는) | 'kor'(한국어) | 'eng'(영문/숫자) | 'special'(특수형식)
+// ★ 기존 = 원래 23종 / ★ 신규 = 이번 확장 추가분
+// ══════════════════════════════════════════════════════════════════
 const PAT_PRESETS = [
-  // ── 자주 쓰는 ──
-  {label:'N화',              val:'^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$',             cat:'popular', desc:'1화, 2화, 제3화'},
-  {label:'Chapter N',        val:'^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$',          cat:'popular', desc:'Chapter 1, Ch.2'},
-  {label:'숫자만',            val:'^\\d+$',                                            cat:'popular', desc:'줄 전체가 숫자만'},
-  {label:'N. 제목',          val:'^\\d{1,3}\\.\\s*.+$',                               cat:'popular', desc:'1. 서막, 2. 시작'},
-  {label:'소설명+N화',        val:'^.{2,15}\\s+\\d+화$',                               cat:'popular', desc:'드래곤 1화'},
-  {label:'[ 파일명.txt ]',   val:'^\\[\\s*.+\\.txt\\s*\\]\\s*$',                       cat:'popular', desc:'[ 0001_제목.txt ]'},
 
-  // ── 한국어 ──
-  {label:'제N화',            val:'^제\\s*\\d+\\s*화(?:\\s*.+)?$',                      cat:'kor', desc:'제1화, 제 2 화'},
-  {label:'제N장',            val:'^제\\s*\\d+\\s*장(?:\\s*.+)?$',                      cat:'kor', desc:'제1장, 제2장'},
-  {label:'N권',              val:'^\\d+권(?:\\s*.+)?$',                                cat:'kor', desc:'1권, 2권'},
-  {label:'N부 M화',          val:'^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$',        cat:'kor', desc:'1부 1화, 2부 프롤로그'},
-  {label:'〈N화〉 꺽쇠',      val:'^[〈<]\\s*(\\d+)\\s*화\\s*[〉>](?:\\s*([^\\r\\n]*))?$', cat:'kor', desc:'〈1화〉, <2화>'},
-  {label:'[N화] 대괄호',     val:'^\\[\\s*제?\\s*\\d+\\s*화\\s*\\](?:\\s*.+)?$',       cat:'kor', desc:'[1화], [제2화]'},
+  // ════════════════════════════════
+  // ⭐ 자주 쓰는
+  // ════════════════════════════════
+  // ★ 기존
+  {label:'N화',             val:'^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$',                   cat:'popular', desc:'1화, 2화, 제3화, #5화'},
+  {label:'Chapter N',       val:'^(?:chapter|part|ch)\\.?\\s*\\d+(?:\\s*.+)?$',            cat:'popular', desc:'Chapter 1, Part 12, Ch.3'},
+  {label:'숫자만',           val:'^\\d+$',                                                  cat:'popular', desc:'줄 전체가 숫자만 (1, 2, 3)'},
+  {label:'N. 제목',         val:'^\\d{1,3}\\.\\s*.+$',                                     cat:'popular', desc:'1. 서막, 2. 시작'},
+  {label:'소설명+N화',       val:'^.{2,15}\\s+\\d+화$',                                     cat:'popular', desc:'드래곤 1화, 헌터 12화'},
+  {label:'[ 파일명.txt ]',  val:'^\\[\\s*.+\\.txt\\s*\\]\\s*$',                             cat:'popular', desc:'[ 0001_제목.txt ]'},
+  // ★ 신규
+  {label:'제N화',           val:'^제\\s*\\d+\\s*화(?:\\s*.+)?$',                            cat:'popular', desc:'제1화, 제 12 화 - 타이틀'},
+  {label:'[EP.N] 형식',     val:'^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$',                  cat:'popular', desc:'[EP.001] 새벽의 검사'},
+  {label:'001화 zero-pad',  val:'^0+\\d+화(?:\\s*[^\\r\\n]{0,80})?$',                       cat:'popular', desc:'001화, 0023화 제목 (노벨피아·조아라)'},
 
-  // ── 영문/숫자 ──
-  {label:'EP/Ch/Scene N',    val:'^(?:EP|제|Chapter|Ch|디|Scene|Prologue)\\.?\\s*\\d+', cat:'eng', desc:'EP.1, Ch.2, Scene 3'},
-  {label:'[EP.N] 형식',      val:'^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$',            cat:'eng', desc:'[EP.001] 제목'},
-  {label:'NNN  제목',        val:'^\\d{3,6}\\s{2,}.+$',                               cat:'eng', desc:'001  서막, 0023  제목'},
-  {label:'#N. 제목',         val:'^#\\d+\\.\\s+.{1,60}$',                             cat:'eng', desc:'#1. 제목'},
-  {label:'# 제목(마크다운)', val:'^#{1,3}\\s*.+$',                                    cat:'eng', desc:'# 제목, ## 제목'},
-  {label:'줄 시작 통합 ★',  val:'^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|\\d+화|\\d+)[^\\r\\n]*', cat:'eng', desc:'화/EP/숫자로 시작하는 줄'},
+  // ════════════════════════════════
+  // 🇰🇷 한국어
+  // ════════════════════════════════
+  // ★ 기존
+  {label:'제N화',           val:'^제\\s*\\d+\\s*화(?:\\s*.+)?$',                            cat:'kor', desc:'제1화, 제 2 화'},
+  {label:'제N장',           val:'^제\\s*\\d+\\s*장(?:\\s*.+)?$',                            cat:'kor', desc:'제1장, 제2장'},
+  {label:'N권',             val:'^\\d+권(?:\\s*.+)?$',                                      cat:'kor', desc:'1권, 2권'},
+  {label:'N부 M화',         val:'^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$',              cat:'kor', desc:'1부 1화, 2부 프롤로그'},
+  {label:'〈N화〉 꺽쇠',    val:'^[〈<]\\s*\\d+\\s*화\\s*[〉>](?:\\s*[^\\r\\n]{0,80})?$',  cat:'kor', desc:'〈1화〉, <2화> 어둠의 서막'},
+  {label:'[N화] 대괄호',   val:'^\\[\\s*제?\\s*\\d+\\s*화\\s*\\](?:\\s*.+)?$',             cat:'kor', desc:'[1화], [제2화] 제목'},
+  // ★ 신규
+  {label:'제N편',           val:'^제\\s*\\d+\\s*편(?:\\s*[^\\r\\n]{0,80})?$',               cat:'kor', desc:'제1편, 제 3 편 결말부'},
+  {label:'N편',             val:'^\\d+편(?:\\s*[^\\r\\n]{0,80})?$',                         cat:'kor', desc:'1편, 3편 어둠'},
+  {label:'시즌N N화',       val:'^(?:시즌\\s*\\d+|S\\d+)\\s+\\d+화(?:\\s*[^\\r\\n]{0,80})?$', cat:'kor', desc:'시즌2 1화, S2 12화 (시리즈·카카오)'},
+  {label:'N화~N화 범위',    val:'^\\d+화?\\s*[-~]\\s*\\d+화(?:\\s*[^\\r\\n]{0,80})?$',      cat:'kor', desc:'1화~3화, 11화 - 13화 (연재분 묶음)'},
+  {label:'【N화】 전각',     val:'^【\\s*\\d+\\s*화\\s*】(?:\\s*[^\\r\\n]{0,80})?$',          cat:'kor', desc:'【1화】, 【001화】어둠의 서막 (문피아)'},
+  {label:'(N화) 소괄호',    val:'^\\(\\s*제?\\s*\\d+\\s*[화장]\\s*\\)(?:\\s*[^\\r\\n]{0,80})?$', cat:'kor', desc:'(1화), (제12화) 어둠의 서막'},
+  {label:'≪N화≫ 겹낫표',   val:'^[≪《]\\s*\\d+\\s*화\\s*[≫》](?:\\s*[^\\r\\n]{0,80})?$',   cat:'kor', desc:'≪1화≫, 《12화》 어둠의 서막'},
+  {label:'「N화」 낫표',    val:'^[「『]\\s*\\d+\\s*화\\s*[」』](?:\\s*[^\\r\\n]{0,80})?$',   cat:'kor', desc:'「1화」, 『12화』 서막 (번역 웹소설)'},
+  {label:'◆●★+N화',        val:'^[◆●◇○■□▶▷►◀◁★☆♠♦♣♥]\\s*\\d+\\s*화(?:\\s*[^\\r\\n]{0,80})?$', cat:'kor', desc:'◆ 1화, ● 12화 타이틀 (시리즈·카카오)'},
+  {label:'첫번째 이야기',   val:'^(?:첫|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\\s*번째\\s*(?:이야기|장|화|편|챕터)(?:\\s*[^\\r\\n]{0,60})?$', cat:'kor', desc:'첫 번째 이야기, 두 번째 장'},
+  {label:'제 일/이/삼 화',  val:'^제\\s*(?:일|이|삼|사|오|육|칠|팔|구|십)\\s*[화장편](?:\\s*[^\\r\\n]{0,60})?$', cat:'kor', desc:'제 일 장, 제이화, 제삼편'},
+  {label:'막간/인터루드',   val:'^(?:막간|인터루드|interlude)(?:\\s*[^\\r\\n]{0,80})?$',     cat:'kor', desc:'막간, 인터루드, Interlude 1'},
+  {label:'프롤로그',        val:'^(?:프롤로그|프롤)(?:\\s*.+)?$',                             cat:'kor', desc:'프롤로그, 프롤 - 시작'},
+  {label:'에필로그',        val:'^(?:에필로그|에필)(?:\\s*.+)?$',                             cat:'kor', desc:'에필로그, 에필 - 끝'},
+  {label:'외전/번외',       val:'^(?:외전|번외)(?:\\s*.+)?$',                                cat:'kor', desc:'외전, 번외 - 그날의 기억'},
+  {label:'특별편/스페셜',   val:'^(?:특별편|스페셜|단편)(?:\\s*[^\\r\\n]{0,80})?$',           cat:'kor', desc:'특별편, 스페셜, 단편 - 그날'},
+  {label:'후기/작가의 말',  val:'^(?:후기|작가\\s*후기|작가의\\s*말|작가\\s*노트)(?:\\s*.+)?$', cat:'kor', desc:'후기, 작가의 말, 작가 노트'},
+  {label:'공지/설정집',     val:'^(?:공지|공지사항|설정집|일러스트|캐릭터\\s*소개|등장인물)(?:\\s*[^\\r\\n]{0,80})?$', cat:'kor', desc:'공지, 설정집, 일러스트, 캐릭터 소개'},
 
-  // ── 특수형식 ──
-  {label:'[Prologue] 형식',  val:'^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$', cat:'special', desc:'[프롤로그], [외전]'},
-  {label:'소설(숫자)',        val:'^.{1,60}\\s*\\(\\d+\\)\\s*$',                       cat:'special', desc:'소설이름(1)'},
-  {label:'【제목】',          val:'^【.+】[^\\r\\n]*$',                                  cat:'special', desc:'【제목】'},
-  {label:'제목+구분선',       val:'^.+[=\\-]{3,}$',                                    cat:'special', desc:'제목==='},
-  {label:'=== [제N화] ===',  val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$',        cat:'special', desc:'==[제1화]=='},
+  // ════════════════════════════════
+  // 🔤 영문/숫자
+  // ════════════════════════════════
+  // ★ 기존
+  {label:'EP/Ch/Scene N',   val:'^(?:EP|제|Chapter|Ch|디|Scene|Prologue)\\.?\\s*\\d+',     cat:'eng', desc:'EP.1, Ch.2, Scene 3'},
+  {label:'[EP.N] 형식',     val:'^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$',                  cat:'eng', desc:'[EP.001] 제목'},
+  {label:'NNN  제목',       val:'^\\d{3,6}\\s{2,}.+$',                                     cat:'eng', desc:'001  서막, 0023  제목'},
+  {label:'#N. 제목',        val:'^#\\d+\\.\\s+.{1,60}$',                                   cat:'eng', desc:'#1. 제목'},
+  {label:'# 제목(마크다운)',val:'^#{1,3}\\s*.+$',                                           cat:'eng', desc:'# 제목, ## 제목'},
+  {label:'줄 시작 통합 ★', val:'^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|\\d+화|\\d+)[^\\r\\n]*', cat:'eng', desc:'화/EP/숫자로 시작하는 줄'},
+  // ★ 신규
+  {label:'Chapter One',     val:'^(?:chapter|part|ch)\\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?:\\s*[^\\r\\n]{0,60})?$', cat:'eng', desc:'Chapter One, CHAPTER TWO, chapter three'},
+  {label:'Chap.N',          val:'^chap\\.?\\s*\\d+(?:\\s*[^\\r\\n]{0,80})?$',              cat:'eng', desc:'Chap.1, CHAP.12 - The Start'},
+  {label:'Book N',          val:'^book\\s+(?:\\d+|one|two|three|four|five)(?:\\s*[^\\r\\n]{0,80})?$', cat:'eng', desc:'Book 1, Book One: The Beginning'},
+  {label:'Nst Story',       val:'^\\d+(?:st|nd|rd|th)\\s+(?:story|episode|chapter|part|tale)(?:\\s*[^\\r\\n]{0,80})?$', cat:'eng', desc:'1st Story, 2nd Episode, 3rd Chapter'},
+  {label:'Volume N',        val:'^vol(?:ume)?\\.?\\s*\\d+(?:\\s*[^\\r\\n]{0,80})?$',       cat:'eng', desc:'Volume 1, Vol.12, vol. 3 - 어둠의 계곡'},
+  {label:'Part I 로마숫자', val:'^(?:part|section|book)\\s+(?:I{1,3}|IV|VI{0,3}|IX|X{1,3}|XI{0,3}|XIV|XV|XVI{0,3}|XIX|XX{0,3})(?:\\s*[^\\r\\n]{0,80})?$', cat:'eng', desc:'Part I, Part II, Part III (단행본·번역)'},
+  {label:'S1E01 형식',      val:'^S\\d+E\\d+(?:\\s*.+)?$',                                  cat:'eng', desc:'S1E01, S2E12 제목'},
+  {label:'prologue/epilogue',val:'^(?:prologue|epilogue|afterword|author.?s?\\s*note)(?:\\s*.+)?$', cat:'eng', desc:'Prologue, Epilogue, Afterword'},
+  {label:'Side Story/Extra',val:'^(?:side\\s*story|extra\\s*(?:chapter|episode)?|bonus\\s*(?:chapter|episode)?)(?:\\s*\\d*)?(?:\\s*[^\\r\\n]{0,80})?$', cat:'eng', desc:'Side Story 1, Extra Chapter, Bonus Episode'},
+  {label:'01. zero-pad',    val:'^0+\\d+\\.\\s+[^\\r\\n]{1,60}$',                           cat:'eng', desc:'01. 서막, 001. 어둠 (zero-pad 점 형식)'},
+  {label:'N) 제목',         val:'^\\d+\\)\\s+[^\\r\\n]{1,60}$',                             cat:'eng', desc:'1) 서막, 12) 어둠의 시작'},
+
+  // ════════════════════════════════
+  // 🔣 특수형식
+  // ════════════════════════════════
+  // ★ 기존
+  {label:'[Prologue] 형식', val:'^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$', cat:'special', desc:'[프롤로그], [외전]'},
+  {label:'소설(숫자)',       val:'^.{1,60}\\s*\\(\\d+\\)\\s*$',                             cat:'special', desc:'소설이름(1)'},
+  {label:'【제목】',         val:'^【.+】[^\\r\\n]*$',                                        cat:'special', desc:'【서막】, 【어둠의 기사】'},
+  {label:'제목+구분선',      val:'^.+[=\\-]{3,}$',                                           cat:'special', desc:'제목=== 서막---'},
+  {label:'=== [제N화] ===', val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$',              cat:'special', desc:'==[제1화]=='},
+  // ★ 신규
+  {label:'第N章/話 한자',   val:'^第\\s*[\\d一二三四五六七八九十百千]+\\s*[章話话](?:\\s*.+)?$', cat:'special', desc:'第1章, 第三話, 第12話 서막'},
+  {label:'第N幕/節',        val:'^第\\s*[\\d一二三四五六七八九十百千]+\\s*[幕節](?:\\s*[^\\r\\n]{0,80})?$', cat:'special', desc:'第1幕, 第三節 어둠의 시작'},
+  {label:'간주/幕間',        val:'^(?:간주|幕間)(?:\\s*[^\\r\\n]{0,80})?$',                  cat:'special', desc:'간주, 幕間, 幕間 - 그녀의 선택'},
+  {label:'- N - 대시',      val:'^[-─—]{1,3}\\s*\\d+\\s*[-─—]{1,3}$',                     cat:'special', desc:'- 1 -, — 12 —, ─ 3 ─'},
+  {label:'─── 제목 ───',   val:'^[-─=]{2,}\\s*[^\\r\\n]{1,60}\\s*[-─=]{2,}$',             cat:'special', desc:'─── 서막 ───, === 어둠의 시작 ==='},
+  {label:'<N> 괄호숫자',    val:'^(?:<\\d{1,6}>|\\[\\d{1,6}\\]|\\{\\d{1,6}\\})$',          cat:'special', desc:'<1>, [12], {3} (단순 번호 구분자)'},
+  {label:'* N * 구분자',    val:'^[\\*\\-─]+\\s*\\d+화?\\s*[\\*\\-─]+$',                   cat:'special', desc:'*** 1화 ***, --- 12 ---'},
 ];
 
 // ── StateManager 기반 탭별 독립 상태 ──
