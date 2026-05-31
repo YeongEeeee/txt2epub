@@ -1758,8 +1758,10 @@ function renderTocMiniChart(){
     const col = bl < _suspThr ? '#e8764a' : bl > 50000 ? '#4472a8' : 'var(--accent)';
     const titleSafe = (t.title||'').replace(/"/g,'&quot;').slice(0,30);
     const blStr = bl>=10000?(bl/10000).toFixed(1)+'만자':bl>=1000?(bl/1000).toFixed(1)+'k':bl+'자';
+    // ★ BUG-FIX: data-real-idx에 실제 S.tocItems 인덱스 저장 (enabled 필터 인덱스 ≠ 실제 인덱스)
+    const realIdx = S.tocItems.indexOf(t);
     return `<rect x="${x}" y="${H-h}" width="${bw}" height="${h}" fill="${col}" rx="1"
-      data-idx="${i}" data-title="${titleSafe}" data-chars="${bl}" data-str="${blStr}"
+      data-idx="${i}" data-real-idx="${realIdx}" data-title="${titleSafe}" data-chars="${bl}" data-str="${blStr}"
       style="cursor:pointer;opacity:.75;transition:opacity .1s"/>`;
   }).join('');
 
@@ -1793,13 +1795,25 @@ function renderTocMiniChart(){
     if(_tipEl){ _tipEl.style.display='none'; }
     svg.querySelectorAll('rect').forEach(r=>r.style.opacity='.75');
   });
-  // 클릭: 해당 챕터로 스크롤
+  // 클릭: 해당 챕터로 스크롤 (★ BUG-FIX: data-real-idx로 실제 tocItems 인덱스 사용)
   svg.addEventListener('click', e=>{
     const rect_svg = e.target;
     if(rect_svg.tagName !== 'rect') return;
-    const idx = parseInt(rect_svg.dataset.idx);
-    const tocEl = document.querySelector(`.toc-item[data-idx="${idx}"]`);
-    tocEl?.scrollIntoView({block:'center',behavior:'smooth'});
+    const realIdx = parseInt(rect_svg.dataset.realIdx ?? rect_svg.dataset.idx);
+    // 접힌 상태라면 먼저 펼치기
+    const collapseBtn=document.getElementById('toc-collapse-btn');
+    if(collapseBtn) collapseBtn.click();
+    // 펼친 뒤 DOM이 갱신되도록 rAF 후 스크롤
+    requestAnimationFrame(()=>{
+      const tocEl = document.querySelector(`#tb0 .toc-item[data-idx="${realIdx}"]`);
+      if(tocEl){
+        tocEl.scrollIntoView({block:'center',behavior:'smooth'});
+        // 잠깐 하이라이트
+        tocEl.style.transition='background .15s';
+        tocEl.style.background='var(--blue-bg)';
+        setTimeout(()=>{ tocEl.style.background=''; },900);
+      }
+    });
   });
 }
 

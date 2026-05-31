@@ -331,87 +331,193 @@ function toggleChipGroup(){
 }
 
 function buildPatHelpers(){
-  ['patHelper','insPatHelper','eTocPatHelper'].forEach(id=>{
-    const c=document.getElementById(id); if(!c) return;
-    const targetInput=id==='patHelper'?'pattern':'insPattern';
-    c.innerHTML='';
-    const hint=document.createElement('span');
-    hint.style.cssText='font-size:11px;color:var(--text2);align-self:center;margin-right:2px';
-    hint.textContent='빠른 선택:';
-    c.appendChild(hint);
+  // ══════════════════════════════════════
+  // ★ 정규식 빠른 선택 — 카테고리 탭 방식 (patHelper 전용)
+  // insPatHelper / eTocPatHelper는 기존 방식 유지
+  // ══════════════════════════════════════
+  _buildMainPatHelper();
+  ['insPatHelper','eTocPatHelper'].forEach(id=>_buildLegacyChips(id));
+}
 
-    if(id==='patHelper'){
-      const detectedChip=document.createElement('span');
-      detectedChip.className='pat-chip detected';
-      detectedChip.id='chip_detected';
-      const hasDet=S._detectedPat&&S._detectedName;
-      detectedChip.textContent=hasDet?'✅ 감지됨: '+S._detectedName:'⬜ 감지 없음';
-      detectedChip.style.cssText=hasDet?'':'opacity:.4;cursor:default';
-      detectedChip.title=hasDet?'현재 자동 감지된 패턴을 선택에 추가':'아직 목차 확인을 실행하지 않았어요';
-      if(hasDet){
-        detectedChip.onclick=()=>{
-          const src=S._detectedPat.source;
-          const sel=_chipSelected[id];
-          if(sel.has(src)){ sel.delete(src); detectedChip.classList.remove('active'); }
-          else { sel.add(src); detectedChip.classList.add('active'); }
-          const combined=buildCombinedPat(sel);
-          const inp=document.getElementById(targetInput);
-          if(inp) inp.value=combined;
-          typeof previewToc==='function'&&previewToc();
-        };
-      }
-      c.appendChild(detectedChip);
+// ── 메인 패턴 헬퍼 (카테고리 탭) ──
+function _buildMainPatHelper(){
+  const c=document.getElementById('patHelper');
+  if(!c) return;
+  c.innerHTML='';
+  c.style.cssText='margin-top:4px';
+
+  // 최근 사용 패턴 (localStorage)
+  let _recentPats=[];
+  try{ _recentPats=JSON.parse(localStorage.getItem('novelepub_recent_pats')||'[]'); }catch(e){}
+
+  // 현재 활성 카테고리
+  let _activeCat='popular';
+
+  function renderChips(cat){
+    _activeCat=cat;
+    c.innerHTML='';
+
+    // ── 감지된 패턴 칩 (모든 탭 공통 최상단) ──
+    if(S._detectedPat&&S._detectedName){
+      const detChip=document.createElement('span');
+      detChip.className='pat-chip detected';
+      detChip.id='chip_detected';
+      const src=S._detectedPat.source;
+      const isSel=_chipSelected['patHelper'].has(src);
+      detChip.textContent=(isSel?'✅ ':'🔍 ')+'자동감지: '+S._detectedName;
+      detChip.title='목차 확인에서 자동 감지된 패턴 — 클릭해서 선택/해제';
+      if(isSel) detChip.classList.add('active');
+      detChip.onclick=()=>{
+        const sel=_chipSelected['patHelper'];
+        if(sel.has(src)){sel.delete(src);detChip.classList.remove('active');detChip.textContent='🔍 자동감지: '+S._detectedName;}
+        else{sel.add(src);detChip.classList.add('active');detChip.textContent='✅ 자동감지: '+S._detectedName;}
+        _syncPatInput(); typeof previewToc==='function'&&previewToc();
+      };
+      c.appendChild(detChip);
     }
 
-    PAT_PRESETS.forEach(p=>{
+    // ── 카테고리별 칩 ──
+    const presets = cat==='recent'
+      ? _recentPats.map(v=>PAT_PRESETS.find(p=>p.val===v)).filter(Boolean)
+      : PAT_PRESETS.filter(p=>p.cat===cat);
+
+    presets.forEach(p=>{
       const chip=document.createElement('span');
       chip.className='pat-chip';
+      const isSel=_chipSelected['patHelper'].has(p.val);
+      if(isSel) chip.classList.add('active');
       chip.textContent=p.label;
+      chip.title=(p.desc||p.label)+(isSel?' — 선택됨 (클릭해서 해제)':' — 클릭해서 선택');
       chip.dataset.val=p.val;
-      if(id==='patHelper'&&S._detectedPat){
+      // 현재 감지 패턴과 매칭되면 점선 테두리
+      if(S._detectedPat){
         try{
           const detSrc=S._detectedPat.source;
-          if(detSrc.includes(p.val.replace(/^\^/,'').replace(/\$$/,'').replace(/\(\?:/g,'').replace(/\)/g,'').split('|')[0].slice(0,8))){
-            chip.style.borderStyle='dashed';
-            chip.title='현재 감지된 패턴에 포함됨';
-          }
+          const core=p.val.replace(/^\^/,'').replace(/\$$/,'').split('|')[0].slice(0,8);
+          if(core&&detSrc.includes(core)){chip.style.borderStyle='dashed';chip.title+=' (감지 패턴에 포함됨)';}
         }catch(e){}
       }
       chip.onclick=()=>{
-        const sel=_chipSelected[id];
-        if(sel.has(p.val)){ sel.delete(p.val); chip.classList.remove('active'); }
-        else { sel.add(p.val); chip.classList.add('active'); }
-        const combined=buildCombinedPat(sel);
-        const inp=document.getElementById(targetInput);
-        if(inp) inp.value=combined;
-        if(id==='patHelper'){
-          const applyBar=document.getElementById('patApplyBar');
-          const applyInfo=document.getElementById('patApplyInfo');
-          if(applyBar){ applyBar.style.display=sel.size?'flex':'none'; if(applyInfo) applyInfo.textContent=sel.size?sel.size+'개 패턴 선택됨':''; }
-        } else {
-          typeof reloadInsToc==='function'&&reloadInsToc();
-        }
+        const sel=_chipSelected['patHelper'];
+        if(sel.has(p.val)){sel.delete(p.val);chip.classList.remove('active');}
+        else{sel.add(p.val);chip.classList.add('active');_addRecentPat(p.val);}
+        _syncPatInput();
+        const applyBar=document.getElementById('patApplyBar');
+        const applyInfo=document.getElementById('patApplyInfo');
+        if(applyBar){applyBar.style.display=sel.size?'flex':'none';if(applyInfo)applyInfo.textContent=sel.size?sel.size+'개 패턴 선택됨':'';}
       };
       c.appendChild(chip);
     });
 
+    if(presets.length===0){
+      const empty=document.createElement('span');
+      empty.style.cssText='font-size:11px;color:var(--text3);padding:4px 0';
+      empty.textContent=cat==='recent'?'아직 사용한 패턴이 없어요':'패턴 없음';
+      c.appendChild(empty);
+    }
+
+    // ── 초기화 칩 ──
     const clr=document.createElement('span');
     clr.className='pat-chip';
     clr.textContent='✕ 초기화';
-    clr.style.opacity='.6';
+    clr.style.cssText='opacity:.55;margin-left:4px';
+    clr.title='선택 해제 및 입력 초기화';
     clr.onclick=()=>{
-      _chipSelected[id].clear();
+      _chipSelected['patHelper'].clear();
       c.querySelectorAll('.pat-chip.active').forEach(el=>el.classList.remove('active'));
-      const inp=document.getElementById(targetInput);
-      if(inp) inp.value='';
-      if(id==='patHelper'){ const applyBar=document.getElementById('patApplyBar'); if(applyBar) applyBar.style.display='none'; typeof previewToc==='function'&&previewToc(); }
-      else typeof reloadInsToc==='function'&&reloadInsToc();
+      const inp=document.getElementById('pattern');if(inp)inp.value='';
+      const applyBar=document.getElementById('patApplyBar');if(applyBar)applyBar.style.display='none';
+      typeof previewToc==='function'&&previewToc();
     };
     c.appendChild(clr);
+  }
+
+  function _syncPatInput(){
+    const combined=buildCombinedPat(_chipSelected['patHelper']);
+    const inp=document.getElementById('pattern');
+    if(inp) inp.value=combined;
+  }
+
+  function _addRecentPat(val){
+    _recentPats=_recentPats.filter(v=>v!==val);
+    _recentPats.unshift(val);
+    if(_recentPats.length>6) _recentPats=_recentPats.slice(0,6);
+    try{localStorage.setItem('novelepub_recent_pats',JSON.stringify(_recentPats));}catch(e){}
+    // 최근 탭 버튼 표시
+    const recentTab=document.getElementById('patCatRecent');
+    if(recentTab) recentTab.style.display='';
+  }
+
+  // ── 카테고리 탭 이벤트 ──
+  const tabBar=document.getElementById('patCatTabs');
+  if(tabBar){
+    // 최근 사용이 있으면 탭 표시
+    if(_recentPats.length>0){
+      const rt=document.getElementById('patCatRecent');
+      if(rt) rt.style.display='';
+    }
+    tabBar.querySelectorAll('.pat-cat-tab').forEach(btn=>{
+      btn.addEventListener('click',()=>{
+        tabBar.querySelectorAll('.pat-cat-tab').forEach(b=>b.classList.remove('on'));
+        btn.classList.add('on');
+        renderChips(btn.dataset.cat);
+      });
+    });
+  }
+
+  // 초기 렌더
+  renderChips('popular');
+  // chip_detected 갱신을 위한 refreshDetectedChip 호환
+  window._renderMainPatChips=()=>renderChips(_activeCat);
+}
+
+// ── 레거시 헬퍼 (insPatHelper / eTocPatHelper — 기존 방식 유지) ──
+function _buildLegacyChips(id){
+  const c=document.getElementById(id); if(!c) return;
+  const targetInput=id==='insPatHelper'?'insPattern':'eTocPatEdit';
+  c.innerHTML='';
+  const hint=document.createElement('span');
+  hint.style.cssText='font-size:11px;color:var(--text2);align-self:center;margin-right:2px';
+  hint.textContent='빠른 선택:';
+  c.appendChild(hint);
+
+  PAT_PRESETS.forEach(p=>{
+    const chip=document.createElement('span');
+    chip.className='pat-chip';
+    chip.textContent=p.label;
+    chip.dataset.val=p.val;
+    chip.title=p.desc||p.label;
+    chip.onclick=()=>{
+      const sel=_chipSelected[id];
+      if(sel.has(p.val)){sel.delete(p.val);chip.classList.remove('active');}
+      else{sel.add(p.val);chip.classList.add('active');}
+      const combined=buildCombinedPat(sel);
+      const inp=document.getElementById(targetInput);
+      if(inp) inp.value=combined;
+      typeof reloadInsToc==='function'&&reloadInsToc();
+    };
+    c.appendChild(chip);
   });
+
+  const clr=document.createElement('span');
+  clr.className='pat-chip';
+  clr.textContent='✕ 초기화';
+  clr.style.opacity='.6';
+  clr.onclick=()=>{
+    _chipSelected[id].clear();
+    c.querySelectorAll('.pat-chip.active').forEach(el=>el.classList.remove('active'));
+    const inp=document.getElementById(targetInput);if(inp)inp.value='';
+    typeof reloadInsToc==='function'&&reloadInsToc();
+  };
+  c.appendChild(clr);
 }
 
 function refreshDetectedChip(){
+  // ★ 카테고리 탭 방식: 전체 재렌더로 갱신
+  if(typeof window._renderMainPatChips==='function'){
+    window._renderMainPatChips();
+    return;
+  }
   const chip=document.getElementById('chip_detected');
   if(!chip) return;
   const hasDet=S._detectedPat&&S._detectedName;
@@ -475,8 +581,8 @@ function showShortcutHelp(){
   el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:14px;padding:20px 24px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.3);font-size:12px;min-width:280px';
   el.innerHTML='<div style="font-size:14px;font-weight:700;margin-bottom:12px;color:var(--text)">⌨️ 단축키</div>'+
     '<table style="border-collapse:collapse;width:100%;line-height:2"><tbody>'+
-    '<tr><td style="color:var(--text2);padding-right:16px"><kbd style="'+kbdStyle+'">Ctrl+Enter</kbd></td><td>✨ 변환 시작</td></tr>'+
-    '<tr><td><kbd style="'+kbdStyle+'">Ctrl+D</kbd></td><td>⬇ EPUB 다운로드</td></tr>'+
+    '<tr><td style="color:var(--text2);padding-right:16px"><kbd style="'+kbdStyle+'">Ctrl+Space</kbd></td><td>✨ 변환 시작</td></tr>'+
+    '<tr><td><kbd style="'+kbdStyle+'">Ctrl+S</kbd></td><td>⬇ EPUB 다운로드</td></tr>'+
     '<tr><td><kbd style="'+kbdStyle+'">Ctrl+클릭</kbd></td><td>목차 다중 선택 (병합용)</td></tr>'+
     '<tr><td><kbd style="'+kbdStyle+'">Shift+클릭</kbd></td><td>목차 범위 선택</td></tr>'+
     '<tr><td><kbd style="'+kbdStyle+'">드래그 중앙</kbd></td><td>두 챕터 드래그 병합</td></tr>'+
@@ -708,13 +814,13 @@ function setupEventListeners(){
     if(E.selectedChIdx!==null) typeof selectCh==='function'&&selectCh(E.selectedChIdx);
   }));
 
-  // ★ 단축키
+  // ★ 단축키 — Ctrl+Space: 변환 시작 / Ctrl+S: 다운로드 / Ctrl+?: 도움말
   document.addEventListener('keydown',e=>{
     const tag=(e.target.tagName||'').toUpperCase();
     if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') return;
     if(e.ctrlKey||e.metaKey){
-      if(e.key==='Enter'){e.preventDefault(); typeof startConvert==='function'&&startConvert();}
-      else if(e.key==='d'||e.key==='D'){e.preventDefault(); typeof downloadEpub==='function'&&downloadEpub();}
+      if(e.key===' '){e.preventDefault(); typeof startConvert==='function'&&startConvert();}
+      else if(e.key==='s'||e.key==='S'){e.preventDefault(); typeof downloadEpub==='function'&&downloadEpub();}
       else if(e.key==='/'||e.key==='?'){e.preventDefault();showShortcutHelp();}
     }
     if(e.key==='Escape'){

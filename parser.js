@@ -842,15 +842,15 @@ function showSuspiciousToast(count){
     '<span style="font-size:18px;flex-shrink:0">⚠️</span>'+
     '<div style="flex:1;min-width:0">'+
       '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:3px">'+
-        '본문 짧음 챕터 '+count+'개 감지</div>'+
+        '본문 짧음 챕터 <span id="susp-toast-count">'+count+'</span>개 감지</div>'+
       '<div style="font-size:11px;color:var(--text2);line-height:1.5">'+
-        '목차에서 ⚠ 배지를 확인하세요. 오감지일 경우 제거할 수 있어요.'+
+        '⤵ 병합 버튼으로 다음 챕터와 합치거나 전체 제거할 수 있어요.'+
       '</div>'+
     '</div>'+
     '<div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">'+
       '<button id="susp-remove-all-btn" class="btn btn-sm" '+
         'style="font-size:11px;background:var(--accent);color:#fff;border-radius:7px;padding:5px 10px;white-space:nowrap">'+
-        '전체 제거</button>'+
+        '전체 병합</button>'+
       '<button id="susp-toast-close" class="btn btn-ghost btn-sm" '+
         'style="font-size:11px;border-radius:7px;padding:4px 10px">'+
         '닫기</button>'+
@@ -858,19 +858,40 @@ function showSuspiciousToast(count){
 
   document.body.appendChild(el);
 
-  // 전체 제거 버튼 — suspicious 항목을 직접 filter로 제거 (인덱스 밀림 없음)
+  // 전체 병합 버튼 — suspicious 항목을 각각 다음 챕터와 병합
   el.querySelector('#susp-remove-all-btn').addEventListener('click', ()=>{
     _saveTocSnapshot();
-    const beforeLen = S.tocItems.length;
-    // ★ L-03 FIX: splice+Set 대신 filter로 한 번에 제거 — 연속 suspicious 구간 인덱스 오염 방지
-    S.tocItems = S.tocItems.filter((t, i) =>
-      !(t.suspicious && i < S.tocItems.length - 1)
-    );
-    const removed = beforeLen - S.tocItems.length;
+    let mergedCount=0;
+    // 뒤에서부터 순회해야 인덱스 밀림 없음
+    for(let i=S.tocItems.length-1; i>=0; i--){
+      const t=S.tocItems[i];
+      if(!t.suspicious) continue;
+      if(i+1 < S.tocItems.length){
+        const next=S.tocItems[i+1];
+        const mergedBody=(t.body||'')+'\n'+(next.body||'');
+        S.tocItems[i]={
+          ...t,
+          body: mergedBody,
+          bodyLen: mergedBody.replace(/\s/g,'').length,
+          suspicious: false,
+          _isMerged: true,
+          _mergedSources:[
+            {title:t.title, body:t.body||'', bodyLen:t.bodyLen||0, line:t.line},
+            {title:next.title, body:next.body||'', bodyLen:next.bodyLen||0, line:next.line},
+          ],
+        };
+        S.tocItems.splice(i+1,1);
+        mergedCount++;
+      } else {
+        // 마지막 챕터면 suspicious만 해제
+        S.tocItems[i].suspicious=false;
+      }
+    }
+    _chaptersCache=null;_chaptersCacheKey='';
     renderTocItems();
     updateTocStat();
     el.remove();
-    Toast.success('짧은 챕터 '+removed+'개를 목차에서 제거했어요.');
+    Toast.success('짧은 챕터 '+mergedCount+'개를 다음 챕터와 병합했어요.');
   });
 
   // 닫기
@@ -925,6 +946,7 @@ function renderTocItems(){
   // 개선 10: 대량 선택 시 비동기 병합 + 진행 표시 (성능)
   // ══════════════════════════════════════════════════════════
   let _tocDragSrc=null;
+  let dragSrcI=null; // ★ BUG-FIX: dragSrcI ReferenceError 방지 — renderTocItems 스코프에서 선언
   const c=document.getElementById('tb0');c.innerHTML='';
   // ★ L-06: 전체 재렌더 시 내보내기 버튼 플래그 초기화 (updateTocStat에서 재생성)
   _tocExportBtnCreated=false;
@@ -1151,6 +1173,25 @@ function renderTocItems(){
     const idxs=[..._selectedIdxs].sort((a,b)=>a-b);
     const inp=titleEditArea.querySelector('#toc-merge-title-inp');
     if(inp) inp.value=idxs.map(i=>S.tocItems[i]?.title||'').join(' + ');
+  });
+
+  // ★ 개선 03: 제목 적용 버튼
+  titleEditArea.querySelector('#toc-mtitle-apply')?.addEventListener('click',()=>{
+    const inp=titleEditArea.querySelector('#toc-merge-title-inp');
+    const newTitle=(inp?.value||'').trim();
+    if(!newTitle) return;
+    // 가장 최근 병합된 항목(_isMerged)에 제목 적용
+    const mergedIdx=S.tocItems.findIndex(t=>t._isMerged&&!t._titleApplied);
+    if(mergedIdx>=0){
+      S.tocItems[mergedIdx].title=newTitle;
+      S.tocItems[mergedIdx]._titleApplied=true;
+      _chaptersCache=null;_chaptersCacheKey='';
+      // 해당 행 제목 input만 업데이트 (전체 재렌더 없이)
+      const rowInp=c.querySelector(`.toc-item[data-idx="${mergedIdx}"] .toc-title-edit`);
+      if(rowInp) rowInp.value=newTitle;
+      titleEditArea.style.display='none';
+      Toast.success('제목을 "'+newTitle+'"으로 설정했어요.',2000);
+    }
   });
 
   function updateMergeBar(){
@@ -1385,22 +1426,64 @@ function renderTocItems(){
         'background:var(--accent-bg);color:var(--accent);'+
         'border:1px solid var(--accent);border-radius:4px;line-height:1.5;'+
         'white-space:nowrap;transition:all .15s';
-      removeBtn.innerHTML='✕&nbsp;제거';
-      removeBtn.title='이 항목을 목차에서 제거합니다';
-      removeBtn.addEventListener('mouseenter',()=>{removeBtn.style.background='var(--accent)';removeBtn.style.color='#fff';});
-      removeBtn.addEventListener('mouseleave',()=>{removeBtn.style.background='var(--accent-bg)';removeBtn.style.color='var(--accent)';});
+      removeBtn.innerHTML='⤵&nbsp;병합';
+      removeBtn.title='이 짧은 챕터와 다음 챕터를 병합합니다 (본문 이어붙이기)';
+      removeBtn.addEventListener('mouseenter',()=>{removeBtn.style.background='var(--blue)';removeBtn.style.color='#fff';removeBtn.style.borderColor='var(--blue)';});
+      removeBtn.addEventListener('mouseleave',()=>{removeBtn.style.background='var(--accent-bg)';removeBtn.style.color='var(--accent)';removeBtn.style.borderColor='var(--accent)';});
       removeBtn.addEventListener('click',e=>{
         e.stopPropagation();
         _saveTocSnapshot();
         const idx=S.tocItems.indexOf(item);
-        if(idx>=0 && idx+1 < S.tocItems.length) S.tocItems.splice(idx+1, 1);
+        if(idx<0) return;
+        if(idx+1 < S.tocItems.length){
+          // ★ BUG-FIX 04: 다음 챕터 본문을 현재 챕터에 병합 후 다음 챕터 제거
+          const next=S.tocItems[idx+1];
+          const mergedBody=(item.body||'')+'\n'+(next.body||'');
+          const mergedBodyLen=mergedBody.replace(/\s/g,'').length;
+          S.tocItems[idx]={
+            ...item,
+            body:          mergedBody,
+            bodyLen:       mergedBodyLen,
+            suspicious:    false,
+            _isMerged:     true,
+            _mergedSources:[
+              {title:item.title, body:item.body||'', bodyLen:item.bodyLen||0, line:item.line},
+              {title:next.title, body:next.body||'', bodyLen:next.bodyLen||0, line:next.line},
+            ],
+          };
+          S.tocItems.splice(idx+1,1);
+          Toast.success(`"${item.title}"에 다음 챕터를 병합했어요.`,2500);
+        } else {
+          // 마지막 챕터: 이전 챕터에 병합
+          if(idx>0){
+            const prev=S.tocItems[idx-1];
+            const mergedBody=(prev.body||'')+'\n'+(item.body||'');
+            const mergedBodyLen=mergedBody.replace(/\s/g,'').length;
+            S.tocItems[idx-1]={
+              ...prev,
+              body:          mergedBody,
+              bodyLen:       mergedBodyLen,
+              suspicious:    false,
+              _isMerged:     true,
+              _mergedSources:[
+                {title:prev.title, body:prev.body||'', bodyLen:prev.bodyLen||0, line:prev.line},
+                {title:item.title, body:item.body||'', bodyLen:item.bodyLen||0, line:item.line},
+              ],
+            };
+            S.tocItems.splice(idx,1);
+            Toast.success(`마지막 챕터를 이전 챕터에 병합했어요.`,2500);
+          } else {
+            // 챕터가 1개뿐이면 그냥 suspicious 해제
+            S.tocItems[idx].suspicious=false;
+            Toast.info('짧은 챕터 표시를 해제했어요.',2000);
+          }
+        }
         _chaptersCache=null;_chaptersCacheKey='';
         renderTocItems();
         updateTocStat();
         updateTocEditBanner&&updateTocEditBanner();
         const remaining=S.tocItems.filter(t=>t.suspicious).length;
         if(remaining===0) document.getElementById('susp-toast')?.remove();
-        else { const ce=document.querySelector('#susp-toast b'); if(ce) ce.textContent=remaining; }
       });
 
       d.appendChild(handle);d.appendChild(chk);d.appendChild(num);

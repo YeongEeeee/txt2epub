@@ -433,27 +433,38 @@ const EventDelegate = (() => {
 // ══════════════════════════════════════════
 // 📦 패턴 프리셋 (PAT_PRESETS)
 // ══════════════════════════════════════════
+// cat: 'popular'(자주쓰는) | 'kor'(한국어) | 'eng'(영문/숫자) | 'special'(특수형식)
 const PAT_PRESETS = [
-  {label:'[ 파일명.txt ] 형식', val:'^\\[\\s*.+\\.txt\\s*\\]\\s*$'},
-  {label:'[EP.N] 형식',        val:'^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$'},
-  {label:'[Prologue] 형식',    val:'^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$'},
-  {label:'NNN  제목 형식',     val:'^\\d{3,6}\\s{2,}.+$'},
-  {label:'〈N화〉 꺽쇠',          val:'^[〈<]\\s*(\\d+)\\s*화\\s*[〉>](?:\\s*([^\\r\\n]*))?$'},
-  {label:'줄 시작 통합 ★',     val:'^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|\\d+화|\\d+)[^\\r\\n]*'},
-  {label:'화 번호 (#N화 포함)', val:'^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'},
-  {label:'소설(숫자)',          val:'^.{1,60}\\s*\\(\\d+\\)\\s*$'},
-  {label:'숫자만',              val:'^\\d+$'},
-  {label:'Chapter N',          val:'^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$'},
-  {label:'EP/Ch/Scene N',      val:'^(?:EP|제|Chapter|Ch|디|Scene|Prologue)\\.?\\s*\\d+'},
-  {label:'N. 제목',            val:'^\\d{1,3}\\.\\s*.+$'},
-  {label:'N권',                val:'^\\d+권(?:\\s*.+)?$'},
-  {label:'제목+구분선',         val:'^.+[=\\-]{3,}$'},
-  {label:'# 제목',             val:'^#{1,3}\\s*.+$'},
-  {label:'【제목】',            val:'^【.+】[^\\r\\n]*$'},
-  {label:'=== [제N화] ===',    val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$'},
-  {label:'N부 M화',            val:'^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$'},
-  {label:'#N. 제목',           val:'^#\\d+\\.\\s+.{1,60}$'},
-  {label:'소설명+N화',          val:'^.{2,15}\\s+\\d+화$'},
+  // ── 자주 쓰는 ──
+  {label:'N화',              val:'^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$',             cat:'popular', desc:'1화, 2화, 제3화'},
+  {label:'Chapter N',        val:'^(?:chapter|part|ch)\\s*\\d+(?:\\s*.+)?$',          cat:'popular', desc:'Chapter 1, Ch.2'},
+  {label:'숫자만',            val:'^\\d+$',                                            cat:'popular', desc:'줄 전체가 숫자만'},
+  {label:'N. 제목',          val:'^\\d{1,3}\\.\\s*.+$',                               cat:'popular', desc:'1. 서막, 2. 시작'},
+  {label:'소설명+N화',        val:'^.{2,15}\\s+\\d+화$',                               cat:'popular', desc:'드래곤 1화'},
+  {label:'[ 파일명.txt ]',   val:'^\\[\\s*.+\\.txt\\s*\\]\\s*$',                       cat:'popular', desc:'[ 0001_제목.txt ]'},
+
+  // ── 한국어 ──
+  {label:'제N화',            val:'^제\\s*\\d+\\s*화(?:\\s*.+)?$',                      cat:'kor', desc:'제1화, 제 2 화'},
+  {label:'제N장',            val:'^제\\s*\\d+\\s*장(?:\\s*.+)?$',                      cat:'kor', desc:'제1장, 제2장'},
+  {label:'N권',              val:'^\\d+권(?:\\s*.+)?$',                                cat:'kor', desc:'1권, 2권'},
+  {label:'N부 M화',          val:'^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$',        cat:'kor', desc:'1부 1화, 2부 프롤로그'},
+  {label:'〈N화〉 꺽쇠',      val:'^[〈<]\\s*(\\d+)\\s*화\\s*[〉>](?:\\s*([^\\r\\n]*))?$', cat:'kor', desc:'〈1화〉, <2화>'},
+  {label:'[N화] 대괄호',     val:'^\\[\\s*제?\\s*\\d+\\s*화\\s*\\](?:\\s*.+)?$',       cat:'kor', desc:'[1화], [제2화]'},
+
+  // ── 영문/숫자 ──
+  {label:'EP/Ch/Scene N',    val:'^(?:EP|제|Chapter|Ch|디|Scene|Prologue)\\.?\\s*\\d+', cat:'eng', desc:'EP.1, Ch.2, Scene 3'},
+  {label:'[EP.N] 형식',      val:'^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$',            cat:'eng', desc:'[EP.001] 제목'},
+  {label:'NNN  제목',        val:'^\\d{3,6}\\s{2,}.+$',                               cat:'eng', desc:'001  서막, 0023  제목'},
+  {label:'#N. 제목',         val:'^#\\d+\\.\\s+.{1,60}$',                             cat:'eng', desc:'#1. 제목'},
+  {label:'# 제목(마크다운)', val:'^#{1,3}\\s*.+$',                                    cat:'eng', desc:'# 제목, ## 제목'},
+  {label:'줄 시작 통합 ★',  val:'^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|\\d+화|\\d+)[^\\r\\n]*', cat:'eng', desc:'화/EP/숫자로 시작하는 줄'},
+
+  // ── 특수형식 ──
+  {label:'[Prologue] 형식',  val:'^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$', cat:'special', desc:'[프롤로그], [외전]'},
+  {label:'소설(숫자)',        val:'^.{1,60}\\s*\\(\\d+\\)\\s*$',                       cat:'special', desc:'소설이름(1)'},
+  {label:'【제목】',          val:'^【.+】[^\\r\\n]*$',                                  cat:'special', desc:'【제목】'},
+  {label:'제목+구분선',       val:'^.+[=\\-]{3,}$',                                    cat:'special', desc:'제목==='},
+  {label:'=== [제N화] ===',  val:'^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$',        cat:'special', desc:'==[제1화]=='},
 ];
 
 // ── StateManager 기반 탭별 독립 상태 ──

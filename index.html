@@ -127,10 +127,16 @@
       <button class="btn btn-accent btn-sm" id="smartPatApplyBtn" data-action="applySmartPat" style="flex-shrink:0;font-size:11px;padding:4px 10px">✅ 적용</button>
     </div>
     <div class="chip-group-wrap" id="chipGroupWrap">
+      <!-- ★ 카테고리 탭 바 -->
+      <div class="pat-cat-tabs" id="patCatTabs">
+        <button class="pat-cat-tab on" data-cat="popular">⭐ 자주 쓰는</button>
+        <button class="pat-cat-tab" data-cat="kor">🇰🇷 한국어</button>
+        <button class="pat-cat-tab" data-cat="eng">🔤 영문/숫자</button>
+        <button class="pat-cat-tab" data-cat="special">🔣 특수형식</button>
+        <button class="pat-cat-tab" data-cat="recent" id="patCatRecent" style="display:none">🕐 최근</button>
+      </div>
+      <!-- ★ 칩 그리드 (카테고리별 표시) -->
       <div class="pat-helper chip-group-grid" id="patHelper"></div>
-      <button class="chip-group-toggle" id="chipGroupToggle" data-action="toggleChipGroup" aria-expanded="false" aria-controls="patHelper">
-        <span class="chip-group-toggle-icon" aria-hidden="true">▼</span> 더 보기
-      </button>
     </div>
     <div id="patApplyBar" class="flex-row" style="display:none;margin-top:5px">
       <button class="btn btn-accent btn-sm" data-action="applySelectedChips" style="font-size:12px;padding:6px 14px">✅ 선택한 패턴 적용</button>
@@ -1157,7 +1163,7 @@
     📖 EPUB 변환 시작
   </button>
   <div class="btm-hint" id="btmConvertHint">
-    <kbd>Ctrl</kbd>+<kbd>Enter</kbd>
+    <kbd>Ctrl</kbd>+<kbd>Space</kbd>
     <span class="btm-hint-notready" id="btmNotReadyHint">TXT 파일을 먼저 추가해주세요</span>
   </div>
 </div>
@@ -1175,7 +1181,7 @@
     ⬇ EPUB 다운로드
   </button>
   <div class="btm-hint" style="flex-shrink:0">
-    <kbd>Ctrl</kbd>+<kbd>D</kbd>
+    <kbd>Ctrl</kbd>+<kbd>S</kbd>
   </div>
   <button class="btm-dl-close" id="btmDlClose" aria-label="다운로드 바 닫기" title="닫기 (변환 결과는 위 카드에서 다시 다운로드 가능)">✕</button>
 </div>
