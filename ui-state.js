@@ -888,6 +888,7 @@ function setupEventDelegate(){
     selectCh:      (el) => typeof selectCh==='function'&&selectCh(parseInt(el.dataset.idx)),
     extractEpubImages: () => typeof extractEpubImages==='function'&&extractEpubImages(),
     previewToc:    () => typeof previewToc==='function'&&previewToc(),
+    autoSplitByInterval: () => typeof autoSplitByInterval==='function'&&autoSplitByInterval(),
     applyPat:      () => typeof applyPat==='function'&&applyPat(),
     tocTab:        (el) => typeof tocTab==='function'&&tocTab(parseInt(el.dataset.idx)),
     undoToc:       () => typeof undoToc==='function'&&undoToc(),
