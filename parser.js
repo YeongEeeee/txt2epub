@@ -12,11 +12,25 @@
 //   previewToc, showSuspiciousToast, autoSplitByInterval
 // ════════════════════════════════════════════════
 
-/* global S, Toast, yieldToMain, _autoSplitActive, _autoSplitLines,
+/* global S, Toast, yieldToMain,
    _chaptersCache, _chaptersCacheKey, _fullRawLines,
    renderTocItems, tocTab, fileToText, sampleLines */
 
 'use strict';
+
+// ════════════════════════════════════════════════════════
+// ★ 간격 분할 상태 접근자 — window 단일 소유권 보장
+// convert.js가 window._autoSplitActive를 먼저 정의하고,
+// parser.js는 동일한 window 프로퍼티를 읽고 씁니다.
+// ★ 절대로 로컬 let 변수로 섀도잉하지 마세요.
+// ════════════════════════════════════════════════════════
+// _autoSplitActive 접근 헬퍼 (read/write 모두 window 경유)
+function _getAutoSplitActive(){ return window._autoSplitActive===true; }
+function _setAutoSplitActive(v){ window._autoSplitActive=!!v; }
+
+// _autoSplitLines: parser.js 소유, window에도 미러
+// (convert.js에서 읽어야 하는 경우 window._autoSplitLines 참조)
+// _fullRawLines:   parser.js 소유, window에도 미러
 
 // ★ FIX-07: SUSP_THRESHOLD는 상수 대신 함수로만 사용 — 설정 변경이 즉시 반영됨
 // ★ B4/I4: 짧은 챕터 기준 — localStorage + DOM 슬라이더 실시간 반영 (기본값 50자)
@@ -870,9 +884,16 @@ function extractChNum(h){
 // ══════════════════════════════════════════
 function escAttr(s){return s.replace(/'/g,"\\'").replace(/"/g,'&quot;');}
 
-// 챕터 목록 캐시 (변환 전 빠른 미리보기용)
+// ─── 챕터 캐시 ───
 let _chaptersCache=null, _chaptersCacheKey='';
-let _autoSplitLines=null; // 간격 분할 시 원문 줄 배열
+// ─── 간격 분할 원문 줄 배열 (parser.js 소유) ───
+let _autoSplitLines=null;
+// window 미러: convert.js의 startConvert에서 접근 가능하도록
+Object.defineProperty(window,'_autoSplitLines',{
+  get(){ return _autoSplitLines; },
+  set(v){ _autoSplitLines=v; },
+  configurable:true,
+});
 // ★ L-09: 동시 다중 호출 방지 — 계산 중인 Promise 재사용
 let _chaptersComputePromise=null;
 function buildChaptersFromTocItems(lines, tocItems){
@@ -933,8 +954,9 @@ async function getCachedChapters(){
   if(!S.txtFiles.length) return [];
 
   // ★ tocItems가 있으면 항상 tocItems 기반 챕터 조립 (_autoSplitActive 무관)
+  // ★ window._autoSplitActive: 간격 분할 원문 참조
   if(S.tocItems.length>0){
-    const sourceLines=_autoSplitActive&&_autoSplitLines
+    const sourceLines=_getAutoSplitActive()&&_autoSplitLines
       ? _autoSplitLines
       : (_fullRawLines&&_fullRawLines.length>0 ? _fullRawLines : null);
     if(sourceLines) return buildChaptersFromTocItems(sourceLines, S.tocItems);
@@ -980,11 +1002,42 @@ async function getCachedChapters(){
 async function previewToc(){
   if(!S.txtFiles.length){Toast.warn('TXT 파일을 먼저 선택해주세요.');return;}
 
-  // ★ B2 FIX: 명시적 패턴이 입력된 경우에만 간격 분할 모드 해제
-  // (패턴 없이 목차 확인 버튼을 다시 눌러도 간격 분할 상태가 유지됨)
+  // ════════════════════════════════════════════════════════
+  // ★ 최우선 가드: 간격 분할 활성 상태면 패턴 분석 완전 우회
+  // — 어떤 경우에도 간격 분할 결과를 덮어쓰지 않음
+  // ════════════════════════════════════════════════════════
+  if(_getAutoSplitActive()){
+    // 기존 tocItems가 간격 분할 결과임 — 그대로 렌더링만 갱신
+    renderTocItems();
+    updateTocStat&&updateTocStat();
+    document.getElementById('tocPanel')?.classList.add('show');
+    tocTab(0);
+    // 원문 가상 스크롤 유지 (이미 _fullRawLines가 설정되어 있음)
+    const tb2=document.getElementById('tb2');
+    if(tb2&&_fullRawLines.length>0&&!tb2.querySelector('.vs-container,pre')){
+      tb2.innerHTML='';
+      if(typeof createVirtualScroll==='function'){
+        _vsInstTb2?.destroy(); _vsInstTb2=null;
+        _vsInstTb2=createVirtualScroll(tb2,_fullRawLines);
+      }
+    }
+    // splitBtn: 재분할 버튼 상태 유지
+    const splitBtn=document.querySelector('button[data-action="autoSplitByInterval"]');
+    if(splitBtn){
+      splitBtn.disabled=false;
+      splitBtn.style.opacity='0.8';
+      splitBtn.style.pointerEvents='';
+      splitBtn.textContent='⚡ 재분할';
+      splitBtn.title='간격 분할 활성 — 클릭해서 재분할';
+    }
+    Toast.info('⚡ 간격 분할 모드 활성 — 패턴 감지를 건너뜁니다.', 2500);
+    return; // ← 여기서 완전 종료, 아래 패턴 분석 코드 실행 안 됨
+  }
+
+  // ★ 패턴 입력이 있으면 간격 분할 모드 해제
   const _patInput=(document.getElementById('pattern')?.value||'').trim();
   if(_patInput){
-    _autoSplitActive=false;
+    _setAutoSplitActive(false);
     _autoSplitLines=null;
   }
 
@@ -1136,19 +1189,15 @@ async function previewToc(){
   refreshDetectedChip();
 
   // ★ B1 FIX: splitBtn 완전 비활성화 — opacity만으로는 클릭이 막히지 않음
-  // disabled + pointerEvents 병행 처리
   const splitBtn=document.querySelector('button[data-action="autoSplitByInterval"]');
   if(splitBtn){
     if(found.length>0){
-      // 패턴 감지 성공: 버튼 완전 비활성화
       splitBtn.disabled=true;
       splitBtn.style.opacity='0.4';
       splitBtn.style.pointerEvents='none';
       splitBtn.title='패턴 자동 감지 성공 — 간격 분할 불필요 (감지 실패 시 활성화됩니다)';
-      // ★ B5 FIX: 감지 성공 후에도 재분할 가능하도록 "보완" 버튼 별도 표시
       _renderHybridSuggestBtn(found.length);
     } else {
-      // 감지 실패: 버튼 강조 활성화
       splitBtn.disabled=false;
       splitBtn.style.opacity='1';
       splitBtn.style.pointerEvents='';
@@ -2129,6 +2178,12 @@ let _vsInstTb2b=null;
 
 let _previewActiveIdx=-1;
 let _fullRawLines=[];  // 전체 파일 원본 줄 (미리보기용)
+// window 미러: convert.js의 startConvert에서 null 가드용으로 접근
+Object.defineProperty(window,'_fullRawLines',{
+  get(){ return _fullRawLines; },
+  set(v){ _fullRawLines=v||[]; },
+  configurable:true,
+});
 
 async function renderTocPreview(){
   const c=document.getElementById('tocPreviewList');
@@ -2504,8 +2559,8 @@ async function autoSplitByInterval(hybridMode=false){
   _fullRawLines=lines;
   // B4: 200,000줄 이하만 메모리 보관 (초과 시 startConvert에서 재파싱)
   _autoSplitLines=totalLines<=200000?lines:null;
-  // ★ 상태 플래그 — startConvert까지 유지되어야 함
-  _autoSplitActive=true;
+  // ★ window 단일 소유권: _setAutoSplitActive로 설정 — startConvert까지 유실 없이 유지
+  _setAutoSplitActive(true);
   // B8: 명시적 캐시 키
   _chaptersCache=null;
   _chaptersCacheKey='__autoSplit__';

@@ -1120,7 +1120,24 @@ function selectKwResult(id, heading, ci){
   }
 }
 
-let _autoSplitActive=false; // 간격 분할 모드 활성 플래그
+// ════════════════════════════════════════════════════════
+// ★ 간격 분할 전역 상태 — window 단일 소유권
+// parser.js / convert.js 양쪽에서 동일한 객체를 참조
+// ════════════════════════════════════════════════════════
+// _autoSplitActive : 간격 분할 모드 활성 플래그
+// _autoSplitLines  : 원문 줄 배열 (간격 분할 전용, parser.js에 선언)
+// _fullRawLines    : 전체 파일 줄 배열 (parser.js에 선언)
+//
+// 중요: let 선언 대신 window 프로퍼티를 사용해
+//       두 모듈이 동일한 값을 읽고 씁니다.
+if(typeof window._autoSplitActive==='undefined') window._autoSplitActive=false;
+// 하위 호환 — 로컬 변수처럼 참조 가능하도록 getter/setter 대리자 정의
+Object.defineProperty(window,'_autoSplitActive',{
+  get(){ return window.__autoSplitActiveVal||false; },
+  set(v){ window.__autoSplitActiveVal=!!v; },
+  configurable:true,
+});
+window._autoSplitActive=false; // 초기화
 
 // 파일명에서 총 화수 추출 (예: "소설_1-277" → 277, "소설_1234화" → 1234)
 function extractTotalFromFilename(filename){
@@ -1232,16 +1249,19 @@ async function startConvert(){
     const customPat=document.getElementById('pattern')?.value.trim();
 
     let chapters;
-    // ★ B3 FIX: _autoSplitActive가 true면 _autoSplitLines 유무와 관계없이 tocItems 기반 우선 실행
-    // 이전: (_autoSplitActive && _autoSplitLines && S.tocItems.length>0) — _autoSplitLines null이면 무시됨
-    if(_autoSplitActive && S.tocItems.length>0){
-      setProgress(20,'② 간격 분할 적용 중...');
+    // ════════════════════════════════════════════════════════
+    // ★ 간격 분할 최우선 분기 — window._autoSplitActive 기반
+    // parser.js와 동일한 window 프로퍼티를 읽으므로 유실 없음
+    // ════════════════════════════════════════════════════════
+    if(window._autoSplitActive && S.tocItems.length>0){
+      setProgress(20,'② 간격 분할 모드 — tocItems 기반 챕터 조립 중...');
       await yieldToMain();
-      // ★ B3/B4 FIX: _autoSplitLines가 null(대용량 해제)이면 raw 재파싱으로 폴백
-      const sourceForSplit=(_autoSplitLines&&_autoSplitLines.length>0)
-        ? _autoSplitLines
+      // ★ window._autoSplitLines: parser.js에서 window 미러로 노출한 값
+      const sourceForSplit=(window._autoSplitLines&&window._autoSplitLines.length>0)
+        ? window._autoSplitLines
         : raw.split('\n');
       chapters=buildChaptersFromTocItems(sourceForSplit, S.tocItems);
+      setProgress(28,`② 간격 분할 조립 완료 (${chapters.length}개)`);
     } else if(S.tocItems.length>0){
       // ★ tocItems가 있으면 항상 tocItems 기반 조립
       // ★ L-16 FIX: _fullRawLines null 가드 — startConvert 완료 후 메모리 해제된 경우 대비
@@ -1348,15 +1368,13 @@ async function startConvert(){
     setProgress(100,'✅ 변환 완료! ('+elapsed+'초)');
     document.getElementById('convertAbortBtn').style&&(document.getElementById('convertAbortBtn').style.display='none');
 
-    // ★ 메모리 정리: 대용량 원문 데이터 해제
-    // _fullRawLines는 목차 미리보기에서 사용 후 더 이상 불필요
-    if(_fullRawLines&&_fullRawLines.length>50000){
-      _fullRawLines=null;
+    // ★ 메모리 정리: 200,000줄 이하는 유지 (대용량 장편에서 간격 분할 재접근 가능하도록)
+    // window 프로퍼티를 통해 parser.js의 실제 변수를 갱신
+    if(window._fullRawLines&&window._fullRawLines.length>200000){
+      window._fullRawLines=null;
     }
-    // autoSplitLines도 변환 완료 후 해제
-    // ★ B4 FIX: 임계값 50,000→200,000줄로 상향 — 대용량 장편이 정작 간격 분할 필요한 케이스임
-    if(_autoSplitLines&&_autoSplitLines.length>200000){
-      _autoSplitLines=null;
+    if(window._autoSplitLines&&window._autoSplitLines.length>200000){
+      window._autoSplitLines=null;
     }
     // 챕터 캐시는 미리보기/분리에서 필요하므로 유지 (단, 대용량은 제한)
     document.getElementById('resultMsg').textContent=S.epubName;
@@ -2813,9 +2831,11 @@ async function resetEditAll(){
 // ════ 결과 stat 카드 렌더링 (최적화 5) ════
 function resetConvertTxt(){
   S.txtFiles=[];S._rawTextFull=[];_chaptersCache=null;_chaptersCacheKey='';
-  // ★ B10 FIX: 파일 교체 시 간격 분할 상태 완전 초기화
-  _autoSplitActive=false;_autoSplitLines=null;
-  // 하이브리드/제목 템플릿 버튼 정리
+  // ★ window 단일 소유권: 전역 분할 상태 완전 초기화
+  window._autoSplitActive=false;
+  window._autoSplitLines=null;
+  window._fullRawLines=[];
+  // DOM 잔재 정리
   document.getElementById('hybrid-suggest-btn')?.remove();
   document.getElementById('title-template-bar')?.remove();
   // splitBtn 원상 복구
