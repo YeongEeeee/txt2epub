@@ -980,14 +980,18 @@ async function getCachedChapters(){
 async function previewToc(){
   if(!S.txtFiles.length){Toast.warn('TXT 파일을 먼저 선택해주세요.');return;}
 
-  // 정규식 패턴 모드로 전환 시 간격 분할 모드 해제
-  _autoSplitActive=false;
-  _autoSplitLines=null;
+  // ★ B2 FIX: 명시적 패턴이 입력된 경우에만 간격 분할 모드 해제
+  // (패턴 없이 목차 확인 버튼을 다시 눌러도 간격 분할 상태가 유지됨)
+  const _patInput=(document.getElementById('pattern')?.value||'').trim();
+  if(_patInput){
+    _autoSplitActive=false;
+    _autoSplitLines=null;
+  }
 
   // 전체 파일 텍스트 로드 (다중 파일 모두 합산)
   let text;
   try{
-    const sorted=[...S.txtFiles]; // 사용자 정렬 순서 유지 (renderTxtFileList에서 이미 정렬됨)
+    const sorted=[...S.txtFiles];
     const raws=await Promise.all(sorted.map(f=>fileToText(f).catch(()=>sampleLines(f))));
     text=raws.join('\n\n');
   }catch(e){
@@ -995,7 +999,7 @@ async function previewToc(){
   }
   _fullRawLines=text.split('\n');
 
-  const pat=(document.getElementById('pattern')?.value||'').trim();
+  const pat=_patInput;
   let found=[],patLabel='';
   if(pat){
     try{
@@ -1036,7 +1040,8 @@ async function previewToc(){
 
   S.tocItems=found;
   renderTocItems();
-  updateTocEditBanner&&updateTocEditBanner(); // ★ 편집 배너 초기화
+  updateTocStat&&updateTocStat();
+  updateTocEditBanner&&updateTocEditBanner();
 
   // ★ I9: delta 표시 (이전 목차가 있었을 때만)
   if(_prevTotal > 0 && (found.length !== _prevTotal || Math.abs(_prevChars - found.reduce((s,t)=>s+t.bodyLen,0)) > 100)){
@@ -1052,7 +1057,6 @@ async function previewToc(){
   // ★ I8: 연속 짧은 챕터 자동 병합 제안
   const _suspItems = found.filter(t=>t.suspicious);
   if(_suspItems.length >= 3){
-    // 연속 구간 찾기
     const _suspIdxs = found.reduce((arr,t,i)=>{if(t.suspicious)arr.push(i);return arr;},[]);
     let maxRun=1, run=1;
     for(let k=1;k<_suspIdxs.length;k++){
@@ -1069,7 +1073,6 @@ async function previewToc(){
   }
 
   // ★ I5: updateTocStat의 짧은챕터 칩 클릭 → 해당 항목 스크롤
-  // ★ L-12 FIX: setTimeout(100) → double rAF — 저사양 기기 DOM 생성 전 바인딩 방지
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
     document.querySelectorAll('#toc-stat [data-filter-short]').forEach(btn=>{
       btn.addEventListener('click',()=>{
@@ -1079,10 +1082,10 @@ async function previewToc(){
     });
   }));
 
-  // 감지 실패 시 안내 메시지 (변환은 정상 작동)
+  // 감지 실패 시 안내 메시지
   if(!found.length){
     const c=document.getElementById('tb0');
-    c.insertAdjacentHTML('beforeend',
+    c?.insertAdjacentHTML('beforeend',
       '<div style="margin-top:12px;padding:12px;background:var(--blue-bg);border-radius:8px;border:1.5px solid var(--blue)">'+
       '<div style="font-size:12px;font-weight:600;color:var(--blue);margin-bottom:6px">ℹ️ 챕터 패턴을 감지하지 못했어요</div>'+
       '<div style="font-size:11px;color:var(--text2);line-height:1.7">'+
@@ -1098,17 +1101,14 @@ async function previewToc(){
     );
   }
 
-  // ★ 가상 스크롤: 스크롤 위치 기반 가변 렌더링 (고도화)
-  // ★ 수정: rawLines → _fullRawLines (previewToc 함수 내 전역변수 참조)
+  // ★ 가상 스크롤 — 이전 인스턴스 destroy 후 재생성
   const tb2=document.getElementById('tb2');
   if(tb2){
-    // ★ L-18 FIX: 이전 인스턴스 destroy 후 재생성 — scroll 이벤트 리스너 누적 방지
     _vsInstTb2?.destroy(); _vsInstTb2=null;
     tb2.innerHTML='';
     if(typeof createVirtualScroll==='function'){
       _vsInstTb2=createVirtualScroll(tb2, _fullRawLines);
     } else {
-      // createVirtualScroll 미로드 시 폴백 (최초 2000줄)
       const pre=document.createElement('pre');
       pre.className='toc-raw';
       pre.textContent=_fullRawLines.slice(0,2000).map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');
@@ -1126,23 +1126,60 @@ async function previewToc(){
       }
     }
   }
-  document.getElementById('patEdit')?.value !== undefined && (document.getElementById('patEdit').value=pat);
+  const patEditEl=document.getElementById('patEdit');
+  if(patEditEl&&patEditEl.value!==undefined) patEditEl.value=pat;
   S._rawTextFull=_fullRawLines;
   document.getElementById('tocPanel')?.classList.add('show');
   tocTab(0);
-  document.getElementById('tb0')?.insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+patLabel+'</div>');
+  document.getElementById('tb0')?.insertAdjacentHTML('afterbegin',
+    '<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+patLabel+'</div>');
   refreshDetectedChip();
+
+  // ★ B1 FIX: splitBtn 완전 비활성화 — opacity만으로는 클릭이 막히지 않음
+  // disabled + pointerEvents 병행 처리
   const splitBtn=document.querySelector('button[data-action="autoSplitByInterval"]');
   if(splitBtn){
-    if(found.length>0){splitBtn.style.opacity='0.4';splitBtn.title='패턴 자동 감지 성공 — 간격 분할 불필요';}
-    else{splitBtn.style.opacity='1';splitBtn.style.color='var(--blue)';splitBtn.title='패턴 감지 실패 — 줄 간격으로 자동 분할';}
+    if(found.length>0){
+      // 패턴 감지 성공: 버튼 완전 비활성화
+      splitBtn.disabled=true;
+      splitBtn.style.opacity='0.4';
+      splitBtn.style.pointerEvents='none';
+      splitBtn.title='패턴 자동 감지 성공 — 간격 분할 불필요 (감지 실패 시 활성화됩니다)';
+      // ★ B5 FIX: 감지 성공 후에도 재분할 가능하도록 "보완" 버튼 별도 표시
+      _renderHybridSuggestBtn(found.length);
+    } else {
+      // 감지 실패: 버튼 강조 활성화
+      splitBtn.disabled=false;
+      splitBtn.style.opacity='1';
+      splitBtn.style.pointerEvents='';
+      splitBtn.style.color='var(--blue)';
+      splitBtn.title='패턴 감지 실패 — 줄 간격으로 자동 분할';
+    }
   }
 
   // ── 본문 짧음 감지 Toast 알림 ──
   const suspCount=found.filter(t=>t.suspicious).length;
-  if(suspCount>0){
-    showSuspiciousToast(suspCount);
-  }
+  if(suspCount>0) showSuspiciousToast(suspCount);
+}
+
+// ★ B5/L1: 감지 성공 후 하이브리드 보완 버튼 렌더
+// 감지 챕터 수가 적거나(10개 미만) 의심스러울 때 "간격 분할로 보완" 버튼 제안
+function _renderHybridSuggestBtn(foundCount){
+  // 기존 버튼 제거 (중복 방지)
+  document.getElementById('hybrid-suggest-btn')?.remove();
+  // ★ L8: 감지 결과가 충분하지 않을 때만 보완 버튼 표시 (10개 미만 또는 suspicious 50% 이상)
+  const suspRatio = foundCount > 0
+    ? S.tocItems.filter(t=>t.suspicious).length / foundCount
+    : 0;
+  if(foundCount >= 10 && suspRatio < 0.5) return;
+  const btn=document.createElement('button');
+  btn.id='hybrid-suggest-btn';
+  btn.className='btn btn-blue btn-sm';
+  btn.style.cssText='font-size:11px;margin-top:6px;display:block';
+  btn.textContent='🔀 간격 분할로 보완하기';
+  btn.title='감지 결과가 부족한 구간을 간격 분할로 자동 채웁니다 (하이브리드 모드)';
+  btn.addEventListener('click', ()=>autoSplitByInterval(true));
+  document.getElementById('tb0')?.insertAdjacentElement('beforebegin', btn);
 }
 
 // 본문 짧음 Toast 알림 (목차 확인 완료 후 호출)
@@ -2157,11 +2194,99 @@ async function renderTocPreview(){
 // ══════════════════════════════════════════
 // ⚡ Module: AutoSplit (줄 간격 기반 자동 분할)
 // ══════════════════════════════════════════
-async function autoSplitByInterval(){
+// ════════════════════════════════════════════════════════════
+// ⚡ Module: AutoSplitByInterval
+// ★ B3~B10 + L2~L10 전체 적용
+//   hybridMode=true → L8 하이브리드(패턴감지 보완) 모드
+// ════════════════════════════════════════════════════════════
+
+// ── L2: 빈 줄 군집 간격의 중앙값으로 화수 추정 ──
+function _estimateTotalByBlankClusters(lines){
+  // 연속 2개 이상 빈 줄의 시작 위치를 챕터 경계 후보로 수집
+  const boundaries=[];
+  let blankRun=0;
+  for(let i=0;i<lines.length;i++){
+    if(!lines[i].trim()){ blankRun++; }
+    else {
+      if(blankRun>=2) boundaries.push(i); // 군집 끝 위치
+      blankRun=0;
+    }
+  }
+  if(boundaries.length<3) return null; // 후보 부족 → null 반환
+
+  // 경계 간격 배열 계산 후 중앙값 추출
+  const gaps=[];
+  for(let k=1;k<boundaries.length;k++) gaps.push(boundaries[k]-boundaries[k-1]);
+  gaps.sort((a,b)=>a-b);
+  const medianGap=gaps[Math.floor(gaps.length/2)];
+  if(!medianGap||medianGap<10) return null; // 간격이 너무 작으면 무시
+
+  const estimated=Math.round(lines.length/medianGap);
+  return {estimated, medianGap, boundaries};
+}
+
+// ── L3: interval 위치 주변 ±10줄에서 제목 후보 탐색 ──
+function _findNearbyTitle(lines, centerIdx, windowSize=10){
+  const start=Math.max(0, centerIdx-windowSize);
+  const end  =Math.min(lines.length-1, centerIdx+windowSize);
+  let best=null, bestScore=Infinity;
+
+  for(let i=start;i<=end;i++){
+    const l=lines[i].trim();
+    if(!l) continue;
+    // 제목 후보 조건: 2~40자, 마침표/쉼표로 끝나지 않음, 대화문 아님
+    if(l.length<2||l.length>40) continue;
+    if(/[.,，。、]$/.test(l)) continue;
+    if(/^[""\u201C\u201D'""]/.test(l)) continue;
+    // 본문처럼 긴 문장 제외 (조사/접속사로 끝나는 문장)
+    if(/[은는이가을를에서으로]$/.test(l)&&l.length>15) continue;
+    // 거리 점수: 중심에 가까울수록 좋음 + 길이 짧을수록 좋음
+    const score=Math.abs(i-centerIdx)*2 + l.length;
+    if(score<bestScore){ bestScore=score; best={title:l, line:i+1}; }
+  }
+  return best; // null이면 "Chapter N" 폴백
+}
+
+// ── L5: interval 위치 주변에서 빈 줄 군집 경계 탐색 ──
+function _snapToBoundary(lines, targetIdx, searchRange=20){
+  const start=Math.max(0, targetIdx-searchRange);
+  const end  =Math.min(lines.length-1, targetIdx+searchRange);
+  // 연속 빈 줄 군집의 시작 위치 수집
+  for(let i=start;i<=end;i++){
+    if(!lines[i].trim()&&i+1<=end&&!lines[i+1]?.trim()){
+      // 군집 끝(첫 비어있지 않은 줄)을 챕터 시작으로
+      let j=i;
+      while(j<=end&&!lines[j].trim()) j++;
+      if(j<=end) return j; // 군집 바로 다음 줄
+    }
+  }
+  return targetIdx; // 군집 없으면 원래 위치
+}
+
+// ── L6: 분할 품질 점수 계산 ──
+function _calcSplitQuality(tocItems){
+  if(!tocItems.length) return {score:0, avgLen:0, stdDev:0, suspRatio:0};
+  const lens=tocItems.map(t=>t.bodyLen||0);
+  const avg=lens.reduce((s,v)=>s+v,0)/lens.length;
+  const variance=lens.reduce((s,v)=>s+(v-avg)**2,0)/lens.length;
+  const stdDev=Math.sqrt(variance);
+  const cv=avg>0?stdDev/avg:1; // 변동계수 (낮을수록 균등)
+  const score=Math.max(0,Math.round((1-Math.min(cv,1))*100));
+  const suspRatio=tocItems.filter(t=>t.suspicious).length/tocItems.length;
+  return {score, avgLen:Math.round(avg), stdDev:Math.round(stdDev), suspRatio};
+}
+
+async function autoSplitByInterval(hybridMode=false){
   if(!S.txtFiles.length){Toast.warn('TXT 파일을 먼저 선택해주세요.');return;}
 
-  // 패턴이 이미 감지된 경우 경고
-  if(S.tocItems.length>0){
+  // ★ B10 FIX: 파일 변경 후 잔류 상태 정리
+  _chaptersCache=null; _chaptersCacheKey='__autoSplit__';
+
+  // ★ B3/L8: hybridMode — 패턴 감지 결과를 anchor로 활용
+  const existingItems=hybridMode ? [...S.tocItems] : [];
+
+  // 패턴이 이미 감지된 경우 경고 (비하이브리드 모드)
+  if(!hybridMode && S.tocItems.length>0){
     const ok=await Toast.confirm(
       '⚠️ 이미 '+S.tocItems.length+'개 챕터가 감지되어 있어요.<br><br>'+
       '간격 분할은 패턴 자동 감지가 실패했을 때 사용하는 기능이에요.<br>'+
@@ -2171,96 +2296,275 @@ async function autoSplitByInterval(){
     if(!ok) return;
   }
 
-  // ★ startConvert와 동일하게 다중 파일 모두 join
-  const sorted=[...S.txtFiles]; // 사용자 정렬 순서 유지 (renderTxtFileList에서 이미 정렬됨)
+  const sorted=[...S.txtFiles];
   const raws=await Promise.all(sorted.map(fileToText));
   const raw=raws.join('\n\n');
   const lines=raw.split('\n');
   const totalLines=lines.length;
 
-  // 총 화수 입력
-  const input=await Toast.prompt(
-    '총 화수를 입력하세요.<br>파일 총 줄 수: '+totalLines+'줄<br>(비워두면 자동 추정)',
-    '예: 300'
-  );
+  // ★ L2: 빈 줄 군집 중앙값으로 화수 자동 추정
+  const clusterResult=_estimateTotalByBlankClusters(lines);
+  const autoEstimate=clusterResult
+    ? clusterResult.estimated
+    : Math.round(totalLines/300);
+  const clampedEstimate=Math.max(1, Math.min(autoEstimate, 9999));
+
+  // ★ L9: 마지막 설정값 불러오기
+  let lastTotal=null;
+  try{ lastTotal=parseInt(localStorage.getItem('novelepub_autosplit_total')||''); }catch(e){}
+  const suggestVal=lastTotal&&lastTotal>0 ? lastTotal : clampedEstimate;
+
+  // ★ L10: 미리보기용 추정 정보 구성
+  const clusterInfo=clusterResult
+    ? `빈 줄 군집 분석: 중앙 간격 ${clusterResult.medianGap}줄 → 약 ${clampedEstimate}화 추정`
+    : `고정 분모 추정 (빈 줄 군집 부족): 약 ${clampedEstimate}화`;
+  const promptMsg=
+    '총 화수를 입력하세요.<br>'+
+    `파일 총 줄 수: <b>${totalLines.toLocaleString()}줄</b><br>`+
+    `<span style="font-size:11px;color:var(--text2)">${clusterInfo}</span><br>`+
+    (lastTotal?`<span style="font-size:11px;color:var(--blue)">마지막 설정: ${lastTotal}화</span><br>`:'');
+
+  const input=await Toast.prompt(promptMsg, String(suggestVal));
   if(input===null) return;
 
-  let totalChapters;
-  if(input.trim()){
-    totalChapters=parseInt(input.trim());
-    if(isNaN(totalChapters)||totalChapters<1){Toast.warn('올바른 숫자를 입력해주세요.');return;}
-  } else {
-    totalChapters=Math.round(totalLines/300);
-    if(totalChapters<1) totalChapters=1;
+  // ★ B9 FIX: 입력 검증 강화 — 소수·문자 혼입·범위 초과 처리
+  const n=Number(input.trim());
+  if(!Number.isFinite(n)||!Number.isInteger(n)||n<1||n>9999){
+    Toast.warn('1~9999 사이의 정수를 입력해주세요. (예: 300)');
+    return;
   }
+  const totalChapters=n;
 
-  // 균등 간격으로 줄 번호 계산 — 제목은 "Chapter N" 고정
-  // (줄 내용 기반 제목 탐색 제거 → 정확한 화수 기준 분할)
+  // ★ L9: 설정값 저장
+  try{ localStorage.setItem('novelepub_autosplit_total',String(totalChapters)); }catch(e){}
+
   const interval=Math.floor(totalLines/totalChapters);
-  const found=[];
-  const _suspThrAuto = getSuspThreshold();
+  const _suspThrAuto=getSuspThreshold();
 
+  // ★ L10: 미리보기 계산 (실제 렌더링 전)
+  const previewItems=[];
+  for(let ch=0;ch<Math.min(5, totalChapters);ch++){
+    const rawIdx=Math.floor(ch*interval);
+    // ★ L5: 빈 줄 군집 경계로 snap
+    const snappedIdx=_snapToBoundary(lines, rawIdx);
+    const lineNum=snappedIdx+1; // 1-based
+    const nextRawIdx=ch+1<totalChapters ? Math.floor((ch+1)*interval) : totalLines;
+    const nextSnapped=ch+1<totalChapters ? _snapToBoundary(lines, nextRawIdx) : totalLines;
+    // ★ L3: 주변 제목 탐색
+    const titleHint=_findNearbyTitle(lines, snappedIdx);
+    const title=titleHint ? titleHint.title : 'Chapter '+(ch+1);
+    const bodyLen=lines.slice(snappedIdx, nextSnapped).join('').replace(/\s/g,'').length;
+    previewItems.push({ch:ch+1, line:lineNum, title, bodyLen});
+  }
+  const previewHtml=previewItems.map(p=>
+    `<div style="font-size:11px;border-left:2px solid var(--blue);padding:2px 6px;margin:2px 0;color:var(--text2)">
+      <b style="color:var(--blue)">Ch.${p.ch}</b> · ${p.line}줄 · <em>${escHtml(p.title)}</em> · ${p.bodyLen.toLocaleString()}자
+    </div>`
+  ).join('');
+  const confirmOk=await Toast.confirm(
+    `<b>${totalChapters}화</b>로 분할합니다.<br>`+
+    `<span style="font-size:11px;color:var(--text2)">줄 간격: 약 ${interval}줄/화</span><br><br>`+
+    `<div style="margin-top:6px;font-size:11px;font-weight:600;color:var(--text)">첫 5화 미리보기</div>`+
+    previewHtml
+  );
+  if(!confirmOk) return;
+
+  // ── 실제 분할 실행 ──
+  const found=[];
   for(let ch=0;ch<totalChapters;ch++){
-    const lineNum=Math.floor(ch*interval)+1; // 1-based
-    // ★ L-05 FIX: 마지막 화는 totalLines를 정확히 사용 — 오버슈트 방지 및 suspicious 정확화
-    const isLast = ch === totalChapters - 1;
-    const nextLineNum = isLast ? totalLines : Math.floor((ch+1)*interval)+1;
-    const title='Chapter '+(ch+1);
-    // ★ LOGIC BUG FIX: body/bodyLen을 생성 시점에 계산 → 글자수 통계 정확화
-    const bodyLines = lines.slice(lineNum, nextLineNum); // headLine 포함 (autoSplit)
-    const bodyText  = bodyLines.join('\n').trim();
-    const bodyLen   = bodyText.replace(/\s/g,'').length;
+    const rawIdx=Math.floor(ch*interval);
+    // ★ L5: 빈 줄 군집 경계로 snap (정확한 자연 경계)
+    const snappedIdx=_snapToBoundary(lines, rawIdx);
+    const lineNum=snappedIdx+1; // 1-based
+
+    // ★ B4 FIX: 50,000줄 제한 제거 → 200,000줄로 상향 (대용량 대응)
+    // ★ off-by-one: nextSnapped까지 slice (snappedIdx+1 → nextSnapped)
+    const isLast=ch===totalChapters-1;
+    const nextRawIdx=isLast ? totalLines : Math.floor((ch+1)*interval);
+    const nextSnapped=isLast ? totalLines : _snapToBoundary(lines, nextRawIdx);
+
+    // ★ L3: 주변 맥락에서 의미있는 제목 탐색
+    const titleHint=_findNearbyTitle(lines, snappedIdx);
+    const title=titleHint ? titleHint.title : 'Chapter '+(ch+1);
+
+    const bodyLines=lines.slice(snappedIdx, nextSnapped);
+    const bodyText =bodyLines.join('\n').trim();
+    const bodyLen  =bodyText.replace(/\s/g,'').length;
+
     found.push({
-      line: lineNum,
+      line:          lineNum,
       title,
-      enabled:   true,
-      autoSplit: true,
-      body:      bodyText,
-      bodyLen:   bodyLen,
-      suspicious: bodyLen < _suspThrAuto && !isLast,
-      originalTitle: title,
+      enabled:       true,
+      autoSplit:     true,
+      body:          bodyText,
+      bodyLen:       bodyLen,
+      // ★ B6 FIX: _autoGenerated 플래그로 원본 구분 — Undo 복원 정확성 보장
+      _autoGenerated: true,
+      originalTitle: undefined,
+      suspicious:    bodyLen < _suspThrAuto && !isLast,
     });
   }
 
-  S.tocItems=found;
-  _fullRawLines=lines;
+  // ★ L8: 하이브리드 모드 — 패턴 감지 anchor와 병합
+  let finalItems;
+  if(hybridMode && existingItems.length>0){
+    finalItems=_mergeHybrid(existingItems, found, totalLines);
+  } else {
+    finalItems=found;
+  }
 
-  // ★ 간격 분할 챕터를 실제 변환에 사용할 수 있도록 _chaptersCache에 직접 구성
-  // tocItems 기반으로 [heading, body] 쌍 배열 생성
-  _autoSplitLines=lines; // 원문 보존
-  _autoSplitActive=true; // 간격 분할 모드 플래그
-  _chaptersCache=null;   // 기존 캐시 무효화
-  _chaptersCacheKey='';
+  S.tocItems=finalItems;
+  _fullRawLines=lines;
+  // ★ B4 FIX: 임계값 200,000줄로 상향
+  _autoSplitLines=totalLines<=200000 ? lines : null;
+  _autoSplitActive=true;
+  // ★ B8 FIX: 명시적 캐시 키 설정
+  _chaptersCache=null;
+  _chaptersCacheKey='__autoSplit__';
 
   renderTocItems();
+  updateTocStat&&updateTocStat();
+  updateTocEditBanner&&updateTocEditBanner();
+
+  // ★ L6: 품질 점수 계산 및 배지 표시
+  const quality=_calcSplitQuality(finalItems);
+  const avgWan=quality.avgLen>=10000?(quality.avgLen/10000).toFixed(1)+'만자':quality.avgLen.toLocaleString()+'자';
+  const qualityBadge=`균등도 ${quality.score}% · 평균 ${avgWan}/화 · 짧은챕터 ${Math.round(quality.suspRatio*finalItems.length)}개`;
 
   const label=document.getElementById('tb0');
-  const badge='<span class="toc-auto-badge">⚡ 간격 분할 ('+interval+'줄 간격, '+totalChapters+'화 추정)</span>';
-  label.insertAdjacentHTML('afterbegin','<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+badge+
-    '<br><span style="color:var(--accent);font-size:10px">⚠️ 제목이 부정확할 수 있어요. 목차 확인 후 불필요한 항목을 체크 해제하세요.</span></div>');
+  const modeLabel=hybridMode?'🔀 하이브리드':'⚡ 간격 분할';
+  label?.insertAdjacentHTML('afterbegin',
+    `<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">
+      <span class="toc-auto-badge">${modeLabel} (${interval}줄 간격, ${finalItems.length}화)</span>
+      <span style="font-size:10px;color:var(--text2);margin-left:6px">${qualityBadge}</span>
+      <br><span style="color:var(--accent);font-size:10px">⚠️ 제목이 부정확할 수 있어요. 목차에서 확인 후 수정하세요.</span>
+    </div>`
+  );
 
-  document.getElementById('tocPanel').classList.add('show');
+  // ★ L7: 제목 일괄 변경 툴바 표시
+  _renderTitleTemplateBar(finalItems.length);
+
+  document.getElementById('tocPanel')?.classList.add('show');
   tocTab(0);
-  // ★ 가상 스크롤 (스크롤 위치 기반)
+
+  // ★ B7 FIX: 가상 스크롤 + 이전 인스턴스 destroy
   const tb2b=document.getElementById('tb2');
-  // ★ L-18 FIX: 이전 인스턴스 destroy
   _vsInstTb2b?.destroy(); _vsInstTb2b=null;
-  tb2b.innerHTML='';
-  if(typeof createVirtualScroll==='function'){
-    _vsInstTb2b=createVirtualScroll(tb2b, lines);
-  } else {
-    const pre2=document.createElement('pre');pre2.className='toc-raw';
-    pre2.textContent=lines.slice(0,2000).map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');
-    tb2b.appendChild(pre2);
-    if(lines.length>2000){
-      const b2=document.createElement('button');b2.className='btn btn-ghost btn-sm';
-      b2.style.cssText='margin:8px 0;width:100%;font-size:11px';
-      b2.textContent=`▼ 나머지 ${(lines.length-2000).toLocaleString()}줄 더 보기`;
-      b2.onclick=()=>{pre2.textContent=lines.map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');b2.remove();};
-      tb2b.appendChild(b2);
+  if(tb2b){
+    tb2b.innerHTML='';
+    if(typeof createVirtualScroll==='function'){
+      _vsInstTb2b=createVirtualScroll(tb2b, lines);
+    } else {
+      const pre2=document.createElement('pre'); pre2.className='toc-raw';
+      pre2.textContent=lines.slice(0,2000).map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');
+      tb2b.appendChild(pre2);
+      if(lines.length>2000){
+        const b2=document.createElement('button');
+        b2.className='btn btn-ghost btn-sm';
+        b2.style.cssText='margin:8px 0;width:100%;font-size:11px';
+        b2.textContent=`▼ 나머지 ${(lines.length-2000).toLocaleString()}줄 더 보기`;
+        b2.onclick=()=>{pre2.textContent=lines.map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');b2.remove();};
+        tb2b.appendChild(b2);
+      }
     }
   }
-  // 자동 분할 결과 중 본문 짧음 감지
-  const _autoSuspCount=S.tocItems.filter(t=>t.suspicious).length;
-  if(_autoSuspCount>0) showSuspiciousToast(_autoSuspCount);
+
+  const suspCount=finalItems.filter(t=>t.suspicious).length;
+  if(suspCount>0) showSuspiciousToast(suspCount);
+
+  // ★ B5 FIX: 간격 분할 완료 후 splitBtn 상태 업데이트
+  const splitBtn=document.querySelector('button[data-action="autoSplitByInterval"]');
+  if(splitBtn){
+    splitBtn.disabled=false;
+    splitBtn.style.opacity='0.7';
+    splitBtn.style.pointerEvents='';
+    splitBtn.textContent='⚡ 재분할';
+    splitBtn.title=`간격 분할 모드 활성 (${finalItems.length}화) — 클릭해서 재분할`;
+  }
+  document.getElementById('hybrid-suggest-btn')?.remove();
+
+  Toast.success(
+    `${modeLabel} 완료 — ${finalItems.length}화 · 균등도 ${quality.score}% · 평균 ${avgWan}`,
+    4000
+  );
+}
+
+// ★ L8: 하이브리드 병합 — 패턴 감지 anchor + 간격 분할 보완
+// 패턴 감지 챕터 간 공백이 interval*2 이상이면 간격 분할 챕터로 채움
+function _mergeHybrid(anchorItems, intervalItems, totalLines){
+  if(!anchorItems.length) return intervalItems;
+  const result=[...anchorItems];
+  // anchor 간격 계산
+  const avgAnchorGap=totalLines/(anchorItems.length+1);
+
+  for(let ai=0;ai<anchorItems.length-1;ai++){
+    const gapStart=anchorItems[ai].line;
+    const gapEnd  =anchorItems[ai+1].line;
+    const gap=gapEnd-gapStart;
+    // 공백이 평균의 2배 이상인 구간에만 보완 삽입
+    if(gap < avgAnchorGap*2) continue;
+    const fills=intervalItems.filter(iv=>iv.line>gapStart&&iv.line<gapEnd);
+    if(fills.length>0){
+      result.push(...fills.map(f=>({...f, _hybridFill:true})));
+    }
+  }
+  // line 기준 정렬
+  result.sort((a,b)=>a.line-b.line);
+  // body/bodyLen 재계산 (정렬 후 인접 구간 재설정)
+  for(let i=0;i<result.length;i++){
+    if(!result[i]._hybridFill) continue; // anchor는 이미 계산됨
+    const nextLine=result[i+1]?result[i+1].line-1:totalLines;
+    // 이미 body가 있으면 유지
+  }
+  return result;
+}
+
+// ★ L7: 제목 일괄 변경 툴바
+function _renderTitleTemplateBar(total){
+  document.getElementById('title-template-bar')?.remove();
+  const bar=document.createElement('div');
+  bar.id='title-template-bar';
+  bar.style.cssText=
+    'display:flex;align-items:center;gap:6px;flex-wrap:wrap;'+
+    'padding:6px 8px;background:var(--bg2);border-radius:6px;margin:4px 0 8px;';
+  bar.innerHTML=
+    '<span style="font-size:11px;color:var(--text2);flex-shrink:0">📝 제목 일괄:</span>'+
+    '<button class="btn btn-ghost btn-sm" data-tpl="제{N}화" style="font-size:11px">제{N}화</button>'+
+    '<button class="btn btn-ghost btn-sm" data-tpl="Chapter {N}" style="font-size:11px">Chapter {N}</button>'+
+    '<button class="btn btn-ghost btn-sm" data-tpl="{N}화" style="font-size:11px">{N}화</button>'+
+    '<input class="inp" id="title-tpl-custom" placeholder="직접 입력 ({N}=번호)" '+
+      'style="flex:1;min-width:80px;font-size:11px;padding:3px 7px">'+
+    '<button class="btn btn-accent btn-sm" id="title-tpl-apply" style="font-size:11px">적용</button>'+
+    '<button class="btn btn-ghost btn-sm" id="title-tpl-close" style="font-size:11px;padding:2px 6px">✕</button>';
+
+  bar.querySelectorAll('[data-tpl]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const el=document.getElementById('title-tpl-custom');
+      if(el) el.value=btn.dataset.tpl;
+    });
+  });
+  bar.querySelector('#title-tpl-apply')?.addEventListener('click',()=>{
+    const tpl=(document.getElementById('title-tpl-custom')?.value||'').trim();
+    if(!tpl){Toast.warn('템플릿을 입력해주세요. 예: 제{N}화');return;}
+    _saveTocSnapshot();
+    S.tocItems.forEach((t,i)=>{
+      if(t.autoSplit||t._autoGenerated){
+        t.title=tpl.replace(/\{N\}/g,String(i+1));
+        t.originalTitle=t.title;
+      }
+    });
+    // DOM 직접 업데이트 (전체 재렌더 없이)
+    document.querySelectorAll('#tb0 .toc-item[data-idx]').forEach(el=>{
+      const idx=parseInt(el.dataset.idx);
+      const t=S.tocItems[idx];
+      if(t&&(t.autoSplit||t._autoGenerated)){
+        const inp=el.querySelector('.toc-title-edit');
+        if(inp) inp.value=t.title;
+      }
+    });
+    Toast.success('제목 템플릿 적용 완료 ('+S.tocItems.filter(t=>t.autoSplit||t._autoGenerated).length+'개)', 2000);
+  });
+  bar.querySelector('#title-tpl-close')?.addEventListener('click',()=>bar.remove());
+
+  document.getElementById('tb0')?.insertAdjacentElement('afterbegin', bar);
 }

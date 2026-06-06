@@ -1232,11 +1232,16 @@ async function startConvert(){
     const customPat=document.getElementById('pattern')?.value.trim();
 
     let chapters;
-    if(_autoSplitActive&&_autoSplitLines&&S.tocItems.length>0){
-      // 간격 분할 모드
+    // ★ B3 FIX: _autoSplitActive가 true면 _autoSplitLines 유무와 관계없이 tocItems 기반 우선 실행
+    // 이전: (_autoSplitActive && _autoSplitLines && S.tocItems.length>0) — _autoSplitLines null이면 무시됨
+    if(_autoSplitActive && S.tocItems.length>0){
       setProgress(20,'② 간격 분할 적용 중...');
       await yieldToMain();
-      chapters=buildChaptersFromTocItems(_autoSplitLines, S.tocItems);
+      // ★ B3/B4 FIX: _autoSplitLines가 null(대용량 해제)이면 raw 재파싱으로 폴백
+      const sourceForSplit=(_autoSplitLines&&_autoSplitLines.length>0)
+        ? _autoSplitLines
+        : raw.split('\n');
+      chapters=buildChaptersFromTocItems(sourceForSplit, S.tocItems);
     } else if(S.tocItems.length>0){
       // ★ tocItems가 있으면 항상 tocItems 기반 조립
       // ★ L-16 FIX: _fullRawLines null 가드 — startConvert 완료 후 메모리 해제된 경우 대비
@@ -1349,7 +1354,8 @@ async function startConvert(){
       _fullRawLines=null;
     }
     // autoSplitLines도 변환 완료 후 해제
-    if(_autoSplitLines&&_autoSplitLines.length>50000){
+    // ★ B4 FIX: 임계값 50,000→200,000줄로 상향 — 대용량 장편이 정작 간격 분할 필요한 케이스임
+    if(_autoSplitLines&&_autoSplitLines.length>200000){
       _autoSplitLines=null;
     }
     // 챕터 캐시는 미리보기/분리에서 필요하므로 유지 (단, 대용량은 제한)
@@ -2807,7 +2813,21 @@ async function resetEditAll(){
 // ════ 결과 stat 카드 렌더링 (최적화 5) ════
 function resetConvertTxt(){
   S.txtFiles=[];S._rawTextFull=[];_chaptersCache=null;_chaptersCacheKey='';
+  // ★ B10 FIX: 파일 교체 시 간격 분할 상태 완전 초기화
   _autoSplitActive=false;_autoSplitLines=null;
+  // 하이브리드/제목 템플릿 버튼 정리
+  document.getElementById('hybrid-suggest-btn')?.remove();
+  document.getElementById('title-template-bar')?.remove();
+  // splitBtn 원상 복구
+  const splitBtn=document.querySelector('button[data-action="autoSplitByInterval"]');
+  if(splitBtn){
+    splitBtn.disabled=false;
+    splitBtn.style.opacity='1';
+    splitBtn.style.pointerEvents='';
+    splitBtn.style.color='';
+    splitBtn.textContent='⚡ 간격 분할';
+    splitBtn.title='';
+  }
   document.getElementById('txtDz').className='dz';
   document.getElementById('txtInfo').style.display='none';
   const fl=document.getElementById('txtFileList'); if(fl) fl.style.display='none';
@@ -2815,7 +2835,6 @@ function resetConvertTxt(){
   document.getElementById('tocPanel')?.classList.remove('show');
   ['title','author','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('convertResetBar').style.display='none';
-  // ★ 피드 + 바 초기화
   const regexFeed=document.getElementById('regexFeed');if(regexFeed)regexFeed.style.display='none';
   updateBtmBar&&updateBtmBar([]);
 }
