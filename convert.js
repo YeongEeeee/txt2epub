@@ -379,6 +379,10 @@ function handleTxt(files, append=false){
   renderTxtFileList();
   updateBtmBar&&updateBtmBar(S.txtFiles); // ★ 스티키 바 상태 갱신
 
+  // ★ 파일 로드 즉시 splitBtn 활성화 — disabled 교착 방지
+  // previewToc 완료 전에 버튼이 먼저 열려있어야 함
+  typeof _activateSplitBtnOnFileLoad==='function'&&_activateSplitBtnOnFileLoad();
+
   // ★ 자동 미리보기 — optAutoPreview 없어도 파일 1개면 바로 실행
   const autoEl=document.getElementById('optAutoPreview');
   const autoPreview=autoEl?autoEl.checked:true; // 엘리먼트 없으면 기본 ON
@@ -2838,16 +2842,13 @@ function resetConvertTxt(){
   // DOM 잔재 정리
   document.getElementById('hybrid-suggest-btn')?.remove();
   document.getElementById('title-template-bar')?.remove();
-  // splitBtn 원상 복구
-  const splitBtn=document.querySelector('button[data-action="autoSplitByInterval"]');
-  if(splitBtn){
-    splitBtn.disabled=false;
-    splitBtn.style.opacity='1';
-    splitBtn.style.pointerEvents='';
-    splitBtn.style.color='';
-    splitBtn.textContent='⚡ 간격 분할';
-    splitBtn.title='';
-  }
+  // ★ splitBtn 원상 복구 — _syncSplitBtn으로 단일 관리
+  typeof _syncSplitBtn==='function'
+    ? _syncSplitBtn('reset')
+    : (()=>{
+        const btn=document.querySelector('button[data-action="autoSplitByInterval"]');
+        if(btn){ btn.disabled=false; btn.style.opacity='1'; btn.style.pointerEvents=''; btn.style.color=''; btn.textContent='⚡ 간격 분할'; btn.title=''; }
+      })();
   document.getElementById('txtDz').className='dz';
   document.getElementById('txtInfo').style.display='none';
   const fl=document.getElementById('txtFileList'); if(fl) fl.style.display='none';

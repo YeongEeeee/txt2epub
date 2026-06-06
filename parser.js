@@ -1021,15 +1021,8 @@ async function previewToc(){
         _vsInstTb2=createVirtualScroll(tb2,_fullRawLines);
       }
     }
-    // splitBtn: 재분할 버튼 상태 유지
-    const splitBtn=document.querySelector('button[data-action="autoSplitByInterval"]');
-    if(splitBtn){
-      splitBtn.disabled=false;
-      splitBtn.style.opacity='0.8';
-      splitBtn.style.pointerEvents='';
-      splitBtn.textContent='⚡ 재분할';
-      splitBtn.title='간격 분할 활성 — 클릭해서 재분할';
-    }
+    // ★ 간격 분할 활성 상태 — 재분할 버튼 표시
+    _syncSplitBtn('active');
     Toast.info('⚡ 간격 분할 모드 활성 — 패턴 감지를 건너뜁니다.', 2500);
     return; // ← 여기서 완전 종료, 아래 패턴 분석 코드 실행 안 됨
   }
@@ -1188,22 +1181,13 @@ async function previewToc(){
     '<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+patLabel+'</div>');
   refreshDetectedChip();
 
-  // ★ B1 FIX: splitBtn 완전 비활성화 — opacity만으로는 클릭이 막히지 않음
-  const splitBtn=document.querySelector('button[data-action="autoSplitByInterval"]');
-  if(splitBtn){
-    if(found.length>0){
-      splitBtn.disabled=true;
-      splitBtn.style.opacity='0.4';
-      splitBtn.style.pointerEvents='none';
-      splitBtn.title='패턴 자동 감지 성공 — 간격 분할 불필요 (감지 실패 시 활성화됩니다)';
-      _renderHybridSuggestBtn(found.length);
-    } else {
-      splitBtn.disabled=false;
-      splitBtn.style.opacity='1';
-      splitBtn.style.pointerEvents='';
-      splitBtn.style.color='var(--blue)';
-      splitBtn.title='패턴 감지 실패 — 줄 간격으로 자동 분할';
-    }
+  // ★ splitBtn 상태 동기화 — _syncSplitBtn으로 단일 관리
+  // ★ 핵심: found.length > 0이어도 disabled 설정하지 않음 (교착 방지)
+  if(found.length>0){
+    _syncSplitBtn('patternFound');
+    _renderHybridSuggestBtn(found.length);
+  } else {
+    _syncSplitBtn('patternMissing');
   }
 
   // ── 본문 짧음 감지 Toast 알림 ──
@@ -1229,6 +1213,78 @@ function _renderHybridSuggestBtn(foundCount){
   btn.title='감지 결과가 부족한 구간을 간격 분할로 자동 채웁니다 (하이브리드 모드)';
   btn.addEventListener('click', ()=>autoSplitByInterval(true));
   document.getElementById('tb0')?.insertAdjacentElement('beforebegin', btn);
+}
+
+// ════════════════════════════════════════════════════════
+// ★ _syncSplitBtn — splitBtn 상태 단일 관리 유틸
+//
+// ★ 핵심 규칙: 텍스트 데이터가 존재하는 한 disabled는 절대 설정하지 않음
+//   - 'nofile'        → disabled (파일 없음, 유일한 disabled 허용 케이스)
+//   - 'active'        → 활성 + "재분할" (간격 분할 완료 상태)
+//   - 'patternFound'  → 활성 + opacity 낮춤 (패턴 감지 성공, but 클릭 허용)
+//   - 'patternMissing'→ 강조 활성 (패턴 감지 실패)
+//   - 'reset'         → 기본 활성 (파일 초기화 후)
+// ════════════════════════════════════════════════════════
+function _syncSplitBtn(state){
+  const btn=document.querySelector('button[data-action="autoSplitByInterval"]');
+  if(!btn) return;
+  switch(state){
+    case 'nofile':
+      btn.disabled=true;
+      btn.style.opacity='0.35';
+      btn.style.pointerEvents='none';
+      btn.style.color='';
+      btn.textContent='⚡ 간격 분할';
+      btn.title='TXT 파일을 먼저 추가해주세요';
+      break;
+    case 'active':
+      btn.disabled=false;
+      btn.style.opacity='0.85';
+      btn.style.pointerEvents='';
+      btn.style.color='';
+      btn.textContent='⚡ 재분할';
+      btn.title='간격 분할 활성 — 클릭해서 재분할';
+      break;
+    case 'patternFound':
+      // ★ disabled 절대 금지 — 패턴이 감지돼도 사용자는 간격 분할 선택 가능
+      btn.disabled=false;
+      btn.style.opacity='0.55';
+      btn.style.pointerEvents='';
+      btn.style.color='';
+      btn.textContent='⚡ 간격 분할';
+      btn.title='패턴 감지 성공 — 원하면 간격 분할도 사용 가능합니다';
+      break;
+    case 'patternMissing':
+      btn.disabled=false;
+      btn.style.opacity='1';
+      btn.style.pointerEvents='';
+      btn.style.color='var(--blue)';
+      btn.textContent='⚡ 간격 분할';
+      btn.title='패턴 감지 실패 — 줄 간격으로 자동 분할';
+      break;
+    case 'reset':
+    default:
+      btn.disabled=false;
+      btn.style.opacity='1';
+      btn.style.pointerEvents='';
+      btn.style.color='';
+      btn.textContent='⚡ 간격 분할';
+      btn.title='';
+      break;
+  }
+}
+
+// ─── 파일 로드 직후 splitBtn 즉시 활성화 (convert.js handleTxt에서 호출) ───
+// previewToc 실행 전에 버튼이 먼저 열려있어야 교착 상태 방지
+function _activateSplitBtnOnFileLoad(){
+  const btn=document.querySelector('button[data-action="autoSplitByInterval"]');
+  if(!btn) return;
+  if(btn.disabled){
+    // 일단 활성화 — previewToc 완료 후 patternFound/patternMissing으로 재조정됨
+    btn.disabled=false;
+    btn.style.pointerEvents='';
+    btn.style.opacity='0.8';
+  }
 }
 
 // 본문 짧음 Toast 알림 (목차 확인 완료 후 호출)
@@ -2611,15 +2667,8 @@ async function autoSplitByInterval(hybridMode=false){
     }
   }
 
-  // B5: splitBtn 상태 업데이트
-  const splitBtn=document.querySelector('button[data-action="autoSplitByInterval"]');
-  if(splitBtn){
-    splitBtn.disabled=false;
-    splitBtn.style.opacity='0.8';
-    splitBtn.style.pointerEvents='';
-    splitBtn.textContent='⚡ 재분할';
-    splitBtn.title=`간격 분할 활성 (${finalItems.length}화) — 클릭해서 재분할`;
-  }
+  // ★ splitBtn 상태: 간격 분할 완료 → 재분할 가능 상태
+  _syncSplitBtn('active');
   document.getElementById('hybrid-suggest-btn')?.remove();
 
   const suspCount=finalItems.filter(t=>t.suspicious).length;
