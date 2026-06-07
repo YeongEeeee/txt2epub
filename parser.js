@@ -2302,19 +2302,8 @@ async function renderTocPreview(){
 }
 
 // ══════════════════════════════════════════
-// ══════════════════════════════════════════
-// ⚡ Module: AutoSplit (줄 간격 기반 자동 분할)
-// ══════════════════════════════════════════
-// ════════════════════════════════════════════════════════════
 // ⚡ Module: AutoSplitByInterval — Fail-safe 간격 분할 엔진
-//
-// 설계 원칙:
-//   1. 순수 균등 분할(수학적)이 항상 먼저 계산되고 무조건 성공
-//   2. L3(제목 탐색) / L5(경계 snap)는 보조 힌트로만 사용
-//      → 실패 시 즉시 폴백, 절대로 분할 자체를 막지 않음
-//   3. _snapToBoundary는 챕터별 독립 계산, 역전/중복 방지 가드 포함
-//   4. hybridMode는 순수 분할이 완벽히 완료된 뒤에만 실행
-// ════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════
 
 // ── L2: 빈 줄 군집 간격의 중앙값으로 화수 추정 (보조 함수) ──
 // 실패하면 null 반환 — 호출자가 폴백 처리
@@ -2353,31 +2342,8 @@ function _findNearbyTitle(lines, centerIdx, windowSize=10){
       const score=Math.abs(i-centerIdx)*2+l.length;
       if(score<bestScore){ bestScore=score; best=l; }
     }
-    return best; // null이면 호출자가 폴백
+    return best;
   }catch(e){ return null; }
-}
-
-// ── L5: interval 위치 주변에서 빈 줄 군집 경계 snap (보조 함수) ──
-// ★ 핵심 제약: 반환값은 반드시 [lowerBound, upperBound) 범위 내 — 역전/중복 원천 차단
-function _snapToBoundary(lines, rawIdx, lowerBound, upperBound, searchRange=15){
-  try{
-    // searchRange는 lowerBound~upperBound를 절대 벗어나지 않도록 클램핑
-    const searchStart=Math.max(lowerBound, rawIdx-searchRange);
-    const searchEnd  =Math.min(upperBound-1, rawIdx+searchRange);
-    if(searchStart>=searchEnd) return rawIdx; // 탐색 범위 없으면 즉시 반환
-
-    for(let i=searchStart;i<searchEnd;i++){
-      if(!(lines[i]||'').trim()&&!(lines[i+1]||'').trim()){
-        // 빈 줄 군집 발견 — 군집 끝(첫 비어있지 않은 줄)을 경계로
-        let j=i;
-        while(j<searchEnd&&!(lines[j]||'').trim()) j++;
-        // 반드시 [lowerBound, upperBound) 범위 내 값만 반환
-        if(j>=lowerBound&&j<upperBound) return j;
-      }
-    }
-  }catch(e){}
-  // 어떤 경우에도 원래 rawIdx 반환 (범위 클램핑 후)
-  return Math.max(lowerBound, Math.min(rawIdx, upperBound-1));
 }
 
 // ── L6: 분할 품질 점수 계산 ──
@@ -2393,7 +2359,6 @@ function _calcSplitQuality(tocItems){
 }
 
 // ── L8: 하이브리드 병합 — 패턴 anchor + 간격 보완 ──
-// 순수 간격 분할 found 배열이 완성된 뒤에만 호출됨
 function _mergeHybrid(anchorItems, intervalItems, totalLines){
   if(!anchorItems.length) return intervalItems;
   if(!intervalItems.length) return anchorItems;
@@ -2402,7 +2367,6 @@ function _mergeHybrid(anchorItems, intervalItems, totalLines){
   for(let ai=0;ai<anchorItems.length-1;ai++){
     const gapStart=anchorItems[ai].line;
     const gapEnd  =anchorItems[ai+1].line;
-    // 공백이 평균 간격의 2배 이상인 구간에만 보완 삽입
     if(gapEnd-gapStart < avgAnchorGap*2) continue;
     const fills=intervalItems.filter(iv=>iv.line>gapStart&&iv.line<gapEnd);
     fills.forEach(f=>result.push({...f, _hybridFill:true}));
@@ -2459,6 +2423,110 @@ function _renderTitleTemplateBar(){
 }
 
 // ════════════════════════════════════════════════════════════
+// ★ _snapToBoundary v2 — 가중치 점수제 기반 문맥 경계 보정
+//
+// 10가지 보정 방안 전체 구현:
+//   #1  Zero-Loss: title 추출이 body에서 줄을 삭제하지 않음 (autoSplitByInterval에서 보장)
+//   #2  가중치 기반 경계 점수제 — 각 줄에 점수 부여 후 최고점 선택
+//   #3  대사 가로채기 방지 가드 — 열린 따옴표 줄 분할 제외
+//   #4  공백 줄 우선권 스캔 (+100점)
+//   #5  문장 부호 완결성 검사 (+50점)
+//   #6  탐색 윈도우 Max 30줄 제한
+//   #7  인덱스 역전·영역 침범 차단
+//   #8  기본값 폴백 안전장치 (예외 시 수학값 반환)
+//   #9  유령 공백(\r, 제로너비 등) 정규식 스크리닝
+//   #10 웹소설 연속 2줄+ 공백 최우선권 (+120점)
+//   #11 보정 상태 console.warn 로깅
+//
+// 파라미터:
+//   lines      : 전체 줄 배열
+//   mathIdx    : 수학적 균등 분할 지점 (0-based)
+//   lowerBound : 탐색 하한 (이 챕터 전용 범위)
+//   upperBound : 탐색 상한 (이웃 화 침범 불가)
+//   maxRange   : 위아래 최대 탐색 줄 수 (기본 30)
+// 반환: 보정된 경계 인덱스 [lowerBound, upperBound) 범위 내 보장
+// ════════════════════════════════════════════════════════════
+function _snapToBoundary(lines, mathIdx, lowerBound, upperBound, maxRange=30){
+  try{
+    // #7: 입력 유효성 클램핑
+    const safeIdx   = Math.max(lowerBound, Math.min(mathIdx,   upperBound-1));
+    const scanStart = Math.max(lowerBound, safeIdx - maxRange); // #6
+    const scanEnd   = Math.min(upperBound, safeIdx + maxRange); // #6
+
+    if(scanStart >= scanEnd){
+      // 탐색 범위 없으면 즉시 폴백 (#8)
+      return safeIdx;
+    }
+
+    // #2·#4·#5·#9·#10: 가중치 점수 계산
+    let bestScore = -Infinity;
+    let bestIdx   = safeIdx; // #8 기본값 = 수학적 위치
+
+    // #3: 대사 감지용 따옴표 집합
+    const OPEN_QUOTES  = ['"', '\u201C', '\u2018', "'"];
+    const CLOSE_QUOTES = ['"', '\u201D', '\u2019', "'"];
+
+    for(let i = scanStart; i < scanEnd; i++){
+      // #9: 유령 공백 정규화
+      const rawLine  = (lines[i]   || '').replace(/[\r\u200B\uFEFF\u00A0]/g, '').trim();
+      const prevLine = (lines[i-1] || '').replace(/[\r\u200B\uFEFF\u00A0]/g, '').trim();
+
+      let score = 0;
+
+      // #10: 웹소설 연속 2줄+ 공백 — 최우선권 (+120)
+      if(!rawLine && !prevLine){
+        score += 120;
+      }
+      // #4: 단일 공백 줄 — 높은 우선권 (+100)
+      else if(!rawLine){
+        score += 100;
+      }
+      // #5: 이전 줄이 문장 부호 완결 (+50)
+      if(prevLine && /[.?!…。！？]$/.test(prevLine)){
+        score += 50;
+      }
+      // #5: 이전 줄이 말줄임표 변형 (+30)
+      if(prevLine && /\.{2,}$/.test(prevLine)){
+        score += 30;
+      }
+
+      // 수학적 위치 거리 페널티 (균등도 유지)
+      score -= Math.abs(i - safeIdx) * 2;
+
+      // #3: 대사 흐름 가로채기 방지
+      // 현재 줄이 열린 따옴표로 시작하고 닫히지 않으면 분할 제외
+      const startsOpen = OPEN_QUOTES.some(q => rawLine.startsWith(q))
+                       && !CLOSE_QUOTES.some(q => rawLine.endsWith(q));
+      if(startsOpen) score -= 999;
+
+      if(score > bestScore){
+        bestScore = score;
+        bestIdx   = i;
+      }
+    }
+
+    // #7: 최종 범위 안전 클램핑
+    const finalIdx = Math.max(lowerBound, Math.min(bestIdx, upperBound - 1));
+
+    // #11: 보정 상태 로깅
+    const delta = finalIdx - mathIdx;
+    if(delta !== 0){
+      console.warn(
+        `[autoSplit] 경계 보정: ${mathIdx+1}줄 → ${finalIdx+1}줄 `+
+        `(${delta > 0 ? '+' : ''}${delta}줄, 점수=${bestScore})`
+      );
+    }
+
+    return finalIdx;
+
+  }catch(err){
+    // #8: 예외 발생 시 수학값 클램핑 폴백
+    console.warn('[autoSplit] _snapToBoundary 예외, 폴백:', err);
+    return Math.max(lowerBound, Math.min(mathIdx, upperBound - 1));
+  }
+}
+
+// ════════════════════════════════════════════════════════════
 // ⚡ autoSplitByInterval — 메인 진입점
 // hybridMode=true: 기존 패턴 감지 결과를 anchor로 보완
 // ════════════════════════════════════════════════════════════
@@ -2508,7 +2576,7 @@ async function autoSplitByInterval(hybridMode=false){
   const input=await Toast.prompt(promptMsg, String(suggestVal));
   if(input===null) return; // 취소
 
-  // ─── B9: 입력 검증 ───
+  // ─── 입력 검증 ───
   const n=Number((input||'').trim());
   if(!Number.isFinite(n)||!Number.isInteger(n)||n<1||n>9999){
     Toast.warn('1~9999 사이의 정수를 입력해주세요.');
@@ -2516,63 +2584,73 @@ async function autoSplitByInterval(hybridMode=false){
   }
   const totalChapters=n;
 
-  // ─── L9: 설정 저장 ───
+  // ─── 설정 저장 ───
   try{ localStorage.setItem('novelepub_autosplit_total',String(totalChapters)); }catch(e){}
 
-  // ─────────────────────────────────────────────────────────
-  // ★★★ 핵심: 순수 균등 분할 — 절대 실패하지 않는 수학적 계산
+  // ═══════════════════════════════════════════════════════════
+  // ★★★ 핵심: 순수 균등 분할 + 문맥 보정
   //
-  // 설계:
-  //   1. STEP 1 — 수학적 균등 경계 배열을 먼저 확정 (chapterStarts[])
-  //      → _snapToBoundary는 이 값을 "힌트"로만 보정
-  //      → snap 실패 시 수학값 그대로 사용 (폴백 보장)
-  //   2. STEP 2 — 확정된 경계로 body/bodyLen 계산
-  //      → slice 범위 역전 불가 보장 (Math.max/min 가드)
-  //   3. STEP 3 — L3 제목 탐색은 title 값만 덮어씌움
-  //      → 실패해도 기본 제목으로 폴백, 분할 결과에는 영향 없음
-  // ─────────────────────────────────────────────────────────
+  // STEP 1: 수학적 균등 경계 배열 확정 (chapterStarts[])
+  //         _snapToBoundary v2 (가중치 점수제)로 각 챕터 독립 보정
+  //         → 실패 시 수학값 폴백 (#8)
+  //
+  // STEP 2: 확정된 경계로 body 구성
+  //   ★ #1 Zero-Loss Guarantee:
+  //     startIdx ~ nextIdx-1 줄 전체를 body로 사용
+  //     title 추출이 body 줄을 제거하거나 슬라이스하지 않음
+  //     body 첫 줄 = 원본 텍스트 분할 경계 줄 그대로 보존
+  //
+  // STEP 3: 제목 탐색 — body와 완전 분리
+  //         title 필드만 설정, body 불변
+  // ═══════════════════════════════════════════════════════════
 
   // STEP 1: 수학적 균등 경계 배열 확정
-  // chapterStarts[i] = i번째 챕터의 시작 줄 인덱스 (0-based)
   const chapterStarts=new Array(totalChapters);
   for(let ch=0;ch<totalChapters;ch++){
-    // 수학적 기본값 (절대 안전)
     const mathIdx=Math.floor(ch*totalLines/totalChapters);
-    // L5: 경계 snap 시도 — 이 챕터 전용 탐색 범위 내에서만 작동
-    // lowerBound: 이전 챕터 시작 이후 (ch>0이면 mathIdx - interval/2)
-    // upperBound: 다음 챕터 수학값 이전
-    const prevMath=ch>0?Math.floor((ch-1)*totalLines/totalChapters):0;
-    const nextMath=ch+1<totalChapters?Math.floor((ch+1)*totalLines/totalChapters):totalLines;
-    const lowerBound=ch>0?Math.floor((prevMath+mathIdx)/2):0;  // 이전 챕터 중간점
-    const upperBound=Math.floor((mathIdx+nextMath)/2)+1;         // 다음 챕터 중간점
-    const snapped=_snapToBoundary(lines, mathIdx, lowerBound, Math.min(upperBound, totalLines), 15);
-    // ★ snap 결과가 수학값보다 합리적인지 검증 (이상하면 수학값 사용)
-    chapterStarts[ch]=(snapped>=lowerBound&&snapped<Math.min(upperBound,totalLines))
+
+    // 이 챕터 전용 탐색 경계 — 이웃 화 침범 원천 차단 (#7)
+    const prevMath=ch>0 ? Math.floor((ch-1)*totalLines/totalChapters) : 0;
+    const nextMath=ch+1<totalChapters ? Math.floor((ch+1)*totalLines/totalChapters) : totalLines;
+    const lowerBound=ch>0 ? Math.ceil((prevMath+mathIdx)/2) : 0;
+    const upperBound=Math.floor((mathIdx+nextMath)/2)+1;
+    const safeLower=Math.max(0, lowerBound);
+    const safeUpper=Math.min(totalLines, upperBound);
+
+    // _snapToBoundary v2: 가중치 점수제 보정 (최대 30줄 탐색)
+    const snapped=_snapToBoundary(lines, mathIdx, safeLower, safeUpper, 30);
+
+    // 최종 검증: 범위 내 값이면 채택, 아니면 수학값 (#8)
+    chapterStarts[ch]=(snapped>=safeLower && snapped<safeUpper)
       ? snapped
-      : mathIdx;
+      : Math.max(safeLower, Math.min(mathIdx, safeUpper-1));
   }
 
-  // STEP 2: 경계 배열로 found 구성 — 역전/중복 방지 가드
+  // STEP 2: 확정된 경계로 found 배열 구성
   const _suspThr=getSuspThreshold();
   const found=[];
+
   for(let ch=0;ch<totalChapters;ch++){
     const startIdx=chapterStarts[ch];
-    // nextIdx: 다음 챕터 시작 또는 파일 끝
-    const nextIdx=ch+1<totalChapters ? chapterStarts[ch+1] : totalLines;
-    // ★ 역전 방지: nextIdx > startIdx 보장
+    const nextIdx =ch+1<totalChapters ? chapterStarts[ch+1] : totalLines;
+    // #7: 역전 방지
     const safeNext=Math.max(startIdx+1, nextIdx);
-    const isLast=(ch===totalChapters-1);
+    const isLast  =(ch===totalChapters-1);
 
-    // STEP 3: L3 제목 탐색 (보조, 실패해도 기본 제목으로 폴백)
-    let title='[간격 분할] '+(ch+1)+'화'; // 기본 제목
+    // STEP 3: 제목 탐색 — title만 설정, body 불변 (#1 Zero-Loss)
+    let title='[간격 분할] '+(ch+1)+'화'; // 기본 제목 (#8)
     try{
       const hint=_findNearbyTitle(lines, startIdx, 10);
       if(hint&&hint.trim().length>=2) title=hint.trim();
     }catch(e){}
 
-    // body 계산 (slice 범위: startIdx ~ safeNext)
-    const bodyText=lines.slice(startIdx, safeNext).join('\n').trim();
-    const bodyLen =bodyText.replace(/\s/g,'').length;
+    // ★ #1 Zero-Loss Body: startIdx~safeNext 전체를 body로 사용
+    // title에 사용된 줄이어도 body에서 제거하지 않음
+    // — 정규식 파싱과 달리 분할 경계 줄이 목차 제목으로 소비되지 않음
+    const bodyLines=lines.slice(startIdx, safeNext);
+    // #9: 앞뒤 유령 공백만 제거, 내부 내용 완전 보존
+    const bodyText =bodyLines.join('\n').replace(/^[\r\n\u200B\uFEFF\u00A0]+|[\r\n\u200B\uFEFF\u00A0]+$/g,'');
+    const bodyLen  =bodyText.replace(/[\s\r\n\u200B\uFEFF\u00A0]/g,'').length;
 
     found.push({
       line:           startIdx+1,  // 1-based (표시용)
@@ -2580,24 +2658,25 @@ async function autoSplitByInterval(hybridMode=false){
       enabled:        true,
       autoSplit:      true,
       _autoGenerated: true,
-      originalTitle:  undefined,   // B6: 편집 여부 판별용
-      body:           bodyText,
-      bodyLen:        bodyLen,
+      originalTitle:  undefined,
+      body:           bodyText,    // ★ 원본 줄 온전히 보존
+      bodyLen,
       suspicious:     bodyLen<_suspThr&&!isLast,
     });
   }
 
-  // ★ Fail-safe 최종 검증 — 비어있으면 수학적 폴백으로 강제 생성
+  // ★ Fail-safe 최종 검증 (#8): 비어있으면 수학적 폴백 강제 생성
   if(!found.length){
+    console.warn('[autoSplit] found 배열 비어있음 — 수학적 폴백 실행');
     const fallbackInterval=Math.max(1,Math.floor(totalLines/totalChapters));
     for(let ch=0;ch<totalChapters;ch++){
       const si=ch*fallbackInterval;
       const ni=Math.min(si+fallbackInterval, totalLines);
-      const bodyText=lines.slice(si,ni).join('\n').trim();
+      const bodyText=lines.slice(si,ni).join('\n').replace(/^[\r\n]+|[\r\n]+$/g,'');
       found.push({
         line:si+1, title:'[간격 분할] '+(ch+1)+'화',
         enabled:true, autoSplit:true, _autoGenerated:true, originalTitle:undefined,
-        body:bodyText, bodyLen:bodyText.replace(/\s/g,'').length,
+        body:bodyText, bodyLen:bodyText.replace(/[\s\r\n]/g,'').length,
         suspicious:false,
       });
     }
@@ -2607,17 +2686,17 @@ async function autoSplitByInterval(hybridMode=false){
   let finalItems=found;
   if(hybridMode&&existingItems.length>0){
     try{ finalItems=_mergeHybrid(existingItems,found,totalLines); }
-    catch(e){ finalItems=found; } // 하이브리드 실패 시 순수 분할 결과 그대로
+    catch(e){
+      console.warn('[autoSplit] 하이브리드 병합 실패, 순수 분할 사용:', e);
+      finalItems=found;
+    }
   }
 
   // ─── 상태 반영 ───
   S.tocItems=finalItems;
   _fullRawLines=lines;
-  // B4: 200,000줄 이하만 메모리 보관 (초과 시 startConvert에서 재파싱)
   _autoSplitLines=totalLines<=200000?lines:null;
-  // ★ window 단일 소유권: _setAutoSplitActive로 설정 — startConvert까지 유실 없이 유지
   _setAutoSplitActive(true);
-  // B8: 명시적 캐시 키
   _chaptersCache=null;
   _chaptersCacheKey='__autoSplit__';
 
@@ -2639,13 +2718,11 @@ async function autoSplitByInterval(hybridMode=false){
     </div>`
   );
 
-  // L7: 제목 일괄 변경 툴바
   _renderTitleTemplateBar();
-
   document.getElementById('tocPanel')?.classList.add('show');
   tocTab(0);
 
-  // B7: 가상 스크롤 — 이전 인스턴스 destroy 후 재생성
+  // 가상 스크롤 — 이전 인스턴스 destroy 후 재생성
   const tb2b=document.getElementById('tb2');
   _vsInstTb2b?.destroy(); _vsInstTb2b=null;
   if(tb2b){
@@ -2667,7 +2744,6 @@ async function autoSplitByInterval(hybridMode=false){
     }
   }
 
-  // ★ splitBtn 상태: 간격 분할 완료 → 재분할 가능 상태
   _syncSplitBtn('active');
   document.getElementById('hybrid-suggest-btn')?.remove();
 
