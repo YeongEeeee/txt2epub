@@ -188,8 +188,21 @@ function _buildWorkerSrc(jszipUrl){
   // Worker 내부 코드를 안전하게 생성
   // 따옴표 충돌 없이 Worker 소스를 구성
   const esc = String.raw`
+// ★ Worker 내 escHtml — parser.js와 동일 로직 (#7 정규식 사전 컴파일)
+// 처리 순서: & 1순위 → < → > → " → '  (#2 이중치환 방지)
+const _RX_AMP  = /&/g;
+const _RX_LT   = /</g;
+const _RX_GT   = />/g;
+const _RX_QUOT = /"/g;
+const _RX_APOS = /'/g;
 function escHtml(s){
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  if(typeof s !== 'string') return '';
+  return s
+    .replace(_RX_AMP,  '&amp;')
+    .replace(_RX_LT,   '&lt;')
+    .replace(_RX_GT,   '&gt;')
+    .replace(_RX_QUOT, '&quot;')
+    .replace(_RX_APOS, '&#39;');
 }`;
   const body = [
     "'use strict';",

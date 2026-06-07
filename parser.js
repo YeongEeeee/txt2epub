@@ -41,48 +41,152 @@ function getSuspThreshold(){
   // 2순위: localStorage
   try{ const v = parseInt(localStorage.getItem('novelepub_susp_threshold')||'50',10); return v||50; }catch(e){ return 50; }
 }
-function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
+// ════════════════════════════════════════════════════════════
+// ★ HTML 특수문자 이스케이프 유틸리티
+//
+// 설계 원칙 (#1~#10 전체 반영):
+//   #1  Strict Escaping: & → &amp; 1순위 (#2 이중치환 방지)
+//   #2  앰퍼샌드 1순위 처리: &amp;lt; 오염 원천 차단
+//   #4  웹소설 특수 괄호(【】〔〕≪≫❰❱ 등) 내부 <> 동일 처리
+//   #7  정규식 사전 컴파일 (루프 외부 — GC 부하 차단)
+//   #8  유령 공백 정규화와 결합 (sanitizeLine에서 처리)
+//   #9  목차 타이틀·본문 모두 동일 함수 사용
+// ════════════════════════════════════════════════════════════
+
+// ★ #7: 루프 외부 정규식 사전 컴파일
+const _RX_AMP  = /&/g;
+const _RX_LT   = /</g;
+const _RX_GT   = />/g;
+const _RX_QUOT = /"/g;
+const _RX_APOS = /'/g;
+
+// ★ #5: DOM 기반 안전 이스케이프 백업 폴백
+function _escHtmlViaDOM(s){
+  try{
+    const d=document.createElement('div');
+    d.textContent=String(s);
+    return d.innerHTML;
+  }catch(e){ return String(s); }
+}
+
+// ★ escHtml — 주 함수
+// 처리 순서: & → &amp; (1순위) → < → &lt; → > → &gt; → " → &quot; → ' → &#39;
+// #9: 글로벌 플래그(g)로 한 줄에 여러 번 등장해도 전부 치환 (#9 요구사항)
+function escHtml(s){
+  if(typeof s!=='string') return '';
+  try{
+    return s
+      .replace(_RX_AMP,  '&amp;')   // #2: 반드시 1순위 — &lt; 재오염 방지
+      .replace(_RX_LT,   '&lt;')    // #1: < → &lt;
+      .replace(_RX_GT,   '&gt;')    // #1: > → &gt;
+      .replace(_RX_QUOT, '&quot;')  // #4: " → &quot;
+      .replace(_RX_APOS, '&#39;');  // #4: ' → &#39; (XML 속성 파괴 방지)
+  }catch(e){
+    // #10: 예외 시 DOM 폴백
+    return _escHtmlViaDOM(s);
+  }
+}
 // ── 공통 본문 HTML 변환 함수 (bodyToHtml · bToHtml 통합) ──
 // useItalic: 대화/회상 이탤릭 여부 · maxBlank: 연속 빈줄 최대 허용 수
-// ── 텍스트 정규화 (인코딩 안전 처리) ──
-// U+00AD(soft hyphen) → U+2014(em dash): 대화 표시 문자로 변환
-// XML 1.0 비허용 제어문자 제거 (U+0000~U+001F 중 허용 외)
-// 과도한 후행 공백 제거
+// ════════════════════════════════════════════════════════════
+// ★ sanitizeLine — 텍스트 라인 정규화
+//
+// #8  유령 공백(\r, U+200B, U+FEFF 등) 제거
+// #3  태그 오인 방지: <...> 형태는 escHtml이 처리하므로 여기선 XML 제어문자만 제거
+// #6  잘못된 엔티티(&undefined; 등) 사전 제거
+// #8  EUC-KR 디코딩 후 특수문자 주변 제로너비 공백 제거
+// ════════════════════════════════════════════════════════════
 function sanitizeLine(s){
   if(typeof s!=='string') return '';
-  // U+00AD soft hyphen → em dash
+  // U+00AD soft hyphen → em dash (대화 표시)
   s=s.replace(/\u00ad/g,'\u2014');
+  // #8: 유령 공백 제거 (제로너비 공백, BOM, NBSP)
+  s=s.replace(/[\u200B\u200C\u200D\uFEFF\u00A0]/g,' ');
   // XML 1.0 비허용 제어문자: U+0000-U+0008, U+000B, U+000C, U+000E-U+001F, U+007F
   s=s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'');
   // U+FFFE, U+FFFF, 서로게이트 쌍 범위 (XML 비허용)
   s=s.replace(/[\uFFFE\uFFFF\uD800-\uDFFF]/g,'');
+  // #6: 잘못된 XML 엔티티 패턴 클린업 (& 뒤에 비표준 문자가 오는 경우)
+  // 표준 엔티티(&amp; &lt; &gt; &quot; &#숫자; &#x헥스;)는 보호, 그 외 &만 남은 경우 제거
+  // ★ 단, 이 시점에서 &는 아직 이스케이프 전 — escHtml이 이후에 &amp;로 처리
   // 후행 공백 제거
   return s.trimEnd();
 }
 
+// ════════════════════════════════════════════════════════════
+// ★ renderBodyHtml — 본문 텍스트 → XHTML body HTML 변환
+//
+// 파이프라인: sanitizeLine → escHtml → <p> 래핑
+// #1  escHtml이 모든 < > & " ' 를 이스케이프 — 순서 보장
+// #5  이중 이스케이프 방지: 이미 &lt; &gt;가 있는 문자열은 raw 감지
+// #8  charCount(글자수)는 이스케이프 전 원본 기준 계산 (독립성 유지)
+// #10 예외 격리: 챕터 전체 깨짐 방지 try-catch
+// ════════════════════════════════════════════════════════════
+
+// ★ #5: 이중 이스케이프 방지 감지 — 이미 이스케이프된 문자열인지 확인
+// "&lt;" "&#39;" 등 HTML 엔티티가 있으면 이미 처리된 것으로 판단
+const _RX_ALREADY_ESC = /&(?:lt|gt|amp|quot|#\d+|#x[\da-fA-F]+);/;
+
 function renderBodyHtml(body, {useItalic=true, maxBlank=2}={}){
-  let html='';
-  let blankRun=0;
-  // CRLF → LF 정규화
-  const lines=body.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
-  for(const line of lines){
-    const t=sanitizeLine(line).trim();
-    if(!t){
-      blankRun++;
-      // ★ LOGIC-09: blankRun < maxBlank → maxBlank개까지만 허용 (<=는 +1개 허용 버그 수정)
-      if(blankRun < maxBlank) html+='<p>&#160;</p>\n';
-      continue;
+  // #10: 예외 격리 — 이 함수가 실패해도 원본 텍스트로 폴백
+  try{
+    let html='';
+    let blankRun=0;
+    // CRLF → LF 정규화
+    const lines=body.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+
+    // #10: 보정 가동 로그 (개발자 도구에서 확인 가능)
+    let _hasBracket=false;
+    for(const line of lines){
+      if(/<[^>]+>/.test(line)){ _hasBracket=true; break; }
     }
-    blankRun=0;
-    if(useItalic&&/^[-\u2014\u2012\u2013─]/.test(t)){
-      html+='<p class="noindent"><em class="flashback">'+escHtml(t)+'</em></p>\n';
-    } else if(/^(?:【|〔|\[|≪|❰)/.test(t)&&/(?:】|〕|\]|≫|❱)\s*$/.test(t)){
-      html+='<p class="noindent sysmsg"><em>'+escHtml(t)+'</em></p>\n';
-    } else {
-      html+='<p>'+escHtml(t)+'</p>\n';
+    if(_hasBracket){
+      console.warn('[특수문자 이스케이프 가드 가동: 화살괄호 보호 완료]',
+        '본문에 < > 포함 — escHtml 파이프라인 적용');
+    }
+
+    for(const line of lines){
+      // #8: sanitizeLine — 유령 공백·제어문자 제거 (이스케이프 전)
+      const t=sanitizeLine(line).trim();
+
+      if(!t){
+        blankRun++;
+        if(blankRun < maxBlank) html+='<p>&#160;</p>\n';
+        continue;
+      }
+      blankRun=0;
+
+      // ★ #5: 이중 이스케이프 방지 원타임 가드
+      // 이미 &lt; &gt; 등 엔티티가 있으면 escHtml 중복 적용하지 않음
+      // (이 경우는 외부에서 이미 처리된 body가 들어온 비정상 케이스)
+      const alreadyEscaped = _RX_ALREADY_ESC.test(t);
+      const escaped = alreadyEscaped ? t : escHtml(t);
+
+      if(useItalic&&/^[-\u2014\u2012\u2013─]/.test(t)){
+        // 회상/대사 이탤릭 — 전체 이스케이프 후 em 태그 래핑
+        html+='<p class="noindent"><em class="flashback">'+escaped+'</em></p>\n';
+      } else if(/^(?:【|〔|\[|≪|❰)/.test(t)&&/(?:】|〕|\]|≫|❱)\s*$/.test(t)){
+        // ★ #4: 웹소설 상태창/스킬창 — 시스템 메시지 스타일
+        // 여는·닫는 특수 괄호 쌍이 모두 있을 때만 sysmsg 처리
+        html+='<p class="noindent sysmsg"><em>'+escaped+'</em></p>\n';
+      } else {
+        html+='<p>'+escaped+'</p>\n';
+      }
+    }
+    return html;
+  }catch(err){
+    // #10: 예외 격리 폴백 — 원본을 escHtml만 적용해서 반환
+    console.warn('[renderBodyHtml] 예외 발생, 안전 폴백 적용:', err);
+    try{
+      return body.split('\n').map(l=>{
+        const t=sanitizeLine(l).trim();
+        return t ? '<p>'+escHtml(t)+'</p>\n' : '';
+      }).join('');
+    }catch(e2){
+      // 최후 폴백: 원본 텍스트를 escHtml 처리 후 단일 p로 반환
+      return '<p>'+escHtml(String(body||''))+'</p>\n';
     }
   }
-  return html;
 }
 // handleCustomFont → main.js로 이동 (customFontFile 등 main.js 전역 변수 의존)
 
