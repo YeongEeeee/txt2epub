@@ -984,12 +984,18 @@ function setupEventDelegate(){
   });
 }
 
-// ══════════════════════════════════════════
-// 🚀 DOMContentLoaded 진입점
-// ══════════════════════════════════════════
-
-// ★ BUG-30 수정: DOMContentLoaded 리스너를 단일 블록으로 통합
-window.addEventListener('DOMContentLoaded', ()=>{
+// ══════════════════════════════════════════════════════════════
+// 🚀 window.initUiState — UI 초기화 함수 (외부 노출)
+//
+// ★ Phase 4 구조 개선:
+//   이전: window.addEventListener('DOMContentLoaded', () => { ... })
+//         → ui-state.js 자체 DOMContentLoaded 소유 → main.js와 충돌 가능
+//   이후: window.initUiState() 를 main.js의 DOMContentLoaded 핸들러에서
+//         호출 → 초기화 순서 main.js가 단독 제어
+//
+// 호출 시점: main.js § 5 DOMContentLoaded 오케스트레이터 내부
+// ══════════════════════════════════════════════════════════════
+window.initUiState = function initUiState(){
   initTheme();
   loadCssSettings();
   loadExtraSettings();
@@ -1061,7 +1067,7 @@ window.addEventListener('DOMContentLoaded', ()=>{
       });
     }
   }).catch(()=>{});
-});
+};
 
 // ★ 모바일 스와이프 탭 전환
 (function setupSwipe(){

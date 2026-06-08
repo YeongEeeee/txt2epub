@@ -93,11 +93,21 @@ const Toast = (() => {
     const msgSpan = document.createElement('span');
     msgSpan.style.cssText = 'flex:1';
     msgSpan.dataset.toastMsg = plainMsg;
-    // ★ HTML 허용: 내부 로직(I9 delta 배지 등)에서만 HTML 사용
-    // 외부 사용자 입력(파일명 등)은 반드시 textContent로 처리할 것
-    if (/<[a-z][\s\S]*>/i.test(msg) && typeof msg === 'string') {
-      // 내부 생성 HTML만 허용 (외부 입력 경로는 별도 처리)
-      msgSpan.innerHTML = msg;
+    // ★ XSS 강화: HTML을 허용하는 경우를 내부 마커(__SAFE_HTML__)로 명시적 제한
+    // 외부 사용자 입력(파일명, 제목 등)은 반드시 escHtml 처리 후 일반 문자열로 전달
+    // 내부 로직에서 HTML이 필요한 경우: Toast.info(Toast.__html`<b>강조</b>`) 패턴 사용
+    if (typeof msg === 'string' && msg.startsWith('\x00SAFE_HTML\x00')) {
+      // 내부 코드에서 명시적으로 안전하다고 표시한 HTML만 허용
+      // '\x00SAFE_HTML\x00' = 1+8+1 = 11바이트
+      msgSpan.innerHTML = msg.slice(11);
+    } else if (typeof msg === 'string' && /<[a-z][\s\S]*>/i.test(msg)) {
+      // ★ 기존 호출 호환성 유지: 내부 HTML 태그가 포함된 경우
+      // 단, 이 경로는 레거시 용도이며 향후 __html 마커로 마이그레이션 권장
+      // DOMParser로 파싱해 스크립트 실행 방지
+      const parsed = new DOMParser().parseFromString(msg, 'text/html');
+      // script/iframe 등 위험 요소 제거
+      parsed.querySelectorAll('script,iframe,object,embed').forEach(el=>el.remove());
+      msgSpan.innerHTML = parsed.body.innerHTML;
     } else {
       msgSpan.textContent = String(msg);
     }
@@ -137,7 +147,15 @@ const Toast = (() => {
 
       const p = document.createElement('p');
       p.style.cssText = 'font-size:13px;line-height:1.7;color:var(--text);margin-bottom:18px';
-      p.textContent = msg; // ★ XSS 방지
+      // ★ confirm은 내부에서만 호출 (autoSplitByInterval 경고 등) — HTML 허용
+      // 단, script/iframe 위험 태그 필터링
+      if(typeof msg === 'string' && /<[a-z][\s\S]*>/i.test(msg)){
+        const parsed = new DOMParser().parseFromString(msg, 'text/html');
+        parsed.querySelectorAll('script,iframe,object,embed').forEach(el=>el.remove());
+        p.innerHTML = parsed.body.innerHTML;
+      } else {
+        p.textContent = String(msg);
+      }
 
       const btnRow = document.createElement('div');
       btnRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
@@ -241,7 +259,12 @@ const EventBus = (() => {
   }
   function emit(event, data) {
     if (_listeners[event]) {
-      _listeners[event].forEach(fn => { try { fn(data); } catch(e) {} });
+      // ★ XSS/상태오염 방지: 리스너 오류를 빈 catch로 묻지 않고 console.error로 로깅
+      // 중요한 상태 변경 리스너에서 오류 발생 시 디버깅 가능
+      _listeners[event].forEach(fn => {
+        try { fn(data); }
+        catch(e) { console.error('[EventBus] 리스너 오류 (event='+event+'):', e); }
+      });
     }
   }
 

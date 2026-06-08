@@ -100,8 +100,9 @@ function sanitizeLine(s){
   if(typeof s!=='string') return '';
   // U+00AD soft hyphen → em dash (대화 표시)
   s=s.replace(/\u00ad/g,'\u2014');
-  // #8: 유령 공백 제거 (제로너비 공백, BOM, NBSP)
-  s=s.replace(/[\u200B\u200C\u200D\uFEFF\u00A0]/g,' ');
+  // ★ B-FIX-10: 유령 공백을 '' 로 제거 (이전: ' '로 치환 → 단어 분리 오류)
+  // 예: "스킬이름<ZWS>표시" → "스킬이름표시" (의도한 결합 보존)
+  s=s.replace(/[\u200B\u200C\u200D\uFEFF\u00A0]/g,'');
   // XML 1.0 비허용 제어문자: U+0000-U+0008, U+000B, U+000C, U+000E-U+001F, U+007F
   s=s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'');
   // U+FFFE, U+FFFF, 서로게이트 쌍 범위 (XML 비허용)
@@ -992,12 +993,16 @@ function escAttr(s){return s.replace(/'/g,"\\'").replace(/"/g,'&quot;');}
 let _chaptersCache=null, _chaptersCacheKey='';
 // ─── 간격 분할 원문 줄 배열 (parser.js 소유) ───
 let _autoSplitLines=null;
-// window 미러: convert.js의 startConvert에서 접근 가능하도록
-Object.defineProperty(window,'_autoSplitLines',{
-  get(){ return _autoSplitLines; },
-  set(v){ _autoSplitLines=v; },
-  configurable:true,
-});
+// ★ B-FIX-04(치명): window 미러 재정의 레이스 가드
+// 동일 파일을 두 번 실행하거나 SW 업데이트 후 eval 경로에서
+// defineProperty가 두 번 호출되면 TypeError 발생 → 1회만 정의
+if(!Object.getOwnPropertyDescriptor(window,'_autoSplitLines')){
+  Object.defineProperty(window,'_autoSplitLines',{
+    get(){ return _autoSplitLines; },
+    set(v){ _autoSplitLines=v; },
+    configurable:true,
+  });
+}
 // ★ L-09: 동시 다중 호출 방지 — 계산 중인 Promise 재사용
 let _chaptersComputePromise=null;
 function buildChaptersFromTocItems(lines, tocItems){
@@ -1075,7 +1080,13 @@ async function getCachedChapters(){
   const fileHash = S.txtFiles
     .map(f=>`${f.name}:${f.size}:${f.lastModified||0}`)
     .join('|');
-  const cacheKey = `${fileHash}§${pat}§${settingHash}`;
+  // ★ B-FIX-09: 캐시 키 정교화 — tocItems 편집(병합/드래그) 후 캐시 무효화 보장
+  // 이전: 패턴 문자열만 → tocItems 변경 후에도 캐시 히트 → 이전 병합 전 챕터로 변환
+  // 수정: tocItems 개수 + 첫 번째 line 값을 키에 포함 → 편집 후 자동 무효화
+  const tocChecksum = S.tocItems.length > 0
+    ? `${S.tocItems.length}:${S.tocItems[0]?.line||0}:${S.tocItems[S.tocItems.length-1]?.line||0}`
+    : '0';
+  const cacheKey = `${fileHash}§${pat}§${settingHash}§${tocChecksum}`;
 
   if(_chaptersCache && _chaptersCacheKey===cacheKey) return _chaptersCache;
 
@@ -1472,9 +1483,26 @@ const _tocUndoStack=[];
 const _TOC_UNDO_MAX=10;
 // ★ L-06: tocExportBtn 중복 생성 방지 플래그
 let _tocExportBtnCreated=false;
+
+// ★ B-FIX-06: _selectedIdxs를 모듈 스코프로 분리
+// 이전: renderTocItems() 내부 const → 매 재렌더마다 초기화되어 선택 상태 증발
+// 수정: 모듈 스코프 유지 → renderTocItems 재호출 후에도 선택 상태 보존
+let _tocSelectedIdxs = new Set();
+let _tocLastClickedIdx = null;
+let _tocSelectModeOn = false;
+// ★ B-FIX-07: dragSrcI도 모듈 스코프로 분리 (클로저 경합 방지)
+let _tocDragSrc = null;
+let _tocDragSrcI = null;
+
+// ★ B-FIX-08: getSuspThreshold 캐싱 — renderTocItems 내 수천 회 DOM 쿼리 방지
+// renderTocItems 진입 시 한 번만 평가하고 내부에서 재사용
+let _suspThresholdCached = 50;
+function _refreshSuspThreshold(){
+  _suspThresholdCached = getSuspThreshold();
+}
+
 function _saveTocSnapshot(){
   // ★ L-20 FIX: body 문자열 제외 → 대용량(3000화+) JSON 직렬화 블로킹 방지
-  // bodyLen(숫자)만 저장하고 body는 복원 시 재계산 (Undo 후 updateTocStat로 재집계)
   const slim=(S.tocItems||[]).map(t=>({
     line:          t.line,
     title:         t.title,
@@ -1500,19 +1528,20 @@ function undoToc(){
 function renderTocItems(){
   // ══════════════════════════════════════════════════════════
   // 🗂 renderTocItems — 목차 병합 UX 전면 개선판
-  // 개선 01: 선택 모드 토글 버튼 + 행 호버 퀵 선택 버튼 (발견성)
-  // 개선 02: Shift+클릭 범위 선택 (효율)
-  // 개선 03: 병합 즉시 제목 편집 + 프리셋 3종 (워크플로)
-  // 개선 04: 병합 행에 🔓 분리 버튼 (안전성)
-  // 개선 05: 선택 미니맵 + 인덱스 목록 (가시성)
-  // 개선 06: ⚠ 짧은챕터 자동 선택 버튼 (자동화)
-  // 개선 07: 병합 미리보기 패널 (신뢰성)
-  // 개선 08: 검색 필터 중 병합 안전 확인 (안정성)
-  // 개선 09: 드래그 중앙 드롭존 = 병합 (직관성)
-  // 개선 10: 대량 선택 시 비동기 병합 + 진행 표시 (성능)
+  // ★ B-FIX-06: _selectedIdxs 모듈 스코프 사용 (재렌더 시 선택 상태 보존)
+  // ★ B-FIX-07: drag 변수 모듈 스코프 사용
+  // ★ B-FIX-08: getSuspThreshold 진입 시 1회 캐싱
   // ══════════════════════════════════════════════════════════
-  let _tocDragSrc=null;
-  let dragSrcI=null; // ★ BUG-FIX: dragSrcI ReferenceError 방지 — renderTocItems 스코프에서 선언
+  // ★ B-FIX-08: 렌더링 시작 시점에 getSuspThreshold 1회 평가
+  _refreshSuspThreshold();
+  // ★ B-FIX-07: drag 소스 초기화 (재렌더마다 리셋)
+  // ★ Side-Effect 가드: 드래그가 진행 중이면 초기화하지 않음
+  // renderTocItems가 updateTocStat → rerender 체인으로 재진입해도
+  // 드래그 중 src 값이 날아가지 않도록 드래그 진행 여부로 조건 분기
+  const _isDragging = _tocDragSrc !== null;
+  if(!_isDragging){
+    _tocDragSrc=null; _tocDragSrcI=null;
+  }
   const c=document.getElementById('tb0');c.innerHTML='';
   // ★ L-06: 전체 재렌더 시 내보내기 버튼 플래그 초기화 (updateTocStat에서 재생성)
   _tocExportBtnCreated=false;
@@ -1524,10 +1553,12 @@ function renderTocItems(){
   for(let i=0;i<Math.min(HEAD,total);i++) alwaysShow.add(i);
   for(let i=Math.max(0,total-TAIL);i<total;i++) alwaysShow.add(i);
 
-  // ── 다중 선택 상태 ──
-  const _selectedIdxs=new Set();
-  let _lastClickedIdx=null; // ★ 개선 02: Shift 범위 선택용 앵커
-  let _selectModeOn=false;  // ★ 개선 01: 선택 모드 토글
+  // ★ B-FIX-06: 모듈 스코프 변수 직접 참조 (const 내부 선언 제거)
+  // _tocSelectedIdxs, _tocLastClickedIdx, _tocSelectModeOn 은 모듈 스코프에서 유지됨
+  // 렌더링 이후에도 선택 상태가 보존됨
+  const _selectedIdxs = _tocSelectedIdxs;   // 참조 공유 (동일 Set 객체)
+  let _lastClickedIdx = _tocLastClickedIdx;
+  let _selectModeOn   = _tocSelectModeOn;
 
   // ══ 검색/필터 바 ══
   const filterBar=document.createElement('div');
@@ -1560,6 +1591,7 @@ function renderTocItems(){
   const selectModeBtn=filterBar.querySelector('#toc-select-mode-btn');
   selectModeBtn.addEventListener('click',()=>{
     _selectModeOn=!_selectModeOn;
+    _tocSelectModeOn=_selectModeOn; // ★ B-FIX-06: 모듈 스코프 동기화
     selectModeBtn.style.background=_selectModeOn?'var(--blue)':'';
     selectModeBtn.style.color=_selectModeOn?'#fff':'';
     selectModeBtn.style.borderColor=_selectModeOn?'var(--blue)':'';
@@ -1859,9 +1891,9 @@ function renderTocItems(){
       else if(_bLen < 10000) _bTxt = (_bLen/1000).toFixed(1) + 'k';
       else                   _bTxt = (_bLen/10000).toFixed(1) + '만';
       charBadge.textContent = _bTxt;
-      charBadge.title = '본문 글자수 (공백 제외): ' + _bLen.toLocaleString() + '자 (기준: ' + getSuspThreshold() + '자)';
+      charBadge.title = '본문 글자수 (공백 제외): ' + _bLen.toLocaleString() + '자 (기준: ' + _suspThresholdCached + '자)';
       // ★ FIX-07: getSuspThreshold() 호출 시점 평가 → 설정 변경 즉시 반영
-      const _suspThr = getSuspThreshold();
+      const _suspThr = _suspThresholdCached // ★ B-FIX-08: 캐싱;
       const _isShort = _bLen > 0 && _bLen < _suspThr;
       // ★ FIX-04: CSS 변수로 교체 (하드코딩 색상 제거)
       charBadge.style.cssText=
@@ -2092,7 +2124,7 @@ function renderTocItems(){
 
     // ★ 개선 09: 드래그 이벤트 — 행 중앙 드롭 = 병합, 상단/하단 드롭 = 순서 변경
     d.addEventListener('dragstart',e=>{
-      dragSrcI=i; _tocDragSrc=i;
+      _tocDragSrcI=i; _tocDragSrc=i;
       d.classList.add('dragging');
       e.dataTransfer.effectAllowed='move';
     });
@@ -2126,7 +2158,7 @@ function renderTocItems(){
     d.addEventListener('drop',e=>{
       e.preventDefault();
       const src=_tocDragSrc;
-      if(src===null||src===i){_tocDragSrc=null;return;}
+      if(src===null||src===i){_tocDragSrc=null;_tocDragSrcI=null;return;}
 
       const isMergeTarget=d.classList.contains('drag-merge-target');
       d.classList.remove('drag-over','drag-merge-target');
@@ -2338,12 +2370,14 @@ let _vsInstTb2b=null;
 
 let _previewActiveIdx=-1;
 let _fullRawLines=[];  // 전체 파일 원본 줄 (미리보기용)
-// window 미러: convert.js의 startConvert에서 null 가드용으로 접근
-Object.defineProperty(window,'_fullRawLines',{
-  get(){ return _fullRawLines; },
-  set(v){ _fullRawLines=v||[]; },
-  configurable:true,
-});
+// ★ B-FIX-04: 재정의 레이스 가드 — 이미 정의된 경우 건너뜀
+if(!Object.getOwnPropertyDescriptor(window,'_fullRawLines')){
+  Object.defineProperty(window,'_fullRawLines',{
+    get(){ return _fullRawLines; },
+    set(v){ _fullRawLines=v||[]; },
+    configurable:true,
+  });
+}
 
 async function renderTocPreview(){
   const c=document.getElementById('tocPreviewList');
@@ -2573,7 +2607,7 @@ function _snapToBoundary(lines, mathIdx, lowerBound, upperBound, maxRange=30){
     for(let i = scanStart; i < scanEnd; i++){
       // #9: 유령 공백 정규화
       const rawLine  = (lines[i]   || '').replace(/[\r\u200B\uFEFF\u00A0]/g, '').trim();
-      const prevLine = (lines[i-1] || '').replace(/[\r\u200B\uFEFF\u00A0]/g, '').trim();
+      const prevLine = (i > 0 ? lines[i-1] : '') /* B-FIX-02: i=0 경계 가드 */.replace(/[\r\u200B\uFEFF\u00A0]/g, '').trim();
 
       let score = 0;
 

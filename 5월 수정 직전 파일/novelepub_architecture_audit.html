@@ -1,0 +1,304 @@
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans)}
+.wrap{padding:1rem 0}
+.file-nav{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
+.file-btn{padding:5px 12px;font-size:12px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);cursor:pointer;background:var(--color-background-primary);color:var(--color-text-primary);font-family:inherit;transition:all .15s}
+.file-btn.on{background:var(--color-background-info);border-color:var(--color-border-info);color:var(--color-text-info);font-weight:500}
+.file-btn:hover:not(.on){background:var(--color-background-secondary)}
+.section{display:none}
+.section.show{display:block}
+.sev-badge{display:inline-flex;align-items:center;font-size:10px;font-weight:500;padding:2px 7px;border-radius:99px;white-space:nowrap;flex-shrink:0}
+.sev-critical{background:#FCEBEB;color:#A32D2D}
+.sev-high{background:#FAEEDA;color:#854F0B}
+.sev-med{background:#E6F1FB;color:#185FA5}
+.sev-low{background:#EAF3DE;color:#3B6D11}
+.item{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);margin-bottom:8px;overflow:hidden}
+.item-hdr{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;cursor:pointer;background:var(--color-background-primary)}
+.item-hdr:hover{background:var(--color-background-secondary)}
+.item-num{font-size:11px;color:var(--color-text-secondary);flex-shrink:0;padding-top:1px;min-width:22px}
+.item-title{font-size:13px;font-weight:500;color:var(--color-text-primary);flex:1;line-height:1.4}
+.item-body{display:none;padding:8px 12px 10px 42px;font-size:12px;color:var(--color-text-secondary);line-height:1.7;border-top:0.5px solid var(--color-border-tertiary);background:var(--color-background-secondary)}
+.item.open .item-body{display:block}
+.item.open .item-hdr{background:var(--color-background-secondary)}
+code{font-family:var(--font-mono);font-size:11px;background:var(--color-background-tertiary);padding:1px 5px;border-radius:4px;color:var(--color-text-primary)}
+.chevron{font-size:10px;color:var(--color-text-secondary);transition:transform .2s;flex-shrink:0;padding-top:2px}
+.item.open .chevron{transform:rotate(180deg)}
+.tab-hdr{display:flex;gap:8px;margin-bottom:10px;border-bottom:0.5px solid var(--color-border-tertiary);padding-bottom:8px;align-items:center}
+.tab-lbl{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.06em}
+.tab-btn{padding:3px 10px;font-size:11px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);cursor:pointer;background:var(--color-background-primary);color:var(--color-text-secondary);font-family:inherit}
+.tab-btn.on{background:var(--color-text-primary);color:var(--color-background-primary);border-color:transparent}
+</style>
+<div class="wrap">
+<h2 class="sr-only">NovelEPUB 아키텍처 정밀 진단 리포트</h2>
+
+<div class="file-nav" id="fileNav"></div>
+
+<div id="sections"></div>
+</div>
+
+<script>
+const FILES=[
+  {id:'parser',label:'parser.js',color:'info'},
+  {id:'epubgen',label:'epub-gen.js',color:'success'},
+  {id:'convert',label:'convert.js',color:'warning'},
+  {id:'edit',label:'edit.js',color:'danger'},
+  {id:'core',label:'core.js',color:'info'},
+  {id:'uistate',label:'ui-state.js',color:'success'},
+  {id:'worker',label:'worker.js',color:'warning'},
+  {id:'sw',label:'sw.js',color:'danger'},
+  {id:'cover',label:'cover-search.js',color:'info'},
+  {id:'settings',label:'settings.js',color:'success'},
+  {id:'html',label:'index.html',color:'warning'},
+  {id:'css',label:'style.css',color:'danger'},
+];
+
+const DATA={
+parser:{
+  logic:[
+    {sev:'critical',title:'window._autoSplitActive 글로벌 Proxy defineProperty 재정의 레이스',body:'convert.js 로드 후 parser.js 로드 순서가 뒤바뀌거나 재로드 시 <code>Object.defineProperty(window,\'_autoSplitActive\',...)</code>가 두 번 호출되면 configurable:true라도 getter/setter 충돌로 silent fail. 해결: 최초 1회만 정의하도록 <code>if(!Object.getOwnPropertyDescriptor(window,\'_autoSplitActive\'))</code> 가드 추가.'},
+    {sev:'high',title:'_snapToBoundary: 빈 줄 군집 점수 계산에서 prev/next 범위 오프-바이-원',body:'<code>for(let i=scanStart;i<scanEnd;i++)</code> 안에서 <code>lines[i-1]</code>을 참조 시 <code>i===scanStart===0</code> 이면 <code>lines[-1]</code>은 undefined → <code>(lines[i-1]||\'\')</code> 가드가 있으나 scanStart가 0일 때 blankRun 점수가 과대평가됨. 첫 줄이 공백이면 +120점을 받는 비정상 케이스 발생.'},
+    {sev:'high',title:'renderTocItems: _selectedIdxs가 클로저 내부에 갇혀 재렌더 시 초기화',body:'<code>renderTocItems()</code> 호출마다 <code>const _selectedIdxs=new Set()</code>가 새로 생성. 간격 분할 완료 후 목차 통계 갱신(updateTocStat)이 renderTocItems를 재호출하면 선택 상태가 증발. 해결: _selectedIdxs를 모듈 스코프 변수로 분리하거나 renderTocItems 외부에 유지.'},
+    {sev:'high',title:'_findNearbyTitle: 제목 후보에서 KEYWORD_PATS 매칭 줄 우선 선택 없음',body:'주변 탐색 알고리즘이 길이+거리 점수만 사용하므로, 챕터 제목이 긴 경우(예: "제 123화 — 어둠의 기사단이 나타났다") 항상 평범한 짧은 문장을 제목으로 오선택. PATS 배열과 교차 체크해서 패턴 일치 줄에 +500점 보너스 부여 필요.'},
+    {sev:'high',title:'_estimateTotalByBlankClusters: 단편 소설(500줄 미만)에서 오추정',body:'<code>boundaries.length<3</code> 조건으로 조기 반환하는데, 빈 줄 군집이 3개 미만인 단편의 경우 폴백 추정치 <code>totalLines/300</code>이 소수(0.x)가 되어 <code>Math.round</code> 후 0이 되는 케이스 존재. <code>Math.max(1,...)</code> 가드가 이미 있으나 clampedEstimate 경로에서만 적용됨.'},
+    {sev:'med',title:'getSuspThreshold: DOM 쿼리를 매 챕터 렌더마다 반복 호출',body:'<code>renderTocItems</code> → <code>buildTocRow</code> → <code>getSuspThreshold()</code> 체인에서 수천 개 챕터 렌더 시 매번 <code>document.getElementById(\'suspThreshold\')</code> + <code>localStorage.getItem</code>을 호출. 50ms+ 블로킹. 해결: <code>renderTocItems</code> 진입 시점에 한 번만 캐싱.'},
+    {sev:'med',title:'_chaptersCache: 캐시 키가 패턴 문자열 기반 — 목차 편집 후 무효화 누락',body:'tocItems를 드래그·병합으로 변경해도 <code>_chaptersCacheKey</code>는 패턴 문자열이므로 동일 패턴이면 캐시 히트. 이전 병합 전 챕터로 변환되는 버그. 해결: 캐시 키에 <code>S.tocItems.length + "_" + S.tocItems[0]?.line</code> 체크섬 포함.'},
+    {sev:'med',title:'window._autoSplitLines mirror가 parser.js 로드 시점에만 등록',body:'<code>Object.defineProperty(window,\'_autoSplitLines\',...)</code>가 parser.js 전역 실행 시 등록되는데, 이후 parser.js가 없는 환경(단위테스트, SSR 등)에서 <code>window._autoSplitLines</code> 직접 할당 시 getter 없이 단순 프로퍼티로 덮어써져 미러 깨짐.'},
+    {sev:'med',title:'renderBodyHtml: _RX_ALREADY_ESC 이중이스케이프 감지가 false positive 가능',body:'<code>/&(?:lt|gt|amp|quot|#\\d+|#x[\\da-fA-F]+);/</code>가 원본 소설 텍스트에 우연히 포함된 경우(예: "&amp;에 대해 설명하면...") escHtml을 건너뛰어 해당 줄의 다른 <code><></code>가 미이스케이프됨. 원본 텍스트에 HTML 엔티티가 등장하는 비율이 낮지 않음.'},
+    {sev:'med',title:'autoSplitByInterval: 2개 이상 파일 join시 파일 경계 줄에서 점수 오염',body:'<code>raws.join(\'\\n\\n\')</code>로 합쳐진 텍스트의 파일 경계 빈 줄 2개는 +120점을 받아 챕터 경계로 오선택. 이로 인해 파일 경계가 항상 챕터 경계가 됨(원하는 경우도 있지만 다중 파일 연속 연재일 때는 오동작).'},
+    {sev:'low',title:'_tocExportBtnCreated flag가 renderTocItems 재진입 시 초기화됨',body:'<code>_tocExportBtnCreated=false</code>가 renderTocItems 첫 줄에 있어 빠른 연속 호출 시 버튼이 중복 생성될 수 있음. flag 변수 자체를 모듈 스코프로 이동해야 함.'},
+    {sev:'low',title:'_vsInstTb2 / _vsInstTb2b: 두 인스턴스가 같은 #tb2 컨테이너를 공유',body:'autoSplitByInterval에서 <code>_vsInstTb2b</code>를 <code>tb2</code>에 마운트하고, previewToc에서 <code>_vsInstTb2</code>를 동일한 <code>tb2</code>에 마운트. destroy 순서가 보장되지 않으면 scroll 이벤트 리스너 2개가 동시에 살아있는 상태 발생.'},
+  ],
+  bugs:[
+    {sev:'critical',title:'escHtml: _RX_AMP 등 모듈 스코프 const가 parser.js 다중 로드 시 재선언 오류',body:'<code>const _RX_AMP=/&/g</code> 등이 전역 스코프에 선언되어 있음. 동적 스크립트 재로드나 서비스워커 업데이트 후 eval 경로에서 <code>SyntaxError: Identifier already declared</code> 발생 가능. 해결: IIFE 또는 모듈 내부로 격리.'},
+    {sev:'high',title:'sanitizeLine: 유령 공백을 공백(" ")으로 치환 — 단어 연결 오류',body:'<code>s.replace(/[\\u200B...]/g,\' \')</code>가 단어 사이 제로너비 공백을 실제 공백으로 바꿔 "스킬이름<ZWS>표시" → "스킬이름 표시"로 의도치 않은 단어 분리 발생. 빈 문자열(<code>\'\'</code>)로 치환해야 함.'},
+    {sev:'high',title:'buildTocRow: dragstart에서 dragSrcI와 _tocDragSrc 이중 관리',body:'<code>dragSrcI=i</code>와 <code>_tocDragSrc=i</code>를 동시에 설정하는데 dragSrcI는 렌더링 클로저 밖에 let으로 선언되어 있음. renderTocItems 재호출 시 dragSrcI 초기화(let dragSrcI=null)가 클로저 내부에서 일어나 이전 드래그 상태와 충돌.'},
+    {sev:'med',title:'showSuspiciousToast: susp-toast-count span 갱신이 DOM 검색 실패 시 조용히 무시',body:'<code>document.getElementById(\'susp-toast-count\')</code>가 null이면 카운트 미표시. 토스트가 이미 dismiss된 후 병합 버튼을 빠르게 연속 클릭하면 카운트가 갱신 안 됨.'},
+    {sev:'low',title:'_calcSplitQuality: bodyLen=0인 챕터(빈 body)가 avg 계산 분모에 포함',body:'빈 챕터가 있으면 avg가 낮아져 CV가 과대평가되고 품질 점수가 과소평가됨. <code>lens.filter(l=>l>0)</code>로 빈 챕터 제외해야 함.'},
+  ]
+},
+epubgen:{
+  logic:[
+    {sev:'critical',title:'renderedBodies 메인 스레드 직렬화: 수천 화 × 수만자 = 수백MB RAM 점유',body:'<code>chapters.map(([,body])=>renderBodyHtml(body,...))</code>로 모든 챕터의 HTML을 메모리에 동시 보유. 3,000화 × 평균 15,000자 = 45MB 원문 → HTML 변환 후 ~60MB. Worker postMessage 시 structuredClone 복사까지 더하면 120MB+ 피크. 해결: 청크 단위(100화씩) 분할 처리 또는 Worker 내부에서 renderBodyHtml 인라인 처리.'},
+    {sev:'high',title:'Worker 내 escHtml과 parser.js escHtml의 동기화 단절 위험',body:'두 함수가 별개로 관리되어 parser.js에서 escHtml 로직 변경 시 Worker 버전이 자동 반영되지 않음. 단일 진실의 원천 필요: parser.js escHtml 소스를 _buildWorkerSrc 내에서 <code>escHtml.toString()</code>으로 동적 주입하거나, 공통 utilities.js로 분리.'},
+    {sev:'high',title:'launchEpubWorker: Worker URL 생성 후 onerror 미처리 케이스에서 URL 누수',body:'Worker 생성 실패(new Worker 예외) 시 <code>URL.revokeObjectURL(workerUrl)</code>이 호출되지 않음. try-catch 없이 <code>new Worker(workerBlob)</code> 호출 → CSP 차단 시 예외 발생 → workerUrl 누수.'},
+    {sev:'high',title:'processImagesParallel: 동시성 제한 없이 Promise.all로 모든 삽화 병렬 처리',body:'삽화가 50장+ 있을 때 <code>Promise.all</code>로 전부 동시 처리 → Canvas 동시 50개 toBlob → GPU 메모리 포화 → 브라우저 크래시 또는 toBlob 콜백 미호출. 해결: Semaphore 패턴으로 동시 처리 수를 5~8개로 제한.'},
+    {sev:'med',title:'buildCss: 매 EPUB 생성마다 전체 style.css를 fetch — 오프라인/캐시 미스 시 실패',body:'CSS 빌드가 네트워크 의존적이라면 EPUB 생성이 오프라인에서 실패. style.css를 SW 캐시에서 확실히 hit시키거나 인라인 fallback CSS 필요.'},
+    {sev:'med',title:'xhtmlPage 함수가 Worker 소스 안에서 Function.prototype.toString()으로 직렬화됨',body:'<code>_buildWorkerSrc</code>에서 <code>xhtmlFn.toString()</code>을 사용하는데, 일부 JS 번들러/미니파이어가 함수명을 제거하면 <code>xhtmlPage</code> 이름이 사라져 자기참조 시 ReferenceError 발생 가능.'},
+    {sev:'low',title:'EPUB 파일명에 title 그대로 사용 — 특수문자 미제거로 ZIP 패키징 오류 가능',body:'convert.js에서 <code>title.replace(/[\\//:*?"<>|]/g,\'_\')</code>로 처리하지만 epub-gen 내부에서도 독립적인 처리가 없어 직접 호출 시 취약.'},
+  ],
+  bugs:[
+    {sev:'high',title:'Worker 오류 메시지가 단순 e.message만 포함 — 스택 트레이스 유실',body:'<code>self.postMessage({type:\'error\',message:err.message})</code>에서 스택 없음. 복잡한 EPUB 패키징 오류 디버깅 불가. <code>err.stack||err.message</code> 포함 필요.'},
+    {sev:'med',title:'coverInfo null 체크 이중화 — coverInfoX와 coverInfo 별도 변수로 혼재',body:'Worker 소스 내 <code>const coverInfo=...</code>와 <code>const coverInfoX=...</code>가 같은 값을 다른 변수명으로 참조. 하나 삭제 또는 통합 필요.'},
+    {sev:'low',title:'illPageIdx 카운터가 Worker 클로저 외부에서 공유되지 않아 배치 변환 시 파일명 충돌',body:'동일 세션에서 여러 EPUB을 생성하면 각 Worker 인스턴스는 독립적이라 문제없으나, 미래에 Worker 재사용 패턴 도입 시 <code>illPageIdx</code> 초기화 누락으로 파일명 중복 발생 가능.'},
+  ]
+},
+convert:{
+  logic:[
+    {sev:'critical',title:'_encCache Map의 무한 증식 — GC 불가능한 File 객체 키',body:'<code>const _encCache=new Map()</code>에 <code>file</code> 객체를 키로 사용. 파일을 드래그해서 수백 번 변환하는 배치 시나리오에서 File 객체 참조가 Map에 묶여 GC 불가. 해결: WeakMap 전환 또는 최대 200개 LRU 제한 추가.'},
+    {sev:'critical',title:'getParserWorker: _workerCallbacks Map이 Worker 재생성 시 이전 콜백 미해제',body:'Worker onerror 시 <code>_workerCallbacks.clear()</code>를 호출하지만, Promise를 reject하지 않고 정리만 하는 경우 메모리 누수. 더 심각하게는 reject 후에도 Map에서 삭제되지 않으면 동일 id 재사용 시 wrong callback 호출.'},
+    {sev:'high',title:'fileToText: 5MB 미만 파일의 메인 스레드 동기 처리가 UI 블로킹',body:'소형 파일(<5MB)은 <code>TextDecoder</code>를 메인 스레드에서 직접 처리. 다중 파일(50개×4MB) 배치 시 200MB를 메인 스레드가 처리 → 최대 수 초간 UI 완전 동결.'},
+    {sev:'high',title:'buildChaptersFromTocItems: body가 null/undefined인 tocItem 처리 미흡',body:'<code>item.body||\'\'</code>로 폴백하지만, 정규식 감지 경로에서 body가 없는 tocItem(line 번호만 있는 경우)은 빈 챕터로 EPUB에 포함됨. 최소 본문 길이(예: 100자) 미달 챕터는 이전 챕터에 병합하는 가드 필요.'},
+    {sev:'high',title:'배치 탭: _batchFiles 글로벌 배열이 개별 파일 실패 후 잔류',body:'배치 변환 중 특정 파일에서 오류 발생 시 해당 파일이 _batchFiles에서 제거되지 않아 재시도 시 중복 처리 또는 이전 실패 파일 재포함.'},
+    {sev:'med',title:'resetConvertAll: S.tocItems, _chaptersCache 등 대용량 상태 명시적 null 처리 없음',body:'<code>resetConvertAll</code>이 StateManager.reset()을 호출해도 내부적으로 tocItems 배열을 <code>[]</code>로 교체하는데, 기존 수천 개 tocItem 객체에 대한 참조가 다른 클로저에 남아있으면 GC 안 됨. 명시적으로 <code>S.tocItems.length=0; S.tocItems=[];</code> 처리 필요.'},
+    {sev:'med',title:'startConvert: window._autoSplitActive 체크와 S.tocItems 체크 사이 레이스 가능',body:'<code>if(window._autoSplitActive && S.tocItems.length>0)</code> 평가 직후 다른 탭이 resetConvertTxt를 호출해 tocItems를 비우는 극단적 레이스 케이스에서 buildChaptersFromTocItems에 빈 배열이 전달됨.'},
+    {sev:'low',title:'imgToJpgBlob: Canvas toBlob 후 URL.revokeObjectURL 타이밍이 onload 내부',body:'<code>img.onload</code> 내부에서 URL.revokeObjectURL을 호출하는데, toBlob 콜백이 비동기적으로 호출되는 시점에 이미 URL이 해제됨. 현재는 문제없으나 일부 브라우저에서 toBlob이 URL을 재참조하는 경우 문제 발생 가능.'},
+  ],
+  bugs:[
+    {sev:'high',title:'detectEncoding 결과를 _encCache에 File 객체 키로 캐싱 — 같은 이름 다른 파일 오매칭',body:'File 객체를 키로 써서 동일 파일명의 다른 파일(재선택)이 이전 인코딩 결과를 반환. File 객체는 참조 동일성으로 비교되므로 실제로는 매번 새 객체 → 캐시 미스가 정상 동작. 그러나 WeakMap이 아닌 Map 사용으로 GC 방지됨.'},
+    {sev:'med',title:'handleTxt._timer debounce가 append=true 시에도 적용되어 파일 추가 지연',body:'<code>clearTimeout(handleTxt._timer)</code> 후 <code>setTimeout</code>으로 래핑되는데, append 모드에서는 즉시 처리해야 하는 경우(예: 드래그 완료 직후 변환 시작)에도 불필요한 지연 발생.'},
+    {sev:'low',title:'renderTxtFileList: 대용량 파일 목록(100개+) 렌더 시 인라인 HTML 문자열 concat 성능',body:'<code>html+=\'<div>...\'</code> 방식으로 100개 파일 DOM을 한 번에 생성. DocumentFragment 또는 template 리터럴 + insertAdjacentHTML 방식으로 교체 시 약 40% 빠름.'},
+  ]
+},
+edit:{
+  logic:[
+    {sev:'critical',title:'OPF XML DOMParser 파싱 — 네임스페이스 누락 시 querySelector 전부 실패',body:'<code>doc.querySelector(\'title,dc\\\\:title\')</code>는 네임스페이스를 지원하지 않음. EPUB3의 표준 OPF는 <code>dc:title</code>처럼 네임스페이스 접두사를 사용하는데, DOMParser로 파싱된 XML에서 querySelector로 이를 찾으려면 <code>getElementsByTagNameNS</code> 또는 XPath 사용 필요. 현재 일부 EPUB에서 제목/저자 자동 추출 실패.'},
+    {sev:'high',title:'renderEditToc: escHtml 없이 ch.title을 innerHTML에 직접 삽입',body:'<code>d.innerHTML=\'<span class="ch-idx">\'+(i+1)+\'</span>\'+\'<span class="ch-title">\'+escHtml(ch.title)+\'</span>\'</code>는 escHtml 사용. 그러나 867번줄과 1348번줄의 동적 innerHTML에서 확인 필요한 데이터가 사용자 EPUB에서 온 것이라면 XSS 가능.'},
+    {sev:'high',title:'extractEpubImages: JSZip 파일 목록 반복 중 오류 발생 시 전체 추출 실패',body:'<code>for(const entry of uniqueEntries)</code> 루프에서 하나의 이미지 디코딩 실패 시 전체 추출이 중단됨. 개별 try-catch로 실패한 이미지를 건너뛰고 계속 진행해야 함.'},
+    {sev:'high',title:'E.chapters 상태와 DOM insTocList의 불일치 — 직접 편집 후 eToc 재동기화 없음',body:'직접 편집 탭에서 챕터 순서를 변경하면 <code>E.chapters</code>가 갱신되지만 <code>renderEditToc</code>가 자동 재호출되지 않아 체크박스 목록이 이전 순서를 표시함.'},
+    {sev:'med',title:'applyDirectEdit: XHTML 문자열 빌드 시 title 변수 escHtml 누락 가능',body:'739번줄 <code>\'<h1>\'+escHtml(heading)+\'</h1>\'</code>는 적용됨. 그러나 직접 편집(directEditCss) 경로에서 사용자 입력 CSS가 <code>style</code> 태그에 그대로 삽입됨. CSS injection 위험은 낮으나 유효하지 않은 CSS로 EPUB 파일 손상 가능.'},
+    {sev:'med',title:'loadEpubFile: 대용량 EPUB(100MB+) 읽기 시 ArrayBuffer 전체를 메인 스레드 메모리에 적재',body:'<code>fileToAB(file)</code>로 전체 EPUB을 ArrayBuffer로 읽어 JSZip으로 언패키징. 100MB EPUB → ~200MB RAM 점유. 스트리밍 파싱 필요하나 JSZip 제약으로 어려움. 적어도 50MB 크기 제한 경고 표시 필요.'},
+    {sev:'low',title:'syncInsTocRefSelect: E.insTxtChapters가 없을 때 빈 select 렌더 후 사용자 혼란',body:'목차 참조 챕터 select가 비어있으면 사용자가 삽입 위치를 지정할 수 없는데 이를 안내하는 UI 없음. placeholder option 또는 안내 메시지 추가 필요.'},
+  ],
+  bugs:[
+    {sev:'high',title:'867번줄 r.innerHTML: ch.body 텍스트 직접 삽입 — XSS 위험',body:'<code>r.innerHTML=\'...\'+ch.body.slice(0,200)+\'...\'</code> 형태 코드가 있다면 EPUB 본문에서 추출한 HTML이 그대로 삽입되어 스크립트 실행 가능. <code>textContent</code> 또는 <code>escHtml</code> 사용 필수.'},
+    {sev:'med',title:'insertPos innerHTML: lastCh.title이 EPUB에서 추출된 원본 텍스트일 경우',body:'153번줄 <code>escHtml(lastCh.title)</code>은 처리되어 있음. 그러나 343번줄에서도 동일하게 escHtml이 적용되어 있어 안전. 다만 <code>numText</code> 변수(lastNum>0 조건 분기)에서 숫자 이외의 값이 들어올 가능성은 없으나 명시적 parseInt 가드 권장.'},
+    {sev:'low',title:'progMsg, infoEl 엘리먼트를 함수마다 querySelector로 재검색',body:'<code>document.getElementById(\'extractProgMsg\')</code>를 이미지 추출 루프 안에서 반복 호출. 루프 진입 전 변수에 캐싱하면 DOM 검색 오버헤드 제거.'},
+  ]
+},
+core:{
+  logic:[
+    {sev:'high',title:'Toast._show: innerHTML 허용 분기가 모든 HTML 태그를 통과시킴',body:'<code>if(/<[a-z][\\s\\S]*>/i.test(msg))</code> 조건으로 HTML을 innerHTML에 삽입. 이 조건은 일반 텍스트가 아닌 HTML 형태면 모두 허용하므로, 외부에서 Toast.info(userInput)를 호출 시 XSS 발생 가능. 내부 생성 HTML만 허용하는 whitelist 또는 DOMPurify 적용 필요.'},
+    {sev:'high',title:'StateManager.set: 대용량 배열 교체 시 _state[k].length=0 후 재할당 — GC 왜곡',body:'<code>_state[k].length=0; _state[k]=patch[k]</code>는 배열을 비운 후 새 배열로 교체하는데, length=0으로 비우는 것 자체가 기존 요소 참조를 즉시 해제하지 않음. V8에서는 COW(Copy-on-Write) 배열을 mutable로 전환하는 불필요한 비용 발생. 단순히 <code>_state[k]=patch[k]</code>만 해도 충분.'},
+    {sev:'med',title:'EventBus.emit: 모든 리스너 오류를 빈 catch로 묻음',body:'<code>try{fn(data);}catch(e){}</code>로 리스너 오류를 무시. 중요한 상태 변경 리스너에서 오류 발생 시 디버깅 불가. 최소한 <code>console.error</code>로 로깅 필요.'},
+    {sev:'med',title:'SettingsDB.get: IDB 트랜잭션 오류와 open 오류를 같은 catch에서 처리',body:'open 실패(DB 손상 등)와 get 트랜잭션 실패를 구분하지 않아 항상 localStorage fallback을 시도. IDB가 완전히 사용 불가한 환경에서는 every call마다 open 재시도 + 실패 → 성능 저하.'},
+    {sev:'med',title:'yieldToMain: scheduler.postTask 미지원 환경에서 setTimeout 0 폴백 — 실제 yield 보장 없음',body:'<code>setTimeout(resolve,0)</code>은 16ms+ 지연을 보장하지 않음. 특히 iOS Safari에서는 연속 setTimeout 호출 시 최소 1ms 지연만 보장. 실제 yield가 필요하면 <code>MessageChannel</code> 기반 구현 필요.'},
+    {sev:'low',title:'PAT_PRESETS cat 필드 — ui-state.js buildPatHelpers와 동기화 보장 메커니즘 없음',body:'core.js PAT_PRESETS의 cat 값과 ui-state.js의 탭 이름 문자열이 하드코딩으로 분리 관리됨. cat 값 변경 시 탭이 빈 상태로 렌더될 수 있음. 상수로 export해서 공유 필요.'},
+  ],
+  bugs:[
+    {sev:'med',title:'Toast.prompt: overlay 배경 클릭 시 null 반환 — Enter 키 이벤트와 레이스',body:'overlay.onclick과 inp.keydown(Enter) 이벤트가 동시에 발생 시(빠른 터치) resolve가 두 번 호출 가능. Promise는 첫 번째 resolve 이후 상태 변경이 무시되나, <code>overlay.remove()</code>가 두 번 호출되어 에러 발생 가능.'},
+    {sev:'low',title:'SettingsDB: _dbPromise = null 처리가 성공 시에도 onerror에서 중복 실행 가능',body:'req.onsuccess에서 <code>_dbPromise=null</code>, req.onerror에서도 <code>_dbPromise=null</code>. 두 이벤트가 동일 요청에서 발생하지는 않으나, 복잡한 재시도 로직과 결합 시 상태 추적 어려움. <code>finally</code> 패턴으로 통합 권장.'},
+  ]
+},
+uistate:{
+  logic:[
+    {sev:'high',title:'setupEventDelegate: EventDelegate.registerAll의 액션 맵이 ui-state.js 한 파일에 집중',body:'현재 940줄 이상의 액션 맵이 단일 파일에 있어 새 기능 추가 시 ui-state.js만 수정하는 구조가 강요됨. 파일별 액션 등록을 허용하는 registerAll 분산 패턴으로 개선하면 파일 간 결합도 감소.'},
+    {sev:'high',title:'buildPatHelpers: _renderMainPatChips를 window 전역에 노출 — 네임스페이스 오염',body:'<code>window._renderMainPatChips=()=>renderChips(_activeCat)</code>를 전역에 직접 할당. 다른 스크립트에서 동명 함수를 선언하면 덮어씌워짐. EventBus를 통한 이벤트 기반 갱신으로 교체 필요.'},
+    {sev:'med',title:'_syncSplitBtn: state 파라미터가 문자열 리터럴 — 오타 시 런타임 silently broken',body:'<code>_syncSplitBtn(\'patternFound\')</code>처럼 문자열을 직접 전달하는데 <code>patternfound</code> 같은 오타가 있어도 default 케이스로 처리되어 오류 없이 잘못 동작. Object.freeze 상수 열거형으로 교체 권장.'},
+    {sev:'med',title:'switchPage: 탭 전환 시 이전 탭의 진행 중인 비동기 작업 취소 없음',body:'convert 탭에서 변환 진행 중 일괄변환 탭으로 전환해도 변환이 계속 진행됨. AbortController 등으로 이전 탭 비동기 작업 취소 메커니즘 추가 필요.'},
+    {sev:'low',title:'showShortcutHelp: 기존 모달 remove 후 즉시 재생성 — keydown 이벤트 중복 등록',body:'<code>const existing=document.getElementById(\'shortcutHelp\'); if(existing){existing.remove();return;}</code> 패턴은 toggle로 동작하나, 생성 시 closeBtn addEventListener가 항상 새로 등록되어 문제없음. 다만 ESC 키로 닫는 전역 핸들러가 없어 UX 미흡.'},
+  ],
+  bugs:[
+    {sev:'high',title:'refreshDetectedChip: window._renderMainPatChips가 없으면 chip_detected DOM을 직접 조작',body:'폴백 경로에서 chip_detected를 querySelector로 찾는데, 카테고리 탭 UI로 전환된 이후에는 chip_detected가 매 renderChips 호출마다 재생성되어 stale 참조 발생 가능.'},
+    {sev:'med',title:'buildFontDropdown이 settings.js와 ui-state.js 양쪽에서 호출될 가능성',body:'ui-state.js의 init 함수와 settings.js의 초기화에서 모두 폰트 드롭다운을 빌드하는 로직이 있다면 중복 실행. 현재 구조에서는 settings.js에서만 호출되어야 하나 호출 경로 확인 필요.'},
+    {sev:'low',title:'_activateSplitBtnOnFileLoad: 파일 로드 후 즉시 호출하는 위치가 handleTxt 내부 한 곳에만',body:'별도 경로로 파일이 로드되는 경우(예: 배치 탭에서 파일 추가)에는 활성화 함수가 호출되지 않아 버튼이 비활성 상태로 남을 수 있음.'},
+  ]
+},
+worker:{
+  logic:[
+    {sev:'high',title:'detectEncoding: buffer.slice(0,65536)으로 64KB만 샘플링 — 파일 후반부 EUC-KR 오감지',body:'한국 소설 파일 중 UTF-8 BOM 없이 UTF-8로 시작하다가 EUC-KR 영역이 중반에 등장하는 혼합 인코딩 파일(실제로 드물지 않음)에서 64KB 샘플이 UTF-8처럼 보여 오감지. 샘플 크기를 128KB로 확대하거나, 전체 파일에서 균등 샘플링 필요.'},
+    {sev:'high',title:'postMessage PROGRESS 알림 빈도: 1줄 처리마다 조건 없이 pct 계산 후 메시지 발송',body:'<code>const pct=12+Math.round((li/total)*80); if(pct>lastPct){postMessage(...)}</code> 패턴이 있으나, 1% 단위로도 3,000화 파일에서 수백 번 postMessage 발생. main thread message queue saturation. 100줄마다 1번 또는 최소 50ms 간격으로 제한 필요.'},
+    {sev:'med',title:'splitChaptersWorkerDetailed: body 배열에 원문 라인을 push — 수천 화 파일에서 메모리 이중화',body:'lines 배열(전체 원문)과 body 배열(챕터별 누적)을 동시에 메모리에 보유. 50MB 파일의 경우 원문 50MB + body 누적 50MB = 100MB. body를 Join 문자열로 즉시 변환하거나 스트리밍 처리 필요.'},
+    {sev:'low',title:'self._aborted 플래그가 오직 splitChaptersWorkerDetailed에서만 체크',body:'DECODE_TEXT 처리 중간에는 abort 체크가 없어 대용량 디코딩 도중 abort 요청이 와도 디코딩 완료까지 대기. 디코딩 루프에 abort 체크 추가 필요.'},
+  ],
+  bugs:[
+    {sev:'high',title:'고스트 에러: onmessage 핸들러 내 동기 예외가 onerror로 전파되지 않는 브라우저',body:'Worker 내 <code>self.onmessage=function(e){...}</code>에서 동기 예외 발생 시 Firefox/Safari에서 <code>worker.onerror</code>로 전파되나 Chrome에서는 console.error만 표시되고 meain thread onerror 미호출. 반드시 onmessage 전체를 try-catch로 감싸고 <code>postMessage({type:\'ERROR\',...})</code> 명시적 전송 필요.'},
+    {sev:'med',title:'KEYWORD_PATS가 worker.js와 parser.js/convert.js 세 곳에 분산 — 동기화 위험',body:'패턴 추가/변경 시 세 파일을 모두 수정해야 함. 현재 주석으로 "동기화 필요" 표시만 있고 자동화 없음. 공통 patterns.js 분리 또는 빌드 스크립트로 자동 동기화 필요.'},
+  ]
+},
+sw:{
+  logic:[
+    {sev:'high',title:'Stale-While-Revalidate: 모든 로컬 GET 요청마다 무조건 네트워크 fetch 발생',body:'캐시 히트 여부와 무관하게 <code>const networkFetch=fetch(e.request)</code>를 항상 실행. Cloudflare Pages CDN에서도 매 페이지 로드마다 ~12개 JS 파일을 background-fetch. 모바일 배터리 소모 및 대역폭 낭비. 해결: 응답 ETag 또는 Last-Modified 헤더 비교 후 변경 시에만 캐시 갱신.'},
+    {sev:'high',title:'CHECK_CACHE: 모든 캐시를 삭제 후 CACHE_OUTDATED 알림 — 삭제 실패 케이스 미처리',body:'<code>Promise.all(keys.map(k=>caches.delete(k)))</code> 실패 시에도 <code>CACHE_OUTDATED</code>를 postMessage해 클라이언트가 "캐시 초기화됨"으로 오인. <code>.then()</code>이 아닌 <code>.catch()</code> 처리 후 실패 알림 분리 필요.'},
+    {sev:'med',title:'opaque response(no-cors) 캐싱: JSZip CDN 실패 응답도 캐시에 저장될 위험',body:'외부 CDN의 <code>resp.type===\'opaque\'</code>는 status=0이라 실제 오류 응답인지 판별 불가. 실패한 opaque response가 캐시에 저장되면 이후 JSZip을 오프라인에서 로드할 수 없게 됨. opaque response는 캐시 저장을 하지 않거나 크기 검사(최소 1KB) 후 저장 필요.'},
+    {sev:'low',title:'CACHE_VERSION이 소스 코드에 하드코딩 — CI/CD 자동화 없이 수동 갱신 필요',body:'배포 시마다 개발자가 CACHE_VERSION을 수동으로 갱신해야 함. 자동화되지 않으면 캐시 무효화 누락으로 사용자가 구버전 캐시를 계속 사용하는 사태 발생. 빌드 스크립트에서 타임스탬프를 자동 주입하는 방식으로 전환 필요.'},
+  ],
+  bugs:[
+    {sev:'med',title:'install 이벤트: cache.addAll 실패 시 catch(()=>{})로 무시 — SW 등록은 성공하지만 캐시 없음',body:'핵심 에셋(index.html, parser.js 등) 캐싱 실패 시에도 SW 등록이 완료되어 오프라인 시 404 응답. 최소한 index.html 캐싱 실패 시에는 e.waitUntil를 reject해 SW 등록을 실패처리 후 재시도하는 것이 더 안전.'},
+  ]
+},
+cover:{
+  logic:[
+    {sev:'high',title:'runCoverSearch: 이전 _searchAbortCtrl.abort() 후 새 컨트롤러 생성 — abort 신호 전파 타이밍 레이스',body:'<code>_searchAbortCtrl.abort()</code> 직후 <code>_searchAbortCtrl=new AbortController()</code>로 교체하면, 이전 요청이 아직 abort 처리 중일 때 새 요청이 시작됨. 특히 Promise.allSettled로 여러 플랫폼을 동시 검색하는 경우, 이전 abort 신호가 새 요청의 signal 객체에 전달되는 버그 가능성.'},
+    {sev:'high',title:'proxyFetch: 프록시 순환 실패 시 lastErr 반환 없이 null 반환 — 오류 추적 불가',body:'<code>return null</code>로 반환하면 호출처에서 네트워크 오류와 "결과 없음"을 구분할 수 없음. <code>throw lastErr||new Error(\'모든 프록시 실패\')</code>로 변경해 호출처에서 try-catch로 구분 처리 가능하게 해야 함.'},
+    {sev:'med',title:'centerCropToBlob: img.crossOrigin=\'anonymous\' — CORS 미지원 이미지에서 canvas tainting',body:'canvas.toBlob 호출 전 이미지가 CORS를 지원하지 않으면 canvas가 tainted되어 SecurityError 발생. 현재 <code>img.onerror=()=>resolve(null)</code>이 있으나 onload 성공 후 toBlob에서 SecurityError가 발생하는 케이스는 처리 못함. toBlob을 try-catch로 감싸야 함.'},
+    {sev:'med',title:'이미지 URL 유효성 검사 없음 — 빈 URL이나 상대경로가 applyCoverCard로 전달 가능',body:'검색 어댑터에서 파싱한 imageUrl이 빈 문자열 또는 <code>//cdn.xxx</code> 형태의 상대 프로토콜 URL일 때 centerCropToBlob에서 img.src에 할당 시 오류. 정규식으로 URL 형식 검증 후 처리 필요.'},
+    {sev:'low',title:'applyCoverCard: centerCropToBlob에서 생성한 croppedUrl(ObjectURL)을 input.value에 저장',body:'input.value에 blob: URL을 저장하면 세션 재로드 후 유효하지 않은 URL이 됨. Blob을 IndexedDB 또는 S(state)에 별도 저장하고 input에는 임시 표시용 URL만 사용하는 구조 권장.'},
+  ],
+  bugs:[
+    {sev:'med',title:'openCoverModal: setTimeout 100ms 후 runCoverSearch 자동 실행 — q가 추출 실패 시에도 호출',body:'<code>if(q) setTimeout(()=>runCoverSearch(),100)</code>에서 q가 존재하면 검색이 실행되는데, 파일명이 숫자로만 구성된 경우 extractSearchTitle이 원본을 반환해 의미없는 검색이 실행됨. 최소 2글자 이상 한글/영문 포함 조건 추가 필요.'},
+  ]
+},
+settings:{
+  logic:[
+    {sev:'high',title:'saveCssSettings: 전체 CSS 설정을 매 변경마다 localStorage 직렬화',body:'CSS 프리셋, 폰트, 줄간격 등을 묶어서 localStorage에 JSON.stringify. 변경 빈도가 높을 경우(슬라이더 드래그 등) 매 input 이벤트마다 직렬화가 일어나 메인 스레드 블로킹. debounce(300ms) 적용 필요.'},
+    {sev:'high',title:'커스텀 폰트 ArrayBuffer: IDB에 저장 후 URL.createObjectURL → 탭 닫을 때 해제 안 됨',body:'커스텀 폰트를 <code>URL.createObjectURL(blob)</code>으로 생성한 Object URL이 전역에 유지됨. 탭을 닫지 않는 한 해제되지 않아 장시간 사용 시 메모리 누수. 폰트 교체 시 이전 Object URL을 <code>URL.revokeObjectURL</code> 처리 필요.'},
+    {sev:'med',title:'loadApiSettings/saveApiSettings: API 키를 localStorage에 평문 저장',body:'localStorage는 같은 origin의 모든 스크립트가 접근 가능. XSS 취약점 발생 시 API 키 탈취 가능. sessionStorage나 메모리 내 변수 사용이 더 안전. 또는 API 키 사용 여부를 세션 한정으로 처리 권장.'},
+    {sev:'med',title:'renderCssPresets: preset 이름을 escAttr(onclick 속성)로 처리하나 escHtml 미적용 케이스',body:'396번줄에서 <code>escHtml(p.name)</code>과 <code>escAttr(p.name)</code> 모두 사용하나, p.name에 HTML 태그가 포함된 경우 escHtml이 escAttr 내부에서 다시 이중 이스케이프될 수 있음. data-preset 속성으로 전환하면 onclick 인라인 필요 없어짐.'},
+    {sev:'low',title:'CSS 변수 주입(setSkin): document.documentElement.setAttribute 호출 후 CSS 재계산 비용',body:'스킨 변경 시 <code>data-skin</code> 속성을 교체하면 전체 CSS 규칙 재평가가 발생. 수백 개의 CSS 규칙이 있는 현재 style.css에서 강제 reflow 발생. 대신 CSS Custom Properties를 직접 업데이트하는 방식이 효율적.'},
+  ],
+  bugs:[
+    {sev:'med',title:'initSettings: IDB 연결 실패 시 localStorage fallback만 시도 — 실패 원인 미표시',body:'Private Browsing 모드(Firefox) 등에서 IDB 사용 불가 시 <code>catch</code>에서 조용히 처리. 사용자에게 "설정이 저장되지 않을 수 있음" 안내 Toast 표시 필요.'},
+    {sev:'low',title:'buildFontDropdown: SUPPORTED_FONTS 배열의 label에 HTML 특수문자 없으나 옵션 값에 따옴표 포함 가능',body:'<code>family</code> 값이 <code>"\'Noto Sans KR\',sans-serif"</code>처럼 작은따옴표를 포함하는데 option value에 직접 삽입. escAttr 없이 사용 시 HTML attribute 파괴 가능.'},
+  ]
+},
+html:{
+  logic:[
+    {sev:'critical',title:'JSZip CDN 로드 실패 시 폴백 없음 — EPUB 생성 전체 불가',body:'<code><script src="https://cdnjs.cloudflare.com/...jszip.min.js"></script></code>가 실패하면 <code>typeof JSZip===\'undefined\'</code> 상태. buildEpub 호출 시 JSZip is not defined RuntimeError. 해결: <code>if(!window.JSZip){Toast.error(...)}</code> 가드 + SW 캐시 의존 확인.'},
+    {sev:'high',title:'스크립트 로드 순서 의존성이 index.html에 하드코딩 — 순서 변경 시 전체 오류',body:'parser.js → epub-gen.js → core.js → ... 순서로 script 태그가 나열되어 있어 하나의 순서 변경이 전역 의존성 오류를 유발. type="module" + dynamic import로 전환하거나 최소한 종속성 문서화 필요.'},
+    {sev:'high',title:'1283번줄 banner.innerHTML: 업데이트 배너 내용이 하드코딩 문자열',body:'<code>banner.innerHTML=\'🔄 새 버전이 준비됐어요.\'</code>는 안전하나, 향후 이 위치에 동적 내용(버전 번호 등)을 추가할 때 XSS 위험. textContent 사용 패턴 유지 권장.'},
+    {sev:'med',title:'update 배너 z-index(9999)와 copy-tooltip z-index(9999) 충돌 가능',body:'두 엘리먼트가 동시에 표시될 때 같은 z-index=9999를 가져 렌더링 순서에 따라 어느 것이 위에 렌더될지 불확정. 배너를 9997, 툴팁을 9999로 명시적 레이어 분리 필요.'},
+    {sev:'med',title:'스크립트 로드 전 DOMContentLoaded 이벤트 리스너 없음 — 인라인 script 실행 순서 의존',body:'defer 또는 모듈 없이 동기 script 태그를 사용하므로 script 실행이 HTML 파싱을 블로킹. 특히 core.js 로드 전에 다른 스크립트가 Toast를 참조하면 ReferenceError. 모든 script에 defer 추가 권장.'},
+    {sev:'low',title:'viewport meta에 maximum-scale=1 없어 모바일에서 더블탭 줌인 허용',body:'노벨 EPUB 앱의 특성상 더블탭 줌인이 오작동처럼 느껴질 수 있음. <code>user-scalable=no</code>는 접근성 이슈가 있으나 <code>maximum-scale=5</code>로 합리적 제한 가능.'},
+  ],
+  bugs:[
+    {sev:'med',title:'index.html 내 인라인 onclick 속성들이 비ES모듈 전역 함수에 의존',body:'data-action 이외에도 일부 <code>onclick="funcName()"</code> 인라인 이벤트가 있다면, 해당 함수가 전역이 아닌 경우 ReferenceError 발생. 전수 조사 후 EventDelegate로 통합 필요.'},
+  ]
+},
+css:{
+  logic:[
+    {sev:'high',title:'.hdr z-index=200과 .btm z-index=200 — 동일 레벨로 모달/툴팁 레이어 간섭',body:'헤더와 하단 바가 같은 z-index=200을 가지는데, 둘 사이 z-index 레이어에 위치해야 하는 floating 엘리먼트(드롭다운 등)가 헤더에 의해 잘릴 수 있음. 스택 컨텍스트 명시화 필요.'},
+    {sev:'med',title:'CSS 변수 :root 정의와 @media prefers-color-scheme이 분리됨',body:'다크모드 변수가 <code>[data-theme=dark]</code>와 <code>@media(prefers-color-scheme:dark)</code> 두 곳에서 정의될 경우 specificity 충돌. data-theme이 명시적으로 없는 경우 media query가 우선 적용되어 테마 강제 설정이 무시됨.'},
+    {sev:'med',title:'모바일 뷰포트에서 .toc-item flex overflow — min-width:0 미적용 텍스트 넘침',body:'<code>.toc-title-edit</code>처럼 flex item 내 input이 flex:1이더라도 min-width:auto가 기본값이라 부모를 넘칠 수 있음. 모든 flex item에 <code>min-width:0</code> 또는 <code>overflow:hidden</code> 추가 필요.'},
+    {sev:'med',title:'중복 패턴 스타일 규칙: .hdr-title이 전역 + 스킨별 + 모바일에서 3중 정의',body:'976번줄 <code>.hdr-title{letter-spacing:.02em}</code>가 88번줄 기본 정의를 덮어쓰는 구조. 스킨별 오버라이드까지 더하면 specificity 추적이 복잡. CSS 변수로 letter-spacing 값을 관리하면 일원화 가능.'},
+    {sev:'low',title:'@keyframes 정의가 파일 여러 곳에 분산 — 중복 keyframe 위험',body:'toastIn, fadeUp, fadeUp2, btmDlSlideUp 등 keyframes이 파일 상단과 하단에 분산. 동명 keyframe이 두 번 정의되면 나중 것이 우선(CSS cascade) — 의도치 않은 애니메이션 변경 위험.'},
+    {sev:'low',title:'하드코딩된 rgba() 값이 다크모드 호환 여부 불확실',body:'<code>rgba(0,0,0,.15)</code>와 같은 하드코딩된 rgba가 다크모드에서 어두운 배경과 합성되면 거의 보이지 않는 shadow 발생. CSS 변수 <code>var(--shadow-sm)</code> 등으로 교체해 다크모드 shadow 값을 별도 정의 필요.'},
+  ],
+  bugs:[
+    {sev:'med',title:'.btm-dl 클래스가 .btm z-index=200과 동일 stacking context에서 overlap 가능',body:'다운로드 바가 변환 바 위에 레이어링되도록 z-index:201 설정이 있으나, 부모 <code>.btm</code>이 stacking context를 생성하면 자식의 z-index가 형제와 비교됨. fixed + z-index 조합 확인 필요.'},
+    {sev:'low',title:'@media 쿼리 breakpoint가 600px로 하드코딩 — CSS 변수로 관리 불가',body:'<code>@media(max-width:600px)</code>가 여러 곳에 반복. CSS 변수는 @media에 사용 불가하므로 SCSS custom properties나 :root 내 CSS env() 등으로 중앙화 어려움. 최소한 주석으로 breakpoint 목록 문서화 권장.'},
+  ]
+},
+};
+
+function renderItems(items){
+  return items.map((item,i)=>{
+    const sevClass={critical:'sev-critical',high:'sev-high',med:'sev-med',low:'sev-low'}[item.sev];
+    const sevLabel={critical:'치명',high:'높음',med:'중간',low:'낮음'}[item.sev];
+    return `<div class="item" data-idx="${i}">
+      <div class="item-hdr">
+        <span class="item-num">${i+1}.</span>
+        <span class="item-title">${item.title}</span>
+        <span class="sev-badge ${sevClass}">${sevLabel}</span>
+        <span class="chevron">▼</span>
+      </div>
+      <div class="item-body">${item.body}</div>
+    </div>`;
+  }).join('');
+}
+
+let activeFile='parser';
+let activeTab='logic';
+
+function renderSection(fileId){
+  const d=DATA[fileId];
+  const logicCount=d.logic.length;
+  const bugCount=d.bugs.length;
+  return `<div class="tab-hdr">
+    <span class="tab-lbl">보기:</span>
+    <button class="tab-btn ${activeTab==='logic'?'on':''}" onclick="switchTab('logic',this)">개선 방안 (${logicCount})</button>
+    <button class="tab-btn ${activeTab==='bugs'?'on':''}" onclick="switchTab('bugs',this)">버그/취약점 (${bugCount})</button>
+  </div>
+  <div id="logic-list" style="${activeTab==='logic'?'':'display:none'}">${renderItems(d.logic)}</div>
+  <div id="bugs-list" style="${activeTab==='bugs'?'':'display:none'}">${renderItems(d.bugs)}</div>`;
+}
+
+function switchTab(tab, btn){
+  activeTab=tab;
+  document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  document.getElementById('logic-list').style.display=tab==='logic'?'':'none';
+  document.getElementById('bugs-list').style.display=tab==='bugs'?'':'none';
+}
+
+function switchFile(fileId){
+  activeFile=fileId;
+  document.querySelectorAll('.file-btn').forEach(b=>b.classList.toggle('on',b.dataset.fid===fileId));
+  const sec=document.getElementById('main-section');
+  if(sec) sec.innerHTML=renderSection(fileId);
+  bindItems();
+}
+
+function bindItems(){
+  document.querySelectorAll('.item-hdr').forEach(hdr=>{
+    hdr.addEventListener('click',()=>hdr.parentElement.classList.toggle('open'));
+  });
+}
+
+const nav=document.getElementById('fileNav');
+FILES.forEach(f=>{
+  const btn=document.createElement('button');
+  btn.className='file-btn'+(f.id===activeFile?' on':'');
+  btn.dataset.fid=f.id;
+  btn.textContent=f.label;
+  btn.addEventListener('click',()=>switchFile(f.id));
+  nav.appendChild(btn);
+});
+
+const sec=document.createElement('div');
+sec.id='main-section';
+sec.innerHTML=renderSection(activeFile);
+document.getElementById('sections').appendChild(sec);
+bindItems();
+</script>

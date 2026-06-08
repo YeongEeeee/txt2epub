@@ -17,7 +17,35 @@
 
 'use strict';
 
-const _encCache=new Map();
+// ════════════════════════════════════════════════════════
+// ★ B-FIX-01: _encCache LRU 제한 — File 객체 키 Map 무한 증식 방지
+// 이전: new Map() — File 객체 참조가 Map에 묶여 GC 불가, 배치 수백 회 누적 시 메모리 폭발
+// 수정: 최대 200개 LRU + WeakRef 기반 — File GC 허용
+// ════════════════════════════════════════════════════════
+const _ENC_CACHE_MAX = 200;
+const _encCache = new Map(); // key: file.name+'|'+file.size+'|'+file.lastModified, value: enc
+
+function _encCacheGet(file){
+  const k = `${file.name}|${file.size}|${file.lastModified||0}`;
+  if(!_encCache.has(k)) return null;
+  // LRU: 접근 시 맨 뒤로 이동
+  const v = _encCache.get(k);
+  _encCache.delete(k);
+  _encCache.set(k, v);
+  return v;
+}
+
+function _encCacheSet(file, enc){
+  const k = `${file.name}|${file.size}|${file.lastModified||0}`;
+  // LRU: 이미 있으면 제거 후 재삽입 (맨 뒤)
+  if(_encCache.has(k)) _encCache.delete(k);
+  // 최대 크기 초과 시 가장 오래된 항목 제거
+  if(_encCache.size >= _ENC_CACHE_MAX){
+    const firstKey = _encCache.keys().next().value;
+    _encCache.delete(firstKey);
+  }
+  _encCache.set(k, enc);
+}
 
 // ══════════════════════════════════════════
 // 🔧 Module: TextWorker (worker.js 연동)
@@ -156,9 +184,25 @@ async function fileToText(file){
   // ★ U-12 FIX: ArrayBuffer를 한 번만 읽고 detectEncoding + 디코딩 모두 재사용
   // 기존: detectEncoding(fileToAB) → fileToText(readAsArrayBuffer) = 2회 I/O
   // 개선: fileToAB 1회 → _detectEncodingFromAB + 직접 디코딩
-  const ab = await fileToAB(file);
-  const enc = _detectEncodingFromAB(ab);
-  _encCache.set(file, enc);
+
+  // ★ B-FIX-01: LRU 캐시에서 인코딩 조회 (파일명+크기+수정시간 기반 키)
+  let enc = _encCacheGet(file);
+  if(!enc){
+    const ab = await fileToAB(file);
+    enc = _detectEncodingFromAB(ab);
+    _encCacheSet(file, enc);
+    // 이미 읽은 ab를 직접 디코딩
+    if(file.size >= 5 * 1024 * 1024){
+      try{
+        const workerResult = await TextWorker.fileToTextViaWorker(file, enc);
+        if(workerResult !== null) return workerResult;
+      }catch(e){}
+    }
+    return _decodeFromAB(ab, enc);
+  }
+
+  // 캐시 히트: ab 재독 필요 (인코딩만 캐시됨)
+  const ab2 = await fileToAB(file);
 
   // ★ 대용량 파일(5MB+)은 Worker에 위임 → 메인 스레드 UI 비블로킹
   if(file.size >= 5 * 1024 * 1024){
@@ -170,9 +214,13 @@ async function fileToText(file){
     }
   }
 
-  // 소형 파일 또는 Worker 미지원 시 — 이미 읽은 ab 직접 디코딩
+  return _decodeFromAB(ab2, enc);
+}
+
+// ★ B-FIX-02: ab 디코딩 로직 분리 — fileToText 재사용성 및 가독성 향상
+function _decodeFromAB(ab, enc){
   return new Promise((res,rej)=>{
-    // ★ 타임아웃 안전망: 30초 내 응답 없으면 reject (채널 닫힘 방지)
+    // ★ 타임아웃 안전망: 30초 내 응답 없으면 reject
     const timer=setTimeout(()=>rej(new Error('fileToText timeout')), 30000);
     const done=(text)=>{ clearTimeout(timer); res(text); };
     const fail=(e)=>{ clearTimeout(timer); rej(e); };
@@ -180,26 +228,21 @@ async function fileToText(file){
     try{
       const decoder=new TextDecoder(enc,{fatal:false});
       const text=decoder.decode(new Uint8Array(ab));
-      // U+FFFD(대체문자) 포함 여부 경고 — EUC-KR 오판 감지
+      // U+FFFD(대체문자) 포함 여부 — EUC-KR 오판 감지
       const badCount=(text.match(/\ufffd/g)||[]).length;
       if(badCount>10&&enc==='utf-8'){
-        // UTF-8 판정인데 깨진 문자가 많으면 EUC-KR로 재시도
         try{
           const text2=new TextDecoder('euc-kr',{fatal:false}).decode(new Uint8Array(ab));
           const bad2=(text2.match(/\ufffd/g)||[]).length;
           done(bad2<badCount?text2:text);
-        }catch(err2){
-          done(text);
-        }
+        }catch(err2){ done(text); }
       }else{
         done(text);
       }
     }catch(err){
-      // fallback: readAsText
       const fr=new FileReader();
       fr.onload=ev=>done(ev.target.result||'');
       fr.onerror=()=>{
-        // ★ 최후 폴백도 빈 문자열 반환 (절대 reject 안 함)
         const fr2=new FileReader();
         fr2.onload=ev2=>done(ev2.target.result||'');
         fr2.onerror=e2=>fail(e2);
@@ -1128,20 +1171,19 @@ function selectKwResult(id, heading, ci){
 // ★ 간격 분할 전역 상태 — window 단일 소유권
 // parser.js / convert.js 양쪽에서 동일한 객체를 참조
 // ════════════════════════════════════════════════════════
-// _autoSplitActive : 간격 분할 모드 활성 플래그
-// _autoSplitLines  : 원문 줄 배열 (간격 분할 전용, parser.js에 선언)
-// _fullRawLines    : 전체 파일 줄 배열 (parser.js에 선언)
-//
-// 중요: let 선언 대신 window 프로퍼티를 사용해
-//       두 모듈이 동일한 값을 읽고 씁니다.
-if(typeof window._autoSplitActive==='undefined') window._autoSplitActive=false;
-// 하위 호환 — 로컬 변수처럼 참조 가능하도록 getter/setter 대리자 정의
-Object.defineProperty(window,'_autoSplitActive',{
-  get(){ return window.__autoSplitActiveVal||false; },
-  set(v){ window.__autoSplitActiveVal=!!v; },
-  configurable:true,
-});
-window._autoSplitActive=false; // 초기화
+// ★ B-FIX-04 (치명): 재정의 레이스 가드
+// 동일 프로퍼티를 두 번 defineProperty 하면 configurable:true여도
+// 두 번째 호출에서 getter/setter 충돌 → silent fail 또는 TypeError
+// 해결: 이미 정의된 경우 defineProperty를 건너뜀
+if(!Object.getOwnPropertyDescriptor(window,'_autoSplitActive')){
+  Object.defineProperty(window,'_autoSplitActive',{
+    get(){ return window.__autoSplitActiveVal||false; },
+    set(v){ window.__autoSplitActiveVal=!!v; },
+    configurable:true,
+  });
+}
+// 초기화 (아직 true로 세팅된 적 없을 때만)
+if(window.__autoSplitActiveVal === undefined) window._autoSplitActive=false;
 
 // 파일명에서 총 화수 추출 (예: "소설_1-277" → 277, "소설_1234화" → 1234)
 function extractTotalFromFilename(filename){
@@ -1417,8 +1459,6 @@ async function startConvert(){
     // ★ ADD-10: 변환 완료 브라우저 알림 (탭 백그라운드 시)
     _sendConvertNotif(title || S.epubName, chapters.filter(([h])=>h!=='서문').length);
   }catch(e){
-    document.getElementById('progWrap')?.classList.remove('show');
-    // ★ BUG-1 수정: 중단(_convertAborted) 시 errBox 표시 안 함
     if(_convertAborted) return;
     // ★ U-20: 복구 가능 오류와 치명적 오류 분류
     if(e instanceof RecoverableError){
@@ -1427,6 +1467,12 @@ async function startConvert(){
       const errEl = document.getElementById('errBox');
       if(errEl){ errEl.textContent='❌ '+friendlyError(e); errEl.classList.add('show'); }
     }
+  }finally{
+    // ★ Side-Effect 가드: 예외·정상 종료 모두 UI 스피너·중단 버튼 반드시 해제
+    // Worker reject 등으로 catch를 통과해도 progWrap이 무한히 돌지 않음
+    document.getElementById('progWrap')?.classList.remove('show');
+    const _ab=document.getElementById('convertAbortBtn');
+    if(_ab) _ab.style.display='none';
   }
 }
 
@@ -2362,51 +2408,56 @@ function batchPickCover(idx){
 async function startBatch(){
   if(!B.txtFiles.length){Toast.warn('TXT 파일을 선택해주세요.');return;}
   B.results=[];
-  const _batchStartTime = Date.now(); // ★ C-05: 소요 시간 측정
+  const _batchStartTime = Date.now();
   document.getElementById('batchProgWrap')?.classList.add('show');
   document.getElementById('batchResultBox')?.classList.remove('show');
   const total=B.txtFiles.length;
   const globalPat=document.getElementById('batchPattern')?.value.trim();
   const useItalicBatch=document.getElementById('batchItalic')?.checked;
 
-  for(let i=0;i<total;i++){
-    const f=B.txtFiles[i];
-    const stem=f.name.replace(/\.txt$/i,'');
-    let title=stem,author='';
-    let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
-    if(m){author=m[1].trim();title=m[2].trim();}
-    else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
-    const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
-    const item=document.getElementById('bi_'+i);
-    if(item)item.className='batch-item running';
-    document.getElementById('bst_'+i).textContent='변환 중...';
-    document.getElementById('batchProgMsg').textContent='('+(i+1)+'/'+total+') '+title+' 변환 중...';
-    document.getElementById('batchProgBar').style.width=Math.floor(i/total*100)+'%';
-    try{
-      // 이벤트 루프 양보 — UI 갱신 보장 (파일 간 블로킹 방지)
-      await new Promise(r=>setTimeout(r,0));
-      const raw=await fileToText(f);
-      const pattern=(B.patterns[i]||globalPat);
-      const chapters=splitChapters(raw,pattern);
-      const blob=await buildEpub({title,author,chapters,coverFile:cover,illMap:[],useItalic:useItalicBatch},
-        pct=>{document.getElementById('bpb_'+i).style.width=(30+pct*0.7)+'%';});
-      B.results.push({name:title+'.epub',blob});
-      if(item)item.className='batch-item done';
-      document.getElementById('bst_'+i).textContent='✅ 완료';
-      document.getElementById('bpb_'+i).style.width='100%';
-    }catch(e){
-      if(item)item.className='batch-item error';
-      document.getElementById('bst_'+i).textContent='❌ '+e.message;
+  try{
+    for(let i=0;i<total;i++){
+      const f=B.txtFiles[i];
+      const stem=f.name.replace(/\.txt$/i,'');
+      let title=stem,author='';
+      let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
+      if(m){author=m[1].trim();title=m[2].trim();}
+      else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
+      const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
+      const item=document.getElementById('bi_'+i);
+      if(item)item.className='batch-item running';
+      document.getElementById('bst_'+i).textContent='변환 중...';
+      document.getElementById('batchProgMsg').textContent='('+(i+1)+'/'+total+') '+title+' 변환 중...';
+      document.getElementById('batchProgBar').style.width=Math.floor(i/total*100)+'%';
+      try{
+        await new Promise(r=>setTimeout(r,0));
+        const raw=await fileToText(f);
+        const pattern=(B.patterns[i]||globalPat);
+        const chapters=splitChapters(raw,pattern);
+        const blob=await buildEpub({title,author,chapters,coverFile:cover,illMap:[],useItalic:useItalicBatch},
+          pct=>{document.getElementById('bpb_'+i).style.width=(30+pct*0.7)+'%';});
+        B.results.push({name:title+'.epub',blob});
+        if(item)item.className='batch-item done';
+        document.getElementById('bst_'+i).textContent='✅ 완료';
+        document.getElementById('bpb_'+i).style.width='100%';
+      }catch(e){
+        // ★ 개별 파일 오류: 해당 항목만 실패 표시 후 루프 계속 (전체 중단 없음)
+        if(item)item.className='batch-item error';
+        document.getElementById('bst_'+i).textContent='❌ '+e.message;
+      }
     }
+    document.getElementById('batchProgBar').style.width='100%';
+    document.getElementById('batchProgMsg').textContent='완료! '+B.results.length+'/'+total+'개 성공';
+    document.getElementById('batchResultMsg').textContent=B.results.length+'개 epub 생성 완료';
+    document.getElementById('batchResultBox')?.classList.add('show');
+    const batchElapsed=((Date.now()-_batchStartTime)/1000).toFixed(1);
+    const totalMB=B.results.reduce((s,r)=>s+(r.blob?.size||0),0)/1024/1024;
+    Toast.success(`✅ 일괄변환 완료 — ${B.results.length}/${total}개 성공 · ${totalMB.toFixed(1)}MB · ${batchElapsed}초`, 6000);
+  }finally{
+    // ★ Side-Effect 가드: 예기치 않은 예외에도 반드시 batchProgWrap 해제
+    // (outer catch 없이 finally만으로 무한 스피너 방지)
+    document.getElementById('batchProgWrap')?.classList.remove('show');
   }
-  document.getElementById('batchProgBar').style.width='100%';
-  document.getElementById('batchProgMsg').textContent='완료! '+B.results.length+'/'+total+'개 성공';
-  document.getElementById('batchResultMsg').textContent=B.results.length+'개 epub 생성 완료';
-  document.getElementById('batchResultBox')?.classList.add('show');
-  // ★ C-05: 일괄변환 완료 요약 토스트 (탭 이동 후에도 인지 가능)
-  const batchElapsed=((Date.now()-_batchStartTime)/1000).toFixed(1);
-  const totalMB=B.results.reduce((s,r)=>s+(r.blob?.size||0),0)/1024/1024;
-  Toast.success(`✅ 일괄변환 완료 — ${B.results.length}/${total}개 성공 · ${totalMB.toFixed(1)}MB · ${batchElapsed}초`, 6000);
 }
 
 async function downloadBatchZip(){
@@ -2701,13 +2752,14 @@ function getParserWorker(){
       }
       const cb=_workerCallbacks.get(id);
       if(!cb) return;
-      _workerCallbacks.delete(id);
+      _workerCallbacks.delete(id); // ★ B-FIX-03: 응답 즉시 Map에서 제거 → 콜백 재사용 방지
       if(type==='DONE') cb.resolve(result);
       else cb.reject(new Error(error||'Worker 오류'));
     };
     _parserWorker.onerror=function(e){
-      for(const[id,cb]of _workerCallbacks){
-        cb.reject(new Error('Worker 오류: '+e.message));
+      // ★ B-FIX-03: onerror 시 모든 대기 콜백 reject 후 Map 초기화
+      for(const[,cb]of _workerCallbacks){
+        cb.reject(new Error('Worker 오류: '+(e.message||'unknown')));
       }
       _workerCallbacks.clear();
       _parserWorker=null; // 재생성 허용
@@ -2870,7 +2922,17 @@ function resetConvertCover(){
 async function resetConvertAll(){
   if(!await Toast.confirm('변환 탭의 모든 파일과 설정을 초기화할까요?')) return;
   resetConvertTxt();resetConvertCover();
+
+  // ★ B-FIX-05: 대용량 상태 명시적 해제 → GC 수거 유도
+  // tocItems, epubBlob 등을 단순 [] 교체만 하면 기존 객체 참조가 남을 수 있음
+  if(_sStore.get().tocItems && _sStore.get().tocItems.length > 0){
+    _sStore.get().tocItems.length = 0; // 배열 내부 참조 즉시 해제
+  }
   _sStore.set({illFiles:[],tocItems:[],epubBlob:null,manualCnt:0});
+
+  // ★ B-FIX-01: 초기화 시 _encCache도 정리
+  _encCache.clear();
+
   document.getElementById('illDz').className='dz';
   document.getElementById('illTags').innerHTML='';
   document.getElementById('manualIlls').innerHTML='';

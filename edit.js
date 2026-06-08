@@ -488,7 +488,8 @@ function _checkTocContinuity(){
 
   if(gaps.length>0){
     const gapStr=gaps.length<=5?gaps.join(', ')+'화':gaps[0]+'화~'+gaps[gaps.length-1]+'화 ('+gaps.length+'개)';
-    warnEl.innerHTML='⚠️ <b>연속성 경고</b>: EPUB 마지막('+epubLastNum+'화)과 TXT 시작('+minTxtNum+'화) 사이 <b>'+gapStr+'</b>가 누락되어 있어요.';
+    // ★ XSS 방지: gapStr은 숫자 배열 기반이지만 방어적 escHtml 적용
+    warnEl.innerHTML='⚠️ <b>연속성 경고</b>: EPUB 마지막('+escHtml(String(epubLastNum))+'화)과 TXT 시작('+escHtml(String(minTxtNum))+'화) 사이 <b>'+escHtml(gapStr)+'</b>가 누락되어 있어요.';
     warnEl.style.display='block';
   }else{
     warnEl.style.display='none';
@@ -545,7 +546,8 @@ function _showEpubConnectInfo(){
   if(!E.chapters||!E.chapters.length){infoEl.style.display='none';return;}
   const lastCh=E.chapters[E.chapters.length-1];
   const lastNum=_getEpubLastChNum();
-  const numText=lastNum>0?` (${lastNum}화)`:'';
+  // ★ XSS 방어: lastNum은 parseInt 결과(숫자)이나 방어적 escHtml 적용
+  const numText=lastNum>0?` (${escHtml(String(lastNum))}화)`:'';
   textEl.innerHTML=
     `현재 EPUB 마지막 챕터: <b>${escHtml(lastCh.title)}</b>${numText} — `+
     `<b>${E.chapters.length}번째</b> 위치<br>`+
@@ -851,7 +853,15 @@ function renderEditIllTags(){
     c.innerHTML='';
     EI.files.forEach((f,i)=>{
       const t=document.createElement('div');t.className='tag';
-      t.innerHTML=escHtml(f.name)+' <span class="x" onclick="removeEditIll('+i+')">✕</span>';
+      // ★ XSS 방어: onclick 인라인 핸들러 제거 → addEventListener 교체
+      const nameSpan=document.createElement('span');
+      nameSpan.textContent=f.name;
+      const xBtn=document.createElement('span');
+      xBtn.className='x';xBtn.textContent='✕';
+      xBtn.addEventListener('click',()=>removeEditIll(i));
+      t.appendChild(nameSpan);
+      t.appendChild(document.createTextNode(' '));
+      t.appendChild(xBtn);
       c.appendChild(t);
     });
   });
