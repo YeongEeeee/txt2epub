@@ -774,6 +774,151 @@ function calcSequenceWeight(matchedNums){
   return consecutive/(matchedNums.length-1); // 0.0~1.0
 }
 
+// ══════════════════════════════════════════════════════════════
+// ★ 파싱 유틸리티 레이어 — 신규 (#2/#3/#5/#6)
+// ══════════════════════════════════════════════════════════════
+
+// ─── #2: 한글/한자 숫자 디코더 ───
+// '백오십사화' → 154 / '第三章' → 3 / '二十' → 20
+const _KOR_NUM_MAP={
+  '일':1,'이':2,'삼':3,'사':4,'오':5,'육':6,'칠':7,'팔':8,'구':9,'십':10,
+  '백':100,'천':1000,'만':10000,
+  '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10,
+  '百':100,'千':1000,'萬':10000,
+};
+function _decodeKorNum(str){
+  if(!str) return null;
+  // 아라비아 숫자 그대로
+  const arabic=str.match(/^\d+$/);
+  if(arabic) return parseInt(str);
+  // 한글/한자 숫자 변환 (최대 9999)
+  let result=0, unit=0, cur=0;
+  for(const ch of str){
+    const v=_KOR_NUM_MAP[ch];
+    if(v===undefined) continue;
+    if(v>=10000){ result=(result+unit+cur)*v; unit=0; cur=0; }
+    else if(v>=100){ unit=(unit+cur||1)*v; cur=0; }
+    else if(v>=10){ cur=(cur||1)*v; unit+=cur; cur=0; }
+    else { cur=v; }
+  }
+  result+=unit+cur;
+  return result>0?result:null;
+}
+
+// ─── #3: False Positive Guard ───
+// 제목 후보 줄이 실제로 챕터 제목인지 판별
+// 조건: (a) 30자 이하, (b) 위아래 공백 밀도 ≥ blankThreshold
+function _isLikelyChapterTitle(lines, idx, blankThreshold=0.3){
+  const line=lines[idx]||'';
+  const t=line.trim();
+  // (a) 글자수 가드: 30자 초과이면 제목이 아닐 가능성 높음
+  if(t.length>30) return false;
+  // (b) 상하 공백 밀도 체크 (window=5줄)
+  const win=5;
+  const start=Math.max(0,idx-win);
+  const end  =Math.min(lines.length-1,idx+win);
+  let blank=0, total=0;
+  for(let i=start;i<=end;i++){
+    if(i===idx) continue;
+    total++;
+    if(!(lines[i]||'').trim()) blank++;
+  }
+  const density=total>0?blank/total:0;
+  return density>=blankThreshold;
+}
+
+// ─── #5: 인덱스 도약 보정 ───
+// [{title, num}] 배열에서 도약(갭>3)이나 중복 감지 → 경고 배열 반환
+// 호출자는 이 정보를 Toast 경고 등에 활용
+function _checkIndexJump(chapters){
+  const result={jumps:[],dups:[]};
+  const nums=chapters.map(([h])=>{
+    const m=(h||'').match(/(\d+)/);
+    return m?parseInt(m[1]):null;
+  }).filter(n=>n!==null);
+  for(let i=1;i<nums.length;i++){
+    const gap=nums[i]-nums[i-1];
+    if(gap>3)    result.jumps.push({from:nums[i-1],to:nums[i],gap});
+    if(gap===0)  result.dups.push(nums[i]);
+  }
+  return result;
+}
+
+// ─── #6: 계층형 볼륨 분할 ───
+// '1권 1화' → {volume:1, chapter:1, title:'1권 1화'}
+// chapters 배열을 volume별로 그룹화하여 반환
+function _groupByVolume(chapters){
+  const volRx=/^(?:제?\s*(\d+)\s*권)\s+(?:제?\s*(\d+)\s*[화장])/;
+  const groups=new Map(); // volume → [{heading,body}]
+  let defaultVol=0;
+  for(const [heading,body] of chapters){
+    const m=heading.match(volRx);
+    const vol=m?parseInt(m[1]):defaultVol;
+    if(!m) defaultVol=vol;
+    if(!groups.has(vol)) groups.set(vol,[]);
+    groups.get(vol).push({heading,body});
+  }
+  return [...groups.entries()].map(([vol,items])=>({volume:vol,chapters:items}));
+}
+
+// ─── #7: ReDoS 타임아웃 가드 ───
+// 커스텀 정규식을 제한 시간(ms) 내에 테스트
+// 초과 시 null 반환 (호출자가 패턴을 폐기)
+function _safeRegexTest(rx, str, timeoutMs=200){
+  if(!rx) return false;
+  try{
+    const start=Date.now();
+    // 짧은 샘플(최대 2000자)로 타임아웃 사전 감지
+    const sample=str.slice(0,2000);
+    const result=rx.test(sample);
+    if(Date.now()-start>timeoutMs){
+      console.warn('[parser] ReDoS 의심 패턴 감지 — 타임아웃:',rx.source);
+      return null; // null = 타임아웃 신호
+    }
+    return result;
+  }catch(e){
+    return false;
+  }
+}
+
+/**
+ * parseCustomPattern — 커스텀 정규식 컴파일 + ReDoS 사전 검사 (#7/#9)
+ * @param {string} pat 사용자 입력 패턴 문자열
+ * @param {string} [sample] ReDoS 검사용 샘플 텍스트 (없으면 짧은 테스트)
+ * @returns {{ rx: RegExp|null, error: string|null, reDosSuspect: boolean }}
+ */
+function parseCustomPattern(pat, sample=''){
+  if(!pat||!pat.trim()) return {rx:null,error:'빈 패턴',reDosSuspect:false};
+  let rx;
+  try{ rx=new RegExp(pat.trim(),'i'); }
+  catch(e){ return {rx:null,error:e.message,reDosSuspect:false}; }
+  // ReDoS 사전 감지: 중첩 수량자 패턴 정적 검사
+  const reDosSigns=[/\(\.\*\)\+/,/\(\.\+\)\*/,/(\+|\*)\{/,/\[.*\]\+\[.*\]\*/];
+  const reDosSuspect=reDosSigns.some(s=>s.test(pat));
+  if(reDosSuspect){
+    return {rx:null,error:'ReDoS 의심 패턴 (중첩 수량자)',reDosSuspect:true};
+  }
+  // 런타임 타임아웃 테스트
+  const testStr=sample||'제1화 서막\n제2화 어둠\n1화\n2화\n'.repeat(10);
+  const timedOut=_safeRegexTest(rx,testStr,200)===null;
+  if(timedOut){
+    return {rx:null,error:'실행 시간 초과 — 너무 복잡한 패턴',reDosSuspect:true};
+  }
+  return {rx,error:null,reDosSuspect:false};
+}
+
+// ─── #8/#10: 공백 관용·유사 기호 보정용 정규화 ───
+// '제 1 화' → '제1화', '화ʼ(우측 쉼표형 어퍼스트로피) → '화' 등
+function _normalizeTitleStr(s){
+  return s
+    .replace(/\u2019|\u02bc|\u0060/g,'\'')   // 유사 어퍼스트로피 정규화
+    .replace(/\uFF10-\uFF19/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFF10+0x30)) // 전각숫자 → 반각
+    .replace(/\u3007/g,'0')                   // 〇 → 0
+    .replace(/\s*([화장편막권])\s*/g,'$1')     // 화/장 앞뒤 공백 제거
+    .replace(/제\s+/g,'제')                   // '제 1화' → '제1화'
+    .trim();
+}
+
 function bestPat(raw){
   const lines=raw.split('\n');
   const totalLines=lines.length;
@@ -867,7 +1012,7 @@ function bestPat(raw){
 
 // splitChapters: 동기 함수. 대용량은 splitChaptersAsync 권장
 function splitChapters(raw, customPat, opts={}){
-  const {mergeShortLines=false}=opts;
+  const {mergeShortLines=false, fpGuard=true}=opts;
 
   // ── 입력 텍스트 정규화 ──
   raw=raw
@@ -901,9 +1046,16 @@ function splitChapters(raw, customPat, opts={}){
 
   // ── 패턴 결정 ──
   let rx=null;
-  // 사용자 정의 패턴 우선
+  // 사용자 정의 패턴 우선 — ★ #7 ReDoS 가드 경유
   if(customPat&&customPat.trim()){
-    try{rx=new RegExp(customPat.trim(),'i');}catch(e){rx=null;}
+    const {rx:safeRx,error,reDosSuspect}=parseCustomPattern(customPat.trim(), raw.slice(0,500));
+    if(reDosSuspect||error){
+      if(typeof Toast!=='undefined')
+        Toast.warn('⚠️ 정규식 오류: '+(error||'패턴 불가'));
+      rx=null;
+    } else {
+      rx=safeRx;
+    }
   }
   if(!rx){const r=bestPat(raw);rx=r.rx;}
 
@@ -944,10 +1096,15 @@ function splitChapters(raw, customPat, opts={}){
 
   for(let li=0;li<rawLines.length;li++){
     const line=rawLines[li];
-    // ★ 전처리 후 패턴 검사 (원본 줄은 body에 보존)
-    const t=preprocessLine(line);
+    // ★ #8/#10: 공백 관용·유사기호 정규화 후 패턴 검사
+    const t=_normalizeTitleStr(preprocessLine(line));
 
     if(t&&rx.test(t)){
+      // ★ #3: False Positive Guard — 30자 초과이거나 주변 공백 밀도 낮으면 본문으로 처리
+      if(fpGuard&&!_isLikelyChapterTitle(rawLines,li,0.2)){
+        body.push(line);
+        continue;
+      }
       // 중복 제목 → (2),(3)... 접미사
       const prevCount=seenHeadings.get(t)||0;
       seenHeadings.set(t,prevCount+1);
@@ -970,6 +1127,15 @@ function splitChapters(raw, customPat, opts={}){
 
   // ★ 메모리 정리: 대용량 raw 문자열 참조 해제 유도
   raw=null;
+
+  // ★ #5: 인덱스 도약 보정 경고
+  if(chapters.length>2){
+    const jump=_checkIndexJump(chapters);
+    if(jump.jumps.length>0&&typeof Toast!=='undefined'){
+      const warn=jump.jumps.slice(0,3).map(j=>`${j.from}→${j.to}(+${j.gap})`).join(', ');
+      Toast.warn(`⚠️ 화수 도약 감지: ${warn} — 중간에 누락된 화가 있을 수 있어요.`,5000);
+    }
+  }
 
   return chapters.length?chapters:[['본문','']];
 }
@@ -1145,6 +1311,22 @@ async function previewToc(){
   // ★ 패턴 입력이 있으면 간격 분할 모드 해제
   const _patInput=(document.getElementById('pattern')?.value||'').trim();
   if(_patInput){
+    // ★ #7/#9: ReDoS 가드 + 실시간 유효성 검사
+    if(_patInput){
+      const sample=(_fullRawLines.slice(0,50).join('\n'))||_patInput;
+      const {error,reDosSuspect}=parseCustomPattern(_patInput, sample);
+      if(reDosSuspect||error){
+        // #10: 입력 칸 흔들기 애니메이션
+        const patEl=document.getElementById('pattern');
+        if(patEl){
+          patEl.style.animation='shakeInput .4s ease';
+          patEl.style.boxShadow='0 0 0 2px var(--accent)';
+          setTimeout(()=>{ patEl.style.animation=''; patEl.style.boxShadow=''; },500);
+        }
+        Toast.warn('⚠️ 정규식 오류: '+(error||'패턴 불가'));
+        return;
+      }
+    }
     _setAutoSplitActive(false);
     _autoSplitLines=null;
   }
@@ -1301,6 +1483,17 @@ async function previewToc(){
   if(found.length>0){
     _syncSplitBtn('patternFound');
     _renderHybridSuggestBtn(found.length);
+    // ★ #9: 매칭률 스코어 Toast
+    const matchRate=_fullRawLines.length>0
+      ? Math.round(found.length/_fullRawLines.length*100*10)/10
+      : 0;
+    const safeLevel = matchRate>=5?'안전':matchRate>=1?'보통':'주의';
+    const safeColor = matchRate>=5?'var(--green)':matchRate>=1?'var(--accent)':'var(--red,#d44)';
+    Toast.info(
+      `매칭률 <b style="color:${safeColor}">${matchRate}%</b> — `+
+      `<b style="color:${safeColor}">${safeLevel}</b> · ${found.length}개 목차 감지`,
+      3500
+    );
   } else {
     _syncSplitBtn('patternMissing');
   }

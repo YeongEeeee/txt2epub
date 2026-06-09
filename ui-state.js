@@ -888,6 +888,25 @@ function setupEventDelegate(){
     selectCh:      (el) => typeof selectCh==='function'&&selectCh(parseInt(el.dataset.idx)),
     extractEpubImages: () => typeof extractEpubImages==='function'&&extractEpubImages(),
     previewToc:    () => typeof previewToc==='function'&&previewToc(),
+    // ★ #9/#10: 실시간 정규식 유효성 검사 + 오류 시 입력창 흔들기
+    patternValidate: () => {
+      const el=document.getElementById('pattern');
+      if(!el) return;
+      const pat=el.value.trim();
+      if(!pat) return;
+      if(typeof parseCustomPattern!=='function') return;
+      const {error,reDosSuspect}=parseCustomPattern(pat,'제1화\n제2화\n');
+      if(error||reDosSuspect){
+        el.style.animation='shakeInput .4s ease';
+        el.style.outline='2px solid var(--accent)';
+        setTimeout(()=>{ el.style.animation=''; el.style.outline=''; },500);
+        if(typeof Toast!=='undefined')
+          Toast.warn('⚠️ 정규식: '+(error||'ReDoS 위험 패턴'),3000);
+      } else {
+        el.style.outline='2px solid var(--green,#4a8)';
+        setTimeout(()=>{ el.style.outline=''; },800);
+      }
+    },
     autoSplitByInterval: () => typeof autoSplitByInterval==='function'&&autoSplitByInterval(),
     applyPat:      () => typeof applyPat==='function'&&applyPat(),
     tocTab:        (el) => typeof tocTab==='function'&&tocTab(parseInt(el.dataset.idx)),
