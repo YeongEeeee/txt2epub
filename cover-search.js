@@ -1,11 +1,16 @@
-// ════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════
 // cover-search.js — 표지 검색 모달, 플랫폼 어댑터, 프록시
 // NovelEPUB | TXT → EPUB3
 //
-// 의존성: core.js (Toast, S, B)
-// ════════════════════════════════════════════════
+// 의존성: core.js (Toast, S, B, CORS_PROXY_URL, proxyGet, proxyGetBlob, RecoverableError)
+// Phase 4 개선:
+//   CS-01: PROXIES/proxyFetch를 core.js proxyGet으로 교체
+//   CS-02: centerCropToBlob — proxyGetBlob 경유 + crossOrigin 강제 설정
+//   CS-03: proxyImgUrl — CORS_PROXY_URL 상수 사용
+// ════════════════════════════════════════════════════════════
 
-/* global Toast, S, B, escHtml, getCssVar */
+/* global Toast, S, B, escHtml, getCssVar,
+   CORS_PROXY_URL, proxyGet, proxyGetBlob, RecoverableError */
 
 'use strict';
 
@@ -60,10 +65,30 @@ function closeCoverModal(){
 }
 
 async function centerCropToBlob(src, targetW=800, targetH=1200, quality=0.92){
+  // ★ CS-02 / #7 / #8: 이미지 로드 시 프록시 경유 + crossOrigin 강제 설정
+  // proxyGetBlob → Blob ObjectURL 생성 → crossOrigin 없이도 canvas taint 방지
+  let objectUrl = null;
+  let imgSrc = src;
+
+  // 외부 http(s) URL은 proxyGetBlob으로 Blob 획득 → ObjectURL로 변환
+  if (typeof src === 'string' && /^https?:\/\//i.test(src)) {
+    try {
+      const blob = await proxyGetBlob(src);
+      objectUrl = URL.createObjectURL(blob);
+      imgSrc = objectUrl;
+    } catch(e) {
+      // proxyGetBlob 실패 시 원본 URL로 폴백 (crossOrigin=anonymous와 함께)
+      console.warn('[centerCropToBlob] proxyGetBlob 실패, 원본 URL 폴백:', e.message);
+      imgSrc = src;
+    }
+  }
+
   return new Promise(resolve=>{
     const img=new Image();
+    // ★ #8 Cross-Origin Image Taint Guard: crossOrigin 반드시 설정
     img.crossOrigin='anonymous';
     img.onload=()=>{
+      if(objectUrl) URL.revokeObjectURL(objectUrl);
       const canvas=document.createElement('canvas');
       canvas.width=targetW; canvas.height=targetH;
       const ctx=canvas.getContext('2d');
@@ -75,13 +100,21 @@ async function centerCropToBlob(src, targetW=800, targetH=1200, quality=0.92){
       if(srcRatio>tgtRatio){ sh=img.naturalHeight; sw=sh*tgtRatio; sx=(img.naturalWidth-sw)/2; sy=0; }
       else { sw=img.naturalWidth; sh=sw/tgtRatio; sx=0; sy=(img.naturalHeight-sh)/2; }
       ctx.drawImage(img,sx,sy,sw,sh,0,0,targetW,targetH);
-      canvas.toBlob(blob=>{
-        // ★ BUG-16 수정: null 체크
-        resolve(blob||null);
-      },'image/jpeg',quality);
+      // ★ #7: toBlob SecurityError(canvas taint) try-catch
+      try{
+        canvas.toBlob(blob=>{
+          resolve(blob||null);
+        },'image/jpeg',quality);
+      }catch(secErr){
+        console.warn('[centerCropToBlob] canvas SecurityError:', secErr.message);
+        resolve(null);
+      }
     };
-    img.onerror=()=>resolve(null);
-    img.src=typeof src==='string'?src:URL.createObjectURL(src);
+    img.onerror=()=>{
+      if(objectUrl) URL.revokeObjectURL(objectUrl);
+      resolve(null);
+    };
+    img.src = typeof imgSrc==='string' ? imgSrc : URL.createObjectURL(imgSrc);
   });
 }
 
@@ -199,9 +232,16 @@ async function applyCoverFile(file){
 
 function proxyImgUrl(originalUrl){
   if(!originalUrl) return '';
-  const worker=PROXIES.find(p=>p.url.includes('workers.dev'));
-  if(worker) return worker.url+encodeURIComponent(originalUrl);
-  return originalUrl;
+  // ★ CS-03 / #1 / #5: core.js의 CORS_PROXY_URL 상수 사용 + URL 안전 인코딩
+  const base = typeof CORS_PROXY_URL !== 'undefined'
+    ? CORS_PROXY_URL
+    : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=';
+  try {
+    // #5: 특수문자·유니코드 포함 URL 완전 처리
+    return base + encodeURIComponent(decodeURIComponent(originalUrl));
+  } catch(e) {
+    return base + encodeURIComponent(originalUrl);
+  }
 }
 
 function imgError(el, originalUrl){
@@ -286,58 +326,80 @@ const CoverSearchAdapters = {
   google:   { label:'🌐 구글 이미지',     badge:'badge-google',   fetch: q=>fetchGoogle(q) },
 };
 
-const PROXIES=[
-  {url:'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=', type:'direct'},
-  {url:'https://api.allorigins.win/get?url=',               type:'json'},
-  {url:'https://corsproxy.io/?url=',                        type:'direct'},
-  {url:'https://api.codetabs.com/v1/proxy?quest=',          type:'direct'},
-];
+// ════════════════════════════════════════════════════════════
+// ★ CS-04: 프록시 패치 레이어 — core.js proxyGet에 위임
+//
+// 이전: PROXIES 배열 직접 관리 + _tryProxy 루프
+// 이후: core.js proxyGet/proxyGetBlob이 #1~#10 모두 처리
+//       여기서는 얇은 래퍼만 유지 (하위 호환)
+// ════════════════════════════════════════════════════════════
 
-async function _tryProxy(proxy, url, timeout){
-  const res=await fetch(proxy.url+encodeURIComponent(url),{signal:AbortSignal.timeout(timeout)});
-  if(!res.ok) return null;
-  const text=await res.text();
-  if(!text||text.length<30) return null;
-  if(proxy.type==='json'){
-    try{ const json=JSON.parse(text); if(json.contents!=null) return json.contents; return null; }
-    catch(e){ return null; }
-  }
-  return text;
+/** 내부 플랫폼 어댑터용 래퍼 (core.js proxyGet 위임) */
+async function _proxyFetchInternal(url, timeout=9000){
+  // core.js proxyGet이 정의된 경우 위임, 아니면 자체 폴백
+  if(typeof proxyGet === 'function') return proxyGet(url, timeout);
+  // 폴백: 직접 fetch
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(), timeout);
+  try{
+    const res=await fetch(url,{signal:ctrl.signal});
+    clearTimeout(timer);
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    return await res.text();
+  }catch(e){ clearTimeout(timer); throw e; }
 }
 
 async function proxyFetch(url, timeout=9000){
-  let lastErr;
-  for(const proxy of PROXIES){
-    try{ const html=await _tryProxy(proxy, url, timeout); if(html) return html; }
-    catch(e){ lastErr=e; }
-  }
-  throw lastErr||new Error('모든 프록시 실패');
+  return _proxyFetchInternal(url, timeout);
 }
 
 async function proxyPost(url, body, timeout=9000){
-  const worker = PROXIES.find(p=>p.url.includes('workers.dev'));
-  if(worker){
-    try{
-      const res=await fetch(worker.url+encodeURIComponent(url)+'&_method=POST&_body='+encodeURIComponent(body),{signal:AbortSignal.timeout(timeout)});
-      if(res.ok){ const text=await res.text(); if(text&&text.length>10) return text; }
-    }catch(e){}
-  }
+  // POST: workers.dev 경유 (쿼리스트링 방식)
+  const base = typeof CORS_PROXY_URL !== 'undefined'
+    ? CORS_PROXY_URL
+    : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=';
+  const workerUrl = base
+    + encodeURIComponent(url)
+    + '&_method=POST&_body=' + encodeURIComponent(body);
+  const ctrl=new AbortController();
+  const timer=setTimeout(()=>ctrl.abort(), timeout);
   try{
-    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body,signal:AbortSignal.timeout(timeout)});
-    if(res.ok) return await res.text();
-  }catch(e){}
-  throw new Error('POST 프록시 실패');
+    const res=await fetch(workerUrl,{
+      signal: ctrl.signal,
+      headers:{
+        'X-NovelEPUB-Token': typeof _PROXY_TOKEN!=='undefined'?_PROXY_TOKEN:'novelepub-secure-token',
+        'Cache-Control':'no-cache',
+      }
+    });
+    clearTimeout(timer);
+    if(res.ok){ const text=await res.text(); if(text&&text.length>10) return text; }
+    throw new Error('HTTP '+res.status);
+  }catch(e){
+    clearTimeout(timer);
+    // 폴백: 직접 POST
+    const ctrl2=new AbortController();
+    const timer2=setTimeout(()=>ctrl2.abort(),timeout);
+    try{
+      const res2=await fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body,signal:ctrl2.signal});
+      clearTimeout(timer2);
+      if(res2.ok) return await res2.text();
+      throw new Error('HTTP '+res2.status);
+    }catch(e2){ clearTimeout(timer2); throw new Error('POST 프록시 실패: '+e2.message); }
+  }
 }
 
 async function proxyFetchRace(url, timeout=9000){
-  const promises=PROXIES.map(proxy=>_tryProxy(proxy, url, timeout).catch(()=>null));
-  return new Promise((resolve,reject)=>{
-    let done=false, pending=promises.length;
-    promises.forEach(p=>p.then(html=>{
-      if(!done&&html){ done=true; resolve(html); }
-      if(--pending===0&&!done) reject(new Error('모든 프록시 실패'));
-    }).catch(()=>{ if(--pending===0&&!done) reject(new Error('모든 프록시 실패')); }));
-  });
+  // Race 모드: proxyGet(프록시) vs 직접 fetch를 경쟁
+  const ctrl1=new AbortController(), ctrl2=new AbortController();
+  const t1=setTimeout(()=>ctrl1.abort(),timeout), t2=setTimeout(()=>ctrl2.abort(),timeout);
+  const proxyP = (typeof proxyGet==='function'
+    ? proxyGet(url, timeout)
+    : fetch(CORS_PROXY_URL+encodeURIComponent(url),{signal:ctrl1.signal}).then(r=>r.text())
+  ).finally(()=>clearTimeout(t1));
+  const directP = fetch(url,{signal:ctrl2.signal,headers:{'Cache-Control':'no-cache'}})
+    .then(r=>r.text())
+    .finally(()=>clearTimeout(t2));
+  return Promise.any([proxyP, directP]).catch(()=>{ throw new Error('모든 프록시 실패'); });
 }
 
 // ── 카카오페이지 ──

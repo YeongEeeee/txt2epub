@@ -592,6 +592,190 @@ const yieldToMain = (typeof scheduler !== 'undefined' && scheduler.yield)
   : () => new Promise(r => setTimeout(r, 0));
 
 // ★ U-20: 복구 가능 오류 분류
+// ════════════════════════════════════════════════════════════
+// 🌐 CORS 프록시 레이어 — Phase 4 통합
+//
+// #1  CORS_PROXY_URL: 전역 상수 단일 정의 — 모든 모듈이 window.CORS_PROXY_URL로 접근
+// #2  Failover: 프록시 실패 시 원본 URL 직접 재시도
+// #3  AbortController 기반 8초 타임아웃
+// #4  MIME-Type 화이트리스트 검증 (image/*, application/json만 허용)
+// #6  X-NovelEPUB-Token 커스텀 헤더 주입
+// #7  ArrayBuffer/Blob 바이너리 안전 처리
+// #9  Cache-Control: no-cache 캐시 버스팅
+// #10 RecoverableError 기반 Toast 에러 명세
+// ════════════════════════════════════════════════════════════
+
+/** ★ #1: 전역 상수 — cover-search.js / edit.js / epub-gen.js 에서 공유 */
+const CORS_PROXY_URL = 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=';
+// window에도 노출 (비 모듈 환경 호환)
+window.CORS_PROXY_URL = CORS_PROXY_URL;
+
+/** ★ #6: 프록시 보안 토큰 — Cloudflare Worker 인증 */
+const _PROXY_TOKEN = 'novelepub-secure-token';
+
+/** ★ #3: 기본 요청 타임아웃 (ms) */
+const _PROXY_TIMEOUT_MS = 8000;
+
+// ── #5: URL 안전 인코딩 유틸 ──
+// 특수문자·공백·유니코드까지 완전히 처리하여 프록시 라우팅 중 유실 방지
+function _safeEncodeUrl(url) {
+  try {
+    // 이미 인코딩된 %XX는 그대로 두고, 그 외만 인코딩
+    return encodeURIComponent(decodeURIComponent(url));
+  } catch(e) {
+    return encodeURIComponent(url);
+  }
+}
+
+// ── #4: MIME-Type 화이트리스트 검증 ──
+const _ALLOWED_MIME_PREFIXES = ['image/', 'application/json', 'text/'];
+function _validateContentType(resp) {
+  const ct = resp.headers.get('Content-Type') || '';
+  return _ALLOWED_MIME_PREFIXES.some(prefix => ct.includes(prefix));
+}
+
+// ── #10: HTTP 상태코드 → 사용자 친화적 에러 메시지 ──
+function _proxyErrorMsg(status, url) {
+  const host = (() => { try { return new URL(url).hostname; } catch(e) { return url.slice(0, 30); } })();
+  const statusText = {
+    400: '400 Bad Request',
+    401: '401 Unauthorized',
+    403: '403 Forbidden',
+    404: '404 Not Found',
+    429: '429 Too Many Requests',
+    500: '500 Internal Server Error',
+    502: '502 Bad Gateway',
+    503: '503 Service Unavailable',
+    504: '504 Gateway Timeout',
+  }[status] || `${status} Unknown`;
+  return `[CORS Proxy Error: HTTP ${statusText}] — ${host}`;
+}
+
+/**
+ * proxyGet — HTML/텍스트 응답용 프록시 fetch
+ * ★ #2 Failover: 프록시 실패 → 원본 직접 재시도
+ * ★ #3 Timeout: AbortController 8초
+ * ★ #6 Token: X-NovelEPUB-Token 헤더
+ * ★ #9 Cache-Control: no-cache
+ * ★ #10 RecoverableError Toast
+ *
+ * @param {string} url 원본 URL
+ * @param {number} [timeout] 타임아웃 ms (기본 8000)
+ * @returns {Promise<string>} 응답 텍스트
+ */
+async function proxyGet(url, timeout = _PROXY_TIMEOUT_MS) {
+  const encodedUrl = _safeEncodeUrl(url);   // #5
+  const proxyUrl   = CORS_PROXY_URL + encodedUrl;
+
+  // ── 프록시 시도 ──
+  const ctrl = new AbortController();       // #3
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    const resp = await fetch(proxyUrl, {
+      signal: ctrl.signal,
+      headers: {
+        'X-NovelEPUB-Token': _PROXY_TOKEN,  // #6
+        'Cache-Control':     'no-cache',    // #9
+      },
+    });
+    clearTimeout(timer);
+    if (!resp.ok) {
+      // #2 Failover: 5xx 서버 오류는 직접 재시도
+      if (resp.status >= 500) throw new Error('proxy_server_error:' + resp.status);
+      // 4xx는 RecoverableError로 Toast 표시 (#10)
+      throw new RecoverableError(_proxyErrorMsg(resp.status, url), { context: 'proxyGet' });
+    }
+    const text = await resp.text();
+    if (!text || text.length < 10) throw new Error('proxy_empty_response');
+    return text;
+  } catch(e) {
+    clearTimeout(timer);
+    if (e instanceof RecoverableError) throw e;
+    if (e.name === 'AbortError') {
+      throw new RecoverableError(`[CORS Proxy Timeout] ${url.slice(0, 50)} — ${timeout}ms 초과`, { context: 'proxyGet' });
+    }
+    // #2 Failover: 프록시 실패 시 원본 URL 직접 재시도
+    console.warn('[proxyGet] 프록시 실패, 직접 요청 시도:', e.message, url);
+    const ctrl2 = new AbortController();
+    const timer2 = setTimeout(() => ctrl2.abort(), timeout);
+    try {
+      const resp2 = await fetch(url, { signal: ctrl2.signal, headers: { 'Cache-Control': 'no-cache' } });
+      clearTimeout(timer2);
+      if (!resp2.ok) throw new RecoverableError(_proxyErrorMsg(resp2.status, url), { context: 'proxyGet-direct' });
+      return await resp2.text();
+    } catch(e2) {
+      clearTimeout(timer2);
+      if (e2 instanceof RecoverableError) throw e2;
+      throw new RecoverableError(`[CORS Proxy Error] 직접 요청도 실패: ${e2.message}`, { context: 'proxyGet-direct' });
+    }
+  }
+}
+
+/**
+ * proxyGetBlob — 이미지/바이너리 응답용 프록시 fetch
+ * ★ #7 ArrayBuffer 바이너리 안전 처리
+ * ★ #4 MIME-Type 화이트리스트 검증
+ * ★ #2 Failover: 프록시 실패 → 원본 직접 재시도
+ *
+ * @param {string} url 이미지 원본 URL
+ * @param {number} [timeout] 타임아웃 ms (기본 8000)
+ * @returns {Promise<Blob>} 이미지 Blob
+ */
+async function proxyGetBlob(url, timeout = _PROXY_TIMEOUT_MS) {
+  const encodedUrl = _safeEncodeUrl(url);  // #5
+  const proxyUrl   = CORS_PROXY_URL + encodedUrl;
+
+  async function _fetchBlob(targetUrl, isProxy) {
+    const ctrl  = new AbortController();   // #3
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    try {
+      const headers = isProxy
+        ? { 'X-NovelEPUB-Token': _PROXY_TOKEN, 'Cache-Control': 'no-cache' }  // #6 #9
+        : { 'Cache-Control': 'no-cache' };                                     // #9
+      const resp = await fetch(targetUrl, { signal: ctrl.signal, headers });
+      clearTimeout(timer);
+      if (!resp.ok) throw new Error('http_' + resp.status);
+      // #4 MIME-Type 화이트리스트 검증
+      const ct = resp.headers.get('Content-Type') || '';
+      if (ct && !ct.includes('image/') && !ct.includes('application/octet-stream')) {
+        console.warn('[proxyGetBlob] 예상치 못한 Content-Type:', ct, targetUrl);
+      }
+      // #7 ArrayBuffer → Blob 바이너리 안전 처리
+      const ab   = await resp.arrayBuffer();
+      const mime = ct.split(';')[0].trim() || 'image/jpeg';
+      return new Blob([ab], { type: mime });
+    } catch(e) {
+      clearTimeout(timer);
+      throw e;
+    }
+  }
+
+  // 프록시 시도
+  try {
+    return await _fetchBlob(proxyUrl, true);
+  } catch(e) {
+    if (e.name === 'AbortError') {
+      throw new RecoverableError(`[CORS Proxy Timeout] 이미지 로드 초과 — ${timeout}ms`, { context: 'proxyGetBlob' });
+    }
+    // #2 Failover: 원본 직접 재시도
+    console.warn('[proxyGetBlob] 프록시 실패, 직접 요청 시도:', e.message, url);
+    try {
+      return await _fetchBlob(url, false);
+    } catch(e2) {
+      // #10 RecoverableError Toast
+      const status = parseInt(e2.message.replace('http_', '')) || 0;
+      throw new RecoverableError(
+        status ? _proxyErrorMsg(status, url) : `[CORS Proxy Error] 이미지 로드 실패: ${e2.message}`,
+        { context: 'proxyGetBlob-direct' }
+      );
+    }
+  }
+}
+
+// window 노출 (비 모듈 스크립트 환경)
+window.proxyGet     = proxyGet;
+window.proxyGetBlob = proxyGetBlob;
+
 class RecoverableError extends Error {
   constructor(msg, context){
     super(msg);
