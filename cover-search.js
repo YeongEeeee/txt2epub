@@ -388,20 +388,6 @@ async function proxyPost(url, body, timeout=9000){
   }
 }
 
-async function proxyFetchRace(url, timeout=9000){
-  // Race 모드: proxyGet(프록시) vs 직접 fetch를 경쟁
-  const ctrl1=new AbortController(), ctrl2=new AbortController();
-  const t1=setTimeout(()=>ctrl1.abort(),timeout), t2=setTimeout(()=>ctrl2.abort(),timeout);
-  const proxyP = (typeof proxyGet==='function'
-    ? proxyGet(url, timeout)
-    : fetch(CORS_PROXY_URL+encodeURIComponent(url),{signal:ctrl1.signal}).then(r=>r.text())
-  ).finally(()=>clearTimeout(t1));
-  const directP = fetch(url,{signal:ctrl2.signal,headers:{'Cache-Control':'no-cache'}})
-    .then(r=>r.text())
-    .finally(()=>clearTimeout(t2));
-  return Promise.any([proxyP, directP]).catch(()=>{ throw new Error('모든 프록시 실패'); });
-}
-
 // ── 카카오페이지 ──
 async function fetchKakao(q){
   function isKakaoImg(src){
@@ -410,24 +396,37 @@ async function fetchKakao(q){
     if(s.includes('icon')||s.includes('logo')||s.includes('badge')||s.includes('profile')||s.includes('default')) return false;
     return s.includes('kakaocdn')||s.includes('dn-img-page.kakao')||s.includes('t1.kakaocdn')||s.includes('k.kakaocdn');
   }
-  const worker=PROXIES.find(p=>p.url.includes('workers.dev'));
-  if(worker){
+  // ★ P0 FIX: PROXIES.find() 제거 → CORS_PROXY_URL 직접 참조 (typeof 가드 포함)
+  const workerBase = typeof CORS_PROXY_URL !== 'undefined'
+    ? CORS_PROXY_URL
+    : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=';
+  try{
+    const body=JSON.stringify({
+      operationName:'SearchContentByKeyword',
+      query:`query SearchContentByKeyword($keyword:String!,$page:Int,$size:Int){searchByKeyword(keyword:$keyword,page:$page,size:$size,contentsType:NOVEL){count list{id title thumbnail singleThumbnailImage{url} horizontalThumbnail{url}}}}`,
+      variables:{keyword:q, page:0, size:12}
+    });
+    const workerUrl=workerBase+encodeURIComponent('https://page.kakao.com/graphql')
+      +'&_method=POST'
+      +'&_body='+encodeURIComponent(body)
+      +'&_h_Content-Type='+encodeURIComponent('application/json')
+      +'&_h_Accept='+encodeURIComponent('application/json');
+    const ctrl=new AbortController();
+    const timer=setTimeout(()=>ctrl.abort(),9000);
     try{
-      const body=JSON.stringify({
-        operationName:'SearchContentByKeyword',
-        query:`query SearchContentByKeyword($keyword:String!,$page:Int,$size:Int){searchByKeyword(keyword:$keyword,page:$page,size:$size,contentsType:NOVEL){count list{id title thumbnail singleThumbnailImage{url} horizontalThumbnail{url}}}}`,
-        variables:{keyword:q, page:0, size:12}
+      const res=await fetch(workerUrl,{
+        signal:ctrl.signal,
+        headers:{'X-NovelEPUB-Token': typeof _PROXY_TOKEN!=='undefined'?_PROXY_TOKEN:'novelepub-secure-token'},
       });
-      const workerUrl=worker.url+encodeURIComponent('https://page.kakao.com/graphql')+'&_method=POST'+'&_body='+encodeURIComponent(body)+'&_h_Content-Type='+encodeURIComponent('application/json')+'&_h_Accept='+encodeURIComponent('application/json');
-      const res=await fetch(workerUrl,{signal:AbortSignal.timeout(9000)});
+      clearTimeout(timer);
       if(res.ok){
         const json=await res.json();
         const list=json?.data?.searchByKeyword?.list||json?.data?.searchContentByKeyword?.edges?.map(e=>e.node)||[];
         const items=list.map(n=>({title:n.title||q,image:n.thumbnail||(typeof n.thumbnail==='string'?n.thumbnail:'')||n.singleThumbnailImage?.url||n.horizontalThumbnail?.url||''})).filter(i=>i.image&&i.image.startsWith('http'));
         if(items.length) return items.slice(0,12);
       }
-    }catch(e){}
-  }
+    }catch(e){ clearTimeout(timer); }
+  }catch(e){}
   try{
     const html=await proxyFetch('https://search.daum.net/search?w=book&q='+encodeURIComponent(q)+'&DA=LB2');
     const doc=new DOMParser().parseFromString(html,'text/html');
@@ -456,14 +455,29 @@ async function fetchNaver(q){
   const clientId=document.getElementById('naverClientId')?.value.trim();
   const clientSecret=document.getElementById('naverClientSecret')?.value.trim();
   if(clientId&&clientSecret){
+    // ★ P0 FIX: PROXIES.find() 제거 → CORS_PROXY_URL 직접 참조 (typeof 가드 포함)
+    const workerBase = typeof CORS_PROXY_URL !== 'undefined'
+      ? CORS_PROXY_URL
+      : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=';
     try{
-      const worker=PROXIES.find(p=>p.url.includes('workers.dev'));
-      if(worker){
-        const apiUrl='https://openapi.naver.com/v1/search/book.json?query='+encodeURIComponent(q)+'&display=12&sort=sim';
-        const workerUrl=worker.url+encodeURIComponent(apiUrl)+'&_h_X-Naver-Client-Id='+encodeURIComponent(clientId)+'&_h_X-Naver-Client-Secret='+encodeURIComponent(clientSecret);
-        const res=await fetch(workerUrl,{signal:AbortSignal.timeout(8000)});
-        if(res.ok){ const json=await res.json(); const items=(json.items||[]).map(it=>({title:it.title.replace(/<[^>]+>/g,''),image:it.image})).filter(it=>it.image); if(items.length) return items.slice(0,12); }
-      }
+      const apiUrl='https://openapi.naver.com/v1/search/book.json?query='+encodeURIComponent(q)+'&display=12&sort=sim';
+      const workerUrl=workerBase+encodeURIComponent(apiUrl)
+        +'&_h_X-Naver-Client-Id='+encodeURIComponent(clientId)
+        +'&_h_X-Naver-Client-Secret='+encodeURIComponent(clientSecret);
+      const ctrl=new AbortController();
+      const timer=setTimeout(()=>ctrl.abort(),8000);
+      try{
+        const res=await fetch(workerUrl,{
+          signal:ctrl.signal,
+          headers:{'X-NovelEPUB-Token': typeof _PROXY_TOKEN!=='undefined'?_PROXY_TOKEN:'novelepub-secure-token'},
+        });
+        clearTimeout(timer);
+        if(res.ok){
+          const json=await res.json();
+          const items=(json.items||[]).map(it=>({title:it.title.replace(/<[^>]+>/g,''),image:it.image})).filter(it=>it.image);
+          if(items.length) return items.slice(0,12);
+        }
+      }catch(e){ clearTimeout(timer); }
     }catch(e){}
   }
   try{
@@ -508,29 +522,99 @@ async function fetchRidi(q){
 
 // ── 노벨피아 ──
 async function fetchNovelpia(q){
-  function fixNovelpiaImg(src){ if(!src) return ''; if(src.startsWith('//')) return 'https:'+src; if(src.startsWith('/')) return 'https://novelpia.com'+src; return src; }
+  // ★ 프로토콜·경로 정규화: //img.novelpia.com → https://img.novelpia.com
+  function fixNovelpiaImg(src){
+    if(!src) return '';
+    if(src.startsWith('//')) return 'https:'+src;
+    if(src.startsWith('/'))  return 'https://novelpia.com'+src;
+    return src;
+  }
+
+  // ★ 노벨피아 전용 isValidImg: .file 확장자 명시 허용
+  // (일반 isValidImg는 fetchGoogle 스코프에 별도 선언되어 있음)
+  // .file 패턴: "0736b6f9c606b784d17b97a5a1374945_245449_ori.file"
+  function isValidNovelpiaImg(src){
+    if(!src||src.length<20) return false;
+    const s=src.toLowerCase();
+    if(s.includes('icon')||s.includes('logo')||s.includes('pixel')||
+       s.includes('blank')||s.includes('spacer')) return false;
+    // ★ .file 확장자를 정당한 이미지 자원으로 인식 (노벨피아 전용)
+    const hasImageExt=/\.(jpe?g|png|webp|gif|bmp|avif|tiff?|file)(\?|$)/.test(s);
+    const hasImageHint=s.includes('cover')||s.includes('thumb')||
+                       s.includes('novel')||s.includes('image')||s.includes('photo');
+    return hasImageExt||hasImageHint;
+  }
+
+  // ── 경로 1: 노벨피아 API (POST) ──
   try{
     const postBody='search_type=all&search_string='+encodeURIComponent(q)+'&page=1&page_limit=12';
     const resp=await proxyPost('https://novelpia.com/proc/novel_list', postBody);
     const json=JSON.parse(resp);
     const list=json.list||json.data||[];
-    const items=list.slice(0,12).map(n=>({title:n.novel_name||n.title||q,image:fixNovelpiaImg(n.cover_img||n.cover||n.img||n.thumbnail||'')})).filter(i=>i.image);
+    const items=list.slice(0,12).map(n=>{
+      // ★ fixNovelpiaImg → proxyImgUrl 순서 보장 (프로토콜 정규화 후 프록시 경유)
+      const rawImg=n.cover_img||n.cover||n.img||n.thumbnail||'';
+      const absImg=fixNovelpiaImg(rawImg);
+      return {
+        title: n.novel_name||n.title||q,
+        image: absImg ? proxyImgUrl(absImg) : '',
+      };
+    }).filter(i=>i.image&&isValidNovelpiaImg(
+      // proxyImgUrl로 감싸져 있으므로 원본 URL로 검증
+      i.image.replace(/^https?:\/\/icy-frog[^?]+\?url=/,'').replace(/^.*\?url=/,'')
+        .split('?')[0]
+    ));
     if(items.length) return items;
   }catch(e){}
+
+  // ── 경로 2: 노벨피아 검색 HTML 파싱 ──
   try{
     const html=await proxyFetch('https://novelpia.com/search/novel?search_string='+encodeURIComponent(q));
     const doc=new DOMParser().parseFromString(html,'text/html');
     const items=[];
-    doc.querySelectorAll('[class*="novel"],[class*="book"],[class*="item"]').forEach(el=>{ const img=el.querySelector('img'); const src=img?.getAttribute('src')||img?.getAttribute('data-src')||''; const fixed=fixNovelpiaImg(src); if(fixed&&fixed.startsWith('http')&&!fixed.includes('icon')&&!fixed.includes('logo')) items.push({title:img?.alt||el.querySelector('h3,h4,strong,a')?.textContent?.trim()||q, image:fixed}); });
+
+    doc.querySelectorAll('[class*="novel"],[class*="book"],[class*="item"]').forEach(el=>{
+      const img=el.querySelector('img');
+      const rawSrc=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
+      const absImg=fixNovelpiaImg(rawSrc);
+      if(!absImg||!absImg.startsWith('http')) return;
+      if(absImg.includes('icon')||absImg.includes('logo')) return;
+      items.push({
+        title: img?.alt||el.querySelector('h3,h4,strong,a')?.textContent?.trim()||q,
+        // ★ proxyImgUrl 경유: CORS 차단 우회 + crossOrigin 가드 연동
+        image: proxyImgUrl(absImg),
+      });
+    });
     if(items.length) return items.slice(0,12);
-    doc.querySelectorAll('img').forEach(img=>{ const src=fixNovelpiaImg(img.getAttribute('src')||img.getAttribute('data-src')||''); if(src&&src.startsWith('http')&&(src.includes('cover')||src.includes('novel')||src.includes('thumb'))&&!src.includes('icon')) items.push({title:img.alt||q, image:src}); });
+
+    // ── 경로 3: 전체 img 태그 폴백 파싱 ──
+    doc.querySelectorAll('img').forEach(img=>{
+      const rawSrc=img.getAttribute('src')||img.getAttribute('data-src')||'';
+      const absImg=fixNovelpiaImg(rawSrc);
+      if(!absImg||!absImg.startsWith('http')) return;
+      if(!isValidNovelpiaImg(absImg)) return;
+      items.push({
+        title: img.alt||q,
+        image: proxyImgUrl(absImg),
+      });
+    });
     return items.slice(0,12);
   }catch(e){ return []; }
 }
 
 // ── 구글 이미지 (Bing/DDG/네이버 대체) ──
 async function fetchGoogle(q){
-  function isValidImg(src){ if(!src||!src.startsWith('http')||src.length<40) return false; const s=src.toLowerCase(); return !s.includes('icon')&&!s.includes('logo')&&!s.includes('pixel')&&!s.includes('blank')&&!s.includes('spacer')&&(s.includes('.jpg')||s.includes('.jpeg')||s.includes('.png')||s.includes('.webp')||s.includes('image')||s.includes('thumb')||s.includes('cover')||s.includes('photo')); }
+  // ★ 이미지 URL 검증 헬퍼 (.file 확장자 포함 — 노벨피아 등 특수 플랫폼 대응)
+  function isValidImg(src){
+    if(!src||!src.startsWith('http')||src.length<40) return false;
+    const s=src.toLowerCase();
+    return !s.includes('icon')&&!s.includes('logo')&&!s.includes('pixel')&&
+           !s.includes('blank')&&!s.includes('spacer')&&
+           (s.includes('.jpg')||s.includes('.jpeg')||s.includes('.png')||
+            s.includes('.webp')||s.includes('.file')||          // ★ .file 추가
+            s.includes('image')||s.includes('thumb')||
+            s.includes('cover')||s.includes('photo'));
+  }
   try{
     const html=await proxyFetch('https://www.bing.com/images/search?q='+encodeURIComponent(q+' 소설 표지')+'&form=HDRSC2&first=1');
     const doc=new DOMParser().parseFromString(html,'text/html');
