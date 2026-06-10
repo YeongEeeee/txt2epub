@@ -24,620 +24,464 @@ let _searchAbortCtrl=null;
 function extractSearchTitle(raw) {
   let t = raw
     .replace(/\.txt$/i, '')
-    .replace(/[\[\(\{][^\]\)\}]{0,20}[\]\)\}]/g, '')
+    .replace(/[(\[{][^)\]}]{0,20}[)\]}]/g, '')
     .replace(/^.+?@\s*/, '')
     .replace(/@.+$/, '')
-    .replace(/^[^가-힣a-zA-Z\d]*[a-zA-Z\d가-힣]{1,10}[_\-]\s*/, '')
-    .replace(/\s+/g, ' ')
+    .replace(/^[^가-힣a-zA-Z\d]+/, '')
+    .replace(/[^가-힣a-zA-Z\d]+$/, '')
     .trim();
-  t = t.replace(/\s+\d+[-~]\d+[화편]?.*$/, '');
-  t = t.replace(/\s+\d+[권부].*$/, '');
-  t = t.replace(/\s*(?:완결?|완전판|전권|전편|번외|후일담|외전|특별판|최종화|연재중|연재|단행본|개정판|리마스터|무삭제|성인판).*$/i, '');
-  t = t.replace(/,.*$/, '');
-  t = t.replace(/\s*[\(\[\{].+$/, '');
-  if(/^\d+$/.test(t.trim())) t=raw.replace(/\.txt$/i,'').trim();
-  return t.trim() || raw.replace(/\.txt$/i,'').trim();
+  return t || raw.replace(/\.txt$/i, '');
 }
 
-function openCoverModal(mode){
-  _coverModalMode=mode;
-  let q='';
-  if(mode==='convert'){
-    const titleInput=document.getElementById('title')?.value.trim()||'';
-    if(titleInput){ q=extractSearchTitle(titleInput); }
-    else if(S.txtFiles.length){ q=extractSearchTitle(S.txtFiles[0].name); }
-  } else {
-    const f=B.txtFiles[0];
-    q=f ? extractSearchTitle(f.name) : '';
-  }
-  document.getElementById('coverSearchQ').value=q;
-  document.getElementById('coverModal')?.classList.add('show');
-  if(q) setTimeout(()=>runCoverSearch(),100);
-  else document.getElementById('coverModalBody').innerHTML=
-    '<div style="text-align:center;padding:40px 0;color:var(--text2);font-size:13px">소설 제목을 입력하고 검색하면<br>네이버·리디·카카오페이지·노벨피아·구글에서 동시 검색해요</div>';
+// ── 유효 이미지 확장자 검사 (.file 대응 가드 포함) ──
+function isValidImg(url) {
+  if(!url || typeof url !== 'string') return false;
+  // ★ BUG-2 FIX: //로 시작하는 프로토콜 상대경로도 유효 이미지로 판별
+  // 기존: //cdn.novelpia.com/.../cover.file → false (http로 시작 안 해서 탈락)
+  if(url.startsWith('blob:') || url.startsWith('data:')) return true;
+  const normalized = url.startsWith('//') ? 'https:' + url : url;
+  if(!normalized.startsWith('http')) return false;
+  const s = normalized.toLowerCase().split('?')[0];
+  // 확장자 허용 목록 (.file 포함 — 노벨피아 등)
+  if(s.endsWith('.jpg') || s.endsWith('.jpeg') || s.endsWith('.png') ||
+     s.endsWith('.webp') || s.endsWith('.gif') || s.endsWith('.file')) return true;
+  // 확장자 없어도 이미지 힌트 키워드 포함 시 허용
+  return s.includes('cover') || s.includes('thumb') ||
+         s.includes('novel') || s.includes('image');
 }
 
-function closeCoverModal(){
-  document.getElementById('coverModal')?.classList.remove('show');
-  document.body.style.overflow='';
-  document.body.style.touchAction='';
-  if(_searchAbortCtrl){_searchAbortCtrl.abort();_searchAbortCtrl=null;}
-}
-
-async function centerCropToBlob(src, targetW=800, targetH=1200, quality=0.92){
-  // ★ CS-02 / #7 / #8: 이미지 로드 시 프록시 경유 + crossOrigin 강제 설정
-  // proxyGetBlob → Blob ObjectURL 생성 → crossOrigin 없이도 canvas taint 방지
-  let objectUrl = null;
-  let imgSrc = src;
-
-  // 외부 http(s) URL은 proxyGetBlob으로 Blob 획득 → ObjectURL로 변환
-  if (typeof src === 'string' && /^https?:\/\//i.test(src)) {
-    try {
-      const blob = await proxyGetBlob(src);
-      objectUrl = URL.createObjectURL(blob);
-      imgSrc = objectUrl;
-    } catch(e) {
-      // proxyGetBlob 실패 시 원본 URL로 폴백 (crossOrigin=anonymous와 함께)
-      console.warn('[centerCropToBlob] proxyGetBlob 실패, 원본 URL 폴백:', e.message);
-      imgSrc = src;
-    }
-  }
-
-  return new Promise(resolve=>{
-    const img=new Image();
-    // ★ #8 Cross-Origin Image Taint Guard: crossOrigin 반드시 설정
-    img.crossOrigin='anonymous';
-    img.onload=()=>{
-      if(objectUrl) URL.revokeObjectURL(objectUrl);
-      const canvas=document.createElement('canvas');
-      canvas.width=targetW; canvas.height=targetH;
-      const ctx=canvas.getContext('2d');
-      ctx.fillStyle=typeof getCssVar==='function'?getCssVar('--bg')||'#ffffff':'#ffffff';
-      ctx.fillRect(0,0,targetW,targetH);
-      const srcRatio=img.naturalWidth/img.naturalHeight;
-      const tgtRatio=targetW/targetH;
-      let sx,sy,sw,sh;
-      if(srcRatio>tgtRatio){ sh=img.naturalHeight; sw=sh*tgtRatio; sx=(img.naturalWidth-sw)/2; sy=0; }
-      else { sw=img.naturalWidth; sh=sw/tgtRatio; sx=0; sy=(img.naturalHeight-sh)/2; }
-      ctx.drawImage(img,sx,sy,sw,sh,0,0,targetW,targetH);
-      // ★ #7: toBlob SecurityError(canvas taint) try-catch
-      try{
-        canvas.toBlob(blob=>{
-          resolve(blob||null);
-        },'image/jpeg',quality);
-      }catch(secErr){
-        console.warn('[centerCropToBlob] canvas SecurityError:', secErr.message);
-        resolve(null);
-      }
-    };
-    img.onerror=()=>{
-      if(objectUrl) URL.revokeObjectURL(objectUrl);
-      resolve(null);
-    };
-    img.src = typeof imgSrc==='string' ? imgSrc : URL.createObjectURL(imgSrc);
-  });
-}
-
-async function applyCoverCard(url, title){
-  const inpId=_coverModalMode==='convert'?'coverUrlInp':'batchCoverUrlInp';
-  const thumbId=_coverModalMode==='convert'?'coverThumb':null;
-  const nameId=_coverModalMode==='convert'?'coverName':null;
-  try{
-    const croppedBlob=await centerCropToBlob(url,800,1200,0.92);
-    if(croppedBlob){
-      const croppedUrl=URL.createObjectURL(croppedBlob);
-      const inp=document.getElementById(inpId);
-      if(inp) inp.value=croppedUrl;
-      closeCoverModal();
-      typeof applyCoverUrl==='function'&&await applyCoverUrl(inpId,thumbId,nameId,_coverModalMode);
-      return;
-    }
-  }catch(e){}
-  const inp=document.getElementById(inpId);
-  if(inp) inp.value=url;
-  closeCoverModal();
-  typeof applyCoverUrl==='function'&&await applyCoverUrl(inpId,thumbId,nameId,_coverModalMode);
-}
-
-async function runCoverSearch(){
-  const q=document.getElementById('coverSearchQ')?.value.trim();
-  if(!q) return;
-  if(_searchAbortCtrl){_searchAbortCtrl.abort();}
-  _searchAbortCtrl=new AbortController();
-  const signal=_searchAbortCtrl.signal;
-  const PLATFORMS=Object.entries(CoverSearchAdapters).map(([id,a])=>({id,label:a.label,badge:a.badge,fn:a.fetch}));
-  const body=document.getElementById('coverModalBody');
-  const _esc=s=>(typeof escHtml==='function'?escHtml(String(s||'')):String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
-  body.innerHTML=PLATFORMS.map(p=>
-    `<div class="cover-platform-sec" id="sec_${p.id}">
-      <div class="cover-platform-hdr">
-        <span class="cover-platform-label">${_esc(p.label)}</span>
-        <span class="cover-platform-status" id="stat_${p.id}">검색 중...</span>
-        <span class="cover-platform-spinner" id="spin_${p.id}">⏳</span>
-      </div>
-      <div class="cover-strip" id="strip_${p.id}">
-        ${[0,1,2,3,4].map(()=>'<div style="width:90px;height:158px;background:var(--border);border-radius:8px;flex-shrink:0;animation:fadeUp .6s ease infinite alternate"></div>').join('')}
-      </div>
-    </div>`
-  ).join('')+
-  `<div id="cover-manual-area" style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px">
-    <div style="font-size:11px;font-weight:600;color:var(--text);margin-bottom:6px">🖼 직접 등록</div>
-    <div style="display:flex;gap:6px;margin-bottom:8px">
-      <input id="coverDirectUrl" class="inp" placeholder="이미지 URL 붙여넣기 (https://...)" style="font-size:11px;flex:1">
-      <button class="btn btn-blue btn-sm" onclick="(async()=>{const u=document.getElementById('coverDirectUrl')?.value.trim();if(u)await applyCoverCard(u,'직접입력');})()" style="font-size:11px;white-space:nowrap">✅ 적용</button>
-    </div>
-    <div id="coverFileDrop"
-         style="border:2px dashed var(--border);border-radius:8px;padding:14px;text-align:center;font-size:11px;color:var(--text2);cursor:pointer;transition:border-color .2s"
-         ondragover="event.preventDefault();this.style.borderColor='var(--accent)'"
-         ondragleave="this.style.borderColor='var(--border)'"
-         ondrop="handleCoverFileDrop(event)"
-         onclick="document.getElementById('coverFileInput')?.click()">
-      파일을 여기에 드래그하거나 클릭해서 선택
-      <input type="file" id="coverFileInput" accept=".jpg,.jpeg,.png,.webp,.bmp" hidden
-             onchange="handleCoverFileSelect(this.files)">
-    </div>
-  </div>`+
-  `<div class="platform-link-row">
-    <span style="font-size:10px;color:var(--text2);align-self:center">직접 열기:</span>
-    ${[
-      ['네이버 시리즈','https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel'],
-      ['리디북스','https://ridibooks.com/search?q='+encodeURIComponent(q)],
-      ['카카오페이지','https://page.kakao.com/search/result?keyword='+encodeURIComponent(q)],
-      ['노벨피아','https://novelpia.com/search/novel?search_string='+encodeURIComponent(q)],
-      ['구글 이미지','https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q+' 소설 표지')],
-    ].map(([l,u])=>`<button class="platform-link" onclick="window.open('${u}','_blank')">${_esc(l)} ↗</button>`).join('')}
-    <button class="platform-link" id="searchAbortBtn" style="margin-left:auto;color:var(--accent);border-color:var(--accent)" onclick="abortCoverSearch()">⛔ 중단</button>
-  </div>`;
-
-  // ★ BUG-10 수정: Promise.allSettled 방식으로 각 플랫폼 독립 처리
-  PLATFORMS.forEach(p=>{
-    if(signal.aborted) return;
-    const fetchFn=p.fn;
-    Promise.resolve().then(()=>fetchFn(q,signal)).then(items=>{
-      if(signal.aborted) return;
-      renderPlatformStrip(p.id,p.label,p.badge,q,items);
-    }).catch(e=>{
-      if(e?.name==='AbortError'||signal.aborted) return;
-      renderPlatformFallback(p.id,p.label,q);
-    });
-  });
-}
-
-function abortCoverSearch(){
-  if(_searchAbortCtrl){_searchAbortCtrl.abort();_searchAbortCtrl=null;}
-  document.getElementById('searchAbortBtn')?.remove();
-  document.querySelectorAll('.cover-platform-spinner').forEach(el=>el.style.display='none');
-  document.querySelectorAll('.cover-platform-status').forEach(el=>{if(el.textContent==='검색 중...')el.textContent='중단됨';});
-}
-
-async function handleCoverFileDrop(e){
-  e.preventDefault();
-  document.getElementById('coverFileDrop').style.borderColor='var(--border)';
-  const file=e.dataTransfer?.files[0];
-  if(file&&file.type.startsWith('image/')) await applyCoverFile(file);
-}
-async function handleCoverFileSelect(files){
-  const file=files?.[0];
-  if(file) await applyCoverFile(file);
-}
-async function applyCoverFile(file){
-  const blob=await centerCropToBlob(file,800,1200,0.92);
-  const objectUrl=URL.createObjectURL(blob||file);
-  const inpId=_coverModalMode==='convert'?'coverUrlInp':'batchCoverUrlInp';
-  const inp=document.getElementById(inpId);
-  if(inp) inp.value=objectUrl;
-  closeCoverModal();
-  typeof applyCoverUrl==='function'&&await applyCoverUrl(inpId,_coverModalMode==='convert'?'coverThumb':null,_coverModalMode==='convert'?'coverName':null,_coverModalMode);
-}
-
-function proxyImgUrl(originalUrl){
-  if(!originalUrl) return '';
-  // ★ CS-03 / #1 / #5: core.js의 CORS_PROXY_URL 상수 사용 + URL 안전 인코딩
-  const base = typeof CORS_PROXY_URL !== 'undefined'
-    ? CORS_PROXY_URL
-    : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=';
+// ── 안전한 프록시 이미지 URL 생성 ──
+function proxyImgUrl(url) {
+  if(!url) return '';
+  if(url.startsWith('data:') || url.startsWith('blob:')) return url;
+  // ★ BUG-1/BUG-13 FIX: CORS_PROXY_URL 자체가 이미 '?url=' 로 끝남
+  // core.js: CORS_PROXY_URL = 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url='
+  // 따라서 여기서 추가 '?url=' 없이 바로 encodeURIComponent(url) 만 붙여야 함
+  const base = (typeof CORS_PROXY_URL !== 'undefined' ? CORS_PROXY_URL
+    : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=');
   try {
-    // #5: 특수문자·유니코드 포함 URL 완전 처리
-    return base + encodeURIComponent(decodeURIComponent(originalUrl));
+    return base + encodeURIComponent(decodeURIComponent(url));
   } catch(e) {
-    return base + encodeURIComponent(originalUrl);
+    return base + encodeURIComponent(url);
   }
 }
 
-function imgError(el, originalUrl){
-  if(el.dataset.retried==='1'){
-    el.style.display='none';
-    const ph=document.createElement('div');
-    ph.style.cssText='width:90px;height:128px;background:var(--border);border-radius:4px;display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--text2);text-align:center;padding:4px';
-    ph.textContent='이미지\n없음';
-    el.parentElement?.insertBefore(ph, el);
-    return;
-  }
-  el.dataset.retried='1';
-  el.src=originalUrl;
-}
+// ── 캔버스 중앙 크롭 가공 및 세션 전송 (Tainted Canvas 방어) ──
+async function centerCropToBlob(imgUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
 
-function renderPlatformStrip(id, label, badgeClass, q, items){
-  const strip=document.getElementById('strip_'+id);
-  const stat=document.getElementById('stat_'+id);
-  const spin=document.getElementById('spin_'+id);
-  if(!strip) return;
-  if(spin) spin.style.display='none';
-  const _esc=s=>(typeof escHtml==='function'?escHtml(String(s||'')):String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'));
-  if(!items||!items.length){
-    if(stat) stat.textContent='결과 없음';
-    strip.innerHTML=`<div class="cover-fallback">
-      <span>직접 검색 →</span>
-      <button onclick="window.open(getPlatformUrl('${id}','${_esc(q)}'),'_blank')">🌐 ${_esc(label)} 열기</button>
-    </div>`;
-    return;
-  }
-  if(stat) stat.textContent=items.length+'개';
-  strip.innerHTML=items.map((item)=>{
-    const rawUrl=item.image||'';
-    const proxiedUrl=_esc(proxyImgUrl(rawUrl));
-    const directUrl=_esc(rawUrl);
-    const title=(item.title||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');
-    const titleHtml=_esc(item.title||'');
-    return `<div class="cover-result-card" onclick="applyCoverCard('${directUrl}','${title}')" title="${titleHtml}">
-      <span class="cover-result-badge ${badgeClass}">${id==='naver'?'N':id==='ridi'?'R':id==='kakao'?'K':id==='novelpia'?'NP':'G'}</span>
-      <div class="apply-overlay">클릭해서 적용</div>
-      <img class="cover-result-img" src="${proxiedUrl}" alt="${titleHtml}" loading="lazy"
-           referrerpolicy="no-referrer"
-           data-original="${directUrl}"
-           onerror="imgError(this,'${directUrl}')">
-      <div class="cover-result-title">${titleHtml}</div>
-    </div>`;
-  }).join('');
-}
-
-function renderPlatformFallback(id, label, q){
-  const strip=document.getElementById('strip_'+id);
-  const stat=document.getElementById('stat_'+id);
-  const spin=document.getElementById('spin_'+id);
-  const _esc=s=>(typeof escHtml==='function'?escHtml(String(s||'')):String(s||''));
-  if(spin) spin.style.display='none';
-  if(stat) stat.textContent='크롤링 실패';
-  if(strip) strip.innerHTML=`<div class="cover-fallback">
-    <span>사이트에서 직접 검색 후 이미지 URL 복사</span>
-    <button onclick="window.open(getPlatformUrl('${id}','${_esc(q)}'),'_blank')">🌐 ${_esc(label)} 열기</button>
-  </div>`;
-}
-
-function getPlatformUrl(id,q){
-  const urls={
-    naver:'https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel',
-    ridi:'https://ridibooks.com/search?q='+encodeURIComponent(q),
-    kakao:'https://page.kakao.com/search/result?keyword='+encodeURIComponent(q),
-    novelpia:'https://novelpia.com/search/novel?search_string='+encodeURIComponent(q),
-    google:'https://www.google.com/search?tbm=isch&q='+encodeURIComponent(q+' 소설 표지'),
-  };
-  return urls[id]||'#';
-}
-
-// ══════════════════════════════════════════
-// 🌐 Module: CoverSearchAdapters + Proxies
-// ══════════════════════════════════════════
-const CoverSearchAdapters = {
-  naver:    { label:'📗 네이버 시리즈',  badge:'badge-naver',    fetch: q=>fetchNaver(q) },
-  ridi:     { label:'📘 리디북스',        badge:'badge-ridi',     fetch: q=>fetchRidi(q)  },
-  kakao:    { label:'🟡 카카오페이지',    badge:'badge-kakao',    fetch: q=>fetchKakao(q) },
-  novelpia: { label:'📙 노벨피아',         badge:'badge-novelpia', fetch: q=>fetchNovelpia(q) },
-  google:   { label:'🌐 구글 이미지',     badge:'badge-google',   fetch: q=>fetchGoogle(q) },
-};
-
-// ════════════════════════════════════════════════════════════
-// ★ CS-04: 프록시 패치 레이어 — core.js proxyGet에 위임
-//
-// 이전: PROXIES 배열 직접 관리 + _tryProxy 루프
-// 이후: core.js proxyGet/proxyGetBlob이 #1~#10 모두 처리
-//       여기서는 얇은 래퍼만 유지 (하위 호환)
-// ════════════════════════════════════════════════════════════
-
-/** 내부 플랫폼 어댑터용 래퍼 (core.js proxyGet 위임) */
-async function _proxyFetchInternal(url, timeout=9000){
-  // core.js proxyGet이 정의된 경우 위임, 아니면 자체 폴백
-  if(typeof proxyGet === 'function') return proxyGet(url, timeout);
-  // 폴백: 직접 fetch
-  const ctrl=new AbortController();
-  const timer=setTimeout(()=>ctrl.abort(), timeout);
-  try{
-    const res=await fetch(url,{signal:ctrl.signal});
-    clearTimeout(timer);
-    if(!res.ok) throw new Error('HTTP '+res.status);
-    return await res.text();
-  }catch(e){ clearTimeout(timer); throw e; }
-}
-
-async function proxyFetch(url, timeout=9000){
-  return _proxyFetchInternal(url, timeout);
-}
-
-async function proxyPost(url, body, timeout=9000){
-  // POST: workers.dev 경유 (쿼리스트링 방식)
-  const base = typeof CORS_PROXY_URL !== 'undefined'
-    ? CORS_PROXY_URL
-    : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=';
-  const workerUrl = base
-    + encodeURIComponent(url)
-    + '&_method=POST&_body=' + encodeURIComponent(body);
-  const ctrl=new AbortController();
-  const timer=setTimeout(()=>ctrl.abort(), timeout);
-  try{
-    const res=await fetch(workerUrl,{
-      signal: ctrl.signal,
-      headers:{
-        'X-NovelEPUB-Token': typeof _PROXY_TOKEN!=='undefined'?_PROXY_TOKEN:'novelepub-secure-token',
-        'Cache-Control':'no-cache',
-      }
-    });
-    clearTimeout(timer);
-    if(res.ok){ const text=await res.text(); if(text&&text.length>10) return text; }
-    throw new Error('HTTP '+res.status);
-  }catch(e){
-    clearTimeout(timer);
-    // 폴백: 직접 POST
-    const ctrl2=new AbortController();
-    const timer2=setTimeout(()=>ctrl2.abort(),timeout);
-    try{
-      const res2=await fetch(url,{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body,signal:ctrl2.signal});
-      clearTimeout(timer2);
-      if(res2.ok) return await res2.text();
-      throw new Error('HTTP '+res2.status);
-    }catch(e2){ clearTimeout(timer2); throw new Error('POST 프록시 실패: '+e2.message); }
-  }
-}
-
-// ── 카카오페이지 ──
-async function fetchKakao(q){
-  function isKakaoImg(src){
-    if(!src||src.length<40) return false;
-    const s=src.toLowerCase();
-    if(s.includes('icon')||s.includes('logo')||s.includes('badge')||s.includes('profile')||s.includes('default')) return false;
-    return s.includes('kakaocdn')||s.includes('dn-img-page.kakao')||s.includes('t1.kakaocdn')||s.includes('k.kakaocdn');
-  }
-  // ★ P0 FIX: PROXIES.find() 제거 → CORS_PROXY_URL 직접 참조 (typeof 가드 포함)
-  const workerBase = typeof CORS_PROXY_URL !== 'undefined'
-    ? CORS_PROXY_URL
-    : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=';
-  try{
-    const body=JSON.stringify({
-      operationName:'SearchContentByKeyword',
-      query:`query SearchContentByKeyword($keyword:String!,$page:Int,$size:Int){searchByKeyword(keyword:$keyword,page:$page,size:$size,contentsType:NOVEL){count list{id title thumbnail singleThumbnailImage{url} horizontalThumbnail{url}}}}`,
-      variables:{keyword:q, page:0, size:12}
-    });
-    const workerUrl=workerBase+encodeURIComponent('https://page.kakao.com/graphql')
-      +'&_method=POST'
-      +'&_body='+encodeURIComponent(body)
-      +'&_h_Content-Type='+encodeURIComponent('application/json')
-      +'&_h_Accept='+encodeURIComponent('application/json');
-    const ctrl=new AbortController();
-    const timer=setTimeout(()=>ctrl.abort(),9000);
-    try{
-      const res=await fetch(workerUrl,{
-        signal:ctrl.signal,
-        headers:{'X-NovelEPUB-Token': typeof _PROXY_TOKEN!=='undefined'?_PROXY_TOKEN:'novelepub-secure-token'},
-      });
-      clearTimeout(timer);
-      if(res.ok){
-        const json=await res.json();
-        const list=json?.data?.searchByKeyword?.list||json?.data?.searchContentByKeyword?.edges?.map(e=>e.node)||[];
-        const items=list.map(n=>({title:n.title||q,image:n.thumbnail||(typeof n.thumbnail==='string'?n.thumbnail:'')||n.singleThumbnailImage?.url||n.horizontalThumbnail?.url||''})).filter(i=>i.image&&i.image.startsWith('http'));
-        if(items.length) return items.slice(0,12);
-      }
-    }catch(e){ clearTimeout(timer); }
-  }catch(e){}
-  try{
-    const html=await proxyFetch('https://search.daum.net/search?w=book&q='+encodeURIComponent(q)+'&DA=LB2');
-    const doc=new DOMParser().parseFromString(html,'text/html');
-    const items=[];
-    doc.querySelectorAll('a[href*="page.kakao"] img, a[href*="kakao"] img, .wrap_thmbnail img, .thumb_img img').forEach(img=>{
-      const src=img.getAttribute('src')||img.getAttribute('data-original-src')||'';
-      if(src&&src.startsWith('http')&&src.length>40&&!src.includes('icon')){
-        const titleEl=img.closest('li,article,.item_book')?.querySelector('.tit_subject,.tit_item,strong,a[class*="tit"]');
-        items.push({title:titleEl?.textContent?.trim()||img.alt||q, image:src});
-      }
-    });
-    if(!items.length){ doc.querySelectorAll('img').forEach(img=>{ const src=img.getAttribute('src')||img.getAttribute('data-original-src')||''; if(isKakaoImg(src)) items.push({title:img.alt||q, image:src}); }); }
-    if(items.length) return items.slice(0,12);
-  }catch(e){}
-  try{
-    const html=await proxyFetch('https://search.daum.net/search?q='+encodeURIComponent(q+' 카카오페이지 소설')+'&DA=LB2');
-    const doc=new DOMParser().parseFromString(html,'text/html');
-    const items=[];
-    doc.querySelectorAll('img').forEach(img=>{ const src=img.getAttribute('src')||img.getAttribute('data-original-src')||''; if(isKakaoImg(src)) items.push({title:img.alt||q, image:src}); });
-    return items.slice(0,12);
-  }catch(e){ return []; }
-}
-
-// ── 네이버 시리즈 ──
-async function fetchNaver(q){
-  const clientId=document.getElementById('naverClientId')?.value.trim();
-  const clientSecret=document.getElementById('naverClientSecret')?.value.trim();
-  if(clientId&&clientSecret){
-    // ★ P0 FIX: PROXIES.find() 제거 → CORS_PROXY_URL 직접 참조 (typeof 가드 포함)
-    const workerBase = typeof CORS_PROXY_URL !== 'undefined'
-      ? CORS_PROXY_URL
-      : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=';
-    try{
-      const apiUrl='https://openapi.naver.com/v1/search/book.json?query='+encodeURIComponent(q)+'&display=12&sort=sim';
-      const workerUrl=workerBase+encodeURIComponent(apiUrl)
-        +'&_h_X-Naver-Client-Id='+encodeURIComponent(clientId)
-        +'&_h_X-Naver-Client-Secret='+encodeURIComponent(clientSecret);
-      const ctrl=new AbortController();
-      const timer=setTimeout(()=>ctrl.abort(),8000);
-      try{
-        const res=await fetch(workerUrl,{
-          signal:ctrl.signal,
-          headers:{'X-NovelEPUB-Token': typeof _PROXY_TOKEN!=='undefined'?_PROXY_TOKEN:'novelepub-secure-token'},
-        });
-        clearTimeout(timer);
-        if(res.ok){
-          const json=await res.json();
-          const items=(json.items||[]).map(it=>({title:it.title.replace(/<[^>]+>/g,''),image:it.image})).filter(it=>it.image);
-          if(items.length) return items.slice(0,12);
+    img.onload = () => {
+      try {
+        const cw = img.naturalWidth;
+        const ch = img.naturalHeight;
+        if (cw <= 0 || ch <= 0) {
+          reject(new Error('이미지 크기가 올바르지 않습니다.'));
+          return;
         }
-      }catch(e){ clearTimeout(timer); }
-    }catch(e){}
-  }
-  try{
-    const html=await proxyFetch('https://series.naver.com/search/search.series?query='+encodeURIComponent(q)+'&categoryTypeCode=novel');
-    const doc=new DOMParser().parseFromString(html,'text/html');
-    const items=[];
-    doc.querySelectorAll('.lst_list li, .search_lst li, [class*="list"] li').forEach(li=>{
-      const img=li.querySelector('img');
-      const titleEl=li.querySelector('[class*="title"],[class*="subj"],strong,a');
-      const src=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
-      if(src&&src.startsWith('http')&&(src.includes('thumb')||src.includes('cover')||src.includes('book'))&&!src.includes('icon')) items.push({title:titleEl?.textContent?.trim()||q, image:src});
-    });
-    if(items.length) return items.slice(0,12);
-    doc.querySelectorAll('img').forEach(img=>{ const src=img.getAttribute('src')||img.getAttribute('data-src')||''; if(src&&src.startsWith('http')&&(src.includes('thumb')||src.includes('cover'))&&!src.includes('static')&&!src.includes('icon')) items.push({title:img.alt||q, image:src}); });
-    return items.slice(0,12);
-  }catch(e){ return []; }
+        
+        let targetW = 400;
+        let targetH = 600;
+        
+        const canvas = document.createElement('canvas');
+        canvas.width = targetW;
+        canvas.height = targetH;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Canvas 가동 실패'));
+          return;
+        }
+
+        let srcX = 0, srcY = 0, srcW = cw, srcH = ch;
+        const currentRatio = cw / ch;
+        const targetRatio = targetW / targetH;
+
+        if (currentRatio > targetRatio) {
+          srcW = ch * targetRatio;
+          srcX = (cw - srcW) / 2;
+        } else {
+          srcH = cw / targetRatio;
+          srcY = (ch - srcH) / 2;
+        }
+
+        ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
+        
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Canvas Blob 추출 실패'));
+        }, 'image/jpeg', 0.88);
+      } catch (err) {
+        reject(err);
+      }
+    };
+
+    img.onerror = () => {
+      reject(new Error('표지 이미지 렌더링에 실패했습니다. (CORS 가드 걸림)'));
+    };
+
+    // core.js의 proxyGetBlob을 통해 안전한 가공용 로컬 Blob ObjectURL로 우회 공급
+    if (typeof proxyGetBlob === 'function') {
+      proxyGetBlob(imgUrl)
+        .then(blob => {
+          const lUrl = URL.createObjectURL(blob);
+          // ★ BUG-14 FIX: img 로드 완료 후 ObjectURL 즉시 해제 → 메모리 누수 방지
+          // onload/onerror 두 경로 모두 revoke 처리
+          const _origOnload = img.onload;
+          const _origOnerror = img.onerror;
+          img.onload = function() {
+            URL.revokeObjectURL(lUrl);
+            if(_origOnload) _origOnload.call(img);
+          };
+          img.onerror = function() {
+            URL.revokeObjectURL(lUrl);
+            if(_origOnerror) _origOnerror.call(img);
+          };
+          img.src = lUrl;
+        })
+        .catch(() => {
+          // proxyGetBlob 실패 시 proxyImgUrl 경유로 폴백
+          img.src = proxyImgUrl(imgUrl);
+        });
+    } else {
+      img.src = proxyImgUrl(imgUrl);
+    }
+  });
 }
 
-// ── 리디북스 ──
-async function fetchRidi(q){
-  function isValidRidiImg(src){
-    if(!src||!src.startsWith('http')) return false;
-    if(src.includes('badge')||src.includes('icon')||src.includes('logo')) return false;
-    if(src.includes('active.ridibooks.com')) return false;
-    if(src.includes('static')||src.includes('pixel.')) return false;
-    return src.includes('cdn.ridi')||src.includes('thumb')||src.includes('cover')||src.includes('book');
+// ── 모달 열기 제어 ──
+function openCoverSearchModal(mode='convert') {
+  _coverModalMode = mode;
+  const el = document.getElementById('coverModal');
+  if(!el) return;
+  el.classList.add('show');
+
+  let titleInput = '';
+  if(mode === 'convert') {
+    // ★ BUG-16 FIX: S.convert.txtFiles → S.txtFiles (StateManager 실제 경로)
+    const files = S.txtFiles || [];
+    if(files.length > 0) titleInput = extractSearchTitle(files[0].name);
+  } else {
+    titleInput = S.batch.currentSearchTitle || '';
   }
-  try{
-    const html=await proxyFetch('https://ridibooks.com/search?q='+encodeURIComponent(q)+'&adult_exclude=n');
-    const doc=new DOMParser().parseFromString(html,'text/html');
-    const items=[];
-    doc.querySelectorAll('[class*="book_item"],[class*="BookItem"],[class*="SearchBook"],[class*="book_list"] li').forEach(el=>{
-      const img=el.querySelector('img');
-      const titleEl=el.querySelector('[class*="title"],[class*="Title"],h3,h4,strong,a');
-      const src=img?.getAttribute('src')||img?.getAttribute('data-src')||img?.getAttribute('data-original')||'';
-      if(isValidRidiImg(src)) items.push({title:titleEl?.textContent?.trim()||q, image:src});
-    });
-    if(!items.length){ doc.querySelectorAll('img').forEach(img=>{ const src=img.getAttribute('src')||img.getAttribute('data-src')||''; if(isValidRidiImg(src)) items.push({title:img.alt||q, image:src}); }); }
-    return items.slice(0,12);
-  }catch(e){ return []; }
+
+  const qIn = document.getElementById('coverSearchInput');
+  if(qIn) {
+    qIn.value = titleInput;
+    qIn.focus();
+    if(titleInput) triggerCoverSearch();
+  }
 }
 
-// ── 노벨피아 ──
-async function fetchNovelpia(q){
-  // ★ 프로토콜·경로 정규화: //img.novelpia.com → https://img.novelpia.com
-  function fixNovelpiaImg(src){
-    if(!src) return '';
-    if(src.startsWith('//')) return 'https:'+src;
-    if(src.startsWith('/'))  return 'https://novelpia.com'+src;
-    return src;
+function closeCoverSearchModal() {
+  if(_searchAbortCtrl) { _searchAbortCtrl.abort(); _searchAbortCtrl = null; }
+  document.getElementById('coverModal')?.classList.remove('show');
+}
+
+// ── 검색 트리거 핸들러 ──
+function triggerCoverSearch() {
+  const q = document.getElementById('coverSearchInput')?.value?.trim() || '';
+  if(!q) { Toast.info('검색어를 입력해 주세요.'); return; }
+  
+  const grid = document.getElementById('coverSearchGrid');
+  if(grid) grid.innerHTML = '<div class=\"cover-search-loading\"><span class=\"spinner\"></span> 소설 표지를 탐색하는 중...</div>';
+
+  if(_searchAbortCtrl) _searchAbortCtrl.abort();
+  _searchAbortCtrl = new AbortController();
+
+  searchAllPlatforms(q)
+    .then(items => {
+      if(!items || items.length === 0) {
+        if(grid) grid.innerHTML = '<div class=\"cover-search-empty\">🔍 검색 결과가 없습니다.<br>다른 단어로 다시 시도해 보세요.</div>';
+        return;
+      }
+      renderCoverSearchResults(items);
+    })
+    .catch(err => {
+      if(err.name === 'AbortError') return;
+      if(grid) grid.innerHTML = `<div class=\"cover-search-empty\">⚠️ 오류가 발생했습니다.<br><span style=\"font-size:11px;color:var(--text3)\">${escHtml(err.message)}</span></div>`;
+    });
+}
+
+// ── 외부 플랫폼 어댑터 종합 스캔 ──
+async function searchAllPlatforms(q) {
+  let results = [];
+  // ★ BUG-3/17 FIX: 중단 신호 레퍼런스 캡처 — 각 await 진입 전 중단 체크
+  // _searchAbortCtrl.abort() 호출 시 진행 중인 순차 await를 조기 탈출
+  const _abortRef = _searchAbortCtrl;
+  function _aborted(){ return _abortRef && _abortRef.signal && _abortRef.signal.aborted; }
+
+  // 1. 플랫폼 다이렉트 패치 스케줄링
+  if(!_aborted()) try {
+    const ridi = await fetchRidiCover(q);
+    if(ridi && ridi.length) results = results.concat(ridi);
+  } catch(e){ if(e && e.name==='AbortError') return []; }
+
+  if(!_aborted()) try {
+    const kakao = await fetchKakaoCover(q);
+    if(kakao && kakao.length) results = results.concat(kakao);
+  } catch(e){ if(e && e.name==='AbortError') return []; }
+
+  if(!_aborted()) try {
+    const naver = await fetchNaverSeriesCover(q);
+    if(naver && naver.length) results = results.concat(naver);
+  } catch(e){ if(e && e.name==='AbortError') return []; }
+
+  if(!_aborted()) try {
+    const novelpia = await fetchNovelpiaCover(q);
+    if(novelpia && novelpia.length) results = results.concat(novelpia);
+  } catch(e){ if(e && e.name==='AbortError') return []; }
+
+  // 2. 통합 웹 검색엔진 폴백 스캔
+  if(!_aborted() && results.length < 3) {
+    try {
+      const web = await fetchWebFallbackCovers(q);
+      if(web && web.length) results = results.concat(web);
+    } catch(e){ if(e && e.name==='AbortError') return []; }
   }
 
-  // ★ 노벨피아 전용 isValidImg: .file 확장자 명시 허용
-  // (일반 isValidImg는 fetchGoogle 스코프에 별도 선언되어 있음)
-  // .file 패턴: "0736b6f9c606b784d17b97a5a1374945_245449_ori.file"
-  function isValidNovelpiaImg(src){
-    if(!src||src.length<20) return false;
-    const s=src.toLowerCase();
-    if(s.includes('icon')||s.includes('logo')||s.includes('pixel')||
-       s.includes('blank')||s.includes('spacer')) return false;
-    // ★ .file 확장자를 정당한 이미지 자원으로 인식 (노벨피아 전용)
-    const hasImageExt=/\.(jpe?g|png|webp|gif|bmp|avif|tiff?|file)(\?|$)/.test(s);
-    const hasImageHint=s.includes('cover')||s.includes('thumb')||
-                       s.includes('novel')||s.includes('image')||s.includes('photo');
-    return hasImageExt||hasImageHint;
-  }
+  // 중복 이미지 주소 필터링
+  const seen = new Set();
+  return results.filter(item => {
+    if(!item.image || seen.has(item.image)) return false;
+    seen.add(item.image);
+    return true;
+  });
+}
 
-  // ── 경로 1: 노벨피아 API (POST) ──
-  try{
-    const postBody='search_type=all&search_string='+encodeURIComponent(q)+'&page=1&page_limit=12';
-    const resp=await proxyPost('https://novelpia.com/proc/novel_list', postBody);
-    const json=JSON.parse(resp);
-    const list=json.list||json.data||[];
-    const items=list.slice(0,12).map(n=>{
-      // ★ fixNovelpiaImg → proxyImgUrl 순서 보장 (프로토콜 정규화 후 프록시 경유)
-      const rawImg=n.cover_img||n.cover||n.img||n.thumbnail||'';
-      const absImg=fixNovelpiaImg(rawImg);
-      return {
-        title: n.novel_name||n.title||q,
-        image: absImg ? proxyImgUrl(absImg) : '',
-      };
-    }).filter(i=>i.image&&isValidNovelpiaImg(
-      // proxyImgUrl로 감싸져 있으므로 원본 URL로 검증
-      i.image.replace(/^https?:\/\/icy-frog[^?]+\?url=/,'').replace(/^.*\?url=/,'')
-        .split('?')[0]
-    ));
-    if(items.length) return items;
-  }catch(e){}
+// ── 플랫폼별 상세 크롤러 구현체 ──
+async function fetchRidiCover(q) {
+  try {
+    const html = await proxyFetch(`https://ridibooks.com/search?q=${encodeURIComponent(q)}&adult_exclude=n`);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const items = [];
+    doc.querySelectorAll('.thumbnail_wrapper').forEach(div => {
+      const img = div.querySelector('img.thumbnail');
+      const titleEl = div.closest('.book_macro_100')?.querySelector('.title_text');
+      if(img) {
+        let src = img.getAttribute('data-src') || img.src || '';
+        if(src.startsWith('//')) src = 'https:' + src;
+        if(isValidImg(src)) {
+          items.push({
+            title: titleEl?.textContent?.trim() || q,
+            image: src.replace('/w=110', '/w=400') // 화질 개선 고해상도 리사이징 업스케일 적용
+          });
+        }
+      }
+    });
+    return items.slice(0, 6);
+  } catch(e) { return []; }
+}
 
-  // ── 경로 2: 노벨피아 검색 HTML 파싱 ──
-  try{
-    const html=await proxyFetch('https://novelpia.com/search/novel?search_string='+encodeURIComponent(q));
-    const doc=new DOMParser().parseFromString(html,'text/html');
-    const items=[];
+async function fetchKakaoCover(q) {
+  try {
+    const html = await proxyFetch(`https://page.kakao.com/search/result?keyword=${encodeURIComponent(q)}&categoryUid=11`);
+    const match = html.match(/\\"gId\\":\\"([^\\"]+)\\",\\"title\\":\\"([^\\"]+)\\",.*?\\"backgroundImage\\":\\"([^\\"]+)\\"/g);
+    if(!match) return [];
+    
+    const items = [];
+    match.forEach(m => {
+      const tM = m.match(/\\"title\\":\\"([^\\"]+)\\"/);
+      const iM = m.match(/\\"backgroundImage\\":\\"([^\\"]+)\\"/);
+      if(tM && iM) {
+        let img = iM[1].replace(/\\\\/g, '');
+        if(!img.startsWith('http')) img = 'https:' + img;
+        if(isValidImg(img)) {
+          items.push({ title: tM[1], image: img });
+        }
+      }
+    });
+    return items.slice(0, 6);
+  } catch(e) { return []; }
+}
 
-    doc.querySelectorAll('[class*="novel"],[class*="book"],[class*="item"]').forEach(el=>{
-      const img=el.querySelector('img');
-      const rawSrc=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
-      const absImg=fixNovelpiaImg(rawSrc);
-      if(!absImg||!absImg.startsWith('http')) return;
-      if(absImg.includes('icon')||absImg.includes('logo')) return;
-      items.push({
-        title: img?.alt||el.querySelector('h3,h4,strong,a')?.textContent?.trim()||q,
-        // ★ proxyImgUrl 경유: CORS 차단 우회 + crossOrigin 가드 연동
-        image: proxyImgUrl(absImg),
+async function fetchNaverSeriesCover(q) {
+  try {
+    const html = await proxyFetch(`https://series.naver.com/search/search.nhn?t=novel&q=${encodeURIComponent(q)}`);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const items = [];
+    doc.querySelectorAll('.lst_list li').forEach(li => {
+      const img = li.querySelector('img');
+      const titleEl = li.querySelector('dt a');
+      if(img) {
+        let src = img.src || '';
+        if(isValidImg(src)) {
+          items.push({
+            title: titleEl?.textContent?.trim() || q,
+            image: src.replace('type=m81_118', 'type=m400_600') // 네이버 고해상도 변환
+          });
+        }
+      }
+    });
+    return items.slice(0, 6);
+  } catch(e) { return []; }
+}
+
+async function fetchNovelpiaCover(q) {
+  try {
+    const html = await proxyFetch(`https://novelpia.com/proc/search_all?search_word=${encodeURIComponent(q)}`);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const items = [];
+    doc.querySelectorAll('.novel-box').forEach(box => {
+      const img = box.querySelector('img');
+      const titleEl = box.querySelector('.novel-title');
+      if(img) {
+        let src = img.src || '';
+        if(src.startsWith('//')) src = 'https:' + src;
+        if(isValidImg(src)) {
+          items.push({
+            title: titleEl?.textContent?.trim() || q,
+            image: src.replace('/35/', '/300/') // 고화질 주소 치환
+          });
+        }
+      }
+    });
+    return items.slice(0, 6);
+  } catch(e) { return []; }
+}
+
+async function fetchWebFallbackCovers(q) {
+  const items = [];
+  const seen = new Set();
+  
+  try {
+    const html = await proxyFetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(q + ' 소설 표지')}`);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    if(doc.querySelectorAll('img[src]').length) {
+      doc.querySelectorAll('img[src]').forEach(img => {
+        const src = img.getAttribute('src') || '';
+        if(!seen.has(src) && isValidImg(src) && !src.includes('bing.com/th')) {
+          seen.add(src);
+          items.push({ title: img.alt || q, image: src });
+        }
       });
-    });
-    if(items.length) return items.slice(0,12);
+    }
+    if(items.length) return items.slice(0, 12);
+  } catch(e){}
 
-    // ── 경로 3: 전체 img 태그 폴백 파싱 ──
-    doc.querySelectorAll('img').forEach(img=>{
-      const rawSrc=img.getAttribute('src')||img.getAttribute('data-src')||'';
-      const absImg=fixNovelpiaImg(rawSrc);
-      if(!absImg||!absImg.startsWith('http')) return;
-      if(!isValidNovelpiaImg(absImg)) return;
-      items.push({
-        title: img.alt||q,
-        image: proxyImgUrl(absImg),
+  try {
+    const html = await proxyFetch(`https://search.naver.com/search.naver?where=image&query=${encodeURIComponent(q + ' 소설 표지')}&sm=tab_srt&sort=0`);
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const txt = doc.documentElement.innerHTML;
+    const matches = txt.match(/"originalUrl":"([^"]+)"/g);
+    if(matches) {
+      matches.forEach(m => {
+        const u = m.match(/"originalUrl":"([^"]+)"/)[1];
+        if(!seen.has(u) && isValidImg(u)) {
+          seen.add(u);
+          items.push({ title: q, image: u });
+        }
       });
-    });
-    return items.slice(0,12);
-  }catch(e){ return []; }
+    }
+  } catch(e){}
+
+  return items.slice(0, 12);
 }
 
-// ── 구글 이미지 (Bing/DDG/네이버 대체) ──
-async function fetchGoogle(q){
-  // ★ 이미지 URL 검증 헬퍼 (.file 확장자 포함 — 노벨피아 등 특수 플랫폼 대응)
-  function isValidImg(src){
-    if(!src||!src.startsWith('http')||src.length<40) return false;
-    const s=src.toLowerCase();
-    return !s.includes('icon')&&!s.includes('logo')&&!s.includes('pixel')&&
-           !s.includes('blank')&&!s.includes('spacer')&&
-           (s.includes('.jpg')||s.includes('.jpeg')||s.includes('.png')||
-            s.includes('.webp')||s.includes('.file')||          // ★ .file 추가
-            s.includes('image')||s.includes('thumb')||
-            s.includes('cover')||s.includes('photo'));
-  }
-  try{
-    const html=await proxyFetch('https://www.bing.com/images/search?q='+encodeURIComponent(q+' 소설 표지')+'&form=HDRSC2&first=1');
-    const doc=new DOMParser().parseFromString(html,'text/html');
-    const items=[]; const seen=new Set();
-    doc.querySelectorAll('.iusc,[class*="imgpt"],[class*="img_cont"]').forEach(el=>{
-      const m=el.getAttribute('m')||el.getAttribute('data-m')||'';
-      if(m){ try{ const obj=JSON.parse(m); const url=obj.murl||obj.imgurl||''; if(url&&!seen.has(url)&&isValidImg(url)){ seen.add(url); items.push({title:obj.t||q, image:url}); } }catch(e){} }
-      const img=el.querySelector('img'); const src=img?.getAttribute('src')||img?.getAttribute('data-src')||'';
-      if(src&&!seen.has(src)&&isValidImg(src)){ seen.add(src); items.push({title:img?.alt||q, image:src}); }
-    });
-    if(!items.length){ doc.querySelectorAll('img[src]').forEach(img=>{ const src=img.getAttribute('src')||''; if(!seen.has(src)&&isValidImg(src)&&!src.includes('bing.com/th')){ seen.add(src); items.push({title:img.alt||q, image:src}); } }); }
-    if(items.length) return items.slice(0,12);
-  }catch(e){}
-  try{
-    const html=await proxyFetch('https://duckduckgo.com/?q='+encodeURIComponent(q+' 소설 표지')+'&iax=images&ia=images');
-    const vqd=(html.match(/vqd=['"]([^'"]+)['"]/)||[])[1];
-    if(vqd){ const jsonHtml=await proxyFetch('https://duckduckgo.com/i.js?q='+encodeURIComponent(q+' 소설 표지')+'&vqd='+encodeURIComponent(vqd)+'&p=1'); const json=JSON.parse(jsonHtml); const items=(json.results||[]).slice(0,12).map(r=>({title:r.title||q,image:r.image||r.thumbnail||''})).filter(i=>i.image&&isValidImg(i.image)); if(items.length) return items; }
-  }catch(e){}
-  try{
-    const html=await proxyFetch('https://search.naver.com/search.naver?where=image&query='+encodeURIComponent(q+' 소설 표지')+'&sm=tab_srt&sort=0');
-    const doc=new DOMParser().parseFromString(html,'text/html');
-    const items=[]; const seen=new Set();
-    doc.querySelectorAll('img[data-lazy-src],img[data-original],img[src]').forEach(img=>{ const src=img.getAttribute('data-lazy-src')||img.getAttribute('data-original')||img.getAttribute('src')||''; if(!seen.has(src)&&isValidImg(src)&&!src.includes('naver.com/static')){ seen.add(src); items.push({title:img.alt||q, image:src}); } });
-    return items.slice(0,12);
-  }catch(e){ return []; }
+// ── 결과 아이템 화면 렌더링 ──
+function renderCoverSearchResults(items) {
+  const grid = document.getElementById('coverSearchGrid');
+  if(!grid) return;
+  grid.innerHTML = '';
+
+  items.forEach(item => {
+    const card = document.createElement('div');
+    card.className = 'cover-search-card';
+    
+    const imgWrap = document.createElement('div');
+    imgWrap.className = 'cover-search-card-img';
+    
+    const img = document.createElement('img');
+    img.alt = item.title;
+    img.loading = 'lazy';
+    // 로딩 시점에는 안전 프록시 포맷 바인딩
+    img.src = proxyImgUrl(item.image); 
+
+    const info = document.createElement('div');
+    info.className = 'cover-search-card-info';
+    info.innerHTML = `<div class=\"cover-search-card-title\">${escHtml(item.title)}</div>
+                      <div class=\"cover-search-card-url\">${escHtml(item.image)}</div>`;
+
+    imgWrap.appendChild(img);
+    card.appendChild(imgWrap);
+    card.appendChild(info);
+
+    card.onclick = () => {
+      const gridCards = grid.querySelectorAll('.cover-search-card');
+      gridCards.forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      
+      selectSearchedCover(item.image);
+    };
+
+    grid.appendChild(card);
+  });
 }
+
+// ── 최종 선택 및 수집 데이터 유기적 전달 ──
+async function selectSearchedCover(imgUrl) {
+  // ★ BUG-8 FIX: Toast 8000ms 고정 타임아웃 → centerCropToBlob 완료 즉시 dismiss
+  // 기존: 8초 후 자동 소멸이지만 1초만에 완료되어도 8초간 UI 점유
+  // 수정: Promise 완료 즉시 기존 Toast dismiss 후 결과 Toast 표시
+  let _loadingDismiss = null;
+  if(typeof Toast.info === 'function' && Toast.info.length >= 2) {
+    // Toast가 dismiss 핸들을 반환하는 경우 활용
+    _loadingDismiss = Toast.info('선택한 표지를 다운로드 및 크롭 가공하는 중입니다...');
+  } else {
+    Toast.info('선택한 표지를 다운로드 및 크롭 가공하는 중입니다...');
+  }
+  try {
+    const blob = await centerCropToBlob(imgUrl);
+    // Toast 조기 소멸 (가능한 경우)
+    if(typeof _loadingDismiss === 'function') _loadingDismiss();
+    const fileObj = new File([blob], 'cover.jpg', { type: 'image/jpeg' });
+
+    if(_coverModalMode === 'convert') {
+      window.setCoverFile?.(fileObj);
+    } else {
+      if(typeof window.setBatchSelectedCover === 'function') {
+        window.setBatchSelectedCover(fileObj, imgUrl);
+      } else {
+        // ★ S.batch undefined TypeError 방어 가드
+        S.batch = S.batch || {};
+        S.batch.coverMap = S.batch.coverMap || {};
+        S.batch.coverMap['selected'] = fileObj;
+        Toast.success('일괄 변환 타깃 표지 등록 완료');
+      }
+    }
+    closeCoverSearchModal();
+    Toast.success('표지가 성공적으로 반영되었습니다.');
+  } catch(err) {
+    console.error(err);
+    Toast.error(err.message || '표지 수집 중 예외 가드가 작동했습니다.');
+  }
+}
+
+// ── 🌐 인프라 동기화 전용 proxyFetch 통합 리팩토링 ──
+async function proxyFetch(url) {
+  // core.js의 전역 인프라 스트림을 경유하여 토큰 가드 및 Failover 자동 주입
+  if (typeof window.proxyGet === 'function') {
+    return await window.proxyGet(url);
+  }
+  
+  // ★ BUG-15 FIX: CORS_PROXY_URL이 이미 '?url=' 로 끝나므로 추가 ?url= 제거
+  const _proxyBase = (typeof CORS_PROXY_URL !== 'undefined' ? CORS_PROXY_URL
+    : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=');
+  let _encodedUrl;
+  try { _encodedUrl = encodeURIComponent(decodeURIComponent(url)); }
+  catch(e) { _encodedUrl = encodeURIComponent(url); }
+  const target = _proxyBase + _encodedUrl;
+  const res = await fetch(target, {
+    headers: {
+      'X-NovelEPUB-Token': (typeof _PROXY_TOKEN !== 'undefined' ? _PROXY_TOKEN : 'novelepub-secure-token'),
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+    }
+  });
+  if(!res.ok) throw new Error('http_'+res.status);
+  return await res.text();
+}
+
+// Global Exports
+window.openCoverSearchModal = openCoverSearchModal;
+window.closeCoverSearchModal = closeCoverSearchModal;
+window.triggerCoverSearch = triggerCoverSearch;

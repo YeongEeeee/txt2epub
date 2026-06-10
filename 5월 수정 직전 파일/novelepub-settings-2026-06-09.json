@@ -1,0 +1,8 @@
+{
+  "_version": 3,
+  "_exported": "2026-06-09T17:12:30.994Z",
+  "novelepub_prefs": "{\"font\":\"'Noto Sans KR',sans-serif\",\"size\":\"1em\",\"line\":\"1.9\",\"padTop\":\"1.5\",\"padBottom\":\"1.5\",\"padLeft\":\"1.8\",\"padRight\":\"1.8\",\"cssAlign\":\"justify\",\"cssTitleStyle\":\"center\",\"textColor\":\"#2d1f14\",\"bgColor\":\"#fdf6ee\",\"indentEm\":\"1\",\"dark\":true,\"italic\":true,\"indent\":true,\"mergePara\":false}",
+  "novelepub_skin": "terracotta",
+  "epub_css": "{\"font\":\"\",\"line\":\"1.9\",\"size\":\"1em\",\"padTop\":\"1.5\",\"padBottom\":\"1.5\",\"padLeft\":\"1.8\",\"padRight\":\"1.8\",\"textColor\":\"#2d1f14\",\"bgColor\":\"#fdf6ee\",\"align\":\"justify\",\"titleStyle\":\"center\",\"indentEm\":1,\"extra\":\"\"}",
+  "epub_extra": "{\"emptyLine\":true,\"chTitle\":true,\"darkCover\":false,\"autoPreview\":true,\"showLineNum\":true,\"defaultPat\":\"\",\"lang\":\"ko\",\"publisher\":\"\",\"compression\":\"6\",\"italic\":true,\"indent\":true,\"imgConvert\":true,\"imgQuality\":\"92\"}"
+}
