@@ -13,7 +13,14 @@
 
 // 🎨 Module: CssSettings (스타일 설정 관리)
 // ══════════════════════════════════════════
+// ★ S-01: saveCssSettings debounce — 슬라이더 드래그 등 연속 호출 시 300ms 후 1회만 실행
+// 이전: 매 input 이벤트마다 JSON.stringify + localStorage.setItem → 메인 스레드 블로킹
+let _saveCssTimer = null;
 function saveCssSettings(){
+  clearTimeout(_saveCssTimer);
+  _saveCssTimer = setTimeout(_saveCssSettingsNow, 300);
+}
+function _saveCssSettingsNow(){
   try{
     // ★ DOM 캐싱: getElementById 반복 호출 최소화
     const _el=id=>document.getElementById(id);
@@ -1283,7 +1290,15 @@ async function handleCustomFont(files){
   for(let i=0;i<bytes.length;i+=CHUNK) b64+=btoa(String.fromCharCode(...bytes.subarray(i,i+CHUNK)));
   const mimeMap={'ttf':'font/truetype','otf':'font/opentype','woff':'font/woff','woff2':'font/woff2'};
   const mime=mimeMap[ext]||'font/truetype';
+  // ★ S-02: 이전 customFontFace(data-URL)가 있으면 새 값으로 덮어쓰기 전 명시적 초기화
+  // data-URL은 ObjectURL이 아니므로 revokeObjectURL 불필요
+  // 단, 대형 문자열이 메모리에 중복으로 잠기지 않도록 이전 참조를 null 처리 후 교체
+  customFontFace = null;
+  // ★ S-03: base64 인코딩 후 Uint8Array/ArrayBuffer 참조 즉시 해제 → GC 수거 유도
+  // 커스텀 폰트 파일은 수 MB가 될 수 있음 — b64 변환 후 원본 버퍼 불필요
+  bytes.fill(0); // 메모리 내용 초기화 (보안 + GC 힌트)
   customFontFace='@font-face{font-family:"'+fontName+'";src:url("data:'+mime+';base64,'+b64+'") format("'+ext+'");}\n';
+  b64 = null; // ★ 이제 b64 문자열도 customFontFace에 이미 포함됨 — 중복 참조 해제
   SettingsDB.set('customFontFace', customFontFace).catch(()=>{});
   SettingsDB.set('customFontName', customFontName).catch(()=>{});
   const opt=document.getElementById('customFontOpt');

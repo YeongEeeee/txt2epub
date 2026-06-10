@@ -587,9 +587,27 @@ const EI = new Proxy({}, {
 });
 
 // ── scheduler.yield() 폴리필 ──
-const yieldToMain = (typeof scheduler !== 'undefined' && scheduler.yield)
-  ? () => scheduler.yield()
-  : () => new Promise(r => setTimeout(r, 0));
+// ── scheduler.yield() 폴리필 ──
+// ★ C-01: MessageChannel 기반 구현 — iOS Safari에서 연속 setTimeout의 최소 1ms 지연 우회
+// scheduler.yield (Chrome 115+) → 가장 빠른 실제 yield
+// MessageChannel → setTimeout(0)보다 빠른 macrotask 양보 (iOS Safari 포함)
+// setTimeout(0) → 최후 폴백
+const yieldToMain = (() => {
+  // 1순위: scheduler.yield (Chrome 115+ / Task Scheduling API)
+  if (typeof scheduler !== 'undefined' && typeof scheduler.yield === 'function') {
+    return () => scheduler.yield();
+  }
+  // 2순위: MessageChannel — setTimeout(0)보다 낮은 지연, iOS Safari에서도 안정적
+  if (typeof MessageChannel !== 'undefined') {
+    return () => new Promise(resolve => {
+      const ch = new MessageChannel();
+      ch.port1.onmessage = resolve;
+      ch.port2.postMessage(null);
+    });
+  }
+  // 3순위: setTimeout(0) 폴백
+  return () => new Promise(r => setTimeout(r, 0));
+})();
 
 // ★ U-20: 복구 가능 오류 분류
 // ════════════════════════════════════════════════════════════

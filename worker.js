@@ -362,6 +362,10 @@ function splitChapters(raw, customPat='', opts={}){
 // 메시지 핸들러
 // ══════════════════════════════════════════
 self.onmessage = async function(e){
+  // ★ W-01: Worker 내 고스트 에러 방지
+  // onmessage 전체를 try-catch로 감싸는 것만으로는 부족
+  // 아래 try-catch가 내부 switch 오류를 모두 포착하지만,
+  // 비동기 예외(await 중 발생)도 outer try-catch로 잡힘
   const { type, id, payload } = e.data;
 
   try{
@@ -369,52 +373,57 @@ self.onmessage = async function(e){
 
       // ── 인코딩 감지 ──
       case 'DETECT_ENCODING': {
-        // payload: { buffer: ArrayBuffer }
         const enc = detectEncoding(payload.buffer);
+        // ★ W-02: buffer 사용 후 참조 해제 → GC 수거 유도
+        payload.buffer = null;
         self.postMessage({ type:'RESULT', id, result:{ encoding: enc } });
         break;
       }
 
       // ── 텍스트 디코딩 ──
       case 'DECODE_TEXT': {
-        // payload: { buffer: ArrayBuffer, encoding?: string }
         let enc = payload.encoding;
         if(!enc) enc = detectEncoding(payload.buffer);
         const text = decodeText(payload.buffer, enc);
+        // ★ W-02: 디코딩 완료 후 buffer 참조 해제
+        payload.buffer = null;
         self.postMessage(
           { type:'RESULT', id, result:{ text, encoding: enc } },
-          // ★ 대용량 텍스트는 Transferable로 반환하면 좋지만 string은 불가
-          // → 대신 buffer는 이미 처리 완료이므로 별도 transfer 불필요
         );
         break;
       }
 
       // ── 인코딩 감지 + 디코딩 통합 ──
       case 'FILE_TO_TEXT': {
-        // payload: { buffer: ArrayBuffer }
-        // Transferable: buffer를 Worker가 소유 받음
         const enc2 = detectEncoding(payload.buffer);
         const text2 = decodeText(payload.buffer, enc2);
+        // ★ W-02: 처리 완료 후 buffer 참조 해제
+        payload.buffer = null;
         self.postMessage({ type:'RESULT', id, result:{ text: text2, encoding: enc2 } });
         break;
       }
 
       // ── 챕터 파싱 ──
       case 'PARSE_CHAPTERS': {
-        // payload: { raw: string, customPat?: string, opts?: object }
         const { raw, customPat='', opts={} } = payload;
         const total = (raw.match(/\n/g)||[]).length;
         const CHUNK = 5000;
 
-        // 진행률 알림 (파싱 중)
+        // ★ W-03: PROGRESS 빈도 제한 — lastPct 기반 1% 단위 필터
+        // 매 CHUNK마다 postMessage하면 메인 스레드 메시지 큐 포화 위험
+        let lastPct = -1;
         for(let i=0;i<total;i+=CHUNK){
           if(i>0){
-            self.postMessage({
-              type:'PROGRESS', id,
-              pct: Math.floor(i/total*80),
-              msg: `파싱 중... (${i}/${total}줄)`
-            });
-            // 비동기 yield — Worker 내부에서 메시지 큐 처리 기회
+            const pct = Math.floor(i/total*80);
+            // ★ 1% 이상 변화 시에만 PROGRESS 발송
+            if(pct > lastPct){
+              lastPct = pct;
+              self.postMessage({
+                type:'PROGRESS', id,
+                pct,
+                msg: `파싱 중... (${i}/${total}줄)`
+              });
+            }
             await new Promise(r=>setTimeout(r,0));
           }
         }
@@ -426,28 +435,33 @@ self.onmessage = async function(e){
 
       // ── 파일 여러 개 통합 처리 ──
       case 'PROCESS_FILES': {
-        // payload: { buffers: ArrayBuffer[], customPat?: string, opts?: object }
         const { buffers, customPat='', opts={} } = payload;
         const texts = [];
 
+        // ★ W-03: PROGRESS 빈도 제한 — lastPct 기반
+        let lastPct = -1;
         for(let i=0;i<buffers.length;i++){
           const enc = detectEncoding(buffers[i]);
           const text = decodeText(buffers[i], enc);
+          // ★ W-02: 디코딩 완료 즉시 buffer 참조 해제 → 대용량 배치 메모리 누적 방지
+          buffers[i] = null;
           texts.push(text);
-          self.postMessage({
-            type:'PROGRESS', id,
-            pct: Math.floor((i+1)/buffers.length*50),
-            msg: `파일 읽기 중... (${i+1}/${buffers.length})`
-          });
+          const pct = Math.floor((i+1)/buffers.length*50);
+          if(pct > lastPct){
+            lastPct = pct;
+            self.postMessage({
+              type:'PROGRESS', id,
+              pct,
+              msg: `파일 읽기 중... (${i+1}/${buffers.length})`
+            });
+          }
         }
 
         const raw = texts.join('\n\n');
         self.postMessage({ type:'PROGRESS', id, pct:55, msg:'챕터 분리 중...' });
 
-        // 파싱
         await new Promise(r=>setTimeout(r,0));
         const chapters = splitChapters(raw, customPat, opts);
-
         self.postMessage({ type:'RESULT', id, result:{ chapters, raw } });
         break;
       }
@@ -459,6 +473,11 @@ self.onmessage = async function(e){
         });
     }
   }catch(err){
-    self.postMessage({ type:'ERROR', id, error: err.message||String(err) });
+    // ★ W-01: 스택 트레이스 포함 에러 전송 — 고스트 에러 방지
+    // err.stack이 없는 브라우저 환경에서도 err.message 폴백 보장
+    self.postMessage({
+      type:'ERROR', id,
+      error: err.stack || err.message || String(err)
+    });
   }
 };
