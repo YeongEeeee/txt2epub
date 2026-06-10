@@ -1735,7 +1735,11 @@ function renderTocItems(){
   if(!_isDragging){
     _tocDragSrc=null; _tocDragSrcI=null;
   }
-  const c=document.getElementById('tb0');c.innerHTML='';
+  const c=document.getElementById('tb0');
+  // ★ PERF-GC: innerHTML='' 대신 replaceChildren() 사용
+  // DOM 자식을 분리하면서 자식에 붙은 이벤트 핸들러 참조도 함께 끊어
+  // 이전 렌더 사이클의 클로저(tocItem 참조)가 GC 수거될 수 있도록 유도
+  c.replaceChildren();
   // ★ L-06: 전체 재렌더 시 내보내기 버튼 플래그 초기화 (updateTocStat에서 재생성)
   _tocExportBtnCreated=false;
   if(!S.tocItems.length){c.innerHTML='<div class="toc-empty">⚠️ 챕터가 감지되지 않았습니다.</div>';return;}

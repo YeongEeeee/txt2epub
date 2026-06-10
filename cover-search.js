@@ -420,65 +420,146 @@ function renderCoverSearchResults(items) {
 
 // ── 최종 선택 및 수집 데이터 유기적 전달 ──
 async function selectSearchedCover(imgUrl) {
-  // ★ BUG-8 FIX: Toast 8000ms 고정 타임아웃 → centerCropToBlob 완료 즉시 dismiss
-  // 기존: 8초 후 자동 소멸이지만 1초만에 완료되어도 8초간 UI 점유
-  // 수정: Promise 완료 즉시 기존 Toast dismiss 후 결과 Toast 표시
   let _loadingDismiss = null;
   if(typeof Toast.info === 'function' && Toast.info.length >= 2) {
-    // Toast가 dismiss 핸들을 반환하는 경우 활용
     _loadingDismiss = Toast.info('선택한 표지를 다운로드 및 크롭 가공하는 중입니다...');
   } else {
     Toast.info('선택한 표지를 다운로드 및 크롭 가공하는 중입니다...');
   }
   try {
     const blob = await centerCropToBlob(imgUrl);
-    // Toast 조기 소멸 (가능한 경우)
     if(typeof _loadingDismiss === 'function') _loadingDismiss();
+
     const fileObj = new File([blob], 'cover.jpg', { type: 'image/jpeg' });
 
     if(_coverModalMode === 'convert') {
-      window.setCoverFile?.(fileObj);
+      // ── convert 탭: #coverThumb의 구형 Blob URL 명시적 해제 후 새 표지 적용 ──
+      // window.setCoverFile은 미정의 심볼 → handleCover([])/S.coverFile 직접 경로로 폴백
+      const thumb = document.getElementById('coverThumb');
+      if(thumb){
+        // ★ 3단계: 기존 Blob URL 명시적 해제 — 메모리 누수 방지
+        const prevImg = thumb.querySelector('img[data-blob-url]');
+        if(prevImg && prevImg.dataset.blobUrl){
+          URL.revokeObjectURL(prevImg.dataset.blobUrl);
+        }
+      }
+      if(typeof window.setCoverFile === 'function'){
+        // convert.js에서 노출된 경우 사용
+        window.setCoverFile(fileObj);
+      } else if(typeof handleCover === 'function'){
+        // ★ 구조적 수정: handleCover 직접 호출로 S.coverFile + coverThumb + coverDz 동기화
+        handleCover([fileObj]);
+      } else {
+        // 최후 폴백: 상태만 직접 설정
+        if(typeof S !== 'undefined') S.coverFile = fileObj;
+        const objUrl = URL.createObjectURL(fileObj);
+        if(thumb){
+          thumb.innerHTML = '';
+          const img = document.createElement('img');
+          img.src = objUrl;
+          img.dataset.blobUrl = objUrl;
+          thumb.appendChild(img);
+        }
+        document.getElementById('coverDz')?.classList.add('ok');
+        const coverName = document.getElementById('coverName');
+        if(coverName) coverName.textContent = '✅ 검색 표지 적용';
+      }
     } else {
+      // ── batch 탭 경로 ──
       if(typeof window.setBatchSelectedCover === 'function') {
         window.setBatchSelectedCover(fileObj, imgUrl);
       } else {
         // ★ S.batch undefined TypeError 방어 가드
-        S.batch = S.batch || {};
-        S.batch.coverMap = S.batch.coverMap || {};
-        S.batch.coverMap['selected'] = fileObj;
+        if(typeof S !== 'undefined'){
+          S.batch = S.batch || {};
+          S.batch.coverMap = S.batch.coverMap || {};
+          S.batch.coverMap['selected'] = fileObj;
+        }
         Toast.success('일괄 변환 타깃 표지 등록 완료');
       }
     }
+
     closeCoverSearchModal();
     Toast.success('표지가 성공적으로 반영되었습니다.');
+
   } catch(err) {
-    console.error(err);
-    Toast.error(err.message || '표지 수집 중 예외 가드가 작동했습니다.');
+    if(typeof _loadingDismiss === 'function') _loadingDismiss();
+    console.error('[selectSearchedCover]', err);
+    // ★ 3단계: RecoverableError 분기 — 전체 스크립트 프리징 없이 Toast로 안전 우회
+    if(typeof RecoverableError !== 'undefined' && err instanceof RecoverableError){
+      Toast.warn('⚠️ 표지 처리 중 복구 가능한 오류: ' + err.message);
+    } else {
+      Toast.error(err.message || '표지 수집 중 예외 가드가 작동했습니다.');
+    }
   }
 }
 
 // ── 🌐 인프라 동기화 전용 proxyFetch 통합 리팩토링 ──
-async function proxyFetch(url) {
-  // core.js의 전역 인프라 스트림을 경유하여 토큰 가드 및 Failover 자동 주입
+// ★ 3단계: try-catch 강화 — 네트워크 에러/CORS 차단 시 전체 스크립트 프리징 방지
+async function proxyFetch(url, timeout = 9000) {
+  // 1순위: core.js의 전역 proxyGet 인프라 경유
+  // — core.js proxyGet이 Failover·토큰·타임아웃·이중?url= 방지 모두 처리함
   if (typeof window.proxyGet === 'function') {
-    return await window.proxyGet(url);
+    try {
+      return await window.proxyGet(url, timeout);
+    } catch(e) {
+      // proxyGet 자체가 RecoverableError를 던지는 경우 그대로 전파
+      if(typeof RecoverableError !== 'undefined' && e instanceof RecoverableError) throw e;
+      // 그 외 오류는 폴백 레이어로 계속 진행
+      console.warn('[proxyFetch] proxyGet 실패, 직접 폴백 시도:', e.message);
+    }
   }
-  
-  // ★ BUG-15 FIX: CORS_PROXY_URL이 이미 '?url=' 로 끝나므로 추가 ?url= 제거
-  const _proxyBase = (typeof CORS_PROXY_URL !== 'undefined' ? CORS_PROXY_URL
+
+  // 2순위: 직접 폴백 — 이중 ?url= 방지 + AbortController 타임아웃
+  // ★ BUG-15 확인: CORS_PROXY_URL 자체가 '?url='로 끝나므로 추가 ?url= 절대 붙이지 않음
+  const _proxyBase = (typeof CORS_PROXY_URL !== 'undefined'
+    ? CORS_PROXY_URL
     : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=');
+
+  // ★ URL 안전 인코딩 — 특수문자·유니코드 완전 처리 (이중 인코딩 방지)
   let _encodedUrl;
   try { _encodedUrl = encodeURIComponent(decodeURIComponent(url)); }
   catch(e) { _encodedUrl = encodeURIComponent(url); }
+
   const target = _proxyBase + _encodedUrl;
-  const res = await fetch(target, {
-    headers: {
-      'X-NovelEPUB-Token': (typeof _PROXY_TOKEN !== 'undefined' ? _PROXY_TOKEN : 'novelepub-secure-token'),
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8'
+
+  // ★ AbortController 기반 타임아웃 가드
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+
+  try {
+    const res = await fetch(target, {
+      signal: ctrl.signal,
+      headers: {
+        'X-NovelEPUB-Token': (typeof _PROXY_TOKEN !== 'undefined'
+          ? _PROXY_TOKEN
+          : 'novelepub-secure-token'),
+        'Cache-Control': 'no-cache',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+      },
+    });
+    clearTimeout(timer);
+    if(!res.ok){
+      // ★ 4xx는 RecoverableError로 Toast 표시, 5xx는 일반 Error로 throw
+      const statusMsg = `HTTP ${res.status}`;
+      if(res.status >= 400 && res.status < 500){
+        throw typeof RecoverableError !== 'undefined'
+          ? new RecoverableError(`[CORS Proxy ${statusMsg}] ${url.slice(0,60)}`, { context: 'proxyFetch' })
+          : new Error(statusMsg);
+      }
+      throw new Error(statusMsg);
     }
-  });
-  if(!res.ok) throw new Error('http_'+res.status);
-  return await res.text();
+    return await res.text();
+  } catch(e) {
+    clearTimeout(timer);
+    if(e.name === 'AbortError'){
+      const timeoutErr = typeof RecoverableError !== 'undefined'
+        ? new RecoverableError(`[Proxy Timeout] ${timeout}ms 초과 — ${url.slice(0,50)}`, { context: 'proxyFetch' })
+        : new Error('Proxy timeout');
+      throw timeoutErr;
+    }
+    throw e;
+  }
 }
 
 // Global Exports

@@ -414,9 +414,19 @@ function handleTxt(files, append=false){
   }
 
   const txtDz=document.getElementById('txtDz');
-  if(txtDz) txtDz.className='dz ok';
+  if(txtDz){
+    txtDz.className='dz ok';
+    // ★ UX-ANIM: 파일 드롭 성공 순간 테두리 플래시 애니메이션
+    txtDz.classList.remove('accept-flash');
+    void txtDz.offsetWidth; // reflow 강제
+    txtDz.classList.add('accept-flash');
+    txtDz.addEventListener('animationend', ()=>txtDz.classList.remove('accept-flash'), { once: true });
+  }
   const resetBar=document.getElementById('convertResetBar');
   if(resetBar) resetBar.style.display='flex';
+  // ★ UX-PD: Progressive Disclosure — 패턴 영역을 파일 로드 후 선명하게 전환
+  const patSection=document.getElementById('patSection');
+  if(patSection) patSection.style.opacity='1';
   _chaptersCache=null; // 캐시 무효화
 
   renderTxtFileList();
@@ -1209,31 +1219,65 @@ function extractTotalFromFilename(filename){
 const _progressTimeline = [];
 
 // 전역 setProgress 함수 — startConvert / splitChaptersAsync / getParserWorker 공통 사용
+// ════════════════════════════════════════════════════════
+// ★ PERF-01: 진행률 관련 DOM 엘리먼트 모듈 스코프 캐싱
+// setProgress()가 변환 중 수백 회 호출되므로 매 호출마다
+// document.getElementById를 반복하지 않도록 1회 캐싱
+// DOMContentLoaded 이후 initUiState()에서 _initProgEls()로 초기화
+// ════════════════════════════════════════════════════════
+let _progBarEl   = null;
+let _progMsgEl   = null;
+let _progWrapEl  = null;
+let _progResultEl = null;
+let _progErrEl   = null;
+
+function _initProgEls(){
+  _progBarEl    = document.getElementById('progBar');
+  _progMsgEl    = document.getElementById('progMsg');
+  _progWrapEl   = document.getElementById('progWrap');
+  _progResultEl = document.getElementById('resultBox');
+  _progErrEl    = document.getElementById('errBox');
+}
+
+// ── 스텝 인디케이터 pct 경계 상수 ──
+const _PROG_STEPS = [15, 30, 45, 92];
+
 function setProgress(pct, msg){
-  const bar = document.getElementById('progBar');
-  const txt = document.getElementById('progMsg');
+  // ★ PERF-01: 캐싱된 엘리먼트 사용 (getElementById 반복 제거)
+  // 캐시가 아직 없으면 fallback으로 즉시 쿼리 (DOMContentLoaded 이전 안전망)
+  const bar = _progBarEl || document.getElementById('progBar');
+  const txt = _progMsgEl || document.getElementById('progMsg');
   if(bar){
     bar.style.width = pct + '%';
     // ★ U-15 FIX: aria-progressbar 속성 실시간 갱신 — 스크린리더 접근성
-    bar.setAttribute('role', 'progressbar');
     bar.setAttribute('aria-valuemin', '0');
     bar.setAttribute('aria-valuemax', '100');
     bar.setAttribute('aria-valuenow', String(pct));
     bar.setAttribute('aria-valuetext', msg ? `${pct}%, ${msg}` : `${pct}%`);
     // ★ 진행 중 striped 애니메이션, 완료 시 정지
-    if(pct > 0 && pct < 100) bar.classList.add('animating');
-    else bar.classList.remove('animating');
+    if(pct > 0 && pct < 100){
+      bar.classList.add('animating');
+    } else {
+      bar.classList.remove('animating', 'compressing');
+    }
+    // ★ UX-ANIM: 92% 이상 = JSZip 압축 구간 → compressing pulse 추가
+    // 이 구간에서 메인 스레드가 블로킹되어 바가 멈춰 보이는 문제 완화
+    if(pct >= 92 && pct < 100){
+      bar.classList.add('compressing');
+    } else {
+      bar.classList.remove('compressing');
+    }
   }
   if(txt) txt.textContent = msg || '';
   // ★ U-01: 타임라인에 기록 (스파크라인 렌더링용)
   _progressTimeline.push({ pct, msg, t: Date.now() });
   // ★ 스텝 인디케이터 갱신 (epub-gen.js의 updateProgStep 호출)
   if(typeof updateProgStep === 'function'){
-    if(pct <= 15)       updateProgStep(0);
-    else if(pct <= 30)  updateProgStep(1);
-    else if(pct <= 45)  updateProgStep(2);
-    else if(pct <= 92)  updateProgStep(3);
-    else                updateProgStep(4);
+    let step = 0;
+    for(let i = 0; i < _PROG_STEPS.length; i++){
+      if(pct > _PROG_STEPS[i]) step = i + 1;
+    }
+    updateProgStep(step);
   }
 }
 
@@ -1244,11 +1288,18 @@ async function startConvert(){
   const convertStart=Date.now();
   // ★ U-01: 타임라인 초기화
   _progressTimeline.length = 0;
+  document.getElementById('progressSparkline') &&
+    (document.getElementById('progressSparkline').innerHTML='') &&
+    (document.getElementById('progressSparkline').style.display='none');
   const sparkEl = document.getElementById('progressSparkline');
   if(sparkEl){ sparkEl.innerHTML=''; sparkEl.style.display='none'; }
-  document.getElementById('progWrap')?.classList.add('show');
-  document.getElementById('resultBox')?.classList.remove('show');
-  document.getElementById('errBox')?.classList.remove('show');
+  // ★ PERF-01: 캐싱 변수 우선 사용 (없으면 직접 쿼리 fallback)
+  const _progWrap   = _progWrapEl   || document.getElementById('progWrap');
+  const _resultBox  = _progResultEl || document.getElementById('resultBox');
+  const _errBox     = _progErrEl    || document.getElementById('errBox');
+  _progWrap?.classList.add('show');
+  _resultBox?.classList.remove('show');
+  _errBox?.classList.remove('show');
 
   // ── 단계별 진행 표시 ──
   setProgress(0,'① 파일 읽는 중...');
@@ -1445,7 +1496,12 @@ async function startConvert(){
       blob
     });
     document.getElementById('splitSec').style.display='block';
-    document.getElementById('resultBox')?.classList.add('show');
+    const _resBox = _progResultEl || document.getElementById('resultBox');
+    if(_resBox){
+      _resBox.classList.add('show');
+      // ★ UX-ANIM: 결과박스 완료 시 부드러운 스크롤 이동
+      _resBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
     _showShareBtnIfSupported(); // ★ C-04: 공유 버튼 조건부 표시
 
     // ★ EPUB 다운로드 완료 플로팅 바 활성화
@@ -1464,15 +1520,22 @@ async function startConvert(){
     if(e instanceof RecoverableError){
       Toast.warn('⚠ ' + e.message + (e.context ? ` (${e.context})` : '') + ' — 계속 진행합니다.');
     } else {
-      const errEl = document.getElementById('errBox');
-      if(errEl){ errEl.textContent='❌ '+friendlyError(e); errEl.classList.add('show'); }
+      // ★ UX-ANIM: 에러 박스 scrollIntoView + err-shake 애니메이션 트리거
+      const errEl = _progErrEl || document.getElementById('errBox');
+      if(errEl){
+        errEl.textContent = '❌ ' + friendlyError(e);
+        errEl.classList.remove('show', 'err-shake');
+        void errEl.offsetWidth; // reflow 강제 → 애니메이션 재시작
+        errEl.classList.add('show', 'err-shake');
+        errEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
     }
   }finally{
     // ★ Side-Effect 가드: 예외·정상 종료 모두 UI 스피너·중단 버튼 반드시 해제
-    // Worker reject 등으로 catch를 통과해도 progWrap이 무한히 돌지 않음
-    document.getElementById('progWrap')?.classList.remove('show');
-    const _ab=document.getElementById('convertAbortBtn');
-    if(_ab) _ab.style.display='none';
+    // ★ PERF-01: 캐싱 변수 우선 사용
+    (_progWrapEl || document.getElementById('progWrap'))?.classList.remove('show');
+    const _ab = document.getElementById('convertAbortBtn');
+    if(_ab) _ab.style.display = 'none';
   }
 }
 
@@ -1550,11 +1613,14 @@ function _animateResultStats(){
     requestAnimationFrame(tick);
   });
 
-  // 다운로드 버튼 pulse 1회
+  // ★ UX-ANIM: 다운로드 버튼 dl-pop 스케일 팝업 애니메이션
+  // 기존 pulse-once 대신 눈에 띄는 scale pop으로 교체하여 주목도 강화
   const dlBtn = resultBox.querySelector('[data-action="downloadEpub"]');
   if(dlBtn){
-    dlBtn.classList.add('pulse-once');
-    setTimeout(()=>dlBtn.classList.remove('pulse-once'), 1000);
+    dlBtn.classList.remove('dl-pop', 'pulse-once');
+    void dlBtn.offsetWidth; // reflow 강제 → 애니메이션 재시작 보장
+    dlBtn.classList.add('dl-pop');
+    dlBtn.addEventListener('animationend', ()=>dlBtn.classList.remove('dl-pop'), { once: true });
   }
 }
 
@@ -2902,6 +2968,9 @@ function resetConvertTxt(){
         if(btn){ btn.disabled=false; btn.style.opacity='1'; btn.style.pointerEvents=''; btn.style.color=''; btn.textContent='⚡ 간격 분할'; btn.title=''; }
       })();
   document.getElementById('txtDz').className='dz';
+  // ★ UX-PD: Progressive Disclosure — 파일 리셋 시 패턴 영역 다시 흐리게
+  const patSec=document.getElementById('patSection');
+  if(patSec) patSec.style.opacity='0.45';
   document.getElementById('txtInfo').style.display='none';
   const fl=document.getElementById('txtFileList'); if(fl) fl.style.display='none';
   const sl=document.getElementById('txtSortList'); if(sl) sl.innerHTML='';
@@ -2924,18 +2993,25 @@ async function resetConvertAll(){
   resetConvertTxt();resetConvertCover();
 
   // ★ B-FIX-05: 대용량 상태 명시적 해제 → GC 수거 유도
-  // tocItems, epubBlob 등을 단순 [] 교체만 하면 기존 객체 참조가 남을 수 있음
   if(_sStore.get().tocItems && _sStore.get().tocItems.length > 0){
-    _sStore.get().tocItems.length = 0; // 배열 내부 참조 즉시 해제
+    _sStore.get().tocItems.length = 0;
   }
   _sStore.set({illFiles:[],tocItems:[],epubBlob:null,manualCnt:0});
 
   // ★ B-FIX-01: 초기화 시 _encCache도 정리
   _encCache.clear();
 
+  // ★ PERF-GC: illTags 내 Blob URL 전체 해제 후 replaceChildren() — innerHTML 대비 GC 친화적
+  const illTagsEl = document.getElementById('illTags');
+  if(illTagsEl){
+    illTagsEl.querySelectorAll('img[data-obj-url]').forEach(img => URL.revokeObjectURL(img.dataset.objUrl));
+    illTagsEl.replaceChildren(); // innerHTML = '' 대신 — DOM 자식 분리 + 이벤트 핸들러 자동 GC
+  }
+  // manualIlls도 동일하게 처리
+  const manualEl = document.getElementById('manualIlls');
+  if(manualEl) manualEl.replaceChildren();
+
   document.getElementById('illDz').className='dz';
-  document.getElementById('illTags').innerHTML='';
-  document.getElementById('manualIlls').innerHTML='';
   ['progWrap','resultBox','errBox','splitSec'].forEach(id=>{
     const el=document.getElementById(id);
     if(el){el.classList.remove('show');if(id==='splitSec')el.style.display='none';}

@@ -203,10 +203,16 @@ function updateBtmBar(files){
 // ── 탭 전환 ──
 const _tabRendered = {};
 let _lastPageIndex = 0;
-
 function switchPage(name){
-  const pages=['convert','batch','edit','history','settings'];
+  // ★ 2단계: pages 배열 순서를 사용자 온보딩 흐름에 맞게 조정
+  // 변환 → 편집 → 일괄변환 → 기록 → 설정
+  // index.html 탭 버튼 순서와 반드시 동기화 유지
+  const pages=['convert','edit','batch','history','settings'];
   const nextIdx = pages.indexOf(name);
+  // ★ 알 수 없는 페이지명이 들어온 경우 방어 가드
+  if(nextIdx === -1) return;
+  // ★ 같은 페이지 재클릭 시 방향 계산 없이 조기 반환
+  if(nextIdx === _lastPageIndex && document.getElementById('page-'+name)?.classList.contains('on')) return;
   const dir = nextIdx > _lastPageIndex ? 'slide-from-right' : 'slide-from-left';
   _lastPageIndex = nextIdx;
 
@@ -222,9 +228,14 @@ function switchPage(name){
     const isActive = p===name;
     el.classList.toggle('on', isActive);
     if(isActive){
+      // ★ 이전 방향 클래스 제거 → reflow 강제 → 새 방향 클래스 부여
       el.classList.remove('slide-from-left','slide-from-right');
       void el.offsetWidth;
       el.classList.add(dir);
+      // ★ animationend 후 방향 클래스 자동 해제 — 잔류 클래스로 인한 재진입 오작동 방지
+      el.addEventListener('animationend', ()=>{
+        el.classList.remove('slide-from-left','slide-from-right');
+      }, { once: true });
       el.removeAttribute('aria-hidden');
       el.style.contentVisibility='';
     } else {
@@ -240,12 +251,10 @@ function switchPage(name){
   const dlBar=document.getElementById('btmDownload');
   const cvBar=document.getElementById('btmConvert');
   if(name==='convert'){
-    // 변환 탭: EPUB 있으면 다운로드 바, 없으면 변환 바
     const hasEpub=typeof S!=='undefined'&&S.epubBlob;
     if(dlBar) dlBar.style.display=hasEpub?'flex':'none';
     if(cvBar) cvBar.style.display=hasEpub?'none':'flex';
   } else {
-    // 다른 탭: 두 바 모두 숨김
     if(dlBar) dlBar.style.display='none';
     if(cvBar) cvBar.style.display='none';
   }
@@ -261,6 +270,7 @@ function switchPage(name){
     typeof renderHistory==='function'&&renderHistory();
   }
 }
+
 
 // ── 패딩 아코디언 ──
 function togglePadAccordion(){
@@ -1015,6 +1025,15 @@ function setupEventDelegate(){
 // 호출 시점: main.js § 5 DOMContentLoaded 오케스트레이터 내부
 // ══════════════════════════════════════════════════════════════
 window.initUiState = function initUiState(){
+  // ★ 2단계 연결: convert.js의 DOM 캐싱 초기화 함수 호출
+  // DOMContentLoaded 이후 DOM이 준비된 이 시점에 progBar 등 엘리먼트를 1회 캐싱
+  if(typeof window._initProgEls === 'function') window._initProgEls();
+
+  // ★ UX-PD: Progressive Disclosure — 초기 로드 시 패턴 영역 흐리게 설정
+  // 파일 드롭 전에는 패턴 입력이 주 액션이 아님을 시각적으로 표현
+  const patSectionInit = document.getElementById('patSection');
+  if(patSectionInit) patSectionInit.style.opacity = '0.45';
+
   initTheme();
   loadCssSettings();
   loadExtraSettings();
@@ -1090,7 +1109,8 @@ window.initUiState = function initUiState(){
 
 // ★ 모바일 스와이프 탭 전환
 (function setupSwipe(){
-  const pages = ['convert','batch','edit','history','settings'];
+  // ★ switchPage의 pages 배열과 반드시 동일 순서 유지
+  const pages = ['convert','edit','batch','history','settings'];
   let _swX = null, _swY = null, _swActive = false;
   document.addEventListener('touchstart', e=>{
     if(e.target.closest('.txt-file-row,.toc-drag-handle,.toc-item,.ch-list,.toc-body,.modal-overlay')) return;

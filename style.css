@@ -103,8 +103,11 @@ body{
 .page-tab:hover{color:var(--accent);background:var(--accent-bg)}
 .page-tab.on{color:var(--accent);border-bottom-color:var(--accent)}
 .page-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
-.page{display:none}.page.on{display:block;animation:slideIn .18s var(--ease)}
-/* ★ 06: 탭 방향성 전환 애니메이션 */
+/* ★ 2단계: content-visibility 전환 — display:none 대비 렌더 트리 제외 + 레이아웃 유지
+   비활성 탭 reflow 비용 제거, 탭 전환 속도 향상 */
+.page{content-visibility:hidden;contain-intrinsic-size:auto 600px}
+.page.on{content-visibility:visible;display:block;animation:slideIn .18s var(--ease)}
+/* ★ 탭 방향성 전환 애니메이션 */
 @keyframes slideFromRight{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:translateX(0)}}
 @keyframes slideFromLeft{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:translateX(0)}}
 .page.on.slide-from-right{animation:slideFromRight .22s var(--ease)}
@@ -164,14 +167,17 @@ body{
 .btn-sm{padding:5px 9px;font-size:11px}
 
 /* ── 드롭존 (인터랙티브 강화) ── */
-.dz{border:2px dashed var(--border);border-radius:var(--radius);padding:18px;text-align:center;cursor:pointer;transition:border-color var(--dur-base),background var(--dur-base),transform var(--dur-base),box-shadow var(--dur-base);background:var(--bg2);position:relative;overflow:hidden}
+/* ★ 2단계: 드롭존 시각 위계 강화
+   패딩 확장(32px) + dot 패턴으로 "드롭 영역" 시각 언어 명확화 */
+.dz{border:1.5px dashed var(--border);border-radius:var(--radius);padding:32px 18px;text-align:center;cursor:pointer;transition:border-color var(--dur-base),background var(--dur-base),transform var(--dur-base),box-shadow var(--dur-base),opacity var(--dur-base);background-color:var(--bg2);background-image:radial-gradient(var(--border) 1px,transparent 1px);background-size:20px 20px;position:relative;overflow:hidden}
 .dz:hover{border-color:var(--accent);background:var(--accent-bg);transform:translateY(-1px);box-shadow:var(--shadow-sm)}
 /* dragover: 점선→실선 + scale(1.02) + 브랜드 컬러 강조 */
 .dz.over{border-color:var(--accent);border-style:solid;background:var(--accent-bg);transform:scale(1.02);box-shadow:0 0 0 3px rgba(212,90,70,.15),var(--shadow-md)}
 .dz.over::after{content:'여기에 놓으세요';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(212,90,70,.07);color:var(--accent);font-size:14px;font-weight:700;border:2px solid var(--accent);border-radius:inherit;pointer-events:none;backdrop-filter:blur(2px)}
 .dz.over .dz-icon{transform:scale(1.3);animation:pulse .8s ease infinite}
 /* 업로드 완료: 체크 애니메이션 */
-.dz.ok{border-color:var(--green);background:var(--green-bg);border-style:solid;box-shadow:0 0 0 2px rgba(42,128,80,.12)}
+/* ★ .dz.ok: 파일 수락 상태 — dot 패턴 제거하여 클린한 성공 표시 */
+.dz.ok{border-color:var(--green);background-color:var(--green-bg);background-image:none;border-style:solid;box-shadow:0 0 0 2px rgba(42,128,80,.12)}
 .dz.ok .dz-icon::after{content:'✓';position:absolute;top:-4px;right:-4px;background:var(--green);color:#fff;width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;animation:checkPop .35s var(--ease) forwards}
 .dz-icon{font-size:26px;margin-bottom:5px;display:inline-block;transition:transform var(--dur-base);position:relative}
 .dz-text{font-size:13px;color:var(--text2)}
@@ -892,9 +898,9 @@ input:-webkit-autofill:focus{
 #btmConvert:not(.ready) .btm-hint-notready{opacity:1}
 
 /* ── content-visibility 안정화 ── */
-/* 비활성 탭의 content-visibility:hidden 시 레이아웃 시프트 방지 */
+/* .page와 .page.on 규칙은 상단 레이아웃 섹션으로 통합됨 (중복 제거) */
 .page:not(.on){
-  contain-intrinsic-size:0 600px; /* 기본 fallback */
+  /* contain-intrinsic-size는 상단 .page 규칙에 auto 600px로 이미 설정됨 */
 }
 /* 탭패널 포커스 링 */
 [role="tabpanel"]:focus-visible{
@@ -1144,8 +1150,8 @@ input:-webkit-autofill:focus{
 .susp-slider-hint{font-size:10px;color:var(--text2);width:100%;line-height:1.5}
 
 /* ── 슬라이드 방향 애니메이션 ── */
-@keyframes slideFromRight{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:none}}
-@keyframes slideFromLeft{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:none}}
+/* ★ slide-from-right/left 클래스 — 상단 .page.on.slide-from-* 규칙에 통합됨
+   단독 클래스로도 동작하도록 별도 유지 (모달 등 .page 외 요소에서 재사용 가능) */
 .slide-from-right{animation:slideFromRight .22s var(--ease)}
 .slide-from-left{animation:slideFromLeft .22s var(--ease)}
 
@@ -1456,3 +1462,53 @@ input:-webkit-autofill:focus{
   90% {transform:translateX(3px)}
   100%{transform:translateX(0)}
 }
+
+/* ══════════════════════════════════════════════════════════
+   ★ 2단계: 성능·UI/UX 마이크로 인터랙션 애니메이션 추가
+   ══════════════════════════════════════════════════════════ */
+
+/* ── 결과창 border-left 성공/실패 피드백 신호 ── */
+#resultBox{
+  border-left:3px solid var(--green);
+  transition:border-color .2s,background .2s;
+}
+#errBox{
+  border-left:3px solid var(--accent);
+  transition:border-color .2s,background .2s;
+}
+
+/* ── 드롭 성공 플래시: .accept-flash ── */
+@keyframes dropAccept{
+  0%  {box-shadow:0 0 0 0 rgba(42,128,80,.6)}
+  50% {box-shadow:0 0 0 10px rgba(42,128,80,0)}
+  100%{box-shadow:0 0 0 0 rgba(42,128,80,0)}
+}
+.accept-flash{animation:dropAccept .5s ease forwards}
+
+/* ── 압축 구간 펄스: .compressing ── */
+@keyframes progPulse{
+  0%,100%{opacity:1}
+  50%    {opacity:.7}
+}
+.prog-bar.compressing{
+  animation:progStripes .7s linear infinite,
+            progPulse 1.2s ease-in-out infinite;
+}
+
+/* ── 다운로드 버튼 스케일 팝업: .dl-pop ── */
+@keyframes dlBtnPop{
+  0%  {transform:scale(.88);opacity:0}
+  65% {transform:scale(1.05)}
+  100%{transform:scale(1);opacity:1}
+}
+.dl-pop{animation:dlBtnPop .4s var(--ease) forwards}
+
+/* ── 에러 흔들기: #errBox.show ── */
+@keyframes errShake{
+  0%,100%{transform:translateX(0)}
+  20%    {transform:translateX(-6px)}
+  40%    {transform:translateX(6px)}
+  60%    {transform:translateX(-4px)}
+  80%    {transform:translateX(4px)}
+}
+#errBox.show{animation:errShake .4s ease,slideIn .18s var(--ease)}

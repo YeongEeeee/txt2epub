@@ -161,7 +161,10 @@ async function processImagesParallel(coverFile, illMap){
     try{
       const target = await resizeCoverIfNeeded(coverFile);
       const { blob, ext, mt } = await convertImageFile(target, true);
-      result.cover = { ab: await fileToAB(blob), ext, mt };
+      const ab = await fileToAB(blob);
+      result.cover = { ab, ext, mt };
+      // ★ 4단계 GC: 표지 blob 참조 즉시 해제 — AB만 result에 보유
+      // blob 객체는 여기서 더 이상 불필요
     }catch(e){
       if(typeof Toast!=='undefined')
         Toast.warn(`표지 처리 실패 (건너뜀): ${coverFile.name||'표지'}`);
@@ -174,16 +177,20 @@ async function processImagesParallel(coverFile, illMap){
   // ★ Semaphore 방식: IMG_CONCURRENCY개씩 슬라이스 배치 처리
   //   - Promise.all(전체.map(...)) 금지 — 수백 장 동시 toBlob → GPU 메모리 포화
   //   - 배치 단위 await → 이전 배치 ArrayBuffer가 result.ills에 push된 뒤
-  //     다음 배치 진입 전 yieldToMain()으로 이벤트 루프에 GC 기회를 부여
+  //     다음 배치 진입 전 setTimeout(0)으로 이벤트 루프에 GC 기회를 부여
   for(let i=0;i<illFiles.length;i+=IMG_CONCURRENCY){
     const batch = illFiles.slice(i, i+IMG_CONCURRENCY);
     const batchRes = await Promise.all(
       batch.map(async ({il, file_idx})=>{
+        let blobRef = null; // ★ 4단계 GC: blob 참조 추적용
         try{
           const { blob, ext, mt } = await convertImageFile(il.file, false);
+          blobRef = blob;
           const ab = await fileToAB(blob);
+          blobRef = null; // ★ AB 획득 직후 blob 참조 해제 → GC 수거 가능
           return { ab, ext, mt, file_idx };
         }catch(e){
+          blobRef = null;
           if(typeof Toast!=='undefined')
             Toast.warn(`이미지 처리 실패 (건너뜀): ${il.file.name||'알 수 없는 파일'}`);
           return null;
@@ -194,7 +201,7 @@ async function processImagesParallel(coverFile, illMap){
 
     // ★ GC 힌트: 배치 완료 후 이벤트 루프에 제어권 반환
     //   이전 배치의 임시 Blob/Canvas 객체가 GC될 수 있도록 한 프레임 양보
-    //   수백 장 처리 시 메모리 누적 억제 효과
+    //   수백 장 처리 시 메모리 누적 억제 효과 (마지막 배치 제외)
     if(i + IMG_CONCURRENCY < illFiles.length){
       await new Promise(r => setTimeout(r, 0));
     }
@@ -322,7 +329,16 @@ self.onmessage=async function(e){
     }
     const tot=chapters.length;let illPageIdx=0;
     for(let idx=0;idx<tot;idx++){
-      if(idx%20===0)prog(15+Math.floor(idx/tot*67),'챕터 생성 중 ('+idx+'/'+tot+')...');
+      // ★ 4단계: 20개마다 진행률 갱신 + 이벤트 루프 양보
+      // Worker 내에서는 yieldToMain 불가 → setTimeout 대신 Promise.resolve()로 마이크로태스크 양보
+      // 대용량 파일에서 메인 핸들러가 블로킹되지 않도록 100개마다 한 번 양보
+      if(idx%20===0){
+        prog(15+Math.floor(idx/tot*67),'챕터 생성 중 ('+idx+'/'+tot+')...');
+        if(idx>0&&idx%100===0){
+          // ★ 4단계 GC 힌트: 100화마다 마이크로태스크 큐에 양보
+          await new Promise(r=>setTimeout(r,0));
+        }
+      }
       const[heading,rawBody]=chapters[idx];const cn=extractChNum(heading);
       // ★ P2-01: 챕터별 즉석 렌더링 — 배열로 미리 만들어두지 않음
       const body=renderBodyHtml(rawBody,{useItalic,maxBlank:2});
@@ -338,13 +354,16 @@ self.onmessage=async function(e){
       if(heading!=='서문')spineItems.push(chid);
       if(heading!=='서문'){for(const fi_idx of afterIlls){const fi=imgStore.get(fi_idx);if(!fi)continue;const fn='ill_'+String(illPageIdx++).padStart(4,'0')+'.xhtml';const iid='ill_'+String(illPageIdx-1).padStart(4,'0');textFolder.file(fn,xhtmlPage(heading+' 삽화','<div class="illust-page"><img src="../Images/'+fi.filename+'" alt="삽화"/></div>'));manifestItems.push({id:iid,href:'Text/'+fn,mt:'application/xhtml+xml'});spineItems.push(iid);}}
     }
+    // ★ 4단계 GC: 챕터 루프 완료 후 chapters 참조 해제
+    // postMessage로 전달된 chapters는 이제 Worker 내에서 불필요
+    chapters.length = 0;
     prog(82,'목차 생성 중...');
     let ncx='<?xml version="1.0" encoding="utf-8"?>\\n<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\\n<head><meta name="dtb:uid" content="'+uid+'"/></head>\\n<docTitle><text>'+escHtml(title)+'</text></docTitle>\\n<navMap>\\n';
     let order=1;
-    for(let idx=0;idx<chapters.length;idx++){const[h]=chapters[idx];if(h==='서문')continue;ncx+='<navPoint id="np'+idx+'" playOrder="'+order+'"><navLabel><text>'+escHtml(tocLabel(idx,h,chHasIll))+'</text></navLabel><content src="Text/chapter_'+String(idx).padStart(4,'0')+'.xhtml"/></navPoint>\\n';order++;}
+    for(let idx=0;idx<manifestItems.length;idx++){const item=manifestItems[idx];if(!item.href.includes('chapter_'))continue;const origIdx=parseInt(item.href.replace('Text/chapter_','').replace('.xhtml',''));const[h]=chapters[origIdx]||[''];if(h==='서문')continue;ncx+='<navPoint id="np'+origIdx+'" playOrder="'+order+'"><navLabel><text>'+escHtml(tocLabel(origIdx,h,chHasIll))+'</text></navLabel><content src="'+item.href+'"/></navPoint>\\n';order++;}
     ncx+='</navMap></ncx>';oebps.file('toc.ncx',ncx);
     let nav='<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>'+escHtml(title)+'</title></head><body><nav epub:type="toc"><ol>\\n';
-    for(let idx=0;idx<chapters.length;idx++){const[h]=chapters[idx];if(h==='서문')continue;nav+='<li><a href="Text/chapter_'+String(idx).padStart(4,'0')+'.xhtml">'+escHtml(tocLabel(idx,h,chHasIll))+'</a></li>\\n';}
+    for(const item of manifestItems){if(!item.href.includes('chapter_'))continue;const origIdx=parseInt(item.href.replace('Text/chapter_','').replace('.xhtml',''));const[h]=chapters[origIdx]||[''];if(h==='서문')continue;nav+='<li><a href="'+item.href+'">'+escHtml(tocLabel(origIdx,h,chHasIll))+'</a></li>\\n';}
     nav+='</ol></nav></body></html>';oebps.file('nav.xhtml',nav);
     const coverInfoX=imgStore.get('cover')||null;
     let opf='<?xml version="1.0" encoding="utf-8"?>\\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">\\n<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\\n<dc:title>'+escHtml(title)+'</dc:title>\\n<dc:creator>'+escHtml(author)+'</dc:creator>\\n<dc:language>'+lang+'</dc:language>\\n<dc:identifier id="uid">'+uid+'</dc:identifier>\\n<dc:date>'+today+'</dc:date>\\n<dc:publisher>TXT2EPUB 변환기</dc:publisher>\\n'+(coverInfoX?'<meta name="cover" content="cover_img"/>\\n':'')+'\\n</metadata>\\n<manifest>\\n<item id="css" href="style.css" media-type="text/css"/>\\n<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\\n<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\\n';
@@ -352,6 +371,8 @@ self.onmessage=async function(e){
     if(coverInfoX)opf+='<item id="cover_img" href="Images/'+coverInfoX.filename+'" media-type="'+coverInfoX.mt+'" properties="cover-image"/>\\n';
     for(const[key,info]of imgStore){if(key==='cover')continue;opf+='<item id="imgf_'+info.filename.replace(/\\W/g,'_')+'" href="Images/'+info.filename+'" media-type="'+info.mt+'"/>\\n';}
     opf+='</manifest>\\n<spine toc="ncx">\\n';spineItems.forEach(s=>opf+='<itemref idref="'+s+'"/>\\n');opf+='</spine>\\n</package>';oebps.file('content.opf',opf);
+    // ★ 4단계 GC: OPF/NCX 문자열 완성 후 중간 변수 해제
+    ncx = null; nav = null; opf = null;
     prog(92,'압축 중...');
     let blob;
     try{
@@ -364,9 +385,15 @@ self.onmessage=async function(e){
           meta=>{self.postMessage({type:'progress',pct:94+Math.floor(meta.percent*0.05),msg:'무압축 패키징 '+Math.floor(meta.percent)+'%...'});});
       }catch(se){throw new Error('EPUB 압축 최종 실패: '+se.message);}
     }
+    // ★ 4단계 GC: zip 객체 참조 해제 — blob 전송 후 JSZip 내부 버퍼 GC 수거 유도
+    // imgStore의 ArrayBuffer들도 이미 Transferable로 이전됐으므로 참조 정리
+    imgStore.clear();
     self.postMessage({type:'done',blob});
+    blob = null; // ★ postMessage 직후 blob 참조 해제
   }catch(err){
     // ★ P2-04: 스택 트레이스 포함 에러 전송 — 디버깅 가능
+    // ★ 4단계: 에러 발생 시에도 메모리 정리 시도
+    try{ if(typeof imgStore!=='undefined'&&imgStore) imgStore.clear(); }catch(_){}
     self.postMessage({type:'error',message:(err.stack||err.message||String(err))});
   }
 };`;
@@ -430,14 +457,21 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
         worker.terminate();
         URL.revokeObjectURL(workerUrl);
         // ★ P2-04: message에 스택 트레이스 포함됨
-        reject(new Error(message||'Worker 오류'));
+        // ★ 4단계: RecoverableError로 래핑 — 호출자(startConvert)가 분기 처리 가능
+        const err = (typeof RecoverableError !== 'undefined')
+          ? new RecoverableError('EPUB 생성 실패: ' + (message||'Worker 오류'), { context: 'launchEpubWorker' })
+          : new Error(message||'Worker 오류');
+        reject(err);
         return;
       }
     };
     worker.onerror = function(e){
       worker.terminate();
       URL.revokeObjectURL(workerUrl);
-      reject(new Error('Worker 런타임 오류: '+(e.message||'알 수 없는 오류')));
+      const err = (typeof RecoverableError !== 'undefined')
+        ? new RecoverableError('Worker 런타임 오류: ' + (e.message||'알 수 없는 오류'), { context: 'launchEpubWorker' })
+        : new Error('Worker 런타임 오류: '+(e.message||'알 수 없는 오류'));
+      reject(err);
     };
 
     // ④ 파라미터 전송
@@ -446,6 +480,12 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
     const compressionRaw = parseInt(document.getElementById('optCompression')?.value??'6',10);
     const compressionLevel = isNaN(compressionRaw)?6:Math.max(0,Math.min(9,compressionRaw));
     const lang = document.getElementById('optLang')?.value||'ko';
+
+    // Transferable 목록 — AB는 zero-copy 이전 후 메인 스레드에서 접근 불가
+    const transferables = [
+      ...(imageData.cover ? [imageData.cover.ab] : []),
+      ...imageData.ills.map(ill=>ill.ab),
+    ];
 
     worker.postMessage(
       {
@@ -461,17 +501,36 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
         imageData, cssText,
       },
       // Transferable: zero-copy ArrayBuffer 이전
-      [
-        ...(imageData.cover ? [imageData.cover.ab] : []),
-        ...imageData.ills.map(ill=>ill.ab),
-      ]
+      transferables
     );
+
+    // ★ 4단계 GC: postMessage 직후 메인 스레드에서 imageData 참조 해제
+    // Transferable로 이전된 AB는 이미 Worker 소유 — 메인 스레드 참조 null 처리
+    // imageData.cover/ills는 이제 detached ArrayBuffer만 남음 → GC 수거 가능
+    imageData.cover = null;
+    imageData.ills = [];
   });
 }
 
 // ══════════════════════════════════════════
 // buildEpub — 하위 호환 래퍼
+// ★ 4단계: RecoverableError 분기 + UI 복구 안전망
 // ══════════════════════════════════════════
 async function buildEpub(params, onProgress){
-  return launchEpubWorker(params, onProgress);
+  try{
+    return await launchEpubWorker(params, onProgress);
+  }catch(e){
+    // ★ RecoverableError는 이미 사용자 메시지가 있으므로 그대로 전파
+    // 호출자(startConvert)의 catch 블록이 RecoverableError를 Toast.warn으로 처리
+    if(typeof RecoverableError !== 'undefined' && e instanceof RecoverableError){
+      throw e;
+    }
+    // ★ 일반 Error는 RecoverableError로 래핑하여 전파 — UI 복구 보장
+    // startConvert의 finally 블록이 progWrap 해제, abortBtn 숨김을 처리함
+    const msg = e.message || String(e);
+    const wrapped = (typeof RecoverableError !== 'undefined')
+      ? new RecoverableError('EPUB 생성 중 오류: ' + msg, { context: 'buildEpub' })
+      : e;
+    throw wrapped;
+  }
 }
