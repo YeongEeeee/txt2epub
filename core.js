@@ -823,3 +823,17 @@ function genUID(){
     return (c==='x'?r:(r&0x3|0x8)).toString(16);
   });
 }
+
+// ══════════════════════════════════════════════════════════════
+// ★ M-FIX: 핵심 심볼 window 명시적 노출
+// const 선언은 'use strict' 전역에서도 window 프로퍼티로 자동 등록되지 않음
+// main.js의 window['Toast'] 체크 및 타 모듈의 전역 참조를 위해 명시적 할당 필요
+// ══════════════════════════════════════════════════════════════
+window.Toast            = Toast;
+window.EventBus         = EventBus;
+window.SettingsDB       = SettingsDB;
+window.RecoverableError = RecoverableError;
+window.yieldToMain      = yieldToMain;
+window.showErrorBoundary= showErrorBoundary;
+window.genUID           = genUID;
+// proxyGet/proxyGetBlob은 이미 core.js 내 CORS 섹션에서 window 노출됨 (유지)

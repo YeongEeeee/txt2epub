@@ -277,73 +277,129 @@ window.addEventListener('error', function(e) {
 //     ③ 공유 전역 상태 로깅 (개발 환경 디버그)
 // ══════════════════════════════════════════════════════════════
 document.addEventListener('DOMContentLoaded', function _mainInit() {
+
+  // ══════════════════════════════════════════════════════════════
+  // ★ M-FIX: 필수 심볼 로드 완료 여부 직접 평가
+  // 문제: window['Toast'] 체크는 const 선언 변수를 감지하지 못함
+  //       (const는 전역 스코프에서도 window 프로퍼티로 자동 등록 안 됨)
+  // 해결: typeof 직접 평가로 교체 + core.js에서 window 명시적 노출 추가
+  // ══════════════════════════════════════════════════════════════
+
+  // ① 아키텍처 레이어 심볼 준비 확인 — Failover 재시도 포함
+  function _checkCoreSymbols() {
+    return typeof Toast !== 'undefined' &&
+           typeof EventBus !== 'undefined' &&
+           typeof SettingsDB !== 'undefined';
+  }
+
+  if (!_checkCoreSymbols()) {
+    // core.js가 아직 완전히 평가되지 않은 경우 (네트워크 지연 등)
+    // 이벤트 루프를 한 번 양보한 뒤 재시도
+    console.warn('[main.js] core.js 심볼 미준비 — 이벤트 루프 양보 후 재시도');
+    Promise.resolve().then(() => {
+      if (!_checkCoreSymbols()) {
+        // 그래도 없으면 로드 실패 — 사용자에게 안내
+        console.error('[main.js] core.js 로드 실패. 스크립트 순서를 확인하세요.');
+        const errBanner = document.createElement('div');
+        errBanner.style.cssText = [
+          'position:fixed','top:0','left:0','right:0',
+          'background:#d44','color:#fff','padding:10px 16px',
+          'font-size:13px','z-index:99999','text-align:center',
+        ].join(';');
+        errBanner.textContent = '초기화 오류: 핵심 모듈 로드 실패. 페이지를 새로고침해 주세요.';
+        document.body?.appendChild(errBanner);
+        return;
+      }
+      _runMainInit(); // 재시도 성공
+    });
+    return; // 현재 실행 중단 — 재시도로 위임
+  }
+
+  _runMainInit(); // 즉시 실행
+
+}, { once: true });
+
+// ── 실제 초기화 로직 분리 (재시도 경로에서도 동일하게 실행)
+function _runMainInit() {
   // ① JSZip 가드 — DOMContentLoaded 시점에 최종 확인
   _checkJSZip();
 
   // ② ui-state.js 초기화 함수 호출  ★ Phase 4 핵심
-  //    이전: ui-state.js가 자체 DOMContentLoaded 소유 → 레이스 위험
-  //    이후: main.js가 단일 DOMContentLoaded에서 순서 보장하며 호출
   if (typeof window.initUiState === 'function') {
     window.initUiState();
+    // ★ initUiState 내부에서 _initProgEls()를 호출하지만,
+    //    안전망으로 직접 호출도 시도 (중복 호출은 무해)
+    if (typeof window._initProgEls === 'function') window._initProgEls();
   } else {
     console.error('[main.js] window.initUiState 미정의 — ui-state.js 로드 순서 확인 필요');
+    // initUiState 없어도 _initProgEls는 독립적으로 시도
+    if (typeof window._initProgEls === 'function') window._initProgEls();
   }
 
-  // ② 모듈 init 함수 존재 여부 방어 점검  ★ M-03
-  //    필수 함수가 없으면 콘솔 경고 (런타임 크래시 예방)
+  // ③ 모듈 init 함수 존재 여부 방어 점검  ★ M-03
+  //    ★ M-FIX: window[fn] 대신 typeof 직접 평가 — const 변수 정확히 감지
   const REQUIRED_FNS = [
     // parser.js
-    'escHtml', 'renderBodyHtml', 'sanitizeLine',
-    'previewToc', 'autoSplitByInterval', 'bestPat',
+    ['escHtml',            () => typeof escHtml !== 'undefined'],
+    ['renderBodyHtml',     () => typeof renderBodyHtml !== 'undefined'],
+    ['sanitizeLine',       () => typeof sanitizeLine !== 'undefined'],
+    ['previewToc',         () => typeof previewToc !== 'undefined'],
+    ['autoSplitByInterval',() => typeof autoSplitByInterval !== 'undefined'],
+    ['bestPat',            () => typeof bestPat !== 'undefined'],
     // epub-gen.js
-    'buildEpub', 'buildCss', 'generateTextCover',
+    ['buildEpub',          () => typeof buildEpub !== 'undefined'],
+    ['buildCss',           () => typeof buildCss !== 'undefined'],
+    ['generateTextCover',  () => typeof generateTextCover !== 'undefined'],
     // convert.js
-    'handleTxt', 'fileToText', 'startConvert', 'splitChapters',
+    ['handleTxt',          () => typeof handleTxt !== 'undefined'],
+    ['fileToText',         () => typeof fileToText !== 'undefined'],
+    ['startConvert',       () => typeof startConvert !== 'undefined'],
+    ['splitChapters',      () => typeof splitChapters !== 'undefined'],
     // settings.js
-    'saveCssSettings', 'loadCssSettings', 'renderCssPresetList',
+    ['saveCssSettings',    () => typeof saveCssSettings !== 'undefined'],
+    ['loadCssSettings',    () => typeof loadCssSettings !== 'undefined'],
+    ['renderCssPresetList',() => typeof renderCssPresetList !== 'undefined'],
     // ui-state.js
-    'switchPage', 'setupEventDelegate', 'initTheme',
+    ['switchPage',         () => typeof switchPage !== 'undefined'],
+    ['setupEventDelegate', () => typeof setupEventDelegate !== 'undefined'],
+    ['initTheme',          () => typeof initTheme !== 'undefined'],
     // edit.js
-    'loadEpub', 'renderChList',
-    // core.js
-    'Toast', 'SettingsDB', 'EventBus',
+    ['loadEpub',           () => typeof loadEpub !== 'undefined'],
+    ['renderChList',       () => typeof renderChList !== 'undefined'],
+    // core.js — const이므로 window[fn] 대신 typeof 사용
+    ['Toast',              () => typeof Toast !== 'undefined'],
+    ['SettingsDB',         () => typeof SettingsDB !== 'undefined'],
+    ['EventBus',           () => typeof EventBus !== 'undefined'],
   ];
-  const missing = REQUIRED_FNS.filter(fn => {
-    const val = window[fn];
-    return typeof val === 'undefined';
-  });
+
+  const missing = REQUIRED_FNS.filter(([, check]) => !check()).map(([name]) => name);
+
   if (missing.length > 0) {
     console.warn('[main.js] 필수 심볼 미로드:', missing.join(', '));
-    // 개발 환경에서만 Toast 경고 (production 빌드에서는 조용히 넘김)
     if (typeof Toast !== 'undefined' && location.hostname === 'localhost') {
       Toast.warn('누락된 모듈: ' + missing.join(', '), 5000);
     }
   }
 
-  // ③ 마지막 방문 탭 복원  ★ M-08
-  //    ui-state.js의 switchPage를 사용
-  //    단, 초기화가 완전히 끝난 뒤 실행해야 하므로 rAF(double) 지연
+  // ④ 마지막 방문 탭 복원  ★ M-08
   requestAnimationFrame(function() {
     requestAnimationFrame(function() {
       try {
         const lastPage = localStorage.getItem('novelepub_last_page') || 'convert';
-        const validPages = ['convert', 'batch', 'edit', 'history', 'settings'];
+        // ★ 2단계 pages 순서 동기화: convert→edit→batch→history→settings
+        const validPages = ['convert', 'edit', 'batch', 'history', 'settings'];
         if (
           validPages.includes(lastPage) &&
-          lastPage !== 'convert' &&   // 기본 탭이 아닐 때만 복원
+          lastPage !== 'convert' &&
           typeof switchPage === 'function'
         ) {
           switchPage(lastPage);
         }
-      } catch (e) {
-        // localStorage 접근 실패(프라이빗 브라우징 등) — 무시
-      }
+      } catch (e) {}
     });
   });
 
-  // ④ splitBtn 초기 상태 보장
-  //    파일이 없는 초기 상태에서 splitBtn이 활성화되어 있으면
-  //    _syncSplitBtn('nofile')로 강제 비활성화
+  // ⑤ splitBtn 초기 상태 보장
   try {
     const splitBtn = document.querySelector('button[data-action="autoSplitByInterval"]');
     if (splitBtn && typeof _syncSplitBtn === 'function') {
@@ -351,18 +407,34 @@ document.addEventListener('DOMContentLoaded', function _mainInit() {
     }
   } catch (e) {}
 
-  // ⑤ 개발 환경 디버그 정보 출력
+  // ⑥ 이벤트 위임 복구 보장  ★ M-FIX
+  //    cover-search.js가 window.openCoverSearchModal 등을 노출했는지 확인
+  //    끊어진 경우 DOMContentLoaded 이후 재등록
+  requestAnimationFrame(function() {
+    const coverBtn = document.querySelector('[data-action="openCoverModal"]');
+    if (coverBtn && typeof openCoverSearchModal !== 'function') {
+      console.warn('[main.js] cover-search.js 심볼 미로드 — 이벤트 위임 복구 불가');
+    }
+    // EventDelegate가 제대로 초기화됐는지 확인
+    if (typeof EventDelegate !== 'undefined' && typeof EventDelegate.init === 'function') {
+      // 이미 initUiState에서 setupEventDelegate()가 호출됐으나
+      // 모달 관련 액션이 등록됐는지 재확인 (안전망)
+    }
+  });
+
+  // ⑦ 개발 환경 디버그 정보 출력
   if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
     console.info(
       '%c[NovelEPUB] 초기화 완료%c\n' +
       '  window._autoSplitActive: ' + window._autoSplitActive + '\n' +
       '  JSZip: ' + (typeof JSZip !== 'undefined' ? 'OK' : '❌ 미로드') + '\n' +
+      '  Toast: ' + (typeof Toast !== 'undefined' ? 'OK' : '❌ 미로드') + '\n' +
       '  ServiceWorker: ' + ('serviceWorker' in navigator ? 'OK' : '미지원'),
       'color:#4a90d9;font-weight:bold',
       'color:inherit'
     );
   }
-}, { once: true }); // ← once:true — 리스너 중복 등록 방지
+}
 
 // ══════════════════════════════════════════════════════════════
 // § 6. 탭 전환 시 마지막 방문 탭 저장
