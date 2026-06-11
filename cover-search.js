@@ -66,86 +66,208 @@ function proxyImgUrl(url) {
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// ★ 이미지 전용 다중 프록시 폴백 체인
+//
+// 문제: artmug.kr 등 Hotlinking 방지 서버가 Referer/Origin 헤더를 체크하여
+//       단순 CORS 프록시(Workers)가 그대로 헤더를 전달하면 403 반환
+//
+// 해결: Referer 헤더 제거 또는 리라이팅이 내장된 이미지 가속 프록시를 순서대로 시도
+//   1순위: images.weserv.nl   — Referer 자동 제거, 이미지 전용, 무료
+//   2순위: Workers 프록시     — 자체 인프라, Referer 그대로 전달 (일부 사이트 통과)
+//   3순위: 직접 fetch          — CORS 허용 서버만 통과, blob 반환
+//
+// ★ images.weserv.nl 쿼리스트링 규격:
+//   https://images.weserv.nl/?url={원본URL} — 프로토콜 없이 인코딩
+//   (https://는 자동 처리, http://도 지원)
+// ══════════════════════════════════════════════════════════════
+
+const _IMG_PROXY_CHAIN = [
+  // 1순위: weserv.nl — Referer 헤더 제거 내장, Hotlinking 방지 우회
+  {
+    name: 'weserv',
+    buildUrl(rawUrl) {
+      // weserv는 프로토콜 포함 URL을 encodeURIComponent로 전달
+      // https:// 또는 http:// 모두 지원
+      const u = rawUrl.startsWith('//') ? 'https:' + rawUrl : rawUrl;
+      return 'https://images.weserv.nl/?url=' + encodeURIComponent(u)
+        + '&output=jpg&q=92';  // JPEG 출력 강제 + 품질 지정
+    },
+    // weserv 응답은 항상 이미지이므로 Content-Type 추가 검증 불필요
+    noCredentials: true,
+  },
+  // 2순위: Workers 자체 프록시 (X-NovelEPUB-Token 인증 포함)
+  {
+    name: 'workers',
+    buildUrl(rawUrl) {
+      const base = (typeof CORS_PROXY_URL !== 'undefined'
+        ? CORS_PROXY_URL
+        : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=');
+      try { return base + encodeURIComponent(decodeURIComponent(rawUrl)); }
+      catch(e) { return base + encodeURIComponent(rawUrl); }
+    },
+    headers: {
+      'X-NovelEPUB-Token': (typeof _PROXY_TOKEN !== 'undefined'
+        ? _PROXY_TOKEN : 'novelepub-secure-token'),
+      'Cache-Control': 'no-cache',
+    },
+  },
+  // 3순위: 직접 fetch (CORS 허용 서버만 통과 — 최후 수단)
+  {
+    name: 'direct',
+    buildUrl(rawUrl) {
+      return rawUrl.startsWith('//') ? 'https:' + rawUrl : rawUrl;
+    },
+    headers: { 'Cache-Control': 'no-cache' },
+  },
+];
+
+/**
+ * _fetchImgBlob — 이미지 URL을 Blob으로 가져오는 다중 프록시 폴백 함수
+ * @param {string} imgUrl  원본 이미지 URL
+ * @param {number} [timeout=8000]  각 프록시 시도당 타임아웃 (ms)
+ * @returns {Promise<Blob>}  이미지 Blob (JPEG 또는 원본 MIME)
+ */
+async function _fetchImgBlob(imgUrl, timeout = 8000) {
+  // data:/blob: URL은 프록시 불필요
+  if(imgUrl.startsWith('data:') || imgUrl.startsWith('blob:')){
+    const res = await fetch(imgUrl);
+    return await res.blob();
+  }
+
+  // //로 시작하는 프로토콜 상대경로 정규화
+  const normalizedUrl = imgUrl.startsWith('//') ? 'https:' + imgUrl : imgUrl;
+  let lastErr = null;
+
+  for(const proxy of _IMG_PROXY_CHAIN){
+    const proxyUrl = proxy.buildUrl(normalizedUrl);
+    const ctrl     = new AbortController();
+    const timer    = setTimeout(() => ctrl.abort(), timeout);
+
+    try{
+      const fetchOpts = {
+        signal:  ctrl.signal,
+        headers: proxy.headers || {},
+        // credentials 제외: Hotlinking 방지 서버가 쿠키를 보고 차단하는 경우 방어
+        credentials: proxy.noCredentials ? 'omit' : 'same-origin',
+      };
+
+      const resp = await fetch(proxyUrl, fetchOpts);
+      clearTimeout(timer);
+
+      // 403/401: Hotlinking 차단 → 다음 프록시로
+      if(resp.status === 403 || resp.status === 401){
+        console.warn(`[_fetchImgBlob] ${proxy.name} → ${resp.status}, 다음 프록시 시도`);
+        lastErr = new Error(`${proxy.name}: HTTP ${resp.status}`);
+        continue;
+      }
+
+      // 기타 4xx/5xx
+      if(!resp.ok){
+        console.warn(`[_fetchImgBlob] ${proxy.name} → ${resp.status}`);
+        lastErr = new Error(`${proxy.name}: HTTP ${resp.status}`);
+        continue;
+      }
+
+      // ★ 바이너리 안전 처리: arrayBuffer → Blob (Content-Type MIME 보존)
+      const ab   = await resp.arrayBuffer();
+      const ct   = resp.headers.get('Content-Type') || 'image/jpeg';
+      const mime = ct.split(';')[0].trim();
+
+      // 최소 크기 검증: 1KB 미만이면 에러 페이지일 가능성
+      if(ab.byteLength < 1024){
+        console.warn(`[_fetchImgBlob] ${proxy.name} → 응답 크기 너무 작음 (${ab.byteLength}B)`);
+        lastErr = new Error(`${proxy.name}: 응답 크기 미달`);
+        continue;
+      }
+
+      console.info(`[_fetchImgBlob] ${proxy.name} 성공 (${(ab.byteLength/1024).toFixed(0)}KB)`);
+      return new Blob([ab], { type: mime.startsWith('image/') ? mime : 'image/jpeg' });
+
+    }catch(err){
+      clearTimeout(timer);
+      if(err.name === 'AbortError'){
+        console.warn(`[_fetchImgBlob] ${proxy.name} → 타임아웃 (${timeout}ms)`);
+        lastErr = new Error(`${proxy.name}: 타임아웃`);
+        continue;
+      }
+      console.warn(`[_fetchImgBlob] ${proxy.name} → 오류:`, err.message);
+      lastErr = err;
+      // 네트워크 오류는 다음 프록시로 계속
+    }
+  }
+
+  // 모든 프록시 실패
+  throw lastErr || new Error('모든 이미지 프록시 실패');
+}
+
 // ── 캔버스 중앙 크롭 가공 및 세션 전송 (Tainted Canvas 방어) ──
 async function centerCropToBlob(imgUrl) {
+  // ★ 1단계: 다중 프록시 폴백 체인으로 Blob 획득
+  // _fetchImgBlob: weserv.nl(Referer 제거) → Workers → 직접 순서로 시도
+  let blobData = null;
+  let objectUrl = null;
+
+  try{
+    blobData = await _fetchImgBlob(imgUrl);
+    objectUrl = URL.createObjectURL(blobData);
+    blobData = null; // ★ GC: ObjectURL 생성 후 Blob 참조 해제
+  }catch(fetchErr){
+    // 모든 프록시 실패 시 proxyImgUrl 경유 img.src 폴백 (crossOrigin 의존)
+    console.warn('[centerCropToBlob] _fetchImgBlob 모두 실패, proxyImgUrl 폴백:', fetchErr.message);
+  }
+
   return new Promise((resolve, reject) => {
     const img = new Image();
+    // ★ crossOrigin=anonymous: ObjectURL은 same-origin이므로 taint 없음
+    //    proxyImgUrl 폴백 경로에서도 필요
     img.crossOrigin = 'anonymous';
 
     img.onload = () => {
+      // ★ ObjectURL 즉시 해제 (onload 완료 시점 — 이미 메모리에 올라감)
+      if(objectUrl){ URL.revokeObjectURL(objectUrl); objectUrl = null; }
       try {
         const cw = img.naturalWidth;
         const ch = img.naturalHeight;
         if (cw <= 0 || ch <= 0) {
-          reject(new Error('이미지 크기가 올바르지 않습니다.'));
-          return;
+          reject(new Error('이미지 크기가 올바르지 않습니다.')); return;
         }
-        
-        let targetW = 400;
-        let targetH = 600;
-        
-        const canvas = document.createElement('canvas');
-        canvas.width = targetW;
-        canvas.height = targetH;
+        const targetW = 400, targetH = 600;
+        const canvas  = document.createElement('canvas');
+        canvas.width  = targetW; canvas.height = targetH;
         const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Canvas 가동 실패'));
-          return;
-        }
+        if (!ctx){ reject(new Error('Canvas 가동 실패')); return; }
 
-        let srcX = 0, srcY = 0, srcW = cw, srcH = ch;
         const currentRatio = cw / ch;
-        const targetRatio = targetW / targetH;
-
+        const targetRatio  = targetW / targetH;
+        let srcX = 0, srcY = 0, srcW = cw, srcH = ch;
         if (currentRatio > targetRatio) {
-          srcW = ch * targetRatio;
-          srcX = (cw - srcW) / 2;
+          srcW = ch * targetRatio; srcX = (cw - srcW) / 2;
         } else {
-          srcH = cw / targetRatio;
-          srcY = (ch - srcH) / 2;
+          srcH = cw / targetRatio; srcY = (ch - srcH) / 2;
         }
-
         ctx.drawImage(img, srcX, srcY, srcW, srcH, 0, 0, targetW, targetH);
-        
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error('Canvas Blob 추출 실패'));
-        }, 'image/jpeg', 0.88);
-      } catch (err) {
-        reject(err);
-      }
+
+        // ★ toBlob SecurityError(canvas taint) try-catch
+        try{
+          canvas.toBlob(blob => {
+            if(blob) resolve(blob);
+            else reject(new Error('Canvas Blob 추출 실패'));
+          }, 'image/jpeg', 0.88);
+        }catch(secErr){
+          console.warn('[centerCropToBlob] canvas SecurityError:', secErr.message);
+          reject(secErr);
+        }
+      } catch(err){ reject(err); }
     };
 
     img.onerror = () => {
-      reject(new Error('표지 이미지 렌더링에 실패했습니다. (CORS 가드 걸림)'));
+      if(objectUrl){ URL.revokeObjectURL(objectUrl); objectUrl = null; }
+      reject(new Error('표지 이미지 렌더링 실패 (모든 프록시 시도 후 CORS 차단)'));
     };
 
-    // core.js의 proxyGetBlob을 통해 안전한 가공용 로컬 Blob ObjectURL로 우회 공급
-    if (typeof proxyGetBlob === 'function') {
-      proxyGetBlob(imgUrl)
-        .then(blob => {
-          const lUrl = URL.createObjectURL(blob);
-          // ★ BUG-14 FIX: img 로드 완료 후 ObjectURL 즉시 해제 → 메모리 누수 방지
-          // onload/onerror 두 경로 모두 revoke 처리
-          const _origOnload = img.onload;
-          const _origOnerror = img.onerror;
-          img.onload = function() {
-            URL.revokeObjectURL(lUrl);
-            if(_origOnload) _origOnload.call(img);
-          };
-          img.onerror = function() {
-            URL.revokeObjectURL(lUrl);
-            if(_origOnerror) _origOnerror.call(img);
-          };
-          img.src = lUrl;
-        })
-        .catch(() => {
-          // proxyGetBlob 실패 시 proxyImgUrl 경유로 폴백
-          img.src = proxyImgUrl(imgUrl);
-        });
-    } else {
-      img.src = proxyImgUrl(imgUrl);
-    }
+    // ★ ObjectURL이 있으면 사용, 없으면 proxyImgUrl 경유
+    img.src = objectUrl || proxyImgUrl(imgUrl);
   });
 }
 
