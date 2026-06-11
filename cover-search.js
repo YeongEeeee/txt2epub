@@ -151,40 +151,72 @@ async function centerCropToBlob(imgUrl) {
 
 // ── 모달 열기 제어 ──
 function openCoverSearchModal(mode='convert') {
-  _coverModalMode = mode;
-  const el = document.getElementById('coverModal');
-  if(!el) return;
-  el.classList.add('show');
+  try{
+    _coverModalMode = mode;
+    // ★ ID 확정: index.html 실제 모달 ID = 'coverModal'
+    const el = document.getElementById('coverModal');
+    if(!el){ console.error('[openCoverSearchModal] #coverModal 없음'); return; }
+    el.classList.add('show');
 
-  let titleInput = '';
-  if(mode === 'convert') {
-    // ★ BUG-16 FIX: S.convert.txtFiles → S.txtFiles (StateManager 실제 경로)
-    const files = S.txtFiles || [];
-    if(files.length > 0) titleInput = extractSearchTitle(files[0].name);
-  } else {
-    titleInput = S.batch.currentSearchTitle || '';
-  }
+    let titleInput = '';
+    if(mode === 'convert') {
+      const files = (typeof S !== 'undefined') ? (S.txtFiles || []) : [];
+      if(files.length > 0) titleInput = extractSearchTitle(files[0].name);
+    } else {
+      const batch = (typeof S !== 'undefined') ? (S.batch || {}) : {};
+      titleInput = batch.currentSearchTitle || '';
+    }
 
-  const qIn = document.getElementById('coverSearchInput');
-  if(qIn) {
-    qIn.value = titleInput;
-    qIn.focus();
-    if(titleInput) triggerCoverSearch();
+    // ★ ID 교정: index.html 실제 입력창 ID = 'coverSearchQ'
+    const qIn = document.getElementById('coverSearchQ');
+    if(qIn){
+      qIn.value = titleInput;
+      qIn.focus();
+    }
+
+    // ★ replaceChildren(): 이전 검색 결과 GC 친화적 초기화
+    // index.html 실제 결과 컨테이너 ID = 'coverModalBody'
+    const grid = document.getElementById('coverModalBody');
+    if(grid){
+      grid.replaceChildren();
+      const hint = document.createElement('div');
+      hint.style.cssText = 'text-align:center;padding:40px 0;color:var(--text2);font-size:13px';
+      hint.innerHTML = '소설 제목을 입력하고 검색하면<br>네이버·리디·카카오페이지·노벨피아·구글에서 동시 검색해요';
+      grid.appendChild(hint);
+    }
+
+    if(titleInput) runCoverSearch();
+  }catch(err){
+    console.error('[openCoverSearchModal]', err);
+    if(typeof Toast !== 'undefined') Toast.error('표지 검색 모달을 여는 중 오류가 발생했습니다.');
   }
 }
 
 function closeCoverSearchModal() {
-  if(_searchAbortCtrl) { _searchAbortCtrl.abort(); _searchAbortCtrl = null; }
-  document.getElementById('coverModal')?.classList.remove('show');
+  try{
+    if(_searchAbortCtrl) { _searchAbortCtrl.abort(); _searchAbortCtrl = null; }
+    document.getElementById('coverModal')?.classList.remove('show');
+  }catch(err){
+    console.error('[closeCoverSearchModal]', err);
+  }
 }
 
 // ── 검색 트리거 핸들러 ──
-function triggerCoverSearch() {
-  const q = document.getElementById('coverSearchInput')?.value?.trim() || '';
-  if(!q) { Toast.info('검색어를 입력해 주세요.'); return; }
-  
-  const grid = document.getElementById('coverSearchGrid');
-  if(grid) grid.innerHTML = '<div class=\"cover-search-loading\"><span class=\"spinner\"></span> 소설 표지를 탐색하는 중...</div>';
+// ★ index.html data-action="runCoverSearch" 에서 호출되는 함수
+function runCoverSearch() {
+  // ★ ID 교정: index.html 실제 입력창 ID = 'coverSearchQ'
+  const q = document.getElementById('coverSearchQ')?.value?.trim() || '';
+  if(!q) { if(typeof Toast!=='undefined') Toast.info('검색어를 입력해 주세요.'); return; }
+
+  // ★ ID 교정: index.html 실제 결과 컨테이너 ID = 'coverModalBody'
+  const grid = document.getElementById('coverModalBody');
+  if(grid){
+    grid.replaceChildren();
+    const loadingEl = document.createElement('div');
+    loadingEl.className = 'cover-search-loading';
+    loadingEl.innerHTML = '<span class="spinner"></span> 소설 표지를 탐색하는 중...';
+    grid.appendChild(loadingEl);
+  }
 
   if(_searchAbortCtrl) _searchAbortCtrl.abort();
   _searchAbortCtrl = new AbortController();
@@ -192,16 +224,31 @@ function triggerCoverSearch() {
   searchAllPlatforms(q)
     .then(items => {
       if(!items || items.length === 0) {
-        if(grid) grid.innerHTML = '<div class=\"cover-search-empty\">🔍 검색 결과가 없습니다.<br>다른 단어로 다시 시도해 보세요.</div>';
+        if(grid){
+          grid.replaceChildren();
+          const emptyEl = document.createElement('div');
+          emptyEl.className = 'cover-search-empty';
+          emptyEl.innerHTML = '🔍 검색 결과가 없습니다.<br>다른 단어로 다시 시도해 보세요.';
+          grid.appendChild(emptyEl);
+        }
         return;
       }
       renderCoverSearchResults(items);
     })
     .catch(err => {
       if(err.name === 'AbortError') return;
-      if(grid) grid.innerHTML = `<div class=\"cover-search-empty\">⚠️ 오류가 발생했습니다.<br><span style=\"font-size:11px;color:var(--text3)\">${escHtml(err.message)}</span></div>`;
+      if(grid){
+        grid.replaceChildren();
+        const errEl = document.createElement('div');
+        errEl.className = 'cover-search-empty';
+        errEl.innerHTML = `⚠️ 오류가 발생했습니다.<br><span style="font-size:11px;color:var(--text3)">${escHtml(err.message)}</span>`;
+        grid.appendChild(errEl);
+      }
     });
 }
+
+// ★ 하위 호환 별칭 — 기존 코드에서 triggerCoverSearch()로 호출하던 경우 대응
+const triggerCoverSearch = runCoverSearch;
 
 // ── 외부 플랫폼 어댑터 종합 스캔 ──
 async function searchAllPlatforms(q) {
@@ -380,9 +427,10 @@ async function fetchWebFallbackCovers(q) {
 
 // ── 결과 아이템 화면 렌더링 ──
 function renderCoverSearchResults(items) {
-  const grid = document.getElementById('coverSearchGrid');
+  // ★ ID 교정: index.html 실제 결과 컨테이너 ID = 'coverModalBody'
+  const grid = document.getElementById('coverModalBody');
   if(!grid) return;
-  grid.innerHTML = '';
+  grid.replaceChildren(); // GC 친화적 초기화
 
   items.forEach(item => {
     const card = document.createElement('div');
@@ -562,7 +610,23 @@ async function proxyFetch(url, timeout = 9000) {
   }
 }
 
-// Global Exports
-window.openCoverSearchModal = openCoverSearchModal;
+// ══════════════════════════════════════════
+// ★ window 명시적 노출
+// const 스코프 문제 원천 차단 + ui-state.js EventDelegate 호출 이름과 100% 일치
+// index.html data-action 매핑:
+//   data-action="openCoverModal"   → openCoverModal()
+//   data-action="closeCoverModal"  → closeCoverModal()
+//   data-action="runCoverSearch"   → runCoverSearch()
+//   data-action="abortCoverSearch" → abortCoverSearch()
+// ══════════════════════════════════════════
+
+// EventDelegate에서 호출하는 이름으로 노출
+window.openCoverModal      = (mode) => openCoverSearchModal(mode || 'convert');
+window.closeCoverModal     = closeCoverSearchModal;
+window.runCoverSearch      = runCoverSearch;
+window.abortCoverSearch    = () => { if(_searchAbortCtrl){ _searchAbortCtrl.abort(); _searchAbortCtrl=null; } };
+
+// 기존 이름도 유지 (하위 호환)
+window.openCoverSearchModal  = openCoverSearchModal;
 window.closeCoverSearchModal = closeCoverSearchModal;
-window.triggerCoverSearch = triggerCoverSearch;
+window.triggerCoverSearch    = runCoverSearch;

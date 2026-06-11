@@ -1076,8 +1076,31 @@ window.initUiState = function initUiState(){
 
   document.getElementById('histSearchInp')?.addEventListener('input', ()=>filterHistory&&filterHistory());
   document.getElementById('histFilterHasFile')?.addEventListener('click', function(){ toggleHistFilter&&toggleHistFilter(this); });
+  // ★ ID 교정: index.html 실제 입력창 = 'coverSearchQ'
   document.getElementById('coverSearchQ')?.addEventListener('keydown', e=>{ if(e.key==='Enter') typeof runCoverSearch==='function'&&runCoverSearch(); });
   document.getElementById('padAccordionToggle')?.addEventListener('click', ()=>togglePadAccordion&&togglePadAccordion());
+
+  // ★ _bindCoverSearchBackup: 표지 검색 버튼 이벤트 위임 세이프티 가드
+  // data-action="openCoverModal"이 EventDelegate에 등록되어 있는지 런타임 이중 확인
+  // EventDelegate 초기화 실패 등 예외 상황에서도 표지 검색 버튼이 반응하도록 보장
+  (function _bindCoverSearchBackup(){
+    requestAnimationFrame(()=>{
+      document.querySelectorAll('[data-action="openCoverModal"]').forEach(btn=>{
+        // 이미 EventDelegate가 처리하고 있으나, 만약 놓친 경우를 위한 직접 바인딩
+        // onclick은 EventDelegate와 중복되지 않도록 data-backup 마커로 구분
+        if(btn.dataset.backupBound) return;
+        btn.dataset.backupBound = '1';
+        btn.addEventListener('click', function(){
+          const mode = btn.dataset.mode || 'convert';
+          if(typeof window.openCoverModal === 'function'){
+            window.openCoverModal(mode);
+          } else if(typeof openCoverSearchModal === 'function'){
+            openCoverSearchModal(mode);
+          }
+        });
+      });
+    });
+  })();
 
   const lineVal=document.getElementById('cssLine')?.value||'1.9';
   syncSelect('cssLine','cssLineSlider','cssLineVal',lineVal);
