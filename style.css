@@ -457,8 +457,125 @@ body{
 .btn-search:hover{border-color:var(--accent);color:var(--accent);transform:translateY(-1px)}
 
 /* ── 모달 ── */
-.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;align-items:center;justify-content:center;backdrop-filter:blur(3px)}
+/* ── 모달 공통 오버레이 ── */
+/* ★ z-index 2000: btm-bar(100), toast(9999 제외), 기타 팝업보다 위 */
+.modal-overlay{
+  display:none;
+  position:fixed;   /* ★ 뷰포트 절대 고정 — 스크롤해도 밀리지 않음 */
+  inset:0;          /* top:0; left:0; right:0; bottom:0 */
+  width:100vw;
+  height:100vh;
+  background:rgba(0,0,0,.6);
+  z-index:2000;     /* ★ 상향: btm-bar 등 모든 레이어 위 */
+  align-items:center;
+  justify-content:center;
+  backdrop-filter:blur(3px);
+  overflow:hidden;  /* ★ 모달 외부 스크롤 원천 차단 */
+}
 .modal-overlay.show{display:flex;animation:fadeIn .18s ease}
+
+/* ── 표지 검색 모달 박스 ── */
+.cover-modal{
+  background:var(--panel);
+  border-radius:var(--radius);
+  max-width:740px;
+  width:96vw;
+  /* ★ max-height + flex column: 모달 박스 크기 고정, 내부만 스크롤 */
+  max-height:90vh;
+  display:flex;
+  flex-direction:column;
+  box-shadow:var(--shadow-xl);
+  overflow:hidden;   /* ★ 박스 자체 넘침 차단 */
+  border:1px solid var(--border);
+}
+.cover-modal-hdr{
+  padding:13px 18px;
+  border-bottom:1px solid var(--border);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  flex-shrink:0;     /* ★ 헤더 높이 고정 — 결과 영역 확장해도 줄어들지 않음 */
+  gap:10px;
+}
+.cover-modal-hdr h3{font-size:14px;font-weight:700;white-space:nowrap}
+
+/* ★ 검색창 그룹: 입력창 + 검색 버튼 + 구글 버튼 flex row */
+.cover-modal-search{
+  display:flex;
+  gap:6px;
+  flex:1;            /* 헤더 내 남은 공간 차지 */
+  margin:0 12px 0 16px;
+  align-items:center;
+  min-width:0;       /* flex 자식 overflow 방지 */
+}
+.cover-modal-search input{
+  flex:1;
+  min-width:0;
+  background:var(--bg);
+  border:1.5px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:8px 12px;
+  font-size:13px;
+  color:var(--text);
+  font-family:inherit;
+  outline:none;
+  transition:border-color var(--dur-fast),box-shadow var(--dur-fast);
+}
+.cover-modal-search input:focus{
+  border-color:var(--accent);
+  box-shadow:0 0 0 3px rgba(212,90,70,.1);
+}
+
+/* ★ 구글 검색 버튼 — 마크업 선행 배치, JS 동적 삽입과 충돌 없음 */
+#coverGoogleBtn{
+  flex-shrink:0;
+  white-space:nowrap;
+  font-size:12px;
+  padding:6px 10px;
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  background:var(--bg2);
+  color:var(--text2);
+  cursor:pointer;
+  transition:border-color .15s,color .15s;
+}
+#coverGoogleBtn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* ★ 결과 영역: flex:1로 남은 높이 차지 + 내부만 스크롤 */
+/* cover-modal-body-grid 클래스가 있을 때 grid 레이아웃 활성화 */
+.cover-modal-body{
+  overflow-y:auto;
+  flex:1;            /* ★ 모달 박스 남은 높이 전부 차지 */
+  padding:14px 16px;
+  overscroll-behavior:contain; /* ★ 바디 스크롤이 뒤 페이지로 전파되지 않음 */
+  min-height:0;      /* ★ flex 자식의 overflow:auto 올바른 동작을 위해 필수 */
+}
+/* ★ 검색 결과 카드 그리드 — 카드 크기 120px 고정, 자동 줄바꿈 */
+.cover-modal-body-grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill, minmax(120px, 1fr));
+  gap:12px;
+  align-content:start; /* 항목이 적을 때 위에서부터 배치 */
+}
+/* 안내 문구: 그리드가 아닌 단일 열 전체 너비 */
+.cover-modal-hint{
+  grid-column:1 / -1;
+  text-align:center;
+  padding:40px 0;
+  color:var(--text2);
+  font-size:13px;
+  line-height:1.7;
+}
+/* 로딩/빈결과/에러 메시지도 전체 너비 */
+.cover-search-loading,
+.cover-search-empty{
+  grid-column:1 / -1;
+  text-align:center;
+  padding:32px 0;
+  color:var(--text2);
+  font-size:13px;
+}
+.cover-search-loading{display:flex;align-items:center;justify-content:center;gap:8px;}
 .modal{background:var(--panel);border-radius:var(--radius);max-width:680px;width:90vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:var(--shadow-xl);overflow:hidden;border:1px solid var(--border)}
 .modal-hdr{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
 .modal-hdr h3{font-size:14px;font-weight:700}
@@ -479,13 +596,7 @@ body{
 .badge-new{display:inline-block;background:var(--accent);color:#fff;border-radius:4px;padding:1px 5px;font-size:9px;font-weight:700;margin-left:5px;vertical-align:middle}
 
 /* ── 표지 검색 모달 ── */
-.cover-modal{background:var(--panel);border-radius:var(--radius);max-width:740px;width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:var(--shadow-xl);overflow:hidden;border:1px solid var(--border)}
-.cover-modal-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0;gap:10px}
-.cover-modal-hdr h3{font-size:14px;font-weight:700;white-space:nowrap}
-.cover-modal-body{overflow-y:auto;flex:1;padding:14px 16px;overscroll-behavior:contain}
-.cover-modal-search{display:flex;gap:6px;margin-bottom:14px}
-.cover-modal-search input{flex:1;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:13px;color:var(--text);font-family:inherit;outline:none;transition:border-color var(--dur-fast),box-shadow var(--dur-fast)}
-.cover-modal-search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px rgba(212,90,70,.1)}
+/* ★ cover-modal 스타일은 위 modal-overlay 섹션으로 통합됨 */
 .cover-platform-sec{margin-bottom:18px}
 .cover-platform-hdr{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .cover-platform-label{font-size:12px;font-weight:700;color:var(--text)}

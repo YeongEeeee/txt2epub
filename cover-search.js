@@ -389,49 +389,19 @@ function runCoverSearch() {
   const q = document.getElementById('coverSearchQ')?.value?.trim() || '';
   if(!q) { if(typeof Toast!=='undefined') Toast.info('검색어를 입력해 주세요.'); return; }
 
-  // ★ 구글 검색 버튼 동적 삽입 (한 번만)
-  // 모달 내 버튼이 없는 경우에만 생성
-  const searchQ = document.getElementById('coverSearchQ');
-  if(searchQ && !document.getElementById('coverGoogleBtn')){
-    const googleBtn = document.createElement('button');
-    googleBtn.id        = 'coverGoogleBtn';
-    googleBtn.type      = 'button';
-    googleBtn.title     = '구글에서 소설 표지 검색';
-    googleBtn.style.cssText = [
-      'flex-shrink:0',
-      'padding:4px 10px',
-      'border:1px solid var(--border)',
-      'border-radius:6px',
-      'background:var(--bg2)',
-      'color:var(--text2)',
-      'font-size:12px',
-      'cursor:pointer',
-      'white-space:nowrap',
-      'transition:border-color .15s,color .15s',
-    ].join(';');
-    googleBtn.textContent = '🌐 구글';
-    googleBtn.addEventListener('mouseenter', () => {
-      googleBtn.style.borderColor = 'var(--accent)';
-      googleBtn.style.color       = 'var(--accent)';
-    });
-    googleBtn.addEventListener('mouseleave', () => {
-      googleBtn.style.borderColor = 'var(--border)';
-      googleBtn.style.color       = 'var(--text2)';
-    });
-    googleBtn.addEventListener('click', () => {
+  // ★ 구글 버튼은 index.html에 #coverGoogleBtn으로 선행 배치됨
+  // JS 동적 삽입 불필요 — 마크업에 이미 존재하는 버튼에 이벤트만 1회 바인딩
+  const _googleBtn = document.getElementById('coverGoogleBtn');
+  if(_googleBtn && !_googleBtn.dataset.bound){
+    _googleBtn.dataset.bound = '1';
+    _googleBtn.addEventListener('click', () => {
       const currentQ = document.getElementById('coverSearchQ')?.value?.trim() || q;
       if(!currentQ) return;
-      // 소설 표지 키워드를 함께 검색하여 관련성 높은 결과 유도
-      const googleQuery = currentQ + ' 소설 표지';
       window.open(
-        'https://www.google.com/search?q=' + encodeURIComponent(googleQuery)
-        + '&tbm=isch',  // 이미지 탭 직접 열기
-        '_blank',
-        'noopener,noreferrer'
+        'https://www.google.com/search?q=' + encodeURIComponent(currentQ + ' 소설 표지')
+        + '&tbm=isch', '_blank', 'noopener,noreferrer'
       );
     });
-    // 입력창 부모 컨테이너에 버튼 삽입
-    searchQ.parentNode?.appendChild(googleBtn);
   }
 
   // ★ ID 교정: index.html 실제 결과 컨테이너 ID = 'coverModalBody'

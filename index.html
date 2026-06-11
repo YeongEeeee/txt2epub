@@ -1124,21 +1124,51 @@
 
 <!-- ══ 표지 검색 모달 ══ -->
 <div class="modal-overlay" id="coverModal" data-action-overlay="closeCoverModal">
-  <div class="cover-modal">
+  <!-- ★ .cover-modal: 모달 박스 — modal-overlay(fixed inset:0)가 뷰포트 고정 담당 -->
+  <div class="cover-modal" role="dialog" aria-modal="true" aria-labelledby="coverModalTitle">
+
+    <!-- 헤더: 제목 + 검색창 + 버튼 그룹 -->
     <div class="cover-modal-hdr">
-      <h3>🔍 표지 검색</h3>
-      <div class="cover-modal-search" style="flex:1;margin:0 12px 0 16px">
-        <input id="coverSearchQ" placeholder="소설 제목을 입력하고 Enter...">
-        <button class="btn btn-accent btn-sm" data-action="runCoverSearch"
-                style="white-space:nowrap;padding:7px 14px">검색</button>
+      <h3 id="coverModalTitle">🔍 표지 검색</h3>
+
+      <!-- 검색창 그룹: flex row — 입력창 + 검색 버튼 + 구글 버튼 -->
+      <div class="cover-modal-search">
+        <input id="coverSearchQ"
+               placeholder="소설 제목을 입력하고 Enter..."
+               autocomplete="off"
+               aria-label="표지 검색어 입력">
+
+        <!-- 검색 실행 버튼 -->
+        <button class="btn btn-accent btn-sm"
+                type="button"
+                data-action="runCoverSearch"
+                aria-label="표지 검색 실행">검색</button>
+
+        <!-- ★ 구글 이미지 검색 버튼 — JS 동적 삽입 없이 마크업 선행 배치
+             cover-search.js의 getElementById('coverGoogleBtn') 체크와 완벽 매핑
+             초기 display:flex로 노출 (JS가 이미 존재하면 재삽입하지 않음) -->
+        <button type="button"
+                id="coverGoogleBtn"
+                class="btn btn-ghost btn-sm"
+                title="구글 이미지에서 소설 표지 검색"
+                aria-label="구글 이미지 검색 새 탭 열기">🌐 구글</button>
       </div>
-      <button class="modal-close" data-action="closeCoverModal">✕</button>
+
+      <!-- 닫기 버튼 -->
+      <button class="modal-close"
+              type="button"
+              data-action="closeCoverModal"
+              aria-label="표지 검색 모달 닫기">✕</button>
     </div>
-    <div class="cover-modal-body" id="coverModalBody">
-      <div style="text-align:center;padding:40px 0;color:var(--text2);font-size:13px">
-        소설 제목을 입력하고 검색하면<br>네이버·리디·카카오페이지·노벨피아·구글에서 동시 검색해요
+
+    <!-- 결과 영역: 내부만 스크롤, 모달 박스 자체는 고정
+         ★ cover-modal-body-grid 클래스로 grid 레이아웃 적용 -->
+    <div class="cover-modal-body cover-modal-body-grid" id="coverModalBody">
+      <div class="cover-modal-hint">
+        소설 제목을 입력하고 검색하면<br>네이버 · 리디 · 카카오페이지 · 노벨피아 · 구글에서 동시 검색해요
       </div>
     </div>
+
   </div>
 </div>
 
