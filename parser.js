@@ -128,13 +128,39 @@ function sanitizeLine(s){
 // "&lt;" "&#39;" 등 HTML 엔티티가 있으면 이미 처리된 것으로 판단
 const _RX_ALREADY_ESC = /&(?:lt|gt|amp|quot|#\d+|#x[\da-fA-F]+);/;
 
-function renderBodyHtml(body, {useItalic=true, maxBlank=2}={}){
+function renderBodyHtml(body, {useItalic=true, maxBlank=2, removeBlankLines=false}={}){
   // #10: 예외 격리 — 이 함수가 실패해도 원본 텍스트로 폴백
   try{
     let html='';
     let blankRun=0;
     // CRLF → LF 정규화
-    const lines=body.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+    const rawLines=body.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+
+    // ★ Part2: 본문 공백 최적화 전처리
+    // removeBlankLines=true: 3줄+ 연속 빈줄 → maxBlank줄로 압축
+    // 정규식 치환 대신 라인 배열 순회로 구현 — Backtracking 부하 없음
+    let lines;
+    if(removeBlankLines){
+      lines=[];
+      let blankCount=0;
+      // maxBlank가 1이면 연속 빈줄을 최대 1줄로, 2이면 최대 2줄로 압축
+      const blankLimit = Math.max(1, maxBlank-1); // 실제 허용 연속 빈줄 수
+      for(const l of rawLines){
+        const isEmpty=!l.trim();
+        if(isEmpty){
+          blankCount++;
+          // blankLimit 초과분은 버림 (연속 빈줄 압축)
+          if(blankCount<=blankLimit) lines.push(l);
+        } else {
+          blankCount=0;
+          lines.push(l);
+        }
+      }
+      // ★ Part2 GC: 원본 배열 참조 해제 (대용량 소설 메모리 정체 방지)
+      rawLines.length=0;
+    } else {
+      lines=rawLines;
+    }
 
     // #10: 보정 가동 로그 (개발자 도구에서 확인 가능)
     let _hasBracket=false;

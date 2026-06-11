@@ -47,6 +47,8 @@ function saveExtraSettings(){
   try{
     localStorage.setItem('epub_extra',JSON.stringify({
       emptyLine:document.getElementById('optEmptyLine')?.checked,
+      // ★ Part2: 본문 공백 최적화 플래그 (3줄+ 연속 공백 → 최대 1줄 압축)
+      removeBlankLines:document.getElementById('optRemoveBlankLines')?.checked ?? false,
       chTitle:document.getElementById('optChTitle')?.checked,
       darkCover:document.getElementById('optDarkCover')?.checked,
       autoPreview:document.getElementById('optAutoPreview')?.checked,
@@ -85,6 +87,16 @@ function loadExtraSettings(){
   try{
     const s=JSON.parse(localStorage.getItem('epub_extra')||'{}');
     if(s.emptyLine!=null){ const _elEL=document.getElementById('optEmptyLine'); if(_elEL) _elEL.checked=s.emptyLine; }
+    // ★ Part2: 본문 공백 최적화 플래그 복원
+    if(s.removeBlankLines!=null){
+      const _elRB=document.getElementById('optRemoveBlankLines');
+      if(_elRB) _elRB.checked=s.removeBlankLines;
+      // StateManager에 동기화 (S가 정의된 경우)
+      if(typeof S!=='undefined' && S && typeof S.settings !== 'undefined'){
+        S.settings = S.settings || {};
+        S.settings.removeBlankLines = !!s.removeBlankLines;
+      }
+    }
     if(s.chTitle!=null){ const _elCT=document.getElementById('optChTitle'); if(_elCT) _elCT.checked=s.chTitle; }
     if(s.darkCover!=null){ const _elDC=document.getElementById('optDarkCover'); if(_elDC) _elDC.checked=s.darkCover; }
     if(s.autoPreview!=null){ const _elAP=document.getElementById('optAutoPreview'); if(_elAP) _elAP.checked=s.autoPreview; }

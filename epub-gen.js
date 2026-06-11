@@ -252,9 +252,26 @@ function sanitizeLine(s){
 function renderBodyHtml(body, opts){
   const useItalic = opts ? opts.useItalic !== false : true;
   const maxBlank  = opts ? (opts.maxBlank || 2) : 2;
+  const removeBlankLines = opts ? !!opts.removeBlankLines : false;
   try{
     let html='', blankRun=0;
-    const lines=body.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+    const rawLines=body.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+
+    // ★ Part2: 본문 공백 최적화 전처리 (라인 배열 순회 방식 — Backtracking 없음)
+    let lines;
+    if(removeBlankLines){
+      lines=[];
+      let bc=0;
+      const blankLimit=Math.max(1,maxBlank-1);
+      for(const l of rawLines){
+        if(!l.trim()){ bc++; if(bc<=blankLimit) lines.push(l); }
+        else{ bc=0; lines.push(l); }
+      }
+      rawLines.length=0; // ★ GC: 원본 배열 참조 해제
+    } else {
+      lines=rawLines;
+    }
+
     for(const line of lines){
       const t=sanitizeLine(line).trim();
       if(!t){
@@ -303,7 +320,8 @@ self.onmessage=async function(e){
   try{
     const{params,imageData,cssText}=e.data;
     const{title,author,chapters,illMapMeta,useItalic,showChTitle,
-          compressionLevel,lang,uid,today}=params;
+          compressionLevel,lang,uid,today,
+          removeBlankLines=false}=params;
     // ★ P2-01: renderedBodies 파라미터 제거 — Worker가 직접 렌더링
     function prog(pct,msg){self.postMessage({type:'progress',pct,msg});}
     prog(5,'이미지 처리 중...');
@@ -323,7 +341,7 @@ self.onmessage=async function(e){
     for(let idx=0;idx<chapters.length;idx++){
       const[h,b]=chapters[idx];const cn=extractChNum(h);
       // ★ P2-01: renderBodyHtml을 여기서 즉석 호출 (메인 스레드 사전 렌더링 없음)
-      const renderedBody=renderBodyHtml(b,{useItalic,maxBlank:2});
+      const renderedBody=renderBodyHtml(b,{useItalic,maxBlank:2,removeBlankLines});
       const mfn=makeMatchIll(idx,cn,renderedBody);
       chHasIll[idx]=illMapMeta.some(mfn);
     }
@@ -341,7 +359,7 @@ self.onmessage=async function(e){
       }
       const[heading,rawBody]=chapters[idx];const cn=extractChNum(heading);
       // ★ P2-01: 챕터별 즉석 렌더링 — 배열로 미리 만들어두지 않음
-      const body=renderBodyHtml(rawBody,{useItalic,maxBlank:2});
+      const body=renderBodyHtml(rawBody,{useItalic,maxBlank:2,removeBlankLines});
       const mfn=makeMatchIll(idx,cn,body);
       const beforeIlls=illMapMeta.filter(il=>mfn(il)&&il.pos!=='after').map(il=>il.file_idx);
       const afterIlls=illMapMeta.filter(il=>mfn(il)&&il.pos==='after').map(il=>il.file_idx);
@@ -480,6 +498,8 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
     const compressionRaw = parseInt(document.getElementById('optCompression')?.value??'6',10);
     const compressionLevel = isNaN(compressionRaw)?6:Math.max(0,Math.min(9,compressionRaw));
     const lang = document.getElementById('optLang')?.value||'ko';
+    // ★ Part2: 본문 공백 최적화 플래그 — optRemoveBlankLines 체크박스에서 읽음
+    const removeBlankLines = document.getElementById('optRemoveBlankLines')?.checked ?? false;
 
     // Transferable 목록 — AB는 zero-copy 이전 후 메인 스레드에서 접근 불가
     const transferables = [
@@ -494,6 +514,8 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
           chapters,   // ★ 원문 그대로 (renderedBodies 제거)
           illMapMeta, useItalic, showChTitle,
           compressionLevel, lang,
+          // ★ Part2: 본문 공백 최적화 플래그 전달
+          removeBlankLines,
           uid:   crypto.randomUUID(),
           today: new Date().toISOString().slice(0,10),
           // renderedBodies: 폐지
