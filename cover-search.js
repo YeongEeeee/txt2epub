@@ -21,17 +21,29 @@ let _coverModalMode='convert';
 let _searchAbortCtrl=null;
 
 // ── 검색용 순수 제목 추출 ──
+// ── 검색용 순수 제목 추출 (권차·화수·노이즈 정제 강화) ──
 function extractSearchTitle(raw) {
+  if(!raw) return '';
   let t = raw
+    // 1. 확장자 제거
     .replace(/\.txt$/i, '')
+    // 2. 대괄호/소괄호/중괄호 안 내용 제거 (최대 20자 — ReDoS 방어)
     .replace(/[(\[{][^)\]}]{0,20}[)\]}]/g, '')
+    // 3. "작가명@제목" 패턴 — @ 앞 작가명 제거
     .replace(/^.+?@\s*/, '')
     .replace(/@.+$/, '')
+    // 4. 뒤에 붙는 화수/권차/부 노이즈 제거
+    //    예: "웹소설제목 123화", "작품명 2권", "소설 3부", "v2.5"
+    .replace(/\s*\d+\s*(?:화|권|부|부록|화차|장|편|막|v[\d.]+).*$/i, '')
+    // 5. 완결·연재 표기 제거
+    .replace(/\s*(?:완결?|완전판|전권|전편|번외|후일담|외전|특별판|최종화|연재중|연재|단행본|개정판|리마스터)\s*$/i, '')
+    // 6. 앞뒤 비한글/비영문/비숫자 제거
     .replace(/^[^가-힣a-zA-Z\d]+/, '')
     .replace(/[^가-힣a-zA-Z\d]+$/, '')
     .trim();
-  return t || raw.replace(/\.txt$/i, '');
+  return t || raw.replace(/\.txt$/i, '').trim();
 }
+
 
 // ── 유효 이미지 확장자 검사 (.file 대응 가드 포함) ──
 function isValidImg(url) {
@@ -377,6 +389,51 @@ function runCoverSearch() {
   const q = document.getElementById('coverSearchQ')?.value?.trim() || '';
   if(!q) { if(typeof Toast!=='undefined') Toast.info('검색어를 입력해 주세요.'); return; }
 
+  // ★ 구글 검색 버튼 동적 삽입 (한 번만)
+  // 모달 내 버튼이 없는 경우에만 생성
+  const searchQ = document.getElementById('coverSearchQ');
+  if(searchQ && !document.getElementById('coverGoogleBtn')){
+    const googleBtn = document.createElement('button');
+    googleBtn.id        = 'coverGoogleBtn';
+    googleBtn.type      = 'button';
+    googleBtn.title     = '구글에서 소설 표지 검색';
+    googleBtn.style.cssText = [
+      'flex-shrink:0',
+      'padding:4px 10px',
+      'border:1px solid var(--border)',
+      'border-radius:6px',
+      'background:var(--bg2)',
+      'color:var(--text2)',
+      'font-size:12px',
+      'cursor:pointer',
+      'white-space:nowrap',
+      'transition:border-color .15s,color .15s',
+    ].join(';');
+    googleBtn.textContent = '🌐 구글';
+    googleBtn.addEventListener('mouseenter', () => {
+      googleBtn.style.borderColor = 'var(--accent)';
+      googleBtn.style.color       = 'var(--accent)';
+    });
+    googleBtn.addEventListener('mouseleave', () => {
+      googleBtn.style.borderColor = 'var(--border)';
+      googleBtn.style.color       = 'var(--text2)';
+    });
+    googleBtn.addEventListener('click', () => {
+      const currentQ = document.getElementById('coverSearchQ')?.value?.trim() || q;
+      if(!currentQ) return;
+      // 소설 표지 키워드를 함께 검색하여 관련성 높은 결과 유도
+      const googleQuery = currentQ + ' 소설 표지';
+      window.open(
+        'https://www.google.com/search?q=' + encodeURIComponent(googleQuery)
+        + '&tbm=isch',  // 이미지 탭 직접 열기
+        '_blank',
+        'noopener,noreferrer'
+      );
+    });
+    // 입력창 부모 컨테이너에 버튼 삽입
+    searchQ.parentNode?.appendChild(googleBtn);
+  }
+
   // ★ ID 교정: index.html 실제 결과 컨테이너 ID = 'coverModalBody'
   const grid = document.getElementById('coverModalBody');
   if(grid){
@@ -534,26 +591,84 @@ async function fetchNaverSeriesCover(q) {
 }
 
 async function fetchNovelpiaCover(q) {
+  // ★ 노벨피아 이미지 URL → weserv 래핑 헬퍼
+  // 노벨피아 CDN(front-img.novelpia.com 등)은 Hotlinking 방지벽이 강력하므로
+  // 검색 결과 생성 단계에서부터 weserv URL로 변환하여 화면 표시/다운로드 일원화
+  function wrapNovelpia(src) {
+    if(!src) return '';
+    // // 프로토콜 상대경로 정규화
+    const abs = src.startsWith('//') ? 'https:' + src
+               : src.startsWith('/')  ? 'https://novelpia.com' + src
+               : src;
+    if(!abs.startsWith('http')) return '';
+    // 이미 weserv URL이면 그대로
+    if(abs.startsWith('https://images.weserv.nl')) return abs;
+    return 'https://images.weserv.nl/?url=' + encodeURIComponent(abs) + '&output=jpg&q=92';
+  }
+
+  // ── 경로 1: 노벨피아 검색 API ──
   try {
-    const html = await proxyFetch(`https://novelpia.com/proc/search_all?search_word=${encodeURIComponent(q)}`);
-    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const html = await proxyFetch(
+      `https://novelpia.com/proc/search_all?search_word=${encodeURIComponent(q)}`
+    );
+    const doc   = new DOMParser().parseFromString(html, 'text/html');
     const items = [];
-    doc.querySelectorAll('.novel-box').forEach(box => {
-      const img = box.querySelector('img');
-      const titleEl = box.querySelector('.novel-title');
-      if(img) {
-        let src = img.src || '';
-        if(src.startsWith('//')) src = 'https:' + src;
-        if(isValidImg(src)) {
+
+    // 셀렉터 다중 시도: .novel-box → .search-result-item → 전체 img 폴백
+    const boxes = doc.querySelectorAll('.novel-box, .search-result-item, [class*="novel-item"]');
+
+    if(boxes.length > 0){
+      boxes.forEach(box => {
+        const imgEl   = box.querySelector('img');
+        const titleEl = box.querySelector('.novel-title, .title, h3, h4, strong');
+        const rawSrc  = imgEl?.getAttribute('src') || imgEl?.getAttribute('data-src') || '';
+        // 고화질 치환: /35/ → /300/, /50/ → /300/
+        const hiResSrc = rawSrc.replace(/\/(?:35|50|100)\//, '/300/');
+        const weservSrc = wrapNovelpia(hiResSrc);
+        if(weservSrc){
           items.push({
             title: titleEl?.textContent?.trim() || q,
-            image: src.replace('/35/', '/300/') // 고화질 주소 치환
+            image: weservSrc,
           });
         }
+      });
+    }
+
+    // 경로 1 성공
+    if(items.length > 0) return items.slice(0, 6);
+  } catch(e) {
+    console.warn('[fetchNovelpiaCover] API 실패:', e.message);
+  }
+
+  // ── 경로 2: 노벨피아 웹 검색 HTML 파싱 폴백 ──
+  try {
+    const html = await proxyFetch(
+      `https://novelpia.com/search/novel?search_string=${encodeURIComponent(q)}`
+    );
+    const doc   = new DOMParser().parseFromString(html, 'text/html');
+    const items = [];
+
+    // 전체 img 태그에서 노벨피아 CDN 도메인 이미지만 추출
+    doc.querySelectorAll('img').forEach(imgEl => {
+      const rawSrc = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
+      const abs    = rawSrc.startsWith('//') ? 'https:' + rawSrc : rawSrc;
+      // 노벨피아 이미지 도메인 필터
+      const isNovelpiaImg = abs.includes('novelpia.com') || abs.includes('novel-img');
+      if(!isNovelpiaImg || abs.includes('icon') || abs.includes('logo')) return;
+      const hiResSrc  = abs.replace(/\/(?:35|50|100)\//, '/300/');
+      const weservSrc = wrapNovelpia(hiResSrc);
+      if(weservSrc){
+        items.push({
+          title: imgEl.alt || q,
+          image: weservSrc,
+        });
       }
     });
+
     return items.slice(0, 6);
-  } catch(e) { return []; }
+  } catch(e) {
+    return [];
+  }
 }
 
 async function fetchWebFallbackCovers(q) {
@@ -604,13 +719,10 @@ function renderCoverSearchResults(items) {
   items.forEach(item => {
     if(!item.image) return;
 
-    // ★ img.src 와 클릭 URL을 weserv 프록시로 일원화
-    // 이유: proxyImgUrl(Workers)은 Referer를 그대로 전달 → Hotlinking 방지벽 403
-    //       weserv.nl은 Referer 헤더를 자동 제거 → 403 우회 + 화면 표시/다운로드 동일 URL
+    // ★ weserv URL 일원화: 화면 표시 + 클릭 다운로드 동일 URL
     const rawUrl = item.image.startsWith('//') ? 'https:' + item.image : item.image;
     const weservUrl = 'https://images.weserv.nl/?url=' + encodeURIComponent(rawUrl)
       + '&output=jpg&q=92';
-    // 이미 weserv URL이거나 data:/blob:인 경우 그대로 사용
     const thumbUrl = (rawUrl.startsWith('https://images.weserv.nl')
                    || rawUrl.startsWith('data:')
                    || rawUrl.startsWith('blob:'))
@@ -619,17 +731,25 @@ function renderCoverSearchResults(items) {
 
     const card = document.createElement('div');
     card.className = 'cover-search-card';
+    // ★ 카드 레이아웃 고정: flex column + 너비 고정으로 격자 붕괴 방지
+    card.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;padding:8px;border-radius:8px;border:1.5px solid var(--border);background:var(--bg2);transition:border-color .15s';
 
-    const imgWrap = document.createElement('div');
-    imgWrap.className = 'cover-search-card-img';
-
+    // ★ 이미지 크기 고정: 표지 표준 1:1.43 배율 (120×171px)
+    // object-fit:cover → 종횡비 무관하게 잘라맞춤, 크기 불일치로 인한 UI 붕괴 방지
     const img = document.createElement('img');
     img.alt   = item.title;
     img.loading = 'lazy';
-    // ★ 화면 표시: weserv URL → Referer 없이 이미지 로드 성공
+    img.style.cssText = [
+      'width:120px',
+      'height:171px',
+      'object-fit:cover',
+      'border-radius:6px',
+      'background-color:var(--border)',
+      'display:block',
+      'flex-shrink:0',
+    ].join(';');
     img.src = thumbUrl;
     img.onerror = function(){
-      // weserv 실패 시 proxyImgUrl(Workers)으로 폴백
       if(!this.dataset.fallback){
         this.dataset.fallback = '1';
         this.src = proxyImgUrl(rawUrl);
@@ -637,26 +757,32 @@ function renderCoverSearchResults(items) {
     };
 
     const info = document.createElement('div');
-    info.className = 'cover-search-card-info';
+    info.style.cssText = 'width:120px;text-align:center';
+
     const titleDiv = document.createElement('div');
     titleDiv.className = 'cover-search-card-title';
-    titleDiv.textContent = item.title;       // textContent: XSS 방어
-    const urlDiv = document.createElement('div');
-    urlDiv.className = 'cover-search-card-url';
-    urlDiv.textContent = rawUrl.slice(0, 60) + (rawUrl.length > 60 ? '…' : '');
-    info.appendChild(titleDiv);
-    info.appendChild(urlDiv);
+    titleDiv.style.cssText = 'font-size:11px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all';
+    titleDiv.textContent = item.title;  // textContent: XSS 방어
 
-    imgWrap.appendChild(img);
-    card.appendChild(imgWrap);
+    info.appendChild(titleDiv);
+    card.appendChild(img);
     card.appendChild(info);
 
-    // ★ 클릭 핸들러: thumbUrl(weserv URL) 전달
-    // _fetchImgBlob은 weserv URL을 그대로 수용 → 첫 번째 파이프라인에서 즉시 성공
+    // ★ hover 테두리 강조 (CSS 변수 사용)
+    card.addEventListener('mouseenter', () => { card.style.borderColor = 'var(--accent)'; });
+    card.addEventListener('mouseleave', () => {
+      if(!card.classList.contains('selected')) card.style.borderColor = 'var(--border)';
+    });
+
+    // ★ 클릭: thumbUrl(weserv) 전달 → _fetchImgBlob 1순위에서 즉시 성공
     card.addEventListener('click', () => {
       grid.querySelectorAll('.cover-search-card')
-          .forEach(c => c.classList.remove('selected'));
+          .forEach(c => {
+            c.classList.remove('selected');
+            c.style.borderColor = 'var(--border)';
+          });
       card.classList.add('selected');
+      card.style.borderColor = 'var(--accent)';
       selectSearchedCover(thumbUrl);
     });
 
