@@ -137,6 +137,42 @@ async function _fetchImgBlob(imgUrl, timeout = 8000) {
 
   // //로 시작하는 프로토콜 상대경로 정규화
   const normalizedUrl = imgUrl.startsWith('//') ? 'https:' + imgUrl : imgUrl;
+
+  // ★ weserv URL이 이미 들어온 경우: 중복 래핑 방지 + 즉시 직접 fetch
+  // renderCoverSearchResults에서 weservUrl을 selectSearchedCover에 전달하므로
+  // 이 경우 _IMG_PROXY_CHAIN의 weserv 빌드 없이 바로 fetch
+  if(normalizedUrl.startsWith('https://images.weserv.nl')){
+    const ctrl  = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeout);
+    try{
+      const resp = await fetch(normalizedUrl, {
+        signal:      ctrl.signal,
+        credentials: 'omit',
+        headers:     { 'Cache-Control': 'no-cache' },
+      });
+      clearTimeout(timer);
+      if(resp.ok){
+        const ab   = await resp.arrayBuffer();
+        const ct   = resp.headers.get('Content-Type') || 'image/jpeg';
+        const mime = ct.split(';')[0].trim();
+        if(ab.byteLength >= 1024){
+          return new Blob([ab], { type: mime.startsWith('image/') ? mime : 'image/jpeg' });
+        }
+      }
+      // weserv 응답 실패 시 원본 URL 추출 후 일반 체인으로 폴백
+      const m = normalizedUrl.match(/[?&]url=([^&]+)/);
+      const fallbackUrl = m ? decodeURIComponent(m[1]) : normalizedUrl;
+      return _fetchImgBlob(fallbackUrl, timeout);
+    }catch(e){
+      clearTimeout(timer);
+      // 타임아웃/네트워크 오류 → 원본 URL 추출 폴백
+      const m = normalizedUrl.match(/[?&]url=([^&]+)/);
+      const fallbackUrl = m ? decodeURIComponent(m[1]) : normalizedUrl;
+      if(fallbackUrl !== normalizedUrl) return _fetchImgBlob(fallbackUrl, timeout);
+      throw e;
+    }
+  }
+
   let lastErr = null;
 
   for(const proxy of _IMG_PROXY_CHAIN){
@@ -146,9 +182,8 @@ async function _fetchImgBlob(imgUrl, timeout = 8000) {
 
     try{
       const fetchOpts = {
-        signal:  ctrl.signal,
-        headers: proxy.headers || {},
-        // credentials 제외: Hotlinking 방지 서버가 쿠키를 보고 차단하는 경우 방어
+        signal:      ctrl.signal,
+        headers:     proxy.headers || {},
         credentials: proxy.noCredentials ? 'omit' : 'same-origin',
       };
 
@@ -162,14 +197,13 @@ async function _fetchImgBlob(imgUrl, timeout = 8000) {
         continue;
       }
 
-      // 기타 4xx/5xx
       if(!resp.ok){
         console.warn(`[_fetchImgBlob] ${proxy.name} → ${resp.status}`);
         lastErr = new Error(`${proxy.name}: HTTP ${resp.status}`);
         continue;
       }
 
-      // ★ 바이너리 안전 처리: arrayBuffer → Blob (Content-Type MIME 보존)
+      // ★ 바이너리 안전 처리: arrayBuffer → Blob
       const ab   = await resp.arrayBuffer();
       const ct   = resp.headers.get('Content-Type') || 'image/jpeg';
       const mime = ct.split(';')[0].trim();
@@ -193,7 +227,6 @@ async function _fetchImgBlob(imgUrl, timeout = 8000) {
       }
       console.warn(`[_fetchImgBlob] ${proxy.name} → 오류:`, err.message);
       lastErr = err;
-      // 네트워크 오류는 다음 프록시로 계속
     }
   }
 
@@ -281,15 +314,29 @@ function openCoverSearchModal(mode='convert') {
     el.classList.add('show');
 
     let titleInput = '';
+
     if(mode === 'convert') {
-      const files = (typeof S !== 'undefined') ? (S.txtFiles || []) : [];
-      if(files.length > 0) titleInput = extractSearchTitle(files[0].name);
+      // ★ 검색어 우선순위:
+      //   1순위: #title 입력창에 사용자가 이미 입력한 책 제목
+      //   2순위: S.txtFiles[0].name 에서 extractSearchTitle로 추출한 순수 제목
+      //   (extractSearchTitle은 "작가명@제목.txt" → "@" 뒤 제목만 반환)
+      const titleEl = document.getElementById('title');
+      const manualTitle = titleEl?.value?.trim() || '';
+      if(manualTitle){
+        titleInput = manualTitle;
+      } else {
+        const files = (typeof S !== 'undefined') ? (S.txtFiles || []) : [];
+        if(files.length > 0) titleInput = extractSearchTitle(files[0].name);
+      }
     } else {
+      // batch 탭: currentSearchTitle 또는 batch 탭 #batchTitle 입력창
+      const batchTitleEl = document.getElementById('batchTitle');
+      const manualBatchTitle = batchTitleEl?.value?.trim() || '';
       const batch = (typeof S !== 'undefined') ? (S.batch || {}) : {};
-      titleInput = batch.currentSearchTitle || '';
+      titleInput = manualBatchTitle || batch.currentSearchTitle || '';
     }
 
-    // ★ ID 교정: index.html 실제 입력창 ID = 'coverSearchQ'
+    // ★ ID 확정: index.html 실제 입력창 ID = 'coverSearchQ'
     const qIn = document.getElementById('coverSearchQ');
     if(qIn){
       qIn.value = titleInput;
@@ -555,34 +602,63 @@ function renderCoverSearchResults(items) {
   grid.replaceChildren(); // GC 친화적 초기화
 
   items.forEach(item => {
+    if(!item.image) return;
+
+    // ★ img.src 와 클릭 URL을 weserv 프록시로 일원화
+    // 이유: proxyImgUrl(Workers)은 Referer를 그대로 전달 → Hotlinking 방지벽 403
+    //       weserv.nl은 Referer 헤더를 자동 제거 → 403 우회 + 화면 표시/다운로드 동일 URL
+    const rawUrl = item.image.startsWith('//') ? 'https:' + item.image : item.image;
+    const weservUrl = 'https://images.weserv.nl/?url=' + encodeURIComponent(rawUrl)
+      + '&output=jpg&q=92';
+    // 이미 weserv URL이거나 data:/blob:인 경우 그대로 사용
+    const thumbUrl = (rawUrl.startsWith('https://images.weserv.nl')
+                   || rawUrl.startsWith('data:')
+                   || rawUrl.startsWith('blob:'))
+      ? rawUrl
+      : weservUrl;
+
     const card = document.createElement('div');
     card.className = 'cover-search-card';
-    
+
     const imgWrap = document.createElement('div');
     imgWrap.className = 'cover-search-card-img';
-    
+
     const img = document.createElement('img');
-    img.alt = item.title;
+    img.alt   = item.title;
     img.loading = 'lazy';
-    // 로딩 시점에는 안전 프록시 포맷 바인딩
-    img.src = proxyImgUrl(item.image); 
+    // ★ 화면 표시: weserv URL → Referer 없이 이미지 로드 성공
+    img.src = thumbUrl;
+    img.onerror = function(){
+      // weserv 실패 시 proxyImgUrl(Workers)으로 폴백
+      if(!this.dataset.fallback){
+        this.dataset.fallback = '1';
+        this.src = proxyImgUrl(rawUrl);
+      }
+    };
 
     const info = document.createElement('div');
     info.className = 'cover-search-card-info';
-    info.innerHTML = `<div class=\"cover-search-card-title\">${escHtml(item.title)}</div>
-                      <div class=\"cover-search-card-url\">${escHtml(item.image)}</div>`;
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'cover-search-card-title';
+    titleDiv.textContent = item.title;       // textContent: XSS 방어
+    const urlDiv = document.createElement('div');
+    urlDiv.className = 'cover-search-card-url';
+    urlDiv.textContent = rawUrl.slice(0, 60) + (rawUrl.length > 60 ? '…' : '');
+    info.appendChild(titleDiv);
+    info.appendChild(urlDiv);
 
     imgWrap.appendChild(img);
     card.appendChild(imgWrap);
     card.appendChild(info);
 
-    card.onclick = () => {
-      const gridCards = grid.querySelectorAll('.cover-search-card');
-      gridCards.forEach(c => c.classList.remove('selected'));
+    // ★ 클릭 핸들러: thumbUrl(weserv URL) 전달
+    // _fetchImgBlob은 weserv URL을 그대로 수용 → 첫 번째 파이프라인에서 즉시 성공
+    card.addEventListener('click', () => {
+      grid.querySelectorAll('.cover-search-card')
+          .forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
-      
-      selectSearchedCover(item.image);
-    };
+      selectSearchedCover(thumbUrl);
+    });
 
     grid.appendChild(card);
   });
