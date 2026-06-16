@@ -216,6 +216,19 @@ function switchPage(name){
   const dir = nextIdx > _lastPageIndex ? 'slide-from-right' : 'slide-from-left';
   _lastPageIndex = nextIdx;
 
+  // ★ [G.5] 탭 슬라이딩 인디케이터 위치 업데이트
+  requestAnimationFrame(()=>{
+    const activeTab=document.querySelector('.page-tab[data-page="'+name+'"]');
+    const tabBar=document.querySelector('.page-tabs');
+    if(activeTab&&tabBar){
+      const tabRect=activeTab.getBoundingClientRect();
+      const barRect=tabBar.getBoundingClientRect();
+      const x=tabRect.left-barRect.left+tabBar.scrollLeft;
+      tabBar.style.setProperty('--tab-indicator-x',x+'px');
+      tabBar.style.setProperty('--tab-indicator-w',tabRect.width+'px');
+    }
+  });
+
   document.querySelectorAll('.page-tab').forEach((t,i)=>{
     const isActive = pages[i]===name;
     t.classList.toggle('on', isActive);
@@ -995,6 +1008,15 @@ function setupEventDelegate(){
     }
   });
 
+  // ★ [G.16] 모달 오픈 시 body.modal-open 토글 → CSS scale/blur 배경 효과
+  (function _setupModalBodyClass(){
+    const observer=new MutationObserver(()=>{
+      const anyOpen=!!document.querySelector('.modal-overlay.show');
+      document.body.classList.toggle('modal-open',anyOpen);
+    });
+    observer.observe(document.body,{subtree:true,attributeFilter:['class'],attributes:true});
+  })();
+
   // ── 복사 버튼 툴팁 ──
   document.addEventListener('click', e=>{
     const copyBtn=e.target.closest('[data-copy]');
@@ -1041,6 +1063,36 @@ window.initUiState = function initUiState(){
   // ★ 2단계 연결: convert.js의 DOM 캐싱 초기화 함수 호출
   // DOMContentLoaded 이후 DOM이 준비된 이 시점에 progBar 등 엘리먼트를 1회 캐싱
   if(typeof window._initProgEls === 'function') window._initProgEls();
+
+  // ★ [G.6] 헤더 스마트 가드 축소 — 스크롤 다운 시 .hdr에 .compact 클래스 토글
+  (function _setupHeaderCompact(){
+    const hdr=document.querySelector('.hdr');
+    if(!hdr) return;
+    let _hdrTicking=false;
+    const THRESHOLD=40;
+    function _onScroll(){
+      if(_hdrTicking) return;
+      _hdrTicking=true;
+      requestAnimationFrame(()=>{
+        hdr.classList.toggle('compact', window.scrollY > THRESHOLD);
+        _hdrTicking=false;
+      });
+    }
+    window.addEventListener('scroll',_onScroll,{passive:true});
+  })();
+
+  // ★ [G.5] 초기 탭 슬라이딩 인디케이터 위치 설정 (활성 탭 기준)
+  requestAnimationFrame(()=>{
+    const activeTab=document.querySelector('.page-tab.on');
+    const tabBar=document.querySelector('.page-tabs');
+    if(activeTab&&tabBar){
+      const tabRect=activeTab.getBoundingClientRect();
+      const barRect=tabBar.getBoundingClientRect();
+      const x=tabRect.left-barRect.left+tabBar.scrollLeft;
+      tabBar.style.setProperty('--tab-indicator-x',x+'px');
+      tabBar.style.setProperty('--tab-indicator-w',tabRect.width+'px');
+    }
+  });
 
   // ★ UX-PD: Progressive Disclosure — 초기 로드 시 패턴 영역 흐리게 설정
   // 파일 드롭 전에는 패턴 입력이 주 액션이 아님을 시각적으로 표현
