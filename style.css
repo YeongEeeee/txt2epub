@@ -104,9 +104,12 @@ body{
 .page-tab.on{color:var(--accent);border-bottom-color:var(--accent)}
 .page-tab:focus-visible{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
 /* ★ 2단계: content-visibility 전환 — display:none 대비 렌더 트리 제외 + 레이아웃 유지
-   비활성 탭 reflow 비용 제거, 탭 전환 속도 향상 */
-.page{content-visibility:hidden;contain-intrinsic-size:auto 600px}
-.page.on{content-visibility:visible;display:block;animation:slideIn .18s var(--ease)}
+   비활성 탭 reflow 비용 제거, 탭 전환 속도 향상
+   ★ BUG-FIX: display:block을 .page 기본 규칙에 명시 — 모든 탭이 항상 블록 박스를
+     유지하고 가시성은 content-visibility만으로 제어. 이 설정이 없으면 비활성 탭은
+     브라우저 기본 display:none으로 남아 .on 전환 시 레이아웃이 뷰포트 하단으로 붕괴. */
+.page{display:block;content-visibility:hidden;contain-intrinsic-size:auto 600px}
+.page.on{content-visibility:visible;animation:slideIn .18s var(--ease)}
 /* ★ 탭 방향성 전환 애니메이션 */
 @keyframes slideFromRight{from{opacity:0;transform:translateX(18px)}to{opacity:1;transform:translateX(0)}}
 @keyframes slideFromLeft{from{opacity:0;transform:translateX(-18px)}to{opacity:1;transform:translateX(0)}}

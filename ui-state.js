@@ -825,13 +825,27 @@ function setupEventListeners(){
   }));
 
   // ★ 단축키 — Ctrl+Space: 변환 시작 / Ctrl+S: 다운로드 / Ctrl+?: 도움말
+  // ★ BUG-FIX: stopPropagation()으로 main.js §7 _globalShortcuts 핸들러까지
+  //   이벤트가 전파되는 것을 차단 → Ctrl+S 이중 다운로드 현상 원천 방지.
+  //   setupEventListeners()의 이 핸들러가 Ctrl+S 단일 정식 담당.
   document.addEventListener('keydown',e=>{
     const tag=(e.target.tagName||'').toUpperCase();
     if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') return;
     if(e.ctrlKey||e.metaKey){
-      if(e.key===' '){e.preventDefault(); typeof startConvert==='function'&&startConvert();}
-      else if(e.key==='s'||e.key==='S'){e.preventDefault(); typeof downloadEpub==='function'&&downloadEpub();}
-      else if(e.key==='/'||e.key==='?'){e.preventDefault();showShortcutHelp();}
+      if(e.key===' '){
+        e.preventDefault();
+        e.stopPropagation();
+        typeof startConvert==='function'&&startConvert();
+      } else if(e.key==='s'||e.key==='S'){
+        // ★ Ctrl+S: 정식 다운로드 트리거 — stopPropagation으로 이중 실행 차단
+        e.preventDefault();
+        e.stopPropagation();
+        typeof downloadEpub==='function'&&downloadEpub();
+      } else if(e.key==='/'||e.key==='?'){
+        e.preventDefault();
+        e.stopPropagation();
+        showShortcutHelp();
+      }
     }
     if(e.key==='Escape'){
       document.querySelector('.modal-overlay.show')&&document.querySelector('.modal-overlay.show')

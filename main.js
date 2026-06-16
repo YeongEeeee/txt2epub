@@ -478,12 +478,10 @@ document.addEventListener('keydown', function _globalShortcuts(e) {
   }
 
   // Ctrl+S: EPUB 다운로드
-  if (e.key === 's' || e.key === 'S') {
-    e.preventDefault();
-    const dlBtn = document.querySelector('[data-action="downloadEpub"]');
-    if (dlBtn && !dlBtn.disabled) dlBtn.click();
-    return;
-  }
+  // ★ BUG-FIX: ui-state.js setupEventListeners()에 동일 핸들러가 있으므로
+  //   여기서 중복 바인딩하면 이중 다운로드 발생.
+  //   main.js §7은 전역 보조 단축키 전용 — Ctrl+S는 ui-state.js가 정식 담당.
+  // (이 분기는 의도적으로 제거함)
 
   // Ctrl+/: 단축키 도움말 토글
   if (e.key === '/' || e.key === '?') {
