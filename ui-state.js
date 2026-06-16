@@ -237,14 +237,13 @@ function switchPage(name){
         el.classList.remove('slide-from-left','slide-from-right');
       }, { once: true });
       el.removeAttribute('aria-hidden');
-      el.style.contentVisibility='';
     } else {
       el.setAttribute('aria-hidden', 'true');
-      if(p==='history'||p==='edit'){
-        el.style.contentVisibility='hidden';
-      }
     }
   });
+  // ★ 탭 전환 직후 스크롤 최상단 강제 리셋 — 비활성 탭 잔류 스크롤 위치가
+  //    활성화 시 화면 하단으로 튀는 현상 방지 (display:none 방식 표준 동작)
+  window.scrollTo(0, 0);
 
   EventBus.emit('page:changed', {name});
   // ★ 변환/다운로드/일괄/편집 바 탭별 표시 제어
