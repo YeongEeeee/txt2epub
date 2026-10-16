@@ -954,32 +954,454 @@ function bestPat(raw){
   return {rx:best,name:bestName,cnt:bestScore};
 }
 
-// splitChapters: 동기 함수. 대용량은 splitChaptersAsync 권장
+// ══════════════════════════════════════════
+// 🧭 Module: TocEngine (복합 패턴 통합 목차 감지)
+// ══════════════════════════════════════════
+// 패턴 '하나'를 고르던 방식(bestPat)의 한계 — 형식이 섞인 연재본에서 숫자로 시작하는 본문 줄까지 잡거나(오탐),
+// 반대로 한 형식만 잡아 나머지를 놓침 — 을 해결하기 위한 다단계 엔진:
+//   ① 후보 수집  : 줄마다 제목 형식 계열(N화·제N화·<N화>·소설명 N화·N. 제목·숫자만·Chapter·키워드·외전·권)을 판별
+//   ② 제목다움   : 문장 종결·대사·길이·앞뒤 빈 줄·번호 목록·카운트다운으로 가중치 산정 (0 이하 = 본문)
+//   ③ 번호 사슬  : 화 번호가 앞에서 뒤로 자연스럽게 이어지는 최대 가중 경로를 DP로 선택
+//                 (형식이 바뀌어도 번호가 이어지면 한 사슬 → 복합 패턴 동시 탐지 / 흐름에 안 맞는 숫자 줄은 탈락)
+//   ④ 화수 보정  : 파일명 범위('1-201 완결', '0-853')가 있으면 범위 밖 번호 제거 + 오차가 5%를 넘으면 매개변수 변형 재탐색
+//   ⑤ 후처리     : 키워드·외전·권 추가, 두 줄 제목 결합, 반복 머리줄 제거, 같은 화 분할 합치기(옵션), 파일 경계
+// ★ 모든 함수는 외부 DOM 의존 없음 — buildParserWorkerSource()로 Worker에 그대로 이식됨
+
+// 파일명 화수 범위: '소설 1-201 완결' → {start:1,end:201,total:201} / '0-853' → total 854 / '…200화' → 1..200
+function parseChapterRange(name){
+  const stem=String(name||'').replace(/\.[a-z0-9]{2,4}$/i,'');
+  const re=/(?:^|[^\d])(\d{1,5})\s*[-~]\s*(\d{1,5})(?!\d)(?!\s*권)/g;
+  let m, last=null;
+  while((m=re.exec(stem))) last=m;
+  if(last){
+    const s=parseInt(last[1],10), e=parseInt(last[2],10);
+    if(e>=s && e-s<20000) return {start:s, end:e, total:e-s+1};
+  }
+  const m2=stem.match(/(\d{2,5})\s*화/);
+  if(m2){ const e=parseInt(m2[1],10); return {start:1, end:e, total:e}; }
+  return null;
+}
+
+// 숫자 토큰 → 정수 (아라비아·전각·한자·한글 수사)
+function _parseNumToken(tok){
+  if(tok==null) return null;
+  const s=String(tok).replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFF10+0x30));
+  if(/^\d+$/.test(s)) return parseInt(s,10);
+  const MAP={'일':1,'이':2,'삼':3,'사':4,'오':5,'육':6,'칠':7,'팔':8,'구':9,'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9};
+  const UNIT={'십':10,'十':10,'백':100,'百':100,'천':1000,'千':1000};
+  let total=0, cur=0, ok=false;
+  for(const ch of s){
+    if(MAP[ch]!=null){ cur=MAP[ch]; ok=true; }
+    else if(UNIT[ch]!=null){ total+=(cur||1)*UNIT[ch]; cur=0; ok=true; }
+    else return null;
+  }
+  return ok?total+cur:null;
+}
+
+// 화 번호 제목 형식 계열: [이름, 정규식(번호 캡처), 기본 가중치]
+function _tocFamilies(){
+  const E='(?=$|[\\s.:,)\\]\\-–—~!?(』」》〉>])';
+  return [
+    ['괄호N화', new RegExp('^[<〈《≪【\\[「『(]\\s*(?:제\\s*)?(\\d{1,5})\\s*(?:화|話|회)\\s*(?:\\(\\d{1,2}\\))?\\s*[>〉》≫】\\]」』)]'), 3],
+    ['제N화',   new RegExp('^제\\s*(\\d{1,5})\\s*(?:화|話|회)'+E), 3],
+    ['N화',     new RegExp('^(\\d{1,5})\\s*(?:화|話|회)'+E), 3],
+    ['N장',     new RegExp('^(?:제\\s*)?(\\d{1,4})\\s*(?:장|章)'+E), 2.5],
+    ['第N章',   /^第\s*([\d一二三四五六七八九十百千]+)\s*[章話话回幕節]/, 3],
+    ['제일화',  /^제\s*([일이삼사오육칠팔구십백]+)\s*(?:화|장)(?=$|[\s.:,)\]\-–—~!?(])/, 2.5],
+    ['Chapter', new RegExp('^(?:chapter|chap\\.?|ch\\.?|episode|ep\\.?|part|scene)\\s*(\\d{1,5})'+E,'i'), 3],
+    ['소설명N화', /^(.{2,40}?)\s+(\d{1,5})\s*(?:화|話|회)(?:\s*\(\d{1,2}\))?\s*$/, 3],
+    ['#N',      new RegExp('^#\\s*(\\d{1,5})'+E), 2],
+    ['-N-',     /^[-=*─━~·]{1,6}\s*(\d{1,5})\s*(?:화)?\s*[-=*─━~·]{1,6}$/, 2],
+    ['(N)',     /^[<\[(〈【{]\s*(\d{1,5})\s*[>\])〉】}]$/, 2],
+    ['N.제목',  /^(\d{1,4})\s*[.)]\s*(?=\S)/, 1.5],
+    ['숫자만',  /^(\d{1,5})$/, 1.2],
+  ];
+}
+
+// 한 줄의 제목 후보 정보 → {s, kind:'ch'|'kw'|'side'|'vol', fam, num, base, bare, part} | null
+function _tocLineInfo(raw, fams){
+  let s=String(raw||'').trim();
+  if(!s||s.length>90) return null;
+  const orig=s.replace(/\s{2,}/g,' ');   // 표시용 원문 (전각 숫자 등 원래 글자 유지)
+  s=s.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFF10+0x30)).replace(/\s{2,}/g,' ');
+  // 빠른 거르기: 숫자·한자/한글 수사·키워드 시작이 없으면 제목 후보 아님
+  if(!/[\d一二三四五六七八九十百千]|제\s*[일이삼사오육칠팔구십백]/.test(s) &&
+     !/^[\s[(<〈《【「『]*(?:프롤|에필|서장|종장|서문|서론|후기|작가|막간|인터|공지|외전|번외|특별편|스페셜|prolog|epilog|interlude|afterword|author|side|extra)/i.test(s)) return null;
+  const inner=s.replace(/^[[(<〈《【「『]\s*/,'');
+  if(/^(?:프롤로그|프롤|에필로그|에필|서장|종장|서문|서론|후기|작가\s*후기|작가의\s*말|작가\s*노트|작가\s*공지|막간|인터루드|공지사항|공지|prologue|epilogue|interlude|afterword|author'?s?\s*note)(?=$|[\s.:)\]\-–—~,!』」】>〉])/i.test(inner))
+    return {s, orig, kind:'kw', fam:'키워드', num:null, base:2.5, bare:false, part:null};
+  let m=inner.match(/^(?:외전|번외|특별편|스페셜|side\s*story|extra\s*(?:story|episode)?)\s*(?:(\d{1,4})\s*(?:화|편|話|회)?)?(?=$|[\s.:)\]\-–—~,!(』」】>〉])/i);
+  if(m) return {s, orig, kind:'side', fam:'외전', num:m[1]?parseInt(m[1],10):null, base:2.5, bare:false, part:null};
+  m=inner.match(/^(?:제\s*)?(\d{1,3})\s*(?:권|부)(?=$|[\s.:)\]\-–—~,』」】>〉])/)||inner.match(/^(?:vol(?:ume)?|book)\.?\s*(\d{1,3})(?=$|[\s.:)\]\-–—~,])/i);
+  if(m && !/\d\s*(?:화|話|회|장)/.test(inner.slice(m[0].length))) return {s, orig, kind:'vol', fam:'권', num:parseInt(m[1],10), base:2.5, bare:false, part:null};
+  for(const cand of (inner===s?[s]:[s,inner])){
+    for(const [fam,rx,base] of fams){
+      const mm=cand.match(rx);
+      if(!mm) continue;
+      const num=_parseNumToken(fam==='소설명N화'?mm[2]:mm[1]);
+      if(num==null) continue;
+      const rest=cand.slice(mm[0].length).trim();
+      // 분할 표기 '(1)'·'(2)': 제목 뒤(rest) 또는 괄호 안('<120화 (1)>')
+      const pm=rest.match(/\((\d{1,2})\)\s*$/)||(fam==='괄호N화'?mm[0].match(/\((\d{1,2})\)\s*[>〉》≫】\]」』)]\s*$/):null);
+      return {s, orig, kind:'ch', fam, num, base, bare:!rest||/^\(\d{1,2}\)$/.test(rest), part:pm?parseInt(pm[1],10):null};
+    }
+  }
+  return null;
+}
+
+// 제목다움 가중치 — 0 이하이면 본문으로 간주
+function _tocWeight(lines, i, info){
+  const blank=k=>k<0||k>=lines.length||!String(lines[k]).trim();
+  const s=info.s;
+  let w=info.base;
+  if(/^["“”'‘’「『]/.test(s)&&info.kind==='ch'&&info.fam!=='괄호N화') w-=5;              // 대사
+  if(/[가-힣][.。]["”'’」』]?$/.test(s)) w-=4;                                             // 한국어 문장 종결 '…다.'
+  else if(/[.。]$/.test(s)&&info.fam!=='N.제목') w-=1.5;
+  else if(/[가-힣][!?]["”'’」』]?$/.test(s)&&s.length>18) w-=1;                           // 긴 감탄·의문 문장
+  if(s.length>60) w-=1.5; else if(s.length>40) w-=0.5;
+  const pb=blank(i-1)||/^[-=*─━~·#◆◇■□★☆]{3,}\s*$/.test(String(lines[i-1]||'').trim());
+  const nb=blank(i+1)||/^[-=*─━~·#◆◇■□★☆]{3,}\s*$/.test(String(lines[i+1]||'').trim());
+  // 두 줄 제목('1화' 다음 줄 부제, 그 뒤 빈 줄)도 '뒤가 비어 있음'으로 취급
+  const nl=String(lines[i+1]||'').trim();
+  const nbSub=!nb&&info.bare&&nl.length<=40&&!/[.。]["”'’」』]?$/.test(nl)&&!/^["“”'‘’「『]/.test(nl)&&blank(i+2);
+  if(pb) w+=0.5;
+  if(nb||nbSub) w+=0.5;
+  if(info.fam==='N.제목' && _isListItemLine(lines,i)) w-=4;
+  if(info.fam==='숫자만'||info.fam==='(N)'){
+    // 카운트다운·나열('3' '2' '1'): 가까운 줄에 다른 숫자만 줄이 있으면 본문
+    for(const d of [-3,-2,-1,1,2,3]){
+      const t=String(lines[i+d]||'').trim();
+      if(/^\d{1,5}$/.test(t)&&Math.abs(parseInt(t,10)-info.num)<=1){ w-=3; break; }   // 1씩 변하는 이웃 숫자 = 카운트다운
+    }
+    if(!pb||!nb) w-=1;
+  }
+  return w;
+}
+
+// 화 번호 사슬 DP — 줄 순서대로 번호가 같거나(분할 연재) 조금씩 커지는(누락 허용) 최대 가중 경로
+function _tocChain(cands, p, volLines){
+  const n=cands.length, score=new Array(n).fill(-Infinity), prev=new Array(n).fill(-1);
+  const bestByNum=new Map();
+  let bestIdx=-1, vi=0, lastVol=-1;
+  const vols=volLines||[];
+  for(let k=0;k<n;k++){
+    const c=cands[k];
+    while(vi<vols.length&&vols[vi]<c.i) lastVol=vols[vi++];
+    if(c.w<=p.minW) continue;
+    let sc=c.w-(p.start!=null?Math.min(4,Math.abs(c.num-p.start)*0.5):0), pv=-1;
+    for(let d=0; d<=p.maxGap; d++){
+      const j=bestByNum.get(c.num-d);
+      if(j===undefined) continue;
+      let t=score[j]+c.w+(cands[j].fam===c.fam?0.3:-0.2);
+      // 같은 번호 반복: 분할 표기('(1)·(2)')면 정상 / 부제가 붙은 제목이면 소폭 감점 /
+      //   번호만 있는 줄('1화')이면 점수가 늘지 않게 — 본문 속 'N화' 언급이 사슬을 장악하는 것 차단
+      if(d===0) t-=(c.part||cands[j].part)?0.1:(c.info.bare?c.w+0.5:1.0);
+      else if(d>1) t-=(d-1)*0.35;
+      if(t>sc){ sc=t; pv=j; }
+    }
+    // 권·부마다 1화부터 다시 시작: 사이에 'N권/N부' 제목이 있으면 싸게, 없으면 비싸게(다음 화들이 이어져야 이득)
+    if(c.num<=1 && bestIdx>=0){
+      const volBetween=lastVol>cands[bestIdx].i;
+      const t=score[bestIdx]+c.w-(volBetween?0.5:4);
+      if(t>sc){ sc=t; pv=bestIdx; }
+    }
+    score[k]=sc; prev[k]=pv;
+    const cur=bestByNum.get(c.num);
+    if(cur===undefined||score[cur]<sc) bestByNum.set(c.num,k);   // 동점이면 앞선 줄 유지 (뒤의 본문 속 언급보다 실제 제목 우선)
+    if(bestIdx<0||sc>score[bestIdx]) bestIdx=k;
+  }
+  const out=[];
+  for(let k=bestIdx;k>=0;k=prev[k]) out.push(cands[k]);
+  return out.reverse();
+}
+
+function _detectAuto(lines, infos, p){
+  const cands=[];
+  for(const [i,info] of infos) if(info.kind==='ch') cands.push({i, num:info.num, fam:info.fam, part:info.part, w:_tocWeight(lines,i,info), info});
+  const vols=[]; for(const [i,info] of infos) if(info.kind==='vol') vols.push(i);
+  let chain=_tocChain(cands, p, vols);
+  // 화수 범위 밖 번호 제거 (파일명 범위가 있을 때)
+  if(p.range){
+    const slack=Math.max(3, Math.round(p.range.total*0.05));
+    chain=chain.filter(c=>c.num>=p.range.start-1 && c.num<=p.range.end+slack);
+  }
+  // 사슬 안에서 비중이 아주 작은 형식 계열 제거 (엄격 모드)
+  if(p.familyMinShare){
+    const cnt={}; chain.forEach(c=>{cnt[c.fam]=(cnt[c.fam]||0)+1;});
+    chain=chain.filter(c=>cnt[c.fam]/chain.length>=p.familyMinShare||c.w>=3);
+  }
+  return chain;
+}
+
+/**
+ * detectToc — 줄 배열에서 목차 감지 (미리보기·변환·Worker 공통 단일 진입점)
+ * @param {string[]} lines
+ * @param {{customPat?:string, range?:{start,end,total}, fileBreaks?:{line:number,name:string}[], mergeParts?:boolean}} opts
+ * @returns {{items:{line,title,num,kind,fam,autoSplit?}[], dropLines:number[], rx:RegExp|null, name:string, stats:object}}
+ *   items.line은 1-based, dropLines는 본문에서 뺄 0-based 줄(두 줄 제목의 부제·반복 머리줄·합친 분할 제목)
+ */
+function detectToc(lines, opts={}){
+  const range=opts.range||null;
+  const fams=_tocFamilies();
+  const infos=[];
+  for(let i=0;i<lines.length;i++){ const info=_tocLineInfo(lines[i], fams); if(info) infos.push([i,info]); }
+  const drop=new Set();
+  let items=[], mode='auto', chain=[], customRx=null;
+
+  if(opts.customPat&&String(opts.customPat).trim()){
+    // ── 사용자 정의 패턴: 사용자가 지정한 형식을 신뢰 (번호 목록만 제외) + 제목다운 키워드 줄
+    const {rx}=parseCustomPattern(String(opts.customPat).trim(), lines.slice(0,500).join('\n'));
+    if(rx){
+      customRx=rx; mode='custom';
+      for(let i=0;i<lines.length;i++){
+        if(_matchHeading(rx,lines[i])&&!_isListItemLine(lines,i)){
+          const info=_tocLineInfo(lines[i],fams);
+          items.push({line:i+1, title:String(lines[i]).trim().replace(/\s{2,}/g,' '), num:info&&info.kind==='ch'?info.num:null, kind:'ch', fam:'입력'});
+        }
+      }
+    }
+  }
+  if(mode==='auto'){
+    const base={maxGap:30, minW:0, start:range?range.start:null, range};
+    chain=_detectAuto(lines, infos, base);
+    let usedVariant='기본';
+    // ★ 파일명 화수 대비 오차가 5%를 넘으면 매개변수를 바꿔 재탐색 — 오차가 가장 작은 결과 채택
+    if(range){
+      const err=ch=>Math.abs(new Set(ch.map(c=>c.num)).size-range.total)/range.total;
+      if(err(chain)>0.05){
+        const variants=[
+          ['완화', {...base, maxGap:80, minW:-0.75}],
+          ['엄격', {...base, minW:1.5, familyMinShare:0.03}],
+          ['간격 축소', {...base, maxGap:8}],
+        ];
+        for(const [label,v] of variants){
+          const alt=_detectAuto(lines, infos, v);
+          if(err(alt)<err(chain)){ chain=alt; usedVariant=label; }
+        }
+      }
+    }
+    chain._variant=usedVariant;
+    // ── 같은 화 분할 합치기(옵션): '120화 (1)'·'120화 (2)' → 하나로
+    let mainChain=chain;
+    if(opts.mergeParts){
+      mainChain=[];
+      for(const c of chain){
+        const last=mainChain[mainChain.length-1];
+        if(last&&last.num===c.num&&(c.part||last.part)){ drop.add(c.i); continue; }
+        mainChain.push(c);
+      }
+    }
+    items=mainChain.map(c=>({line:c.i+1, title:c.info.orig, num:c.num, kind:'ch', fam:c.fam, bare:c.info.bare, part:c.part}));
+    if(opts.mergeParts) items.forEach(it=>{ if(it.part) it.title=it.title.replace(/\s*\(\d{1,2}\)(\s*[>〉》≫】\]」』)])?\s*$/,'$1'); });
+    // ── 키워드·외전·권: 제목다운 것만, 같은 문구가 3번 이상 반복되면(매 화 '작가의 말' 등) 본문으로 둠
+    const kwCount={};
+    infos.forEach(([,info])=>{ if(info.kind==='kw') kwCount[info.s]=(kwCount[info.s]||0)+1; });
+    const chainLines=new Set(chain.map(c=>c.i));
+    for(const [i,info] of infos){
+      if(info.kind==='ch'||chainLines.has(i)) continue;
+      if(info.kind==='kw'&&kwCount[info.s]>=3) continue;
+      const w=_tocWeight(lines,i,info);
+      if(w<=0||info.s.length>40) continue;
+      items.push({line:i+1, title:info.orig, num:info.num, kind:info.kind, fam:info.fam});
+    }
+    items.sort((a,b)=>a.line-b.line);
+    // 감지가 거의 없으면 기존 단일 패턴 방식(bestPat)으로 폴백 — 번호 없는 특수 형식('【제목】' 등) 보존
+    if(chain.length<3){   // (분할 합치기 전 사슬 기준 — 합친 뒤 개수로 판단하면 폴백이 잘못 발동)
+      const legacy=bestPat(lines.join('\n'));
+      if(legacy.rx){
+        const leg=[];
+        for(let i=0;i<lines.length;i++){
+          const t=_normalizeTitleStr(preprocessLine(String(lines[i])));
+          if(t&&(legacy.rx.test(t)||legacy.rx.test(String(lines[i]).trim()))&&_isLikelyChapterTitle(lines,i,0.2)&&!_isListItemLine(lines,i))
+            leg.push({line:i+1, title:String(lines[i]).trim().replace(/\s{2,}/g,' '), num:null, kind:'ch', fam:legacy.name});
+        }
+        if(leg.length>=3){ items=leg; mode='legacy'; customRx=legacy.rx; }
+      }
+    }
+  }
+
+  // ── 두 줄 제목: 번호만 있는 제목 다음 줄의 짧은 부제를 결합 (같은 계열에서 30% 이상 반복될 때만)
+  const bare=items.filter(it=>it.kind==='ch'&&it.bare);
+  const subOf=it=>{
+    let j=it.line; while(j<lines.length&&j<it.line+2&&!String(lines[j]).trim()) j++;
+    const t=String(lines[j]||'').trim();
+    if(!t||j>=lines.length||t.length>40||_tocLineInfo(t,fams)) return null;
+    if(/^["“”'‘’「『(]/.test(t)||/[.。]["”'’」』]?$/.test(t)||/^[-=*─━~·#◆◇■□★☆]{3,}/.test(t)) return null;
+    const after=String(lines[j+1]||'').trim();
+    if(after&&after.length<t.length) return null;   // 부제 뒤에 더 짧은 줄이 이어지면 본문 시작으로 판단
+    return {j,t};
+  };
+  if(bare.length>=3){
+    const subs=bare.map(subOf);
+    if(subs.filter(Boolean).length>=bare.length*0.3){
+      bare.forEach((it,k)=>{ const s=subs[k]; if(s){ it.title=it.title+' '+s.t; drop.add(s.j); } });
+    }
+  }
+
+  // ── 반복 머리줄: 여러 제목 바로 위·아래에 같은 줄이 반복(작품명·사이트명) → 본문에서 제거
+  const heads=items.filter(it=>it.kind==='ch');
+  if(heads.length>=5){
+    const near=new Map();
+    for(const it of heads){
+      const seen=new Set();
+      for(let d=-4; d<=3; d++){
+        if(d===0) continue;
+        const k=it.line-1+d, t=String(lines[k]||'').trim();
+        if(!t||t.length>40||seen.has(t)) continue;
+        seen.add(t);
+        if(!near.has(t)) near.set(t,[]);
+        near.get(t).push(k);
+      }
+    }
+    for(const [t,ks] of near){
+      if(ks.length>=Math.max(3,heads.length*0.3)&&!_tocLineInfo(t,fams)&&!/^[-=*─━~·#◆◇■□★☆]{3,}\s*$/.test(t)) ks.forEach(k=>drop.add(k));
+    }
+  }
+
+  // ── 파일 경계: 여러 TXT를 합칠 때 파일 시작 근처에 제목이 없으면 파일명을 제목으로 (본문은 그 줄부터 포함)
+  const fb=Array.isArray(opts.fileBreaks)?opts.fileBreaks:[];
+  if(fb.length>=3){
+    for(const b of fb){
+      let k=b.line-1; while(k<lines.length&&!String(lines[k]).trim()) k++;
+      if(k>=lines.length) continue;
+      const hasHead=items.some(it=>it.line-1>=k&&it.line-1<=k+5);
+      if(!hasHead) items.push({line:k+1, title:String(b.name||'').replace(/\.[^.]+$/,''), num:null, kind:'file', fam:'파일', autoSplit:true});
+    }
+    items.sort((a,b)=>a.line-b.line);
+  }
+
+  // ── 요약
+  const main=items.filter(it=>it.kind==='ch');
+  const famCnt={}; main.forEach(it=>{famCnt[it.fam]=(famCnt[it.fam]||0)+1;});
+  const mainDistinct=new Set(main.filter(it=>it.num!=null).map(it=>it.num)).size||main.length;
+  const extra=items.length-main.length;
+  const famStr=Object.entries(famCnt).sort((a,b)=>b[1]-a[1]).map(([f,c])=>f+' '+c).join(' · ');
+  const err=range?(mainDistinct-range.total)/range.total:null;
+  let rx=customRx;
+  if(!rx&&mode==='auto'){
+    const used=new Set(Object.keys(famCnt));
+    const srcs=fams.filter(([f])=>used.has(f)).map(([,r])=>r.source);
+    if(items.some(it=>it.kind==='kw')) srcs.push('^(?:프롤로그|에필로그|서장|종장|후기|작가의\\s*말|공지)');
+    if(items.some(it=>it.kind==='side')) srcs.push('^(?:외전|번외)');
+    try{ rx=srcs.length?new RegExp('(?:'+srcs.join('|')+')','i'):null; }catch(e){ rx=null; }
+  }
+  const name=mode==='custom'?'입력 패턴':mode==='legacy'?(main[0]?.fam||'패턴'):
+    (Object.keys(famCnt).length>1?'복합('+famStr+')':(famStr||'감지 없음'));
+  return {
+    items, dropLines:[...drop].sort((a,b)=>a-b), rx, name,
+    stats:{mode, main:mainDistinct, extra, families:famCnt, range, errorRate:err, variant:chain._variant||null},
+  };
+}
+
+// 감지 요약 문구 (미리보기 상단)
+function describeTocDetection(det){
+  const s=det.stats;
+  let t=(s.mode==='custom'?'입력 패턴':'자동 감지')+': '+det.name+' — 본편 '+s.main+'화'+(s.extra?' + 기타 '+s.extra+'개':'');
+  if(s.range){
+    const pct=(s.errorRate*100);
+    t+=' · 파일명 기준 '+s.range.total+'화 대비 '+(pct>=0?'+':'')+pct.toFixed(1)+'%';
+  }
+  return t;
+}
+
+// 여러 TXT를 '\n\n'으로 합치며 각 파일 시작 줄(1-based) 기록
+function joinTextsWithBreaks(raws, names){
+  const breaks=[]; let offset=0;
+  raws.forEach((r,k)=>{ breaks.push({line:offset+1, name:(names&&names[k])||''}); offset+=String(r).split('\n').length+1; });
+  return {text:raws.join('\n\n'), fileBreaks:breaks};
+}
+
+// 여러 파일의 화수 범위 합산 (모두 범위를 가질 때만)
+function rangeForFiles(names){
+  const rs=(names||[]).map(parseChapterRange);
+  if(!rs.length||rs.some(r=>!r)) return rs.length===1?rs[0]:null;
+  if(rs.length===1) return rs[0];
+  return {start:Math.min(...rs.map(r=>r.start)), end:Math.max(...rs.map(r=>r.end)), total:rs.reduce((a,r)=>a+r.total,0)};
+}
+
+// 감지 결과 → [[제목, 본문], ...]  (splitChapters·buildChaptersFromTocItems 공용)
+//  - 첫 제목 앞 내용은 '서문'으로 보존 (★ 이전: EPUB spine에서 제외돼 읽을 수 없었음)
+//  - 본문 없는 제목도 보존 ('1권'처럼 바로 다음 줄에 '1화'가 오는 경우 — 계층 목차용)
+//  - autoSplit 항목은 제목 줄도 본문에 포함 (간격 분할·파일 경계)
+function assembleChapters(lines, items, dropLines, {dedupe=true}={}){
+  const drop=dropLines instanceof Set?dropLines:new Set(dropLines||[]);
+  const sepRx=/^[-=*─━~·.‒—]{3,}\s*$|^[─━═]{2,}$/;
+  const total=lines.length;
+  const sorted=[...items].filter(it=>it.line>=1&&it.line<=total).sort((a,b)=>a.line-b.line);
+  const chapters=[], seen=new Map();
+  const bodyOf=(a,b)=>{
+    const out=[];
+    for(let k=a;k<b;k++) if(!drop.has(k)) out.push(lines[k]);
+    while(out.length&&(sepRx.test(String(out[0]).trim())||!String(out[0]).trim())) out.shift();
+    while(out.length&&(sepRx.test(String(out[out.length-1]).trim())||!String(out[out.length-1]).trim())) out.pop();
+    return out.join('\n').trim();
+  };
+  if(!sorted.length) return chapters;
+  const pre=bodyOf(0, sorted[0].line-1);
+  if(pre) chapters.push(['서문', pre]);
+  sorted.forEach((it,k)=>{
+    const head=it.line-1;
+    const next=k+1<sorted.length?sorted[k+1].line-1:total;
+    const body=bodyOf(it.autoSplit?head:head+1, next);
+    let title=it.title;
+    if(dedupe){
+      const key=_normalizeTitleStr(preprocessLine(title));
+      const c=seen.get(key)||0; seen.set(key,c+1);
+      if(c) title=title+' ('+(c+1)+')';
+    }
+    chapters.push([title, body]);
+  });
+  return chapters;
+}
+
+// 패턴이 전혀 없을 때: 장면 구분자(***) 경계에서 200~500줄 단위 페이지로, 구분자도 없으면 고정 줄 수로
+function fallbackPageSplit(lines){
+  const total=lines.length;
+  const PAGE=Math.max(200,Math.min(500,Math.floor(total/20)));
+  const sepRx=/^\s*(?:[*＊◇◆○●□■☆★#=~\-─━·]\s*){3,}$/;
+  const seps=[];
+  lines.forEach((l,i)=>{ if(sepRx.test(String(l))) seps.push(i); });
+  const cuts=[0];
+  if(seps.length>=3){
+    let last=0;
+    for(const s of seps){ if(s-last>=PAGE){ cuts.push(s+1); last=s+1; } }
+  }else{
+    for(let i=PAGE;i<total;i+=PAGE) cuts.push(i);
+  }
+  const pages=[];
+  for(let k=0;k<cuts.length;k++){
+    const body=lines.slice(cuts[k], k+1<cuts.length?cuts[k+1]:total).join('\n').trim();
+    if(body) pages.push(body);
+  }
+  if(pages.length<=1) return [['본문', lines.join('\n').trim()]];
+  return pages.map((b,k)=>['('+(k+1)+'/'+pages.length+')', b]);
+}
+
+// splitChapters: 동기 함수. 대용량은 splitChaptersAsync(Worker) 권장
+// ★ Phase 8: 패턴 하나(bestPat)로 줄을 자르던 방식 → detectToc(복합 패턴·번호 사슬·화수 보정) + assembleChapters
+//   미리보기(previewToc)와 같은 감지 함수를 쓰므로 "미리보기에 보이는 목차 = 변환 결과"
+// opts: {mergeShortLines, onProgress, range, fileBreaks, mergeParts}
 function splitChapters(raw, customPat, opts={}){
-  // onProgress(pct, msg): 선택 — 파싱 Worker(buildParserWorkerSource)에서 진행률 전달용
-  const {mergeShortLines=false, fpGuard=true, onProgress=null}=opts;
+  const {mergeShortLines=false, onProgress=null}=opts;
 
   // ── 입력 텍스트 정규화 ──
-  raw=raw
+  raw=String(raw||'')
     .replace(/\r\n/g,'\n')
     .replace(/\r/g,'\n')
-    .replace(/\xad/g,'\u2014')
+    .replace(/\xad/g,'—')
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'')
-    .replace(/[\uFFFE\uFFFF]/g,'');
+    .replace(/[￾￿]/g,'');
 
-  // ★ 지능형 문단 정합: 짧은 줄(30자 미만)이 연속 4개 이상이면 합산
+  // ★ 지능형 문단 정합: 짧은 줄(30자 미만)이 연속되면 합산
   if(mergeShortLines){
     const rawLines=raw.split('\n');
     const merged=[];
     let buf='';
     for(let i=0;i<rawLines.length;i++){
       const t=rawLines[i];
-      if(t.trim()&&t.trim().length<30&&!t.trim().match(/^[\-=*─]{3,}$/)){
+      if(t.trim()&&t.trim().length<30&&!t.trim().match(/^[\-=*─]{3,}$/)&&!_tocLineInfo(t,_tocFamilies())){
         buf+=(buf?' ':'')+t.trim();
-        // 다음 줄이 비어있거나 긴 줄이면 flush
-        if(!rawLines[i+1]?.trim()||rawLines[i+1].trim().length>=30){
-          merged.push(buf); buf='';
-        }
+        if(!rawLines[i+1]?.trim()||rawLines[i+1].trim().length>=30){ merged.push(buf); buf=''; }
       } else {
         if(buf){merged.push(buf);buf='';}
         merged.push(t);
@@ -989,107 +1411,17 @@ function splitChapters(raw, customPat, opts={}){
     raw=merged.join('\n');
   }
 
-  // ── 패턴 결정 ──
-  let rx=null;
-  // 사용자 정의 패턴 우선 — ★ #7 ReDoS 가드 경유
-  if(customPat&&customPat.trim()){
-    const {rx:safeRx,error,reDosSuspect}=parseCustomPattern(customPat.trim(), raw.slice(0,500));
-    if(reDosSuspect||error){
-      if(typeof Toast!=='undefined')
-        Toast.warn('⚠️ 정규식 오류: '+(error||'패턴 불가'));
-      rx=null;
-    } else {
-      rx=safeRx;
-    }
-  }
-  if(!rx){const r=bestPat(raw);rx=r.rx;}
-
-  // ★ 키워드 우선순위 그룹을 기본 패턴에 OR 결합
-  // KEYWORD_PATS는 수량 무관 항상 목차로 인식
-  // ★ L-15 FIX: rx=null (패턴 감지 실패) 시에도 KEYWORD_PATS 단독으로 사용
-  if(KEYWORD_PATS && KEYWORD_PATS.length){
-    const kwSrc=KEYWORD_PATS.map(k=>k.source).join('|');
-    if(rx){
-      try{ rx=new RegExp('(?:'+rx.source+'|'+kwSrc+')','i'); }catch(e){}
-    } else {
-      // ★ 패턴 감지 실패: 키워드(프롤로그·외전 등) 줄이 실제로 있을 때만 키워드 단독 사용
-      //   이전: 키워드 rx가 항상 생겨 아래 페이지 분할 폴백에 도달하지 못함 → 전체가 '본문' 1챕터
-      try{
-        const kwRx=new RegExp(kwSrc,'i');
-        if(raw.split('\n').some(l=>{ const t=_normalizeTitleStr(preprocessLine(l)); return t&&kwRx.test(t); })) rx=kwRx;
-      }catch(e){}
-    }
-  }
-  // ★ LOGIC-04: 정규식은 루프 전 1회만 컴파일됨 (rx가 최종 컴파일된 RegExp 객체)
-
-  // ── 패턴 없음 폴백: 페이지 분할 ──
-  if(!rx){
-    const rawLines=raw.split('\n');
-    const totalLines=rawLines.length;
-    const PAGE_LINES=Math.max(200,Math.min(500,Math.floor(totalLines/20)));
-    const chapters=[];
-    for(let i=0;i<totalLines;i+=PAGE_LINES){
-      const slice=rawLines.slice(i,i+PAGE_LINES).join('\n').trim();
-      if(!slice) continue;
-      const pageNum=Math.floor(i/PAGE_LINES)+1;
-      const totalPages=Math.ceil(totalLines/PAGE_LINES);
-      chapters.push([pageNum===1&&totalPages===1?'본문':`(${pageNum}/${totalPages})`,slice]);
-    }
-    return chapters.length?chapters:[['본문',raw.trim()]];
-  }
-
-  const rawLines=raw.split('\n');
-  const chapters=[];
-  let cur=null, body=[];
-  const seenHeadings=new Map();
-  const sepRx=/^[-=*─━~·.‒—]{3,}\s*$|^[─━═]{2,}$/;
-
-  const _totalLines=rawLines.length;
-  for(let li=0;li<_totalLines;li++){
-    if(onProgress&&li%2000===0){
-      onProgress(12+Math.round((li/_totalLines)*80),'② 챕터 파싱 중... '+(chapters.length+1)+'화 / '+(li+1).toLocaleString()+'줄');
-    }
-    const line=rawLines[li];
-    // ★ #8/#10: 공백 관용·유사기호 정규화 후 패턴 검사 (정규화 문자열은 '매칭·중복 판별'에만 사용)
-    const t=_normalizeTitleStr(preprocessLine(line));
-
-    // 정규화 문자열 또는 원문(사용자 정의 패턴이 대괄호 등 원문 기호를 포함한 경우) 중 하나라도 매칭
-    if(t&&(rx.test(t)||rx.test(line.trim()))){
-      // ★ #3: False Positive Guard — 30자 초과이거나 주변 공백 밀도 낮으면 본문으로 처리
-      // ★ #4: 위·아래 줄과 이어지는 번호 목록('1. 검' '2. 방패')은 본문
-      if(fpGuard&&(!_isLikelyChapterTitle(rawLines,li,0.2)||_isListItemLine(rawLines,li))){
-        body.push(line);
-        continue;
-      }
-      // ★ 표시 제목은 원문 그대로(앞뒤 공백·연속 공백만 정리)
-      //   이전: 정규화 문자열을 제목으로 써서 '제1화 만남'→'제1화만남', '[EP.1] 제목'→'EP.1] 제목'으로 깨짐
-      const display=line.trim().replace(/\s{2,}/g,' ')||t;
-      // 중복 제목 → (2),(3)... 접미사 (중복 판별은 정규화 문자열 기준)
-      const prevCount=seenHeadings.get(t)||0;
-      seenHeadings.set(t,prevCount+1);
-      const uniqueTitle=prevCount===0?display:`${display} (${prevCount+1})`;
-
-      while(body.length&&(sepRx.test(body[body.length-1].trim())||body[body.length-1].trim()==='')) body.pop();
-      if(cur===null&&body.length>0) chapters.push(['서문',body.join('\n').trim()]);
-      else if(cur!==null) chapters.push([cur,body.join('\n').trim()]);
-      cur=uniqueTitle; body=[];
-      // 챕터 헤더 직후 구분선 스킵
-      let ni=li+1;
-      while(ni<rawLines.length&&sepRx.test(rawLines[ni].trim())) ni++;
-      if(ni>li+1) li=ni-1;
-    } else {
-      body.push(line);
-    }
-  }
-  if(cur!==null) chapters.push([cur,body.join('\n').trim()]);
-  else if(body.length>0) chapters.push(['본문',body.join('\n').trim()]);
-
-  // ★ 메모리 정리: 대용량 raw 문자열 참조 해제 유도
-  raw=null;
+  onProgress&&onProgress(15,'② 목차 감지 중...');
+  const lines=raw.split('\n');
+  raw=null; // ★ 메모리 정리
+  const det=detectToc(lines,{customPat, range:opts.range||null, fileBreaks:opts.fileBreaks||null, mergeParts:!!opts.mergeParts});
+  if(customPat&&det.stats.mode!=='custom'&&typeof Toast!=='undefined') Toast.warn('⚠️ 정규식 오류 — 자동 감지로 진행해요');
+  onProgress&&onProgress(70,'② 챕터 조립 중... ('+det.items.length+'개)');
+  const chapters=det.items.length?assembleChapters(lines, det.items, det.dropLines):fallbackPageSplit(lines);
+  onProgress&&onProgress(92,'② 챕터 분리 완료');
 
   // ★ #5: 인덱스 도약 보정 경고
   _warnIndexJump(chapters);
-
   return chapters.length?chapters:[['본문','']];
 }
 
@@ -1205,8 +1537,11 @@ function buildTocTree(items){
 function buildParserWorkerSource(){
   const fns=[
     preprocessLine, calcSequenceWeight, checkTitleWaPattern, checkNDotPattern, bestPat,
-    _normalizeTitleStr, _isLikelyChapterTitle, _isListItemLine, _checkIndexJump, _warnIndexJump,
-    _safeRegexTest, parseCustomPattern, splitChapters,
+    _normalizeTitleStr, _isLikelyChapterTitle, _isListItemLine, _matchHeading, _checkIndexJump, _warnIndexJump,
+    _safeRegexTest, parseCustomPattern,
+    // TocEngine (Phase 8)
+    _parseNumToken, _tocFamilies, _tocLineInfo, _tocWeight, _tocChain, _detectAuto, detectToc,
+    assembleChapters, fallbackPageSplit, splitChapters,
   ];
   const rxLit=rx=>'new RegExp('+JSON.stringify(rx.source)+','+JSON.stringify(rx.flags)+')';
   const patsSrc='const PATS=[\n'+PATS.map(([rx,name])=>'['+rxLit(rx)+','+JSON.stringify(name)+']').join(',\n')+'\n];';
@@ -1220,9 +1555,9 @@ function buildParserWorkerSource(){
     '  try{',
     '    const p=d.payload||{};',
     '    let last=-1;',
-    '    const result=splitChapters(p.raw, p.customPat, {',
+    '    const result=splitChapters(p.raw, p.customPat, Object.assign({}, p.opts||{}, {',
     "      onProgress:function(pct,msg){ if(pct!==last){ last=pct; self.postMessage({type:'PROGRESS',id:id,pct:pct,msg:msg}); } }",
-    '    });',
+    '    }));',
     "    self.postMessage({type:'DONE',id:id,result:result});",
     '  }catch(err){',
     "    self.postMessage({type:'ERROR',id:id,error:(err&&err.message)||String(err)});",
@@ -1237,6 +1572,8 @@ function escAttr(s){return s.replace(/'/g,"\\'").replace(/"/g,'&quot;');}
 
 // ─── 챕터 캐시 ───
 let _chaptersCache=null, _chaptersCacheKey='';
+// 감지 단계에서 본문에서 뺄 줄 (0-based, _fullRawLines 기준) — previewToc가 갱신
+let _tocDropLines=[];
 // ─── 간격 분할 원문 줄 배열 (parser.js 소유) ───
 let _autoSplitLines=null;
 // ★ B-FIX-04(치명): window 미러 재정의 레이스 가드
@@ -1251,58 +1588,14 @@ if(!Object.getOwnPropertyDescriptor(window,'_autoSplitLines')){
 }
 // ★ L-09: 동시 다중 호출 방지 — 계산 중인 Promise 재사용
 let _chaptersComputePromise=null;
-function buildChaptersFromTocItems(lines, tocItems){
-  // ★ enabled:true인 항목만 — UI 편집 결과 그대로 반영
-  const enabled=tocItems.filter(t=>t.enabled);
-  if(!enabled.length){
-    // 전체 비활성화 → 전체 텍스트 단일 챕터
-    return [['본문', lines.join('\n').trim()]];
-  }
-
-  const totalLines=lines.length;
-  // ★ 라인 범위 검증: item.line이 실제 lines 배열 안에 있는지 확인
-  const validEnabled=enabled.filter(item=>
-    item.line!=null && item.line>=1 && item.line<=totalLines
-  );
-  if(!validEnabled.length){
-    return [['본문', lines.join('\n').trim()]];
-  }
-
-  const chapters=[];
-
-  // ★ L-02 FIX: 서문 삽입을 루프 시작 전에 처리 — autoSplit 첫 챕터와 범위 중복 방지
-  // autoSplit=true 이면 headLine 자체가 본문에 포함되므로 서문 end = headLine(not headLine+1)
-  const firstItem=validEnabled[0];
-  const firstHeadLine=firstItem.line-1; // 0-based
-  if(firstHeadLine>0){
-    // autoSplit=false: 첫 챕터 헤딩줄(firstHeadLine)은 제목으로 소비되므로 서문은 0..firstHeadLine-1
-    // autoSplit=true : 첫 챕터가 headLine부터 시작하므로 서문은 0..firstHeadLine-1
-    const preamble=lines.slice(0, firstHeadLine).join('\n').trim();
-    if(preamble) chapters.push(['서문', preamble]);
-  }
-
-  for(let i=0;i<validEnabled.length;i++){
-    const item=validEnabled[i];
-    const headLine=item.line-1; // 0-based
-    const nextLine=i+1<validEnabled.length
-      ? Math.min(validEnabled[i+1].line-1, totalLines)
-      : totalLines;
-
-    let bodyLines;
-    if(item.autoSplit){
-      // 간격 분할: headLine 포함 (원본 텍스트 유실 방지)
-      bodyLines=lines.slice(headLine, nextLine);
-    } else {
-      // 일반 패턴: 헤딩 줄 제외
-      bodyLines=lines.slice(headLine+1, nextLine);
-    }
-    // ★ 빈 챕터 필터링: 공백/빈줄만 있는 챕터 제외
-    const bodyText=bodyLines.join('\n').trim();
-    if(!bodyText) continue; // 빈 챕터 건너뜀
-    chapters.push([item.title, bodyText]);
-  }
-
-  return chapters;
+// 목차 항목(미리보기·편집 결과) → [[제목, 본문], ...]
+// ★ Phase 8: assembleChapters 공용 — 이전엔 본문 없는 제목을 버려 '1권' 같은 상위 제목이 사라짐
+//   dropLines: 감지 단계에서 본문에서 뺄 줄(두 줄 제목의 부제·반복 머리줄) — 같은 원문 배열일 때만 적용
+function buildChaptersFromTocItems(lines, tocItems, dropLines=(lines===_fullRawLines?_tocDropLines:null)){
+  const enabled=(tocItems||[]).filter(t=>t.enabled&&t.line!=null&&t.line>=1&&t.line<=lines.length);
+  if(!enabled.length) return [['본문', lines.join('\n').trim()]];
+  // 사용자가 편집한 제목은 그대로 (중복 접미사 미부여)
+  return assembleChapters(lines, enabled, dropLines, {dedupe:false});
 }
 
 async function getCachedChapters(){
@@ -1322,7 +1615,7 @@ async function getCachedChapters(){
   const pat=document.getElementById('pattern')?.value.trim()||'';
   const optItalic = document.getElementById('optItalic')?.checked??true;
   const optMerge  = document.getElementById('optMergeShortLines')?.checked??false;
-  const settingHash = `${optItalic}:${optMerge}`;
+  const settingHash = `${optItalic}:${optMerge}:${document.getElementById('optMergeParts')?.checked===true}`;
   const fileHash = S.txtFiles
     .map(f=>`${f.name}:${f.size}:${f.lastModified||0}`)
     .join('|');
@@ -1343,9 +1636,13 @@ async function getCachedChapters(){
     try{
       const sorted=[...S.txtFiles];
       const raws=await Promise.all(sorted.map(fileToText));
-      const raw=raws.join('\n\n');
+      const {text:raw, fileBreaks}=joinTextsWithBreaks(raws, sorted.map(f=>f.name));
       await yieldToMain();
-      _chaptersCache=splitChapters(raw,pat,{mergeShortLines:optMerge});
+      _chaptersCache=splitChapters(raw,pat,{
+        mergeShortLines:optMerge, fileBreaks,
+        range:rangeForFiles(sorted.map(f=>f.name)),
+        mergeParts:document.getElementById('optMergeParts')?.checked===true,
+      });
       _chaptersCacheKey=cacheKey;
     }catch(e){
       _chaptersCache=[];
@@ -1412,11 +1709,11 @@ async function previewToc(){
   }
 
   // 전체 파일 텍스트 로드 (다중 파일 모두 합산)
-  let text;
+  let text, fileBreaks=[];
   try{
     const sorted=[...S.txtFiles];
     const raws=await Promise.all(sorted.map(f=>fileToText(f).catch(()=>sampleLines(f))));
-    text=raws.join('\n\n');
+    ({text, fileBreaks}=joinTextsWithBreaks(raws, sorted.map(f=>f.name)));
   }catch(e){
     text=await sampleLines(S.txtFiles[0]).catch(()=>'');
   }
@@ -1424,23 +1721,21 @@ async function previewToc(){
 
   const pat=_patInput;
   let found=[],patLabel='';
-  if(pat){
-    try{
-      const rx=new RegExp(pat,'i');
-      S._detectedPat=rx;S._detectedName='입력';
-      _fullRawLines.forEach((l,i)=>{if(_matchHeading(rx,l)&&!_isListItemLine(_fullRawLines,i))found.push({line:i+1,title:l.trim()});});
-      patLabel='입력 패턴: '+pat+' ('+found.length+'개 매칭)';
-    }catch(e){patLabel='⚠️ 정규식 오류: '+e.message;}
-  }else{
-    const{rx,name,cnt,isMixed}=bestPat(text);
-    patLabel='자동 선택: '+name+' ('+cnt+'개 매칭)'+(isMixed?' ⚠️ 혼합 패턴':'');
-    if(rx){
-      S._detectedPat=rx;S._detectedName=name;
-      _fullRawLines.forEach((l,i)=>{if(_matchHeading(rx,l)&&!_isListItemLine(_fullRawLines,i))found.push({line:i+1,title:l.trim()});});
-    }else{
-      S._detectedPat=null;S._detectedName='';
-    }
-  }
+  // ★ Phase 8: splitChapters와 같은 detectToc 사용 — 미리보기 목차 = 변환 결과
+  //   (이전: 미리보기는 bestPat 단일 패턴만 써서 프롤로그·외전·에필로그가 빠지고, 첫 제목 앞 내용은 '서문'으로 묶여 EPUB에서 읽을 수 없었음)
+  const det=detectToc(_fullRawLines,{
+    customPat:pat, fileBreaks,
+    range:rangeForFiles(S.txtFiles.map(f=>f.name)),
+    mergeParts:document.getElementById('optMergeParts')?.checked===true,
+  });
+  if(pat&&det.stats.mode!=='custom') Toast.warn('⚠️ 정규식 오류 — 자동 감지 결과를 보여드려요');
+  S._detectedPat=det.rx; S._detectedName=det.rx?det.name:'';
+  _tocDropLines=det.dropLines;
+  found=det.items.map(it=>({line:it.line, title:it.title, num:it.num, kind:it.kind, autoSplit:!!it.autoSplit}));
+  patLabel=describeTocDetection(det);
+  // 파일명 화수와 5% 넘게 다르면 안내
+  if(det.stats.range&&Math.abs(det.stats.errorRate)>0.05)
+    Toast.warn(`파일명 기준 ${det.stats.range.total}화와 감지 결과(${det.stats.main}화)가 ${(Math.abs(det.stats.errorRate)*100).toFixed(1)}% 달라요. 목차를 확인해 주세요.`,6000);
 
   // ★ I1+B2+B5: tocItems에 body 직접 저장 — 드래그 재정렬/병합 후에도 정확한 글자수 보장
   found = found.map((f, fi) => {
@@ -1452,7 +1747,8 @@ async function previewToc(){
       enabled:       true,
       body:          bodyText,
       bodyLen:       bodyLen,
-      suspicious:    bodyLen < getSuspThreshold() && fi < found.length - 1,
+      // 권·키워드 제목은 본문이 짧거나 없는 게 정상 → 짧은 챕터 경고 제외
+      suspicious:    bodyLen < getSuspThreshold() && fi < found.length - 1 && f.kind!=='vol' && f.kind!=='kw',
       originalTitle: f.title,
     };
   });
@@ -1557,7 +1853,7 @@ async function previewToc(){
   document.getElementById('tocPanel')?.classList.add('show');
   tocTab(0);
   document.getElementById('tb0')?.insertAdjacentHTML('afterbegin',
-    '<div style="font-size:var(--fs-xs);color:var(--text2);margin-bottom:8px;padding:0 4px">'+patLabel+'</div>');
+    '<div id="tocDetectLabel" style="font-size:var(--fs-xs);color:var(--text2);margin-bottom:8px;padding:0 4px">'+escHtml(patLabel)+'</div>');
   refreshDetectedChip();
 
   // ★ 유사 목차 후보 검색 — PAT_PRESETS 전체 점수화 (yield 포함 비동기, 메인 스레드 블로킹 방지)
@@ -1680,29 +1976,41 @@ async function renderTocSuggest(found){
   const host=document.getElementById('tb0');
   if(!host) return;
   document.getElementById('tocSuggestBar')?.remove();
-  if(!cands.length) return;
 
   const curPat=(document.getElementById('pattern')?.value||'').trim();
-  const detFirst=Array.isArray(found)&&found.length?found[0].line-1:-1;
-  const detCnt=Array.isArray(found)?found.length:0;
+  const range=rangeForFiles((S.txtFiles||[]).map(f=>f.name));
+  // ★ Phase 8: 파일명 화수 대비 오차 표시 — 단일 패턴 후보는 복합 형식 소설에서 크게 어긋나므로 판단 근거 제공
+  const dev=cnt=>range?((cnt-range.total)/range.total*100):null;
+  const devStr=cnt=>{ const d=dev(cnt); return d==null?'':' ('+(d>=0?'+':'')+d.toFixed(0)+'%)'; };
+  // 본편 화수 = 서로 다른 화 번호 수 (분할 연재 '(1)·(2)'는 한 화로) — 감지 요약 문구와 같은 기준
+  const mainCh=Array.isArray(found)?found.filter(f=>f.kind==='ch'):[];
+  const mainCnt=new Set(mainCh.filter(f=>f.num!=null).map(f=>f.num)).size||mainCh.length;
 
   const bar=document.createElement('div');
   bar.id='tocSuggestBar';
   bar.className='toc-suggest-bar';
   const head=document.createElement('span');
   head.className='toc-suggest-head';
-  head.textContent='유사 목차 후보';
+  head.textContent='목차 후보';
   bar.appendChild(head);
 
-  cands.forEach((c,i)=>{
-    // 현재 적용된 목차와 같은 줄 집합이면 '적용됨' 표시
-    const isApplied=curPat===c.val||(!curPat&&c.cnt===detCnt&&c.first===detFirst);
+  // 첫 칩: 자동 감지(복합 엔진) 결과 — 패턴 입력이 비어 있으면 적용 중
+  const autoChip=document.createElement('button');
+  autoChip.type='button';
+  autoChip.className='pat-chip toc-suggest-chip'+(curPat?'':' detected');
+  autoChip.textContent=(curPat?'':'✅ ')+'자동 감지 · 본편 '+mainCnt+'개'+devStr(mainCnt);
+  autoChip.title='여러 제목 형식을 함께 찾고 화 번호 흐름으로 걸러낸 결과';
+  autoChip.addEventListener('click',()=>applyTocSuggestion(''));
+  bar.appendChild(autoChip);
+
+  cands.forEach(c=>{
+    const isApplied=curPat===c.val;
     const chip=document.createElement('button');
     chip.type='button';
     chip.className='pat-chip toc-suggest-chip'+(isApplied?' detected':'');
-    chip.textContent=(isApplied?'✅ ':(i===0?'⭐ ':''))+c.label+' · '+c.cnt+'개';
+    chip.textContent=(isApplied?'✅ ':'')+c.label+' · '+c.cnt+'개'+devStr(c.cnt);
     const sample=String(lines[c.first]||'').trim().slice(0,40);
-    chip.title=(c.desc?c.desc+' — ':'')+'연속성 '+Math.round(c.seqW*100)+'% · 첫 매칭 '+(c.first+1)+'행: '+sample;
+    chip.title=(c.desc?c.desc+' — ':'')+'단일 패턴 · 연속성 '+Math.round(c.seqW*100)+'% · 첫 매칭 '+(c.first+1)+'행: '+sample;
     chip.addEventListener('click',()=>applyTocSuggestion(c.val));
     bar.appendChild(chip);
   });
@@ -1712,10 +2020,10 @@ async function renderTocSuggest(found){
 // 후보 칩 클릭 → 챕터 정규식 입력에 반영 후 목차 재확인
 function applyTocSuggestion(val){
   const inp=document.getElementById('pattern');
-  if(!inp||!val) return;
-  inp.value=val;
+  if(!inp) return;
+  inp.value=val||'';   // 빈 값 = 자동 감지로 되돌리기
   const clr=document.getElementById('patternClearBtn');
-  if(clr) clr.style.display='';
+  if(clr) clr.style.display=val?'':'none';
   typeof previewToc==='function'&&previewToc();
 }
 

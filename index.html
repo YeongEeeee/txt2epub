@@ -508,6 +508,7 @@
           <button class="ttab" data-action="eTocTab" data-idx="1">원본 텍스트</button>
           <button class="ttab" data-action="eTocTab" data-idx="2">정규식 수정</button>
         </div>
+        <div class="txt-meta-sm" id="eTocDetectLabel" style="padding:6px 4px 0"></div>
         <div class="toc-body" id="eTb0"><div class="toc-empty">목차 확인 버튼을 눌러주세요</div></div>
         <div class="toc-body" id="eTb1" style="display:none"></div>
         <div class="toc-body" id="eTb2" style="display:none">
@@ -1024,6 +1025,10 @@
     <div class="toggle-row">
       <div><label for="optAutoPreview">파일 선택 시 목차 자동 확인</label><small>TXT 파일 드롭 즉시 가장 유사한 목차 패턴을 찾아 적용</small></div>
       <label class="sw"><input type="checkbox" id="optAutoPreview" data-input-action="saveExtraSettings" checked><span class="sw-slider" aria-hidden="true"></span></label>
+    </div>
+    <div class="toggle-row">
+      <div><label for="optMergeParts">같은 화 분할 합치기</label><small>'120화 (1)'·'120화 (2)'처럼 나뉜 연재분을 한 챕터로</small></div>
+      <label class="sw"><input type="checkbox" id="optMergeParts" data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="toggle-row">
       <div><label for="optShowLineNum">줄 번호 표시</label><small>목차 패널에 줄 번호 표시</small></div>

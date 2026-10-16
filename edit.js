@@ -1056,28 +1056,16 @@ async function previewEpubToc(){
   tb1.innerHTML='<pre class="toc-raw">'+
     _epubRawLines.map((l,i)=>String(i+1).padStart(4,' ')+' | '+escHtml(l)).join('\n')+'</pre>';
 
-  // 패턴 또는 자동 감지
-  let found=[];
-  if(pat){
-    try{
-      const rx=new RegExp(pat,'i');
-      _epubRawLines.forEach((l,i)=>{
-        if(l.trim()&&rx.test(l.trim())) found.push({line:i+1,title:l.trim(),enabled:true});
-      });
-    }catch(e){
-      tb0.innerHTML='<div style="color:var(--accent);padding:8px;font-size:var(--fs-sm)">⚠️ 정규식 오류: '+escHtml(e.message)+'</div>';
-      return;
-    }
-  }else{
-    // 자동 감지 — 기존 bestPat 활용
-    const {rx}=bestPat(_epubRawText);
-    if(rx){
-      _epubRawLines.forEach((l,i)=>{
-        if(l.trim()&&rx.test(l.trim())) found.push({line:i+1,title:l.trim(),enabled:true});
-      });
-      document.getElementById('eTocPattern').value=rx.source;
-    }
+  // ★ Phase 8: 변환 탭과 같은 detectToc 사용 (복합 패턴·번호 사슬·EPUB 파일명 화수 범위 보정)
+  //   이전: bestPat 단일 패턴 + 원문 그대로 매칭 → 형식이 섞인 EPUB에서 오탐·누락
+  const det=detectToc(_epubRawLines,{customPat:pat||'', range:parseChapterRange(E.epubFile?.name||'')});
+  if(pat&&det.stats.mode!=='custom'){
+    tb0.innerHTML='<div style="color:var(--accent);padding:8px;font-size:var(--fs-sm)">⚠️ 정규식 오류 — 패턴을 확인해 주세요</div>';
+    return;
   }
+  const found=det.items.map(it=>({line:it.line,title:it.title,enabled:true}));
+  const eTocLabel=document.getElementById('eTocDetectLabel');
+  if(eTocLabel) eTocLabel.textContent=describeTocDetection(det);
 
   _eTocItems=found;
   renderETocItems();

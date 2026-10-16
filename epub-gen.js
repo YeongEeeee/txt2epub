@@ -364,12 +364,13 @@ self.onmessage=async function(e){
       const afterIlls=illMapMeta.filter(il=>mfn(il)&&il.pos==='after').map(il=>il.file_idx);
       const isAutoPage=RX_AUTO_PAGE.test(heading)||heading==='본문'||RX_CHAPTER_N.test(heading);
       const showTitle=showChTitle&&!isAutoPage;
-      if(heading!=='서문'){for(const fi_idx of beforeIlls){const fi=imgStore.get(fi_idx);if(!fi)continue;const fn='ill_'+String(illPageIdx++).padStart(4,'0')+'.xhtml';const iid='ill_'+String(illPageIdx-1).padStart(4,'0');textFolder.file(fn,xhtmlPage(heading+' 삽화','<div class="illust-page"><img src="../Images/'+fi.filename+'" alt="삽화"/></div>'));manifestItems.push({id:iid,href:'Text/'+fn,mt:'application/xhtml+xml'});spineItems.push(iid);}}
+      {for(const fi_idx of beforeIlls){const fi=imgStore.get(fi_idx);if(!fi)continue;const fn='ill_'+String(illPageIdx++).padStart(4,'0')+'.xhtml';const iid='ill_'+String(illPageIdx-1).padStart(4,'0');textFolder.file(fn,xhtmlPage(heading+' 삽화','<div class="illust-page"><img src="../Images/'+fi.filename+'" alt="삽화"/></div>'));manifestItems.push({id:iid,href:'Text/'+fn,mt:'application/xhtml+xml'});spineItems.push(iid);}}
       const fname='chapter_'+String(idx).padStart(4,'0')+'.xhtml';const chid='ch_'+String(idx).padStart(4,'0');
       textFolder.file(fname,xhtmlPage(heading,(showTitle?'<h1>'+escHtml(heading)+'</h1>\\n':'')+body));
       manifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
-      if(heading!=='서문'){spineItems.push(chid);tocEntries.push({label:tocLabel(idx,heading,chHasIll),heading,href:'Text/'+fname});}
-      if(heading!=='서문'){for(const fi_idx of afterIlls){const fi=imgStore.get(fi_idx);if(!fi)continue;const fn='ill_'+String(illPageIdx++).padStart(4,'0')+'.xhtml';const iid='ill_'+String(illPageIdx-1).padStart(4,'0');textFolder.file(fn,xhtmlPage(heading+' 삽화','<div class="illust-page"><img src="../Images/'+fi.filename+'" alt="삽화"/></div>'));manifestItems.push({id:iid,href:'Text/'+fn,mt:'application/xhtml+xml'});spineItems.push(iid);}}
+      // ★ Phase 8: '서문'(첫 제목 앞 내용)도 읽기 순서·목차에 포함 — 이전엔 spine에서 빠져 프롤로그 등이 사라졌음
+      spineItems.push(chid);tocEntries.push({label:tocLabel(idx,heading,chHasIll),heading,href:'Text/'+fname});
+      {for(const fi_idx of afterIlls){const fi=imgStore.get(fi_idx);if(!fi)continue;const fn='ill_'+String(illPageIdx++).padStart(4,'0')+'.xhtml';const iid='ill_'+String(illPageIdx-1).padStart(4,'0');textFolder.file(fn,xhtmlPage(heading+' 삽화','<div class="illust-page"><img src="../Images/'+fi.filename+'" alt="삽화"/></div>'));manifestItems.push({id:iid,href:'Text/'+fn,mt:'application/xhtml+xml'});spineItems.push(iid);}}
     }
     // ★ 4단계 GC: 챕터 루프 완료 후 chapters 참조 해제
     // postMessage로 전달된 chapters는 이제 Worker 내에서 불필요

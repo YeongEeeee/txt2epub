@@ -422,6 +422,7 @@ function handleTxt(files, append=false){
     S.txtFiles=[...S.txtFiles,...newFiles];
   }else{
     S.txtFiles=smartSortFiles(txts); // 스마트 정렬 적용
+    S.tocItems=[]; _tocDropLines=[];   // ★ 새 파일 세트 → 이전 목차 폐기 (미리보기 전 변환 시 잘못된 목차 사용 방지)
   }
 
   const txtDz=document.getElementById('txtDz');
@@ -1203,20 +1204,6 @@ if(!Object.getOwnPropertyDescriptor(window,'_autoSplitActive')){
 // 초기화 (아직 true로 세팅된 적 없을 때만)
 if(window.__autoSplitActiveVal === undefined) window._autoSplitActive=false;
 
-// 파일명에서 총 화수 추출 (예: "소설_1-277" → 277, "소설_1234화" → 1234)
-function extractTotalFromFilename(filename){
-  const stem=filename.replace(/\.[^.]+$/,'');
-  // "N-M" 형태: 마지막 숫자 M이 총 화수
-  let m=stem.match(/-(\d+)[^\d]*(?:완|完|edit|_|$)/i);
-  if(m) return parseInt(m[1]);
-  m=stem.match(/[_-](\d+)[_-]\d+/);
-  if(m) return null; // 범위 불명확
-  m=stem.match(/(\d{2,4})화/);
-  if(m) return parseInt(m[1]);
-  m=stem.match(/[_-](\d{2,4})[^\d]*$/);
-  if(m) return parseInt(m[1]);
-  return null;
-}
 
 // tocItems(간격분할 결과)를 [heading, body] 쌍으로 조립
 // ══════════════════════════════════════════
@@ -1342,7 +1329,13 @@ async function startConvert(){
       await yieldToMain();
       raws.push(await fileToText(sorted[fi]));
     }
-    const raw=raws.join('\n\n');
+    // ★ 파일 경계(여러 TXT)·파일명 화수 범위를 목차 감지에 전달
+    const {text:raw, fileBreaks}=joinTextsWithBreaks(raws, sorted.map(f=>f.name));
+    const detectOpts={
+      fileBreaks,
+      range:rangeForFiles(sorted.map(f=>f.name)),
+      mergeParts:document.getElementById('optMergeParts')?.checked===true,
+    };
     setProgress(14,'① 파일 읽기 완료');
     await yieldToMain();
 
@@ -1380,9 +1373,9 @@ async function startConvert(){
       await yieldToMain();
       const lineCount=(raw.match(/\n/g)||[]).length;
       if(lineCount>=100000){
-        chapters=await splitChaptersAsync(raw,customPat,(pct,msg)=>setProgress(pct,msg));
+        chapters=await splitChaptersAsync(raw,customPat,(pct,msg)=>setProgress(pct,msg),detectOpts);
       } else {
-        chapters=splitChapters(raw,customPat);
+        chapters=splitChapters(raw,customPat,detectOpts);
       }
       setProgress(24,`② 챕터 분리 완료 (${chapters.length}개)`);
       // tocItems 없는 경우 disabledTitles 폴백
@@ -1821,11 +1814,14 @@ async function startSplit(){
   listEl.innerHTML='<div style="font-size:var(--fs-sm);color:var(--text2);grid-column:1/-1">분리 중...</div>';
   document.getElementById('splitSec').style.display='block';
 
+  // N화 단위 분리 — '서문'은 화수에 세지 않되 첫 파트 앞에 붙여 보존 (★ 이전: 서문 내용이 분리본에서 사라짐)
+  const preface=_previewChapters.filter(([h])=>h==='서문');
   const chapters=_previewChapters.filter(([h])=>h!=='서문');
   const parts=[];
   for(let i=0;i<chapters.length;i+=n){
     parts.push(chapters.slice(i,i+n));
   }
+  if(parts.length&&preface.length) parts[0]=[...preface,...parts[0]];
 
   listEl.innerHTML='';
   const blobs=[];
@@ -2211,39 +2207,26 @@ async function showBatchToc(idx, btn){
     const allLines=text.split('\n');
 
     // 파일명에서 총 화수 추출 (80% 기준)
-    const totalCh=extractTotalFromFilename(file.name)||0;
+    const totalCh=parseChapterRange(file.name)?.total||0;   // 파일명 화수 ('1-201 완결' → 201, '0-853' → 854)
 
     // sampleText와 totalCh 캐시 저장
     B.sampleTexts[idx]=text;
     B.totalChs[idx]=totalCh;
     // 파일별 개별 패턴 우선, 없으면 공통 패턴
     const pat=(B.patterns[idx]||document.getElementById('batchPattern')?.value||'').trim();
-    let chapters=[], detectedName='', detectedPct=0;
-    if(pat){
-      try{
-        const rx=new RegExp(pat,'i');
-        allLines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))chapters.push({line:i+1,title:l.trim()});});
-        detectedName='지정 패턴';
-        detectedPct=totalCh>0?chapters.length/totalCh*100:100;
-      }catch(e){}
-    }
-    if(!chapters.length){
-      const {rx,name}=bestPat(text);
-      detectedName=name||'';
-      if(rx){
-        allLines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))chapters.push({line:i+1,title:l.trim()});});
-        detectedPct=totalCh>0?chapters.length/totalCh*100:100;
-        // 80% 이상이면 패턴 저장
-        if(detectedPct>=80||totalCh===0) B.patterns[idx]=rx.source;
-      }
-    }
+    // ★ Phase 8: 실제 일괄 변환(splitChapters)과 같은 detectToc 사용 — 확인 패널 = 변환 결과
+    //   이전: bestPat 단일 패턴 + 자동 감지 정규식을 파일별 '지정 패턴'으로 저장 → 변환 때 새 엔진을 우회
+    const det=detectToc(allLines,{
+      customPat:pat, range:parseChapterRange(file.name),
+      mergeParts:document.getElementById('optMergeParts')?.checked===true,
+    });
+    const chapters=det.items.map(it=>({line:it.line,title:it.title}));
+    const detectedName=det.name;
+    const mainCnt=det.stats.main;
+    const detectedPct=totalCh>0?mainCnt/totalCh*100:100;
 
-    // 중복 제거
-    const seen=new Set();
-    chapters=chapters.filter(c=>{if(seen.has(c.title))return false;seen.add(c.title);return true;});
-
-    // 80% 미만이면 실패 처리
-    const isGood=(detectedPct>=80||totalCh===0)&&chapters.length>=3;
+    // 파일명 화수와 5% 이내면 성공 (화수 정보가 없으면 3개 이상 감지로 판단)
+    const isGood=chapters.length>=3&&(totalCh===0||Math.abs(mainCnt-totalCh)/totalCh<=0.05);
 
     panel.innerHTML='';
     const HEAD=5, TAIL=5;
@@ -2252,7 +2235,7 @@ async function showBatchToc(idx, btn){
       // 실패: 패턴 패널 표시 + 현황
       let failMsg='';
       if(chapters.length<3) failMsg='챕터를 감지하지 못했어요.';
-      else failMsg=`${chapters.length}개 감지 (파일 ${totalCh}화 기준 ${detectedPct.toFixed(0)}% - 80% 미달)`;
+      else failMsg=`본편 ${mainCnt}화 감지 (파일명 ${totalCh}화 기준 ${detectedPct.toFixed(1)}% — 오차 5% 초과)`;
 
       panel.innerHTML=
         '<div style="font-size:var(--fs-xs);color:var(--accent);padding:4px;margin-bottom:6px">'+
@@ -2261,7 +2244,7 @@ async function showBatchToc(idx, btn){
         buildPatPresetPanel(idx,text,totalCh);
     } else {
       // 성공: 챕터 목록 + 패턴 변경 버튼
-      const pctStr=totalCh>0?` · ${detectedPct.toFixed(0)}% (${totalCh}화 기준)`:'';
+      const pctStr=totalCh>0?` · 본편 ${mainCnt}/${totalCh}화 (${(detectedPct-100>=0?'+':'')+(detectedPct-100).toFixed(1)}%)`:'';
       const info=document.createElement('div');
       info.style.cssText='font-size:var(--fs-xs);color:var(--text2);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center';
       info.innerHTML=
@@ -2536,7 +2519,11 @@ async function startBatch(){
         await new Promise(r=>setTimeout(r,0));
         const raw=await fileToText(f);
         const pattern=(B.patterns[i]||globalPat);
-        const chapters=splitChapters(raw,pattern);
+        // ★ 파일명 화수 범위('1-201 완결')로 목차 감지 보정
+        const chapters=splitChapters(raw,pattern,{
+          range:parseChapterRange(f.name),
+          mergeParts:document.getElementById('optMergeParts')?.checked===true,
+        });
         // ★ 파일명에서 시리즈명·권 번호 자동 추출 ('작품 3권.txt' → 작품 / 3)
         const sm=parseSeriesFromName(f.name);
         const blob=await buildEpub({title,author,chapters,coverFile:cover,illMap:[],useItalic:useItalicBatch,
@@ -2641,12 +2628,12 @@ function terminateParserWorker(reason){
  * Worker 기반 splitChapters (비동기)
  * 10만 줄 이상 파일에서 메인 스레드 블로킹 없음
  */
-async function splitChaptersAsync(raw, customPat, onProgress){
+async function splitChaptersAsync(raw, customPat, onProgress, opts={}){
   const lineCount=(raw.match(/\n/g)||[]).length;
 
   if(lineCount<100000){
     // 소형 파일: 동기 처리 (Worker 오버헤드 없음)
-    return splitChapters(raw, customPat);
+    return splitChapters(raw, customPat, opts);
   }
 
   onProgress&&onProgress(8,'② 대용량 파일 — Worker 파싱 시작...');
@@ -2660,7 +2647,7 @@ async function splitChaptersAsync(raw, customPat, onProgress){
       if(_workerCallbacks.has(id)){
         _workerCallbacks.delete(id);
         // Worker 타임아웃 → 동기 폴백
-        try{resolve(splitChapters(raw,customPat));}
+        try{resolve(splitChapters(raw,customPat,opts));}
         catch(e){reject(new Error('파싱 타임아웃: '+e.message));}
       }
     }, 120000);
@@ -2674,12 +2661,12 @@ async function splitChaptersAsync(raw, customPat, onProgress){
         resolve:(r)=>{ clearTimeout(timer); _warnIndexJump(r); orig.resolve(r); },
         reject: (e)=>{ clearTimeout(timer); orig.reject(e); }
       });
-      worker.postMessage({type:'SPLIT',payload:{raw,customPat},id});
+      worker.postMessage({type:'SPLIT',payload:{raw,customPat,opts},id});
     }catch(e){
       clearTimeout(timer);
       _workerCallbacks.delete(id);
       // Worker 실패 시 동기 폴백
-      try{resolve(splitChapters(raw,customPat));}catch(e2){reject(e2);}
+      try{resolve(splitChapters(raw,customPat,opts));}catch(e2){reject(e2);}
     }
   });
 }
@@ -2747,7 +2734,8 @@ async function resetEditAll(){
 
 // ════ 결과 stat 카드 렌더링 (최적화 5) ════
 function resetConvertTxt(){
-  S.txtFiles=[];S._rawTextFull=[];_chaptersCache=null;_chaptersCacheKey='';
+  // ★ 목차·감지 상태도 함께 초기화 (이전: tocItems가 남아 자동 미리보기 OFF일 때 새 파일을 이전 목차로 자름)
+  S.txtFiles=[];S._rawTextFull=[];S.tocItems=[];_tocDropLines=[];_chaptersCache=null;_chaptersCacheKey='';
   // ★ window 단일 소유권: 전역 분할 상태 완전 초기화
   window._autoSplitActive=false;
   window._autoSplitLines=null;

@@ -179,6 +179,76 @@ async function main(){
   check('[파싱] 단독 번호 제목은 목록 아님', !isListItem(['', '1. 서막', ''], 1));
   check('[파싱] 제목 공백 보존', splitChapters('\n제1화 만남\n\n본문\n본문\n\n제2화 이별\n\n본문\n본문\n\n제3화 끝\n\n본문\n', '').some(c => c[0] === '제1화 만남'));
 
+  // ═══ 3-2. 실전형 정확도 (사용자 예시 파일명 5종 — 복합 패턴·잡음) ═══
+  //  기준: 파일명 화수 대비 본편 화수 오차 ≤ 5%, 제목 줄 정밀도·재현율 ≥ 98%
+  {
+    const { generate, SPECS } = require('./gen-realistic.js');
+    const detectToc = G('detectToc'), parseRange = G('parseChapterRange');
+    for(const spec of SPECS){
+      const g = generate(spec);
+      const lines = g.text.split('\n');
+      const range = parseRange(g.fileName);
+      const t0 = Date.now();
+      const det = detectToc(lines, { range });
+      const ms = Date.now() - t0;
+      const truth = new Set(g.truth.map(t => t.line)), got = new Set(det.items.map(i => i.line));
+      const tp = [...got].filter(l => truth.has(l)).length;
+      const precision = tp / Math.max(1, got.size), recall = tp / Math.max(1, truth.size);
+      const err = Math.abs(det.stats.errorRate);
+      const short = spec.name.slice(0, 14);
+      check(`[실전] ${short} 화수 범위 해석`, range && range.total === spec.range[1] - spec.range[0] + 1, JSON.stringify(range));
+      check(`[실전] ${short} 오차 ≤ 5%`, err <= 0.05, `감지 ${det.stats.main} / 파일명 ${range.total} (${(det.stats.errorRate*100).toFixed(1)}%)`);
+      check(`[실전] ${short} 정밀도 ≥ 98%`, precision >= 0.98, (precision*100).toFixed(1)+'%');
+      check(`[실전] ${short} 재현율 ≥ 98%`, recall >= 0.98, (recall*100).toFixed(1)+'%');
+      // 화수 정보가 없어도(파일명 범위 없이) 같은 품질
+      const noRange = detectToc(lines, {});
+      check(`[실전] ${short} 파일명 없이도 동일`, noRange.items.length === det.items.length);
+      console.log(`  · ${short.padEnd(14)} 본편 ${det.stats.main}/${range.total} (${(det.stats.errorRate*100).toFixed(1)}%) · 정밀도 ${(precision*100).toFixed(1)}% · 재현율 ${(recall*100).toFixed(1)}% · ${ms}ms · ${det.name}`);
+    }
+    // 실전형 최대 파일(4만 줄)로 Worker 동등성 + 범위 옵션 전달
+    const g = generate(SPECS[3]);
+    const opts = { range: parseRange(g.fileName) };
+    const w = await runWorker(workerSrc, { type: 'SPLIT', id: 7, payload: { raw: g.text, customPat: '', opts } });
+    check('[실전] Worker 결과 = 메인 스레드 (범위 옵션 포함)', w.last.type === 'DONE' && eq(w.last.result, splitChapters(g.text, '', opts)));
+  }
+
+  // ═══ 3-3. 이전에 실패하던 형식 9종 ═══
+  {
+    const B = ['그는 걸었다.', '', '바람이 불었다.', '', '"괜찮아?"', '', '그녀가 물었다.'];
+    const mk = (hs, body = B) => hs.map(h => h + '\n\n' + body.join('\n')).join('\n\n');
+    const H = raw => splitChapters(raw, '').map(c => c[0]);
+    const long = H(mk(['제1화 회귀한 마법사는 오늘도 도서관 지하에서 금서를 읽는다', '제2화 회귀한 마법사는 오늘도 도서관 지하에서 금서를 찾는다', '제3화 회귀한 마법사는 오늘도 도서관 지하에서 금서를 태운다', '제4화 짧은 제목']));
+    check('[형식] 30자 넘는 긴 제목', long.length === 4, long.join(' / '));
+    const digit = H(mk(['1화', '2화', '3화', '4화'], ['3년이 지났다.', '', '100명의 병사가 몰려왔다.', '', '2층으로 올라갔다.']));
+    check('[형식] 숫자로 시작하는 본문 줄 무시', eq(digit, ['1화', '2화', '3화', '4화']), digit.join(' / '));
+    const two = H(mk(['1화\n시작의 날', '2화\n두 번째 만남', '3화\n결전', '4화\n끝']));
+    check('[형식] 두 줄 제목 결합', eq(two, ['1화 시작의 날', '2화 두 번째 만남', '3화 결전', '4화 끝']), two.join(' / '));
+    const compact = H(['1화', '그는 걸었다.', '바람이 불었다.', '2화', '그는 걸었다.', '3화', '그녀가 물었다.', '4화', '끝이었다.'].join('\n'));
+    check('[형식] 빈 줄 없는 TXT', compact.length === 4, compact.join(' / '));
+    const hdrRaw = ['작품명', '', '1화 시작', '', ...B, '', '작품명', '', '2화 만남', '', ...B, '', '작품명', '', '3화 끝', '', ...B, '', '작품명', '', '4화 재회', '', ...B, '', '작품명', '', '5화 이별', '', ...B].join('\n');
+    const hdr = splitChapters(hdrRaw, '');
+    check('[형식] 반복 머리줄 제거', hdr.length === 5 && hdr.every(([, b]) => !b.includes('작품명')), hdr.map(c => c[0]).join(' / '));
+    const mention = H(mk(['제1화 시작', '제2화 만남', '제3화 이별', '제4화 재회'], ['그는 말했다.', '', '1화', '', '라는 단어가 떠올랐다.']));
+    check('[형식] 본문 속 \'1화\' 언급 무시', eq(mention, ['제1화 시작', '제2화 만남', '제3화 이별', '제4화 재회']), mention.join(' / '));
+    const scenes = splitChapters(Array.from({ length: 30 }, () => Array(40).fill('그는 걸었다.').join('\n') + '\n\n***\n').join('\n'), '');
+    check('[형식] 장면 구분자 경계 페이지 분할', scenes.length > 1 && scenes.every(([, b]) => !b.startsWith('***')), scenes.length + '페이지');
+    const partsRaw = mk(['120화 (1)', '120화 (2)', '121화 (1)', '121화 (2)']);
+    check('[형식] 같은 화 분할 인식', H(partsRaw).length === 4);
+    const merged = splitChapters(partsRaw, '', { mergeParts: true }).map(c => c[0]);
+    check('[형식] 같은 화 분할 합치기 옵션', eq(merged, ['120화', '121화']), merged.join(' / '));
+    const kwRaw = ['프롤로그', '', ...B, '', '1화', '', ...B, '', '2화', '', ...B, '', '3화', '', ...B, '', '외전 1', '', ...B, '', '에필로그', '', ...B].join('\n');
+    const detK = G('detectToc')(kwRaw.split('\n'), {});
+    check('[형식] 미리보기에도 프롤로그·외전·에필로그', eq(detK.items.map(i => i.title), ['프롤로그', '1화', '2화', '3화', '외전 1', '에필로그']), detK.items.map(i => i.title).join(' / '));
+    // 서문·본문 없는 제목 보존 (buildChaptersFromTocItems 경로)
+    const lines2 = ['작품 소개', '', '1권', '1화', '본문', '', '2화', '본문'];
+    const built = G('buildChaptersFromTocItems')(lines2, [{ line: 3, title: '1권', enabled: true }, { line: 4, title: '1화', enabled: true }, { line: 7, title: '2화', enabled: true }], null);
+    check('[형식] 서문·본문 없는 제목 보존', eq(built.map(c => c[0]), ['서문', '1권', '1화', '2화']), built.map(c => c[0]).join(' / '));
+    // 여러 파일: 파일 시작에 제목이 없으면 파일명이 제목
+    const { text, fileBreaks } = G('joinTextsWithBreaks')(['본문 가', '본문 나', '본문 다'], ['001_시작.txt', '002_전개.txt', '003_결말.txt']);
+    const fb = G('detectToc')(text.split('\n'), { fileBreaks });
+    check('[형식] 파일 경계 → 파일명 제목', eq(fb.items.map(i => i.title), ['001_시작', '002_전개', '003_결말']), fb.items.map(i => i.title).join(' / '));
+  }
+
   // ═══ 4. EPUB 빌드 ═══
   const JSZip = require('jszip');
   const jszipSrc = fs.readFileSync(require.resolve('jszip/dist/jszip.min.js'), 'utf8');
@@ -251,7 +321,7 @@ async function main(){
     check('[EPUB] 시리즈 비우면 컬렉션 메타 생략', !e.opf.includes('belongs-to-collection') && !e.opf.includes('calibre:series'));
     check('[EPUB] 평면 목차 ol 1개', (e.nav.match(/<ol>/g) || []).length === 1);
     check('[EPUB] 평면 ncx dtb:depth=1', e.ncx.includes('<meta name="dtb:depth" content="1"/>'));
-    check('[EPUB] 서문은 목차 제외', !/>서문</.test(e.nav));
+    check('[EPUB] 서문도 읽기 순서·목차에 포함', />서문</.test(e.nav) && /<itemref idref="ch_0000"\/>/.test(e.opf));
     // 앱 UI용 CSS 토큰(var(--…))이 EPUB 본문·스타일로 새어 나가지 않았는지 (리더기는 앱 변수를 모름)
     const texts = await Promise.all(Object.keys(e.zip.files).filter(n => /\.(xhtml|css|opf|ncx)$/.test(n)).map(n => e.zip.file(n).async('string')));
     check('[EPUB] 앱 CSS 변수 미유출', texts.every(t => !t.includes('var(--')));
