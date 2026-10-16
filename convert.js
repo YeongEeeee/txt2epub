@@ -246,9 +246,9 @@ function _decodeFromAB(ab, enc){
         const fr2=new FileReader();
         fr2.onload=ev2=>done(ev2.target.result||'');
         fr2.onerror=e2=>fail(e2);
-        fr2.readAsText(file,enc);
+        fr2.readAsText(new Blob([ab]),enc); // ★ 이전: 스코프에 없는 file 참조 → ReferenceError
       };
-      fr.readAsText(file,enc);
+      fr.readAsText(new Blob([ab]),enc);
     }
   });
 }
@@ -337,7 +337,11 @@ async function fileToAB(file){
 // forCover=true 이면 항상 JPG 변환 (표지는 뷰어 호환성 최우선)
 async function convertImageFile(file, forCover=false){
   try{
-    const ext=(file.name.split('.').pop()||'').toLowerCase();
+    // ★ 이름 없는 Blob(자동 생성 텍스트 표지 등)은 MIME으로 확장자 판별
+    //   이전: file.name.split() TypeError → null 반환 → 텍스트 표지가 EPUB에서 누락
+    const _name=String(file?.name||'');
+    const _MIME_EXT={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','image/bmp':'bmp','image/avif':'avif','image/tiff':'tiff'};
+    const ext=(_name.includes('.')?_name.split('.').pop():(_MIME_EXT[file?.type]||'')).toLowerCase();
     const supportedAsIs=['jpg','jpeg'];
     const convertable=['png','gif','webp','bmp','tiff','tif','avif','heic','heif'];
 
@@ -352,7 +356,7 @@ async function convertImageFile(file, forCover=false){
         return {blob, ext:'jpg', mt:'image/jpeg'};
       }catch(convErr){
         // ★ 변환 실패 시 원본 사용 (전체 공정 중단 없음)
-        Toast.warn&&Toast.warn(`이미지 변환 실패 (원본 사용): ${file.name}`);
+        Toast.warn&&Toast.warn(`이미지 변환 실패 (원본 사용): ${file?.name||'이미지'}`);
       }
     }
 
@@ -365,7 +369,7 @@ async function convertImageFile(file, forCover=false){
     return {blob:file, ext, mt};
   }catch(e){
     // ★ 이미지 처리 자체가 실패해도 null 반환으로 건너뜀 (전체 공정 유지)
-    Toast.warn&&Toast.warn(`이미지 처리 건너뜀: ${file.name}`);
+    Toast.warn&&Toast.warn(`이미지 처리 건너뜀: ${file?.name||'이미지'}`);
     return null;
   }
 }
@@ -392,7 +396,7 @@ async function imgToJpgBlob(file, quality=0.92){
         },'image/jpeg',quality);
       }catch(e){URL.revokeObjectURL(url);rej(e);}
     };
-    img.onerror=(e)=>{URL.revokeObjectURL(url);rej(new Error('이미지 로드 실패: '+file.name));};
+    img.onerror=(e)=>{URL.revokeObjectURL(url);rej(new Error('이미지 로드 실패: '+(file?.name||'이미지')));};
     img.src=url;
   });
 }
@@ -463,6 +467,14 @@ function handleTxt(files, append=false){
     const authorEl=document.getElementById('author');
     if(titleEl&&!titleEl.value) titleEl.value=title;
     if(authorEl&&!authorEl.value) authorEl.value=author;
+    // ★ 시리즈 메타 자동 채우기 ('작품 3권.txt' → 시리즈 '작품', 권 3)
+    const sm=parseSeriesFromName(S.txtFiles[0].name);
+    const seriesEl=document.getElementById('series');
+    const seriesIdxEl=document.getElementById('seriesIdx');
+    if(sm){
+      if(seriesEl&&!seriesEl.value) seriesEl.value=sm.series;
+      if(seriesIdxEl&&!seriesIdxEl.value) seriesIdxEl.value=String(sm.index);
+    }
   }
 
   // ★ 이름이 유사한 이미지가 함께 들어왔으면 표지로 자동 연결
@@ -1154,7 +1166,6 @@ function selectIllRangeCard(id, ci){
 
 // 키워드 검색 (디바운스 · 범위 내에서만)
 let _kwTimer={};
-function debounceKwSearch(id){ clearTimeout(_kwTimer[id]); _kwTimer[id]=setTimeout(()=>kwSearch(id),350); }
 function debounceIllKwSearch(id){ clearTimeout(_kwTimer['r'+id]); _kwTimer['r'+id]=setTimeout(()=>illKwSearch(id),250); }
 
 function illKwSearch(id){
@@ -1171,127 +1182,6 @@ function illKwSearch(id){
   renderIllRangePanel(id, kw, autoSel);
 }
 
-// startConvert에서 수동삽화 읽는 로직도 수정 필요 — _illRangeCache에서 선택된 ci 기반으로
-function getManualIllTarget(id){
-  // 현재 선택된 카드의 챕터 인덱스 반환 (선택 안된 경우 중심 화 번호 사용)
-  const chNum=parseInt(document.getElementById('mc'+id)?.value);
-  return {ch:chNum||null, pos:document.getElementById('mpos'+id)?.value||'before'};
-}
-
-
-async function kwSearch(id){
-  const kw=document.getElementById('mk'+id)?.value.trim();
-  const pv=document.getElementById('mpv'+id);
-  if(!kw||kw.length<1){pv.classList.remove('show');return;}
-
-  const chapters=await getCachedChapters();
-  if(!chapters.length){pv.classList.remove('show');return;}
-
-  const kwEsc=kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-  const kwRx=new RegExp(kwEsc,'g');
-
-  // 1단계: 키워드가 있는 챕터 인덱스 전체 탐색 (제목 + 본문 전체)
-  let centerIdx=-1;
-  let totalMatches=0;
-  for(let ci=0;ci<chapters.length;ci++){
-    const [heading,body]=chapters[ci];
-    if(heading.includes(kw)||(body||'').includes(kw)){
-      if(centerIdx<0) centerIdx=ci; // 첫 번째 발견 챕터
-      totalMatches++;
-    }
-  }
-
-  if(centerIdx<0){
-    pv.innerHTML=
-      '<div class="mill-ch-match">'+
-        '<div class="mill-ch-title" style="color:var(--text2)">검색 결과 없음</div>'+
-        '<div class="mill-ch-body">&#39;'+escHtml(kw)+'&#39; 를 포함한 챕터가 없어요.<br>'+
-        '<span style="font-size:10px">다른 키워드를 시도하거나 화 번호 모드를 사용해보세요.</span></div>'+
-      '</div>';
-    pv.classList.add('show');
-    return;
-  }
-
-  // 2단계: 발견 챕터 ±1화 (총 최대 3화) 표시
-  const range=[];
-  if(centerIdx>0)                    range.push({ci:centerIdx-1, role:'prev'});
-                                     range.push({ci:centerIdx,   role:'match'});
-  if(centerIdx<chapters.length-1)    range.push({ci:centerIdx+1, role:'next'});
-
-  const moreCount=totalMatches-1;
-
-  let html=
-    '<div class="mill-ch-match">'+
-      '<div class="mill-ch-title" style="display:flex;justify-content:space-between;align-items:center">'+
-        '<span>🔍 <b>'+escHtml(kw)+'</b> 발견 · 전후 3화</span>'+
-        (moreCount>0?'<span style="font-size:10px;color:var(--text2)">외 '+moreCount+'곳 더</span>':'')+
-      '</div>'+
-      '<div class="mill-kw-list">';
-
-  range.forEach(({ci,role})=>{
-    const [heading,body]=chapters[ci];
-    const isMatch=role==='match';
-
-    // 키워드 주변 컨텍스트: 발견 화는 본문에서 키워드 앞뒤 40자, 나머지는 본문 첫 줄
-    let snippet='';
-    if(isMatch){
-      const fullText=heading+' '+(body||'');
-      const idx=fullText.indexOf(kw);
-      if(idx>=0){
-        const s=Math.max(0,idx-30);
-        const e=Math.min(fullText.length,idx+kw.length+40);
-        snippet=fullText.slice(s,e).replace(/\n/g,' ');
-      }
-    } else {
-      snippet=(body||'').split('\n').filter(l=>l.trim())[0]||'';
-    }
-
-    // 키워드 하이라이트 (발견 화만)
-    const hiSnippet=isMatch
-      ? snippet.replace(new RegExp(kwEsc,'g'),'<span class="mill-kw-highlight">'+escHtml(kw)+'</span>')
-      : escHtml(snippet);
-    const hiTitle=isMatch
-      ? escHtml(heading).replace(new RegExp(kwEsc,'g'),'<span class="mill-kw-highlight">'+escHtml(kw)+'</span>')
-      : escHtml(heading);
-
-    const roleIcon  = role==='prev'?'⬆':'next'===role?'⬇':'🎯';
-    const roleLabel = role==='prev'?'이전화':role==='next'?'다음화':'발견';
-    const rowStyle  = isMatch
-      ? 'border:1.5px solid var(--accent);background:var(--accent-bg);border-radius:6px;'
-      : '';
-
-    html+=
-      '<div class="mill-kw-item" id="mkwi_'+id+'_'+ci+'" style="'+rowStyle+'" '+
-           'onclick="selectKwResult('+id+',\''+escAttr(heading)+'\','+ci+')">'+
-        '<div style="display:flex;flex-direction:column;min-width:34px;align-items:center;gap:1px">'+
-          '<span style="font-size:12px">'+roleIcon+'</span>'+
-          '<span style="font-size:9px;color:var(--text2)">'+roleLabel+'</span>'+
-        '</div>'+
-        '<div style="flex:1;min-width:0">'+
-          '<div style="font-weight:'+(isMatch?'700':'500')+';font-size:11px">'+hiTitle+'</div>'+
-          '<div style="color:var(--text2);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">&#183;&#183;&#183;'+hiSnippet+'&#183;&#183;&#183;</div>'+
-        '</div>'+
-      '</div>';
-  });
-
-  html+='</div></div>';
-  pv.innerHTML=html;
-  pv.classList.add('show');
-}
-
-function selectKwResult(id, heading, ci){
-  // 선택 표시 갱신
-  document.querySelectorAll('[id^="mkwi_'+id+'_"]').forEach(el=>el.classList.remove('selected'));
-  event.currentTarget.classList.add('selected');
-  // ★ 실제 화 번호 인풋에 반영 (ci = 챕터 인덱스)
-  const mcEl=document.getElementById('mc'+id);
-  if(mcEl&&ci!=null){
-    // 챕터 인덱스 → 서문 제외 실제 순번 계산
-    mcEl.value=ci+1;
-    // _illRangeCache 갱신을 위해 loadIllRange 재호출
-    loadIllRange(id);
-  }
-}
 
 // ════════════════════════════════════════════════════════
 // ★ 간격 분할 전역 상태 — window 단일 소유권
@@ -1404,9 +1294,6 @@ async function startConvert(){
   const convertStart=Date.now();
   // ★ U-01: 타임라인 초기화
   _progressTimeline.length = 0;
-  document.getElementById('progressSparkline') &&
-    (document.getElementById('progressSparkline').innerHTML='') &&
-    (document.getElementById('progressSparkline').style.display='none');
   const sparkEl = document.getElementById('progressSparkline');
   if(sparkEl){ sparkEl.innerHTML=''; sparkEl.style.display='none'; }
   // ★ PERF-01: 캐싱 변수 우선 사용 (없으면 직접 쿼리 fallback)
@@ -1435,8 +1322,8 @@ async function startConvert(){
   abortBtn.style.display='block';
   abortBtn.onclick=()=>{
     _convertAborted=true;
-    // Worker에도 Abort 신호
-    if(_parserWorker) _parserWorker.postMessage({type:'ABORT',id:-1});
+    // ★ 파싱 Worker 즉시 종료 (동기 루프 중이라 메시지로는 중단 불가)
+    terminateParserWorker('사용자 중단');
     abortBtn.style.display='none';
     setProgress(0,'⛔ 중단됨');
     document.getElementById('progWrap')?.classList.remove('show');
@@ -1565,7 +1452,12 @@ async function startConvert(){
     // ★ U-17: warnings 배열 수집 — buildEpub이 {blob, warnings} 형태로 반환 시 처리
     let epubWarnings = [];
     const epubResult = await buildEpub(
-      {title,author,chapters,coverFile:effectiveCover,illMap,useItalic},
+      {
+        title,author,chapters,coverFile:effectiveCover,illMap,useItalic,
+        // ★ 시리즈 메타 (EPUB3 belongs-to-collection + calibre:series)
+        series:(document.getElementById('series')?.value||'').trim(),
+        seriesIndex:parseInt(document.getElementById('seriesIdx')?.value||'0',10)||0,
+      },
       (pct,msg)=>setProgress(40+Math.round(pct*0.52), msg)
     );
     let blob;
@@ -1575,6 +1467,8 @@ async function startConvert(){
     } else {
       blob = epubResult; // 기존 Blob 직접 반환 방식 하위 호환
     }
+    // ★ 변환 리포트: 챕터 구성에서 확인 가능한 경고 수집 (화수 도약·짧은 챕터·패턴 미감지·삽화 매핑 실패)
+    epubWarnings = epubWarnings.concat(_collectConvertWarnings(chapters, illMap));
     S.epubBlob=blob;
     S.epubName=title.replace(/[\\/:*?"<>|]/g,'_')+'.epub';
     const elapsed=((Date.now()-convertStart)/1000).toFixed(1);
@@ -1655,12 +1549,40 @@ async function startConvert(){
   }
 }
 
+// ★ U-17: 변환 경고 수집 — 결과 카드의 #convertReport에 표시
+function _collectConvertWarnings(chapters, illMap){
+  const out=[];
+  const list=Array.isArray(chapters)?chapters:[];
+  const real=list.filter(([h])=>h!=='서문');
+  if(!real.length) return out;
+  // 패턴 미감지 → 페이지/본문 단위 분할
+  if(real.every(([h])=>h==='본문'||/^\(\d+\/\d+\)$/.test(h))){
+    out.push('챕터 패턴을 찾지 못해 '+(real.length>1?real.length+'개 페이지로 나눠':'본문 하나로')+' 저장했어요. 목차가 필요하면 패턴을 직접 입력하거나 간격 분할을 사용하세요.');
+  }
+  // 화수 도약 (누락 의심)
+  if(typeof _checkIndexJump==='function'&&real.length>2){
+    const {jumps}=_checkIndexJump(real);
+    jumps.slice(0,5).forEach(j=>out.push(`화수 도약 ${j.from}화 → ${j.to}화 (+${j.gap}) — 중간 화가 빠졌을 수 있어요.`));
+    if(jumps.length>5) out.push(`화수 도약 외 ${jumps.length-5}건`);
+  }
+  // 본문이 매우 짧은 챕터 (마지막 챕터 제외)
+  const th=typeof getSuspThreshold==='function'?getSuspThreshold():50;
+  const short=real.slice(0,-1).filter(([,b])=>String(b||'').replace(/\s/g,'').length<th);
+  if(short.length) out.push(`본문이 ${th}자 미만인 챕터 ${short.length}개: ${short.slice(0,3).map(([h])=>h).join(', ')}${short.length>3?' …':''}`);
+  // 삽화 매핑 실패 (해당 화가 없음)
+  (illMap||[]).forEach(il=>{
+    if(typeof il.idx==='number'&&(il.idx<0||il.idx>=list.length)) out.push(`삽화 ${il.file?.name||''}: ${il.idx+1}번째 챕터가 없어 삽입되지 않았어요.`);
+  });
+  return out;
+}
+
 // ★ U-17: 변환 오류 리포트 — 챕터별 경고 항목 요약 렌더링
 function _renderConvertReport(warnings){
   const el = document.getElementById('convertReport');
   if(!el) return;
   if(!warnings || !warnings.length){ el.style.display='none'; return; }
-  el.style.display = '';
+  // ★ style.css의 #convertReport{display:none} 기본값 때문에 ''가 아닌 'block'으로 명시
+  el.style.display = 'block';
   el.innerHTML =
     `<div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">⚠ 변환 경고 ${warnings.length}건</div>` +
     `<div style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto">` +
@@ -1690,11 +1612,11 @@ function _renderProgressSparkline(){
     svgBars += `<rect x="${x}" y="${H-bh}" width="${barW}" height="${bh}" fill="${col}" rx="1" opacity="0.85"><title>${label} (${(dur/1000).toFixed(1)}s)</title></rect>`;
   }
   container.innerHTML =
-    `<svg width="${W}" height="${H}" style="display:block;margin:6px 0 0" aria-label="단계별 소요시간 스파크라인">
+    `<svg width="${W}" height="${H}" style="display:block;margin:6px auto 0" aria-label="단계별 소요시간 스파크라인">
       <title>변환 단계별 소요시간</title>${svgBars}
     </svg>
     <div style="font-size:10px;color:var(--text2);margin-top:2px">단계별 소요시간 (총 ${(totalMs/1000).toFixed(1)}초)</div>`;
-  container.style.display = '';
+  container.style.display = 'block'; // ★ #progressSparkline{display:none} 기본값 대응
 }
 
 // ★ 07: 결과 카드 count-up + shimmer 애니메이션
@@ -1919,7 +1841,9 @@ async function startSplit(){
     listEl.appendChild(div);
 
     try{
-      const blob=await buildEpub({title:partTitle,author,chapters:part,coverFile:pi===0?coverFile:null,illMap:[],useItalic},null);
+      // ★ 분할 EPUB은 원제목을 시리즈로, 파트 순번을 권 번호로 기록 → 리더기 서재에서 묶여 보임
+      const blob=await buildEpub({title:partTitle,author,chapters:part,coverFile:pi===0?coverFile:null,illMap:[],useItalic,
+        series:title,seriesIndex:pi+1},null);
       blobs.push({name:partTitle+'.epub',blob});
       div.className='split-item done';
       document.getElementById('sps_'+pi).textContent='✅ '+(blob.size/1024/1024).toFixed(1)+'MB';
@@ -2156,7 +2080,6 @@ function filterHistory(){
   const onlyHasFile=document.getElementById('histFilterHasFile')?.classList.contains('on');
   document.querySelectorAll('#histList .hist-item').forEach(el=>{
     const title=(el.querySelector('.hist-title')?.textContent||'').toLowerCase();
-    const hasFile=!el.querySelector('.hist-del')?.closest('.hist-item')?.querySelector('[data-action="histDownload"]')?.disabled;
     const matchQ=!q||title.includes(q);
     const matchFile=!onlyHasFile||el.querySelector('[data-action="histDownload"]');
     el.style.display=(matchQ&&matchFile)?'':'none';
@@ -2165,26 +2088,6 @@ function filterHistory(){
 function toggleHistFilter(btn){
   btn.classList.toggle('on');
   filterHistory();
-}
-
-// ════ 배치 변환 파일별 상태 렌더링 (추천 6) ════
-function renderBatchFileStatus(itemEl, files, statuses){
-  let container=itemEl.querySelector('.batch-file-status');
-  if(!container){
-    container=document.createElement('div');
-    container.className='batch-file-status';
-    itemEl.appendChild(container);
-  }
-  container.innerHTML=files.map((f,i)=>{
-    const st=statuses[i]||'pending';
-    const icon=st==='done'?'✅':st==='running'?'⏳':st==='error'?'❌':'⬜';
-    const detail=st==='done'?f.detail||'':'';
-    return `<div class="batch-file-row">
-      <span class="batch-file-icon">${icon}</span>
-      <span class="batch-file-name">${escHtml(f.name||'')}</span>
-      ${detail?`<span class="batch-file-detail">${escHtml(detail)}</span>`:''}
-    </div>`;
-  }).join('');
 }
 
 // ══════════════════════════════════════════
@@ -2323,7 +2226,7 @@ async function showBatchToc(idx, btn){
       }catch(e){}
     }
     if(!chapters.length){
-      const {rx,name,cnt}=bestPat(text);
+      const {rx,name}=bestPat(text);
       detectedName=name||'';
       if(rx){
         allLines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))chapters.push({line:i+1,title:l.trim()});});
@@ -2632,7 +2535,10 @@ async function startBatch(){
         const raw=await fileToText(f);
         const pattern=(B.patterns[i]||globalPat);
         const chapters=splitChapters(raw,pattern);
-        const blob=await buildEpub({title,author,chapters,coverFile:cover,illMap:[],useItalic:useItalicBatch},
+        // ★ 파일명에서 시리즈명·권 번호 자동 추출 ('작품 3권.txt' → 작품 / 3)
+        const sm=parseSeriesFromName(f.name);
+        const blob=await buildEpub({title,author,chapters,coverFile:cover,illMap:[],useItalic:useItalicBatch,
+          series:sm?.series||'',seriesIndex:sm?.index||0},
           pct=>{document.getElementById('bpb_'+i).style.width=(30+pct*0.7)+'%';});
         B.results.push({name:title+'.epub',blob});
         if(item)item.className='batch-item done';
@@ -2669,273 +2575,23 @@ async function downloadBatchZip(){
 }
 
 // ════════════════════════════════════════════════
-// ⚡ Module: Worker — Blob 기반 인라인 Web Worker
-// ★ 외부 파일(parser.js) 의존성 없음
-// ★ 로컬 파일 실행, 하위 경로, CORS 환경 모두 안전
-// ★ new Blob([코드]) → URL.createObjectURL → new Worker(url)
-// ★ Worker 생성 직후 URL.revokeObjectURL로 메모리 해제
+// ⚡ Module: ParserWorker — 대용량(10만 줄+) 파싱 전용 Blob Worker
+// ★ Worker 소스는 parser.js buildParserWorkerSource()가 생성 (패턴·파싱 로직 단일 소유)
+//   → 이전의 인라인 복사본(PATS·bestPat·splitChaptersWorkerDetailed) 제거
+// ★ new Blob([코드]) → URL.createObjectURL → new Worker(url) → 즉시 revoke
 // ════════════════════════════════════════════════
+let _parserWorker=null;               // 지연 생성되는 파싱 Worker 인스턴스
+const _workerCallbacks=new Map();     // 요청 id → {resolve, reject}
+let _workerIdCounter=0;               // 요청 id 시퀀스
 
-/**
- * createParserWorker — Blob URL 인라인 Worker 생성
- *
- * 경로 독립적: file://, http://, https:// 어디서든 동작
- * Worker 내부에 KEYWORD_PATS, bestPat, splitChaptersWorker 완전 인라인
- */
 function createParserWorker(){
-  // ★ parser.js와 완전 동기화된 Worker 코드
-  // - 48개 PATS 전체 포함
-  // - preprocessLine / calcSequenceWeight 포함
-  // - splitChaptersWorker 구버전 제거 → splitChaptersWorkerDetailed만 사용
-  const workerSrc=`
-'use strict';
-// ── 전처리: 줄 앞뒤 특수문자·과도한 공백 제거 ──
-function preprocessLine(raw){
-  return raw.trim()
-    .replace(/^[\\[\\(\\-\\s]+/,'').replace(/[\\]\\)\\-\\s]+$/,'')
-    .replace(/\\s{2,}/g,' ').trim();
-}
-// ── 연속성 체크 ──
-function calcSequenceWeight(nums){
-  if(nums.length<2)return 0;
-  let c=0;
-  for(let i=1;i<nums.length;i++){const p=nums[i-1],n=nums[i];if(p!=null&&n!=null&&(n===p+1||n===p))c++;}
-  return c/(nums.length-1);
-}
-// ── KEYWORD_PATS — parser.js와 동기화 ──
-const KEYWORD_PATS=[
-  /^(?:프롤로그|프롤)(?:\\s*.+)?$/i,/^(?:에필로그|에필)(?:\\s*.+)?$/i,
-  /^외전(?:\\s*.+)?$/,/^번외(?:\\s*.+)?$/,/^후기(?:\\s*.+)?$/,
-  /^작가\\s*후기(?:\\s*.+)?$/,/^작가의\\s*말(?:\\s*.+)?$/,/^작가\\s*노트(?:\\s*.+)?$/,
-  /^(?:side\\s*story|side\\s*episode|special\\s*episode)(?:\\s*.+)?$/i,
-  /^(?:prologue|epilogue|afterword|author.?s?\\s*note)(?:\\s*.+)?$/i,
-  /^서장(?:\\s*.+)?$/,/^종장(?:\\s*.+)?$/,/^서문(?:\\s*.+)?$/,
-  /^(?:막간|인터루드|interlude)(?:\\s*[^\\r\\n]{0,80})?$/i,
-  /^(?:공지|공지사항)(?:\\s*[^\\r\\n]{0,80})?$/,
-  /^(?:설정집|일러스트|캐릭터\\s*소개|등장인물|세계관\\s*설정)(?:\\s*[^\\r\\n]{0,80})?$/,
-  /^(?:특별편|스페셜|단편)(?:\\s*[^\\r\\n]{0,80})?$/,
-  /^(?:extra|bonus)(?:\\s*(?:chapter|episode|story))?(?:\\s*[^\\r\\n]{0,60})?$/i,
-];
-// ── PATS (parser.js와 동기화 — ReDoS-safe) ──
-const PATS=[
-  [/^\\[(?:EP|Ep|ep)\\.\\d+\\](?:\\s*.+)?$/,'[EP.N]'],
-  [/^\\[(?:Prologue|Epilogue|Side|Extra|프롤로그|에필로그|외전)(?:\\s*.+)?\\](?:\\s*.+)?$/i,'[Prologue]'],
-  [/^\\[\\s*.+\\.txt\\s*\\]\\s*$/i,'[파일명.txt]'],
-  [/^\\d{3,6}\\s{2,}.+$/,'NNN제목'],
-  [/^[〈<]\\s*\\d+\\s*화\\s*[〉>](?:\\s*.+)?$/i,'〈N화〉'],
-  [/^【\\s*\\d+\\s*화\\s*】(?:\\s*[^\\r\\n]{0,80})?$/,'【N화】'],
-  [/^[◆●◇○■□▶▷►◀◁★☆♠♦♣♥]\\s*\\d+\\s*화(?:\\s*[^\\r\\n]{0,80})?$/,'특수문자+N화'],
-  [/^\\(\\s*제?\\s*\\d+\\s*[화장]\\s*\\)(?:\\s*[^\\r\\n]{0,80})?$/,'(N화)'],
-  [/^제\\s*\\d+\\s*화(?:\\s*.+)?$/,'제N화'],
-  [/^제\\s*\\d+\\s*장(?:\\s*.+)?$/,'제N장'],
-  [/^제\\s*[一二三四五六七八九十百千\\d]+\\s*[화장話章](?:\\s*.+)?$/,'제N화/장(한자)'],
-  [/^\\d+화(?:\\s*.+)?$/,'N화'],
-  [/^\\d+장(?:\\s*.+)?$/,'N장'],
-  [/^\\[\\s*제?\\s*\\d+\\s*화\\s*\\](?:\\s*.+)?$/,'[N화]'],
-  [/^\\[\\s*제?\\s*\\d+\\s*장\\s*\\](?:\\s*.+)?$/,'[N장]'],
-  [/^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$/i,'화번호'],
-  [/^\\d+화\\.\\s*.+$/,'화.제목'],
-  [/^={2,}\\s*\\[제\\s*\\d+\\s*화\\]\\s*={0,}$/i,'===제N화==='],
-  [/^0+\\d+화(?:\\s*[^\\r\\n]{0,80})?$/,'001화zero-pad'],
-  [/^\\d+화?\\s*[-~]\\s*\\d+화(?:\\s*[^\\r\\n]{0,80})?$/,'N화~N화범위'],
-  [/^(?:시즌\\s*\\d+|S\\d+)\\s+\\d+화(?:\\s*[^\\r\\n]{0,80})?$/,'시즌N N화'],
-  [/^제\\s*\\d+\\s*편(?:\\s*[^\\r\\n]{0,80})?$/,'제N편'],
-  [/^\\d+편(?:\\s*[^\\r\\n]{0,80})?$/,'N편'],
-  [/^(?:chapter|part|ch)\\.?\\s*\\d+(?:\\s*.+)?$/i,'Chapter'],
-  [/^(?:EP|Ch|Scene|Act)\\.?\\s*\\d+(?:\\s*.+)?$/i,'EP/Scene'],
-  [/^[1-9]부\\s+(?:\\d+화|프롤로그)(?:\\s*.+)?$/,'N부M화'],
-  [/^S\\d+E\\d+(?:\\s*.+)?$/i,'S1E01'],
-  [/^(?:chapter|part|ch)\\s+(?:one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?:\\s*[^\\r\\n]{0,60})?$/i,'Chapter One'],
-  [/^chap\\.?\\s*\\d+(?:\\s*[^\\r\\n]{0,80})?$/i,'Chap.N'],
-  [/^book\\s+(?:\\d+|one|two|three|four|five)(?:\\s*[^\\r\\n]{0,80})?$/i,'Book N'],
-  [/^\\d+(?:st|nd|rd|th)\\s+(?:story|episode|chapter|part|tale)(?:\\s*[^\\r\\n]{0,80})?$/i,'Nst Story'],
-  [/^vol(?:ume)?\\.?\\s*\\d+(?:\\s*[^\\r\\n]{0,80})?$/i,'Volume N'],
-  [/^(?:part|section|book)\\s+(?:I{1,3}|IV|VI{0,3}|IX|X{1,3}|XI{0,3}|XIV|XV|XVI{0,3}|XIX|XX{0,3}|XXX(?:I{0,3}|V|VI{0,3}|IX)?)(?:\\s*[^\\r\\n]{0,80})?$/i,'Part I로마'],
-  [/^서장(?:\\s*.+)?$/,'서장'],[/^종장(?:\\s*.+)?$/,'종장'],
-  [/^서문(?:\\s*.+)?$/,'서문'],[/^서론(?:\\s*.+)?$/,'서론'],
-  [/^(?:프롤로그|프롤)(?:\\s*.+)?$/i,'프롤로그'],
-  [/^(?:에필로그|에필)(?:\\s*.+)?$/i,'에필로그'],
-  [/^외전(?:\\s*.+)?$/,'외전'],[/^번외(?:\\s*.+)?$/,'번외'],
-  [/^후기(?:\\s*.+)?$/,'후기'],[/^작가\\s*후기(?:\\s*.+)?$/,'작가후기'],
-  [/^작가의\\s*말(?:\\s*.+)?$/,'작가의말'],[/^작가\\s*노트(?:\\s*.+)?$/,'작가노트'],
-  [/^(?:prologue|epilogue|afterword|author.?s?\\s*note)(?:\\s*.+)?$/i,'영문키워드'],
-  [/^(?:막간|인터루드|interlude)(?:\\s*[^\\r\\n]{0,80})?$/i,'막간/인터루드'],
-  [/^(?:간주|幕間)(?:\\s*[^\\r\\n]{0,80})?$/,'간주/幕間'],
-  [/^(?:공지|공지사항|작가의\\s*글|작가\\s*공지)(?:\\s*[^\\r\\n]{0,80})?$/,'공지'],
-  [/^(?:설정집|일러스트|캐릭터\\s*소개|등장인물|세계관\\s*설정)(?:\\s*[^\\r\\n]{0,80})?$/,'설정집/부록'],
-  [/^(?:특별편|스페셜|단편|외전\\s*\\d*)(?:\\s*[^\\r\\n]{0,80})?$/,'특별편/단편'],
-  [/^(?:side\\s*story|extra\\s*(?:chapter|episode)?|bonus\\s*(?:chapter|episode)?)(?:\\s*\\d*)?(?:\\s*[^\\r\\n]{0,80})?$/i,'Side Story/Extra'],
-  [/^(?:첫|두|세|네|다섯|여섯|일곱|여덟|아홉|열)\\s*번째\\s*(?:이야기|장|화|편|챕터)(?:\\s*[^\\r\\n]{0,60})?$/,'첫번째이야기'],
-  [/^제\\s*(?:일|이|삼|사|오|육|칠|팔|구|십)\\s*[화장편](?:\\s*[^\\r\\n]{0,60})?$/,'제일화한글서수'],
-  [/^\\d+\\.\\s+.{1,60}$/,'N.제목'],
-  [/^#\\d+\\.\\s+.{1,60}$/,'#N.제목'],
-  [/^\\d+\\)\\s+[^\\r\\n]{1,60}$/,'N)제목'],
-  [/^0+\\d+\\.\\s+[^\\r\\n]{1,60}$/,'01.zero-pad'],
-  [/^.{1,60}\\s*\\(\\d+\\)\\s*$/,'소설(숫자)'],
-  [/^(?:제\\s*\\d+\\s*장|第\\s*\\d+\\s*章)(?:\\s*.+)?$/,'장번호'],
-  [/^【.+】.*$/,'타이틀【】'],
-  [/^#{1,3}\\s*.+$/,'#제목'],
-  [/^[■▶◆●►▷◇★☆]\\s*.{2,40}$/,'특수문자제목'],
-  [/^第\\s*[\\d一二三四五六七八九十百千]+\\s*[章話话](?:\\s*.+)?$/,'한자장/화'],
-  [/^第\\s*[\\d一二三四五六七八九十百千]+\\s*[幕節](?:\\s*[^\\r\\n]{0,80})?$/,'第N幕/節'],
-  [/^[≪《]\\s*\\d+\\s*화\\s*[≫》](?:\\s*[^\\r\\n]{0,80})?$/,'≪N화≫겹낫표'],
-  [/^[「『]\\s*\\d+\\s*화\\s*[」』](?:\\s*[^\\r\\n]{0,80})?$/,'「N화」낫표'],
-  [/^(?:EP|제|Chapter|Ch|디|Scene|Prologue)\\.?\\s*\\d+/i,'EP/Ch시작'],
-  [/^\\d{1,3}\\.\\s*.+$/,'N.짧은'],
-  [/^\\d+권(?:\\s*.+)?$/,'N권'],
-  [/^.*[=\\-]{3,}$/,'구분선'],
-  [/^[\\*\\-─]+\\s*\\d+화?\\s*[\\*\\-─]+$/,'*N*'],
-  [/^(?:시즌\\s*\\d+\\s+)?\\d+화(?:\\s*.+)?$/,'시즌N화'],
-  [/^\\((?:외전|번외|특별편|side|bonus)\\)/i,'(외전)'],
-  [/^(?:\\s?〈\\s?\\d+화\\s?〉|EP\\.\\d+|\\d+화|\\d+)[^\\r\\n]*/,'줄시작통합'],
-  [/^[-─—]{1,3}\\s*\\d+\\s*[-─—]{1,3}$/,'-N-대시'],
-  [/^[-─=]{2,}\\s*[^\\r\\n]{1,60}\\s*[-─=]{2,}$/,'───제목───'],
-  [/^(?:<\\d{1,6}>|\\[\\d{1,6}\\]|\\{\\d{1,6}\\})$/,'<N>괄호단독'],
-];
-function checkTitleWaPattern(lines,minGap=50){
-  const rx=/^.{2,15}\\s+\\d+화$/;const pos=[];
-  lines.forEach((l,i)=>{const t=preprocessLine(l);if(t&&rx.test(t))pos.push(i);});
-  if(pos.length<3)return{cnt:0,rx:null};
-  const real=pos.filter((p,j)=>Math.min(p-(pos[j-1]??-999),(pos[j+1]??p+999)-p)>=minGap);
-  return real.length>=3?{cnt:real.length,rx}:{cnt:0,rx:null};
-}
-function checkNDotPattern(lines,minGap=50){
-  const rx=/^\\d+\\.\\s+.{1,60}$/;const pos=[];
-  lines.forEach((l,i)=>{const t=preprocessLine(l);if(t&&rx.test(t))pos.push(i);});
-  if(pos.length<3)return{cnt:0,rx:null};
-  const real=pos.filter((p,j)=>Math.min(p-(pos[j-1]??-999),(pos[j+1]??p+999)-p)>=minGap);
-  if(real.length<3)return{cnt:0,rx:null};
-  const m=preprocessLine(lines[real[0]]).match(/^(\\d+)\\./);
-  return m&&parseInt(m[1])>5?{cnt:0,rx:null}:{cnt:real.length,rx};
-}
-function bestPat(raw){
-  const lines=raw.split('\\n');
-  const totalLines=lines.length;
-  const tailStart=Math.floor(totalLines*0.90);
-  let best=null,bestScore=0,bestName='';
-  const mixed=[];
-  const blankWrapped=new Set();
-  for(let i=1;i<lines.length-1;i++){
-    const p=!lines[i-1].trim(),n=!lines[i+1].trim();
-    const p2=i>=2&&!lines[i-2].trim(),n2=i+2<lines.length&&!lines[i+2].trim();
-    if(lines[i].trim()&&(p||p2)&&(n||n2))blankWrapped.add(i);
-  }
-  for(const[rx,name]of PATS){
-    const idxs=[],nums=[];
-    for(let i=0;i<lines.length;i++){
-      const t=preprocessLine(lines[i]);  // ★ preprocessLine 적용
-      if(t&&rx.test(t)){idxs.push(i);const m=t.match(/\\d+/);nums.push(m?parseInt(m[0]):null);}
-    }
-    if(idxs.length<3)continue;
-    const isNum=rx.source==='^\\\\d+$';
-    let score=idxs.reduce((a,i)=>{if(i>=tailStart&&isNum)return a;return a+(blankWrapped.has(i)?3:1);},0);
-    if(!score)continue;
-    const seqW=calcSequenceWeight(nums);  // ★ 연속성 가중치 적용
-    if(seqW>=0.6)score=Math.round(score*(1+seqW*0.5));
-    mixed.push({rx,name,cnt:idxs.length,score});
-    if(score>bestScore){bestScore=score;best=rx;bestName=name;}
-  }
-  const dynGap=Math.max(30,Math.min(200,Math.floor(totalLines/50)));
-  const nDot=checkNDotPattern(lines,dynGap);
-  if(nDot.cnt>0&&nDot.cnt*3>bestScore){bestScore=nDot.cnt*3;best=nDot.rx;bestName='N.제목';mixed.push({rx:nDot.rx,name:'N.제목',cnt:nDot.cnt,score:nDot.cnt*3});}
-  const tWa=checkTitleWaPattern(lines,dynGap);
-  if(tWa.cnt>0&&tWa.cnt*3>bestScore){bestScore=tWa.cnt*3;best=tWa.rx;bestName='소설명+N화';mixed.push({rx:tWa.rx,name:'소설명+N화',cnt:tWa.cnt,score:tWa.cnt*3});}
-  if(bestScore<3){
-    const fb=/^\\d+$/;
-    const c=lines.filter((l,i)=>i<tailStart&&preprocessLine(l)&&fb.test(preprocessLine(l))).length;
-    if(c>=3){bestScore=c;best=fb;bestName='숫자만';}
-  }
-  if(mixed.length>1){
-    const tot=mixed.reduce((s,m)=>s+m.cnt,0);
-    const dom=mixed.find(m=>m.cnt/tot>=0.75);
-    if(dom)return{rx:dom.rx,name:dom.name+'[지배]',cnt:dom.cnt};
-  }
-  const seen=new Set();
-  const uniq=mixed.filter(m=>{if(seen.has(m.rx.source))return false;seen.add(m.rx.source);return true;});
-  if(uniq.length>1){
-    const comb=new RegExp('(?:'+uniq.map(m=>m.rx.source).join('|')+')','i');
-    const uc=[...new Set(lines.filter(l=>preprocessLine(l)&&comb.test(preprocessLine(l))).map(l=>preprocessLine(l)))];
-    if(uc.length>bestScore)return{rx:comb,name:'혼합[자동]',cnt:uc.length,isMixed:true};
-  }
-  return{rx:best,name:bestName,cnt:bestScore};
-}
-// ★ Worker 메시지 핸들러 (splitChaptersWorkerDetailed만 사용 — 구버전 제거)
-self._aborted=false;
-self.onmessage=function(e){
-  const{type,payload,id}=e.data;
-  try{
-    if(type==='SPLIT'){
-      const{raw,customPat}=payload;
-      self._aborted=false;
-      self.postMessage({type:'PROGRESS',id,pct:5,msg:'② 텍스트 정규화 중...'});
-      const result=splitChaptersWorkerDetailed(raw,customPat,function(pct,msg){
-        self.postMessage({type:'PROGRESS',id,pct,msg});
-      });
-      self.postMessage({type:'DONE',id,result});
-    } else if(type==='ABORT'){
-      self._aborted=true;
-    }
-  }catch(err){
-    self.postMessage({type:'ERROR',id,error:err.message||String(err)});
-  }
-};
-function splitChaptersWorkerDetailed(raw,customPat,onProgress){
-  self._aborted=false;
-  raw=raw.replace(/\\r\\n/g,'\\n').replace(/\\r/g,'\\n')
-         .replace(/\\xad/g,'\\u2014').replace(/[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F]/g,'')
-         .replace(/[\\uFFFE\\uFFFF]/g,'');
-  onProgress(8,'② 패턴 분석 중...');
-  let rx=null;
-  if(customPat&&customPat.trim()){try{rx=new RegExp(customPat.trim(),'i');}catch(e){}}
-  if(!rx){const r=bestPat(raw);rx=r.rx;}
-  if(rx){const kw=KEYWORD_PATS.map(k=>k.source).join('|');rx=new RegExp('(?:'+rx.source+'|'+kw+')','i');}
-  onProgress(12,'② 챕터 분리 시작...');
-  if(!rx){
-    const lines=raw.split('\\n'),total=lines.length;
-    const PL=Math.max(200,Math.min(500,Math.floor(total/20)));
-    const chs=[];
-    for(let i=0;i<total;i+=PL){
-      if(self._aborted)return chs;
-      const s=lines.slice(i,i+PL).join('\\n').trim();if(!s)continue;
-      const pg=Math.floor(i/PL)+1,tp=Math.ceil(total/PL);
-      chs.push([pg===1&&tp===1?'본문':'('+pg+'/'+tp+')',s]);
-      onProgress(12+Math.round((i/total)*80),'② 페이지 분할 중... '+pg+'/'+tp);
-    }
-    return chs.length?chs:[['본문',raw.trim()]];
-  }
-  const lines=raw.split('\\n');
-  const total=lines.length;
-  const chs=[],seen=new Map();
-  const sep=/^[-=*─━~·.‒—]{3,}\\s*$|^[─━═]{2,}$/;
-  let cur=null,body=[],lastPct=12;
-  for(let li=0;li<total;li++){
-    if(self._aborted)break;
-    const line=lines[li];
-    const t=preprocessLine(line);  // ★ preprocessLine 적용
-    if(t&&rx.test(t)){
-      const pc=seen.get(t)||0;seen.set(t,pc+1);
-      const ut=pc===0?t:t+' ('+(pc+1)+')';
-      while(body.length&&(sep.test(body[body.length-1].trim())||!body[body.length-1].trim()))body.pop();
-      if(cur===null&&body.length>0)chs.push(['서문',body.join('\\n').trim()]);
-      else if(cur!==null)chs.push([cur,body.join('\\n').trim()]);
-      cur=ut;body=[];
-      let ni=li+1;while(ni<total&&sep.test(lines[ni].trim()))ni++;
-      if(ni>li+1)li=ni-1;
-    }else{body.push(line);}
-    const pct=12+Math.round((li/total)*80);
-    if(pct>lastPct){lastPct=pct;onProgress(pct,'② 챕터 파싱 중... '+(chs.length+1)+'화 / '+(li+1).toLocaleString()+'줄');}
-  }
-  if(cur!==null)chs.push([cur,body.join('\\n').trim()]);
-  else if(body.length)chs.push(['본문',body.join('\\n').trim()]);
-  raw=null;
-  return chs.length?chs:[['본문','']];
-}
-`;
-  const blob=new Blob([workerSrc],{type:'application/javascript'});
+  const blob=new Blob([buildParserWorkerSource()],{type:'application/javascript'});
   const url=URL.createObjectURL(blob);
-  const worker=new Worker(url);
-  URL.revokeObjectURL(url);
-  return worker;
+  try{
+    return new Worker(url);
+  }finally{
+    URL.revokeObjectURL(url);
+  }
 }
 
 
@@ -2966,14 +2622,17 @@ function getParserWorker(){
   return _parserWorker;
 }
 
-// ★ Worker 교체: 기존 Worker terminate 후 새 생성
-function resetParserWorker(){
+// ★ 파싱 Worker 강제 종료 — splitChapters는 동기 루프라 메시지(ABORT)로는 멈출 수 없으므로 terminate
+//   대기 중인 요청은 모두 reject (startConvert는 _convertAborted 플래그로 조용히 종료)
+function terminateParserWorker(reason){
   if(_parserWorker){
     _parserWorker.terminate();
     _parserWorker=null;
-    _workerCallbacks.clear();
   }
-  return getParserWorker();
+  for(const[,cb]of _workerCallbacks){
+    cb.reject(new Error(reason||'파싱 중단'));
+  }
+  _workerCallbacks.clear();
 }
 
 /**
@@ -3009,7 +2668,8 @@ async function splitChaptersAsync(raw, customPat, onProgress){
       // ★ 원본 콜백을 타이머 정리 포함 버전으로 래핑
       const orig=_workerCallbacks.get(id);
       _workerCallbacks.set(id,{
-        resolve:(r)=>{ clearTimeout(timer); orig.resolve(r); },
+        // ★ Worker 안에는 Toast가 없으므로 화수 도약 경고는 결과 수신 후 메인 스레드에서 표시
+        resolve:(r)=>{ clearTimeout(timer); _warnIndexJump(r); orig.resolve(r); },
         reject: (e)=>{ clearTimeout(timer); orig.reject(e); }
       });
       worker.postMessage({type:'SPLIT',payload:{raw,customPat},id});
@@ -3035,7 +2695,7 @@ async function resetAll(){
   document.getElementById('txtInfo').style.display='none';
   document.getElementById('illTags').innerHTML='';
   document.getElementById('manualIlls').innerHTML='';
-  ['title','author','pattern'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['title','author','series','seriesIdx','pattern'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   ['tocPanel','progWrap','resultBox','errBox'].forEach(id=>document.getElementById(id)?.classList.remove('show'));
 }
 
@@ -3076,6 +2736,7 @@ function resetEditEpub(){
   ['editSec','insertSec','editIllSec','insTocSec','insIllSec'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
   document.getElementById('editResetBar').style.display='none';
   renderEditIllTags();
+  typeof resetDirectEditToc==='function'&&resetDirectEditToc();
 }
 async function resetEditAll(){
   if(!await Toast.confirm('EPUB 편집 탭을 전부 초기화할까요?')) return;
@@ -3107,7 +2768,7 @@ function resetConvertTxt(){
   const fl=document.getElementById('txtFileList'); if(fl) fl.style.display='none';
   const sl=document.getElementById('txtSortList'); if(sl) sl.innerHTML='';
   document.getElementById('tocPanel')?.classList.remove('show');
-  ['title','author','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['title','author','series','seriesIdx','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('convertResetBar').style.display='none';
   const regexFeed=document.getElementById('regexFeed');if(regexFeed)regexFeed.style.display='none';
   updateBtmBar&&updateBtmBar([]);

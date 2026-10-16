@@ -344,8 +344,10 @@ function openCoverSearchModal(mode='convert') {
       // batch 탭: currentSearchTitle 또는 batch 탭 #batchTitle 입력창
       const batchTitleEl = document.getElementById('batchTitle');
       const manualBatchTitle = batchTitleEl?.value?.trim() || '';
-      const batch = (typeof S !== 'undefined') ? (S.batch || {}) : {};
-      titleInput = manualBatchTitle || batch.currentSearchTitle || '';
+      // ★ 이전: 존재하지 않는 S.batch.currentSearchTitle 참조 → 항상 빈 검색어
+      //   일괄 변환 첫 TXT 파일명에서 검색어 추출로 대체
+      const firstBatch = (typeof B !== 'undefined') ? (B.txtFiles || [])[0] : null;
+      titleInput = manualBatchTitle || (firstBatch ? extractSearchTitle(firstBatch.name) : '');
     }
 
     // ★ ID 확정: index.html 실제 입력창 ID = 'coverSearchQ'
@@ -442,9 +444,6 @@ function runCoverSearch() {
       }
     });
 }
-
-// ★ 하위 호환 별칭 — 기존 코드에서 triggerCoverSearch()로 호출하던 경우 대응
-const triggerCoverSearch = runCoverSearch;
 
 // ── 외부 플랫폼 어댑터 종합 스캔 ──
 async function searchAllPlatforms(q) {
@@ -923,4 +922,3 @@ window.abortCoverSearch    = () => { if(_searchAbortCtrl){ _searchAbortCtrl.abor
 // 기존 이름도 유지 (하위 호환)
 window.openCoverSearchModal  = openCoverSearchModal;
 window.closeCoverSearchModal = closeCoverSearchModal;
-window.triggerCoverSearch    = runCoverSearch;

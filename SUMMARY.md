@@ -128,6 +128,52 @@
 - **Base64 인라인 주입 전환**: 파비콘 SVG 전체 소스를 `btoa()` 방식으로 Base64 바이너리 인코딩하여 `data:image/svg+xml;base64,...` 형식의 완전한 불투명 데이터 URI로 변환. 브라우저 파서가 내부 구조를 해석할 필요 없이 바이너리 블록 그대로 처리하므로 특수문자 충돌이 구조적으로 불가능해짐.
 - **SVG 디자인 상세**: 배경 원, 이중 액센트 링, 펼쳐진 책 페이지를 상징하는 좌우 삼각형, 변환 신호를 나타내는 디지털 노드 점을 기하학적으로 조합한 커스텀 아이콘. 외부 파일(`favicon.ico`, `favicon.svg`) 의존성 없이 `index.html` 단일 파일 안에 완결.
 
+### Phase 6 — 표준 준수 · 패턴 단일화 · 회귀 테스트 · 죽은 코드 정리
+
+#### 1) EPUB3 표준 메타 보완 (`epub-gen.js`)
+- `dcterms:modified` 추가 (EPUB3 필수), `dc:identifier`를 `urn:uuid:` 형식으로
+- 설정 탭 `optPublisher`를 `dc:publisher`에 연결 (비우면 생략) — 이전엔 저장만 되고 `TXT2EPUB 변환기` 고정
+- `container.xml` 네임스페이스 오타 수정(`urn:oasis:schemas:container` → OCF 표준) — epubcheck RSC-003
+- 이미지가 없으면 빈 `Images/` 폴더 미생성 — epubcheck PKG-014
+- **버그**: 목차 생성 전에 `chapters.length=0`으로 원문을 해제해 nav/ncx 챕터 제목이 전부 빈 문자열이던 문제 수정
+
+#### 2) 패턴 정의 단일화 (`parser.js` ← `worker.js`, `convert.js`)
+- `buildParserWorkerSource()`: PATS·KEYWORD_PATS·bestPat·splitChapters를 toString/RegExp 직렬화로 Worker에 이식
+- 이전 인라인 Worker 복사본은 fpGuard·제목 정규화·ReDoS 가드가 빠져 있어 픽스처 13개 중 4개에서 메인 스레드와 결과가 달랐음
+- **버그**: `_parserWorker`·`_workerCallbacks`·`_workerIdCounter` 미선언(strict 모드) → 10만 줄+ 변환과 "변환 중단"에서 ReferenceError
+- 중단은 동기 루프 Worker에 ABORT 메시지가 닿지 않으므로 `terminateParserWorker()`로 즉시 종료
+
+#### 3) 회귀 테스트 + CI (`tests/`, `.github/workflows/test.yml`)
+- 골든 15 픽스처, Worker 동등성(40만 줄 포함), 시리즈·트리·파싱 단위, EPUB 구조 검사 — 154개
+- CI에서 epubcheck 5.1.0으로 생성 EPUB 표준 검증
+
+#### 4) 계층 목차 + 시리즈 메타
+- `buildTocTree()`: `1권`/`제2부`/`Vol.3` 단독 제목 → 상위 노드, `1부 3화` → 합성 그룹, 그룹 2개 미만이면 평면 유지
+- `parseSeriesFromName()`: 파일명 → 시리즈·권 번호 (변환 탭 자동 채우기, 일괄 변환 자동, 분할 EPUB은 원제목/파트 순번)
+- 메타데이터 블록에 `📚 시리즈` + 권 번호 입력 추가
+
+#### 5) 화면 요소가 없어 동작하지 않던 기능 연결
+- `#patSection`(파일 로드 전 흐림), `#chipGroupToggle`(칩이 한 줄 넘칠 때만 '더 보기', ResizeObserver 재계산)
+- 결과 카드 `#progressSparkline` / `#convertReport` — `style.display=''`가 CSS 기본 `display:none`으로 되돌아가던 문제 수정, 경고 수집기 `_collectConvertWarnings` 추가(화수 도약·짧은 챕터·패턴 미감지·삽화 매핑 실패)
+- 일괄 변환 `#batchSettingSummary`, `#batchTitle`(표지 검색어 — 존재하지 않는 `S.batch` 참조를 `B.txtFiles` 기반으로 교체)
+- 설정 여백 `#padAccordionToggle/Body` + 값 요약 `#cssPad*Val` (`syncPadSummary`, 중복 클릭 리스너 제거)
+- EPUB 편집 `#directEditTocList` — 항목 클릭 선택 후 ▲▼ 이동(이전: 첫 체크 항목 기준이라 항상 1번만 이동), 새 EPUB 로드·초기화 시 이전 목록 폐기
+
+#### 6) 파싱 문제 수정 (`parser.js`)
+- 제목 표시: 정규화 문자열 대신 원문 사용 → `제1화 만남`·`[EP.1] 제목`·`1부 1화 전투` 공백·괄호 보존
+- 전각 숫자: `_normalizeTitleStr`의 `[ ]` 누락 정규식 수정 + `preprocessLine`에서 반각 변환 → `제１화` 감지
+- 번호 목록 가드 `_isListItemLine`: 위·아래 줄과 이어지는 `N.`/`N)` 목록은 챕터 제외 (splitChapters·미리보기 공통)
+- 무패턴 TXT: 키워드 줄이 실제로 있을 때만 키워드 단독 rx 사용 → 페이지 분할 폴백 복구(이전엔 도달 불가 코드)
+- 미리보기 매칭 `_matchHeading`: 변환과 같은 기준(정규화 또는 원문) — `[1화] 시작`이 미리보기에선 0개, 변환에선 감지되던 불일치 해소
+- 텍스트 표지: 이름 없는 Blob에서 `file.name.split` TypeError로 자동 생성 표지가 EPUB에서 빠지던 문제 수정(MIME으로 확장자 판별)
+
+#### 7) 죽은 코드·끊긴 연결 정리
+- 클릭해도 무반응이던 버튼 4종 핸들러 연결: 스마트 패턴 `✅ 적용`, `✅ 선택한 패턴 적용`, 삽입 탭 `🔍 재확인`, 색상 `리셋`
+- `_decodeFromAB` 폴백 경로의 스코프 밖 `file` 참조(ReferenceError) 수정
+- `crypto.randomUUID` 직접 호출 → `genUID()` (http LAN 접속 등 비보안 컨텍스트에서 변환 실패하던 문제)
+- 제거: `_T`, `_KOR_NUM_MAP`/`_decodeKorNum`, `_groupByVolume`, `toggleTocItem`, `tocTabActive`, `_tocDragSrcI`, `kwSearch`/`selectKwResult`/`debounceKwSearch`/`getManualIllTarget`, `renderBatchFileStatus`, `_validateContentType`, 메인 스레드 `xhtmlPage`, `triggerCoverSearch` 별칭, `_eSmartPatAbort`, `customFontFile`, 미사용 지역변수 다수, 트리거 없는 data-action 등록 8종, 사용처 없는 data-input-action 2종(`saveOptLang`·`saveCssSettings`)
+- `edit.js` 목차 재생성 시 항목마다 전체 원문을 filter하던 미사용 계산 제거 (O(항목×줄))
+
 ---
 
 ## 파일별 역할 요약
@@ -144,7 +190,7 @@
 | `cover-search.js` | 722 | 표지 검색 모달, 플랫폼별 어댑터(Naver, Kakao, Ridi, Novelpia), .file 확장자 필터 우회 가드, 크롭 처리 | 없음 |
 | `ui-state.js` | **1,120** | UI 상호작용, 모달 제어, 가시성 레이아웃, 이벤트 버스 핸들러 | **✅ 업데이트** — display 표준 토글 전환, scrollTo 가드, _setupHeaderCompact, MutationObserver 모달 침강, 탭 인디케이터 JS-CSS 브릿지 |
 | `epub-gen.js` | 389 | 이펍 빌드, JSZip 브릿징, 워커 격리 쓰레딩 | 없음 |
-| `worker.js` | 354 | 대용량 백그라운드 스트림 디코더 및 청크 분할 처리기 | 없음 |
+| `worker.js` | 121 | 5MB+ 파일 인코딩 감지·디코딩 전담 (챕터 파싱은 parser.js 단일 소유) | Phase 6: 미사용 파싱 경로 제거 |
 | `sw.js` | 119 | PWA 지원 오프라인 캐싱 매니저 | 없음 |
 
 #### 🧪 크로스 가드 오디팅 결과

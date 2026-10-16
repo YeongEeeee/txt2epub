@@ -11,9 +11,16 @@
 
 ### 📖 TXT → EPUB3 변환
 - 단일/다중 TXT 파일 드래그&드롭 업로드
-- **48종 챕터 패턴 자동 감지** (제N화, Chapter N, 〈N화〉, [EP.N], 숫자만 등)
+- **79종 챕터 패턴 + 18종 키워드 자동 감지** (제N화, Chapter N, 〈N화〉, [EP.N], 숫자만 등) — 패턴 정의는 `parser.js` 단일 소유
+- **권 > 화 2단계 계층 목차**: `1권`·`제2부`·`Vol.3` 제목 또는 `1부 3화` 형식을 감지해 nav.xhtml / toc.ncx를 자동 중첩
+- **시리즈 메타데이터**: 파일명 `작품 3권.txt`에서 시리즈·권 번호 자동 추출 → EPUB3 `belongs-to-collection` + `calibre:series` 기록 (리더기 서재에서 권별로 묶임)
+- **EPUB3 표준 준수**: `dcterms:modified`, OCF 표준 `container.xml`, 출판사 설정 반영 — 테스트 EPUB 전부 **epubcheck 0 오류**
 - **유사 목차 후보 즉시 검색**: TXT를 넣는 즉시 목차 자동 감지 후, 패턴 프리셋 전체를 점수화(빈 줄 감싸기·번호 연속성)해 상위 후보 칩 표시 — 클릭 한 번으로 전환
 - **이미지 표지 자동 매칭**: TXT와 이미지를 함께 선택·드롭·붙여넣기하면 파일명 유사도(바이그램 Dice + 포함 관계)로 가장 비슷한 이미지를 표지로 연결 (직접 지정한 표지는 보호)
+- **원문 그대로의 챕터 제목**: 매칭은 정규화 문자열로, 표시는 원문으로 (`제1화 만남`·`[EP.1] 제목` 보존), 전각 숫자(`제１화`) 인식
+- **본문 번호 목록 오탐 방지**: `1. 검` / `2. 방패`처럼 이어지는 목록 줄은 챕터로 잡지 않음
+- **패턴 없는 TXT 페이지 분할**: 챕터 패턴·키워드가 하나도 없으면 200~500줄 단위 페이지로 자동 분할
+- **변환 리포트**: 결과 카드에 단계별 소요시간 스파크라인 + 화수 도약·짧은 챕터·패턴 미감지·삽화 매핑 실패 경고
 - 커스텀 정규식 직접 입력 및 복수 패턴 OR 결합
 - **스마트 패턴 변환**: Gemini AI 또는 로컬 로직으로 자연어 → 정규식 자동 변환
 - **고도화된 표지 검색 엔진**: 네이버, 카카오, 리디북스, 노벨피아, 구글, 덕덕고 API 통합 검색 및 실시간 캔버스 크롭 가공
@@ -25,6 +32,7 @@
 - `navigator.hardwareConcurrency` 기반 **최대 4개 병렬 처리**
 - 파일별 진행률·성공/실패 상태 카드
 - TXT 드롭존에 표지 이미지를 섞어 넣어도 파일명 유사도로 자동 매핑
+- 표지 검색어 입력란(비우면 첫 TXT 제목) · 설정 탭과 공유되는 현재 스타일 요약
 
 ### ✏️ EPUB 편집
 - 기존 EPUB 파일을 불러와 목차·CSS 수정 후 재생성
@@ -176,21 +184,25 @@ CSS 변수(`--tab-indicator-x`, `--tab-indicator-w`)와 `switchPage()` 함수를
 ## 🏗 아키텍처
 
 ```
-index.html      — 단일 페이지 SPA 마크업 (1,260줄)
-├── style.css   — CSS 변수 76개+, 키프레임 20개+ (1,340줄)
-├── core.js     — StateManager, Toast, SettingsDB, EventBus, Cloudflare 프록시 (1,420줄)
-├── convert.js  — 변환 탭 로직: 파일 I/O, 인코딩, 이미지, 삽화 처리 (2,790줄)
-├── parser.js   — 텍스트 파싱 엔진, 목차 렌더링, 가상 스크롤, 통계 (2,044줄)
-├── ui-state.js — 테마, CSS 미리보기, 탭/칩/피드/스와이프, 헤더 수축, 마이크로 인터랙션 (1,120줄)
-├── settings.js — CSS/폰트/프리셋/스킨, 스마트 패턴, 히스토리, Gemini API (1,317줄)
-├── edit.js     — EPUB 편집 탭: OPF 파싱, 챕터 수정, 재생성 (1,603줄)
-├── cover-search.js — 표지 검색 모달, 플랫폼 링크, 이미지 크롭 및 .file 가드 (722줄)
-├── epub-gen.js — EPUB3 생성 엔진, Blob Worker 격리 (389줄)
-├── worker.js   — 인코딩 감지·디코딩·챕터 파싱 전담 Web Worker (354줄)
-└── sw.js       — Service Worker, 오프라인/PWA 지원 (119줄)
+index.html      — 단일 페이지 SPA 마크업 (1,257줄)
+├── style.css   — CSS 변수 76개+, 키프레임 20개+ (1,343줄)
+├── core.js     — StateManager, Toast, SettingsDB, EventBus, Cloudflare 프록시 (833줄)
+├── convert.js  — 변환 탭 로직: 파일 I/O, 인코딩, 이미지, 삽화, 표지 자동 매칭, 파싱 Worker 관리 (2,781줄)
+├── parser.js   — 텍스트 파싱 엔진(패턴 단일 소유), 목차 렌더링·후보 검색, 계층 목차, 시리즈 메타, Worker 소스 생성 (3,286줄)
+├── ui-state.js — 테마, CSS 미리보기, 탭/칩/피드/스와이프, 이벤트 위임 등록 (1,279줄)
+├── settings.js — CSS/폰트/프리셋/스킨, 스마트 패턴, 히스토리, Gemini API (1,344줄)
+├── edit.js     — EPUB 편집 탭: OPF 파싱, 챕터 수정, 재생성 (1,604줄)
+├── cover-search.js — 표지 검색 모달, 플랫폼 링크, 이미지 크롭 및 .file 가드 (922줄)
+├── epub-gen.js — EPUB3 생성 엔진, Blob Worker 격리, 계층 nav/ncx (589줄)
+├── worker.js   — 5MB+ 파일 인코딩 감지·디코딩 전담 Web Worker (121줄, 챕터 파싱 없음)
+├── sw.js       — Service Worker, 오프라인/PWA 지원 (214줄)
+└── tests/      — 회귀 테스트 (개발 전용, 런타임 미사용)
+    ├── run-tests.js  — Node vm 기반 러너
+    ├── fixtures/     — 형식별 샘플 TXT 15종
+    └── golden.json   — 기대 챕터 목록·감지 패턴·계층 형태
 ```
 
-> **총 코드량: 13,478줄** | 구문 오류 0개 | 중복 ID 0개
+> **총 코드량: 약 15,850줄** (JS 13,522 + HTML/CSS) | 구문 오류 0개 | 중복 ID 0개 | 회귀 테스트 154개 통과
 
 ### 상태 관리 (StateManager + Proxy)
 
@@ -221,7 +233,9 @@ index.html      — 단일 페이지 SPA 마크업 (1,260줄)
 3. 패턴 지배도 75% 이상이면 단독 패턴으로 확정
 4. 복수 패턴 감지 시 OR 결합 자동 적용
 
-**지원 패턴 그룹 (총 48종)**
+**지원 패턴 그룹 (PATS 79종 + KEYWORD_PATS 18종)**
+
+> 대용량(10만 줄+) 파싱 Worker는 `buildParserWorkerSource()`가 `parser.js`의 함수·정규식을 그대로 직렬화해 생성합니다. 메인 스레드와 Worker의 감지 결과가 항상 같습니다 (테스트로 보장).
 
 | 그룹 | 예시 |
 |------|------|
@@ -365,11 +379,35 @@ side.jpg     → 외전 챕터에 자동 매핑
 
 ---
 
+## 🧪 테스트 & CI
+
+```bash
+npm install          # 개발 의존성(jszip)만 설치 — 사이트 런타임에는 영향 없음
+npm test             # 회귀 테스트 전체 실행
+npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golden.json 재생성
+```
+
+| 검사 | 내용 |
+|------|------|
+| 골든 (15 픽스처 × 4) | 챕터 제목 전체·개수·감지 패턴·계층 목차 형태가 `golden.json`과 일치 |
+| Worker 동등성 | `buildParserWorkerSource()` Worker 결과 === 메인 스레드 `splitChapters` (40만 줄 대용량·사용자 패턴 포함) |
+| 단위 | `parseSeriesFromName` 7케이스, `buildTocTree` 7케이스, 제목 매칭·번호 목록·제목 공백 보존 5케이스 |
+| EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
+| epubcheck (CI) | `tests/out/*.epub`을 W3C epubcheck 5.1.0으로 표준 검증 |
+
+GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검사를 실행합니다. 실패하면 Cloudflare Pages 배포 전에 머지하지 마세요.
+
+> 픽스처를 추가하려면 `tests/fixtures/`에 TXT를 넣고 결과를 눈으로 확인한 뒤 `npm run test:update`로 골든을 갱신하세요.
+
+---
+
 ## 🧪 코드 품질 지표
 
 | 항목 | 수치 |
 |------|------|
-| 총 줄수 | 13,478줄 |
+| 총 줄수 | JS 13,522줄 (+ HTML/CSS 2,600줄) |
+| 회귀 테스트 | 154개 통과 + epubcheck 0 오류 |
+| 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |
 | 하드코딩 색상 | 0개 (전부 CSS 변수, :root 정의부 제외) |
@@ -427,6 +465,16 @@ settings.js 구문 오류 수정 (고아 코드 블록 제거)
 │   └── 커스텀 스크롤바 테마 바인딩 + floatBob 빈 상태 연출
 └── 인프라 제로 오버헤드 파비콘
     └── SVG → Base64 Data URI 인라인 주입 (퍼센트 인코딩 충돌 버그 근본 해결)
+↓
+[ Phase 6: 표준 준수 · 단일 진실의 원천 · 회귀 안전망 ]
+├── 패턴 정의 3중 복사본 → parser.js 단일 소유 (Worker 소스는 toString 직렬화로 생성)
+├── worker.js 미사용 파싱 경로(PARSE_CHAPTERS/PROCESS_FILES 등) 제거 → 인코딩 전담
+├── EPUB3: dcterms:modified · OCF container 네임스페이스 · 출판사 설정 · urn:uuid
+├── 권 > 화 계층 목차 (buildTocTree) + 시리즈 메타 (belongs-to-collection / calibre:series)
+├── tests/ 골든·Worker 동등성·EPUB 구조 테스트 + GitHub Actions epubcheck
+├── 마크업이 없어 동작하지 않던 UI 9종 연결 (변환 리포트·스파크라인·목차 직접 편집·여백 아코디언 등)
+├── 파싱: 제목 원문 보존·전각 숫자·번호 목록 가드·무패턴 페이지 분할·미리보기=변환 매칭 일치
+└── 죽은 코드·끊긴 연결 전수 정리 (ESLint + data-action/id 연결 검사)
 ```
 
 ---

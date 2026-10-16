@@ -13,15 +13,16 @@
 //          new Worker 예외 시 URL.revokeObjectURL 보장
 //   P2-04: Worker error 스택 트레이스 포함
 //
-// 의존성: JSZip (CDN), parser.js (escHtml, sanitizeLine, renderBodyHtml)
+// 의존성: JSZip (CDN), parser.js (escHtml, sanitizeLine, renderBodyHtml, buildTocTree)
 // 내보내는 심볼:
 //   buildCss, generateTextCover, buildEpub, launchEpubWorker
-//   updateProgStep, xhtmlPage
+//   updateProgStep
+//   (xhtmlPage는 EPUB Worker 내부 전용 — 메인 스레드 사본 제거)
 // ════════════════════════════════════════════════
 
 /* global JSZip, escHtml, sanitizeLine, renderBodyHtml,
    convertImageFile, fileToAB,
-   document, crypto, extractChNum, customFontFace, Toast */
+   document, crypto, extractChNum, customFontFace, Toast, genUID, buildTocTree */
 
 'use strict';
 
@@ -78,7 +79,7 @@ function updateProgStep(activeStep){
 
 // ── 텍스트 표지 생성 ──
 function wrapText(text, maxWidth, fontSize){
-  const lineH=fontSize*1.5, lines=[], words=text.split('');
+  const lines=[], words=text.split('');
   let cur='';
   for(const w of words){
     if((cur+w).length*fontSize*0.6<=maxWidth) cur+=w;
@@ -113,11 +114,6 @@ async function generateTextCover(title, author){
   });
 }
 
-// ── xhtmlPage (메인 스레드 레거시 호환) ──
-function xhtmlPage(title, body){
-  return '<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml"><head>\n<title>'+escHtml(title)+'</title>\n<link rel="stylesheet" type="text/css" href="../style.css"/>\n</head><body>\n'+body+'\n</body></html>';
-}
-
 // ══════════════════════════════════════════
 // P2-02: 이미지 병렬 처리 — Semaphore 강화
 // ══════════════════════════════════════════
@@ -143,7 +139,7 @@ async function resizeCoverIfNeeded(file){
       try{
         canvas.toBlob(blob=>{
           if(!blob){resolve(file);return;}
-          resolve(new File([blob],file.name,{type:'image/jpeg'}));
+          resolve(new File([blob],file.name||'cover.jpg',{type:'image/jpeg'}));
         },'image/jpeg',0.92);
       }catch(e){
         // canvas tainted → 원본 파일 그대로 사용
@@ -182,15 +178,11 @@ async function processImagesParallel(coverFile, illMap){
     const batch = illFiles.slice(i, i+IMG_CONCURRENCY);
     const batchRes = await Promise.all(
       batch.map(async ({il, file_idx})=>{
-        let blobRef = null; // ★ 4단계 GC: blob 참조 추적용
         try{
           const { blob, ext, mt } = await convertImageFile(il.file, false);
-          blobRef = blob;
           const ab = await fileToAB(blob);
-          blobRef = null; // ★ AB 획득 직후 blob 참조 해제 → GC 수거 가능
           return { ab, ext, mt, file_idx };
         }catch(e){
-          blobRef = null;
           if(typeof Toast!=='undefined')
             Toast.warn(`이미지 처리 실패 (건너뜀): ${il.file.name||'알 수 없는 파일'}`);
           return null;
@@ -320,21 +312,28 @@ self.onmessage=async function(e){
   try{
     const{params,imageData,cssText}=e.data;
     const{title,author,chapters,illMapMeta,useItalic,showChTitle,
-          compressionLevel,lang,uid,today,
+          compressionLevel,lang,uid,today,modified,
+          publisher='',series='',seriesIndex=0,
           removeBlankLines=false}=params;
     // ★ P2-01: renderedBodies 파라미터 제거 — Worker가 직접 렌더링
     function prog(pct,msg){self.postMessage({type:'progress',pct,msg});}
     prog(5,'이미지 처리 중...');
     const zip=new JSZip();
     zip.file('mimetype','application/epub+zip',{compression:'STORE',compressionOptions:{level:0}});
-    zip.folder('META-INF').file('container.xml','<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:schemas:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
-    const oebps=zip.folder('OEBPS'),imagesFolder=oebps.folder('Images'),textFolder=oebps.folder('Text');
+    zip.folder('META-INF').file('container.xml','<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
+    // ★ container.xml 네임스페이스는 OCF 표준값(urn:oasis:names:tc:opendocument:xmlns:container) — 오타 시 epubcheck RSC-003
+    // ★ Images 폴더는 이미지가 있을 때만 생성 (빈 디렉터리 → epubcheck PKG-014 경고)
+    const oebps=zip.folder('OEBPS'),textFolder=oebps.folder('Text');
+    const imagesFolder=(imageData.cover||imageData.ills.length)?oebps.folder('Images'):null;
     oebps.file('style.css',cssText);
     const imgStore=new Map();let imgIdx=0;
     if(imageData.cover){const{ab,ext,mt}=imageData.cover;const dest='img_'+String(imgIdx++).padStart(4,'0')+'.'+ext;imagesFolder.file(dest,ab);imgStore.set('cover',{filename:dest,mt});}
     for(const ill of imageData.ills){const{ab,ext,mt,file_idx}=ill;const dest='img_'+String(imgIdx++).padStart(4,'0')+'.'+ext;imagesFolder.file(dest,ab);imgStore.set(file_idx,{filename:dest,mt});}
     prog(15,'챕터 생성 중...');
     const manifestItems=[],spineItems=[];
+    // ★ 목차 항목은 챕터 루프에서 수집 — 루프 뒤 chapters.length=0으로 원문이 해제되므로
+    //   (이전: 해제 후 chapters[origIdx]를 읽어 nav/ncx 제목이 전부 빈 문자열이던 버그)
+    const tocEntries=[];
     const coverInfo=imgStore.get('cover')||null;
     if(coverInfo){textFolder.file('cover.xhtml',xhtmlPage('표지','<div class="illust-page"><img src="../Images/'+coverInfo.filename+'" alt="표지"/></div>'));manifestItems.push({id:'cover_xhtml',href:'Text/cover.xhtml',mt:'application/xhtml+xml'});spineItems.push('cover_xhtml');}
     const chHasIll={};
@@ -369,22 +368,40 @@ self.onmessage=async function(e){
       const fname='chapter_'+String(idx).padStart(4,'0')+'.xhtml';const chid='ch_'+String(idx).padStart(4,'0');
       textFolder.file(fname,xhtmlPage(heading,(showTitle?'<h1>'+escHtml(heading)+'</h1>\\n':'')+body));
       manifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
-      if(heading!=='서문')spineItems.push(chid);
+      if(heading!=='서문'){spineItems.push(chid);tocEntries.push({label:tocLabel(idx,heading,chHasIll),heading,href:'Text/'+fname});}
       if(heading!=='서문'){for(const fi_idx of afterIlls){const fi=imgStore.get(fi_idx);if(!fi)continue;const fn='ill_'+String(illPageIdx++).padStart(4,'0')+'.xhtml';const iid='ill_'+String(illPageIdx-1).padStart(4,'0');textFolder.file(fn,xhtmlPage(heading+' 삽화','<div class="illust-page"><img src="../Images/'+fi.filename+'" alt="삽화"/></div>'));manifestItems.push({id:iid,href:'Text/'+fn,mt:'application/xhtml+xml'});spineItems.push(iid);}}
     }
     // ★ 4단계 GC: 챕터 루프 완료 후 chapters 참조 해제
     // postMessage로 전달된 chapters는 이제 Worker 내에서 불필요
     chapters.length = 0;
     prog(82,'목차 생성 중...');
-    let ncx='<?xml version="1.0" encoding="utf-8"?>\\n<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\\n<head><meta name="dtb:uid" content="'+uid+'"/></head>\\n<docTitle><text>'+escHtml(title)+'</text></docTitle>\\n<navMap>\\n';
-    let order=1;
-    for(let idx=0;idx<manifestItems.length;idx++){const item=manifestItems[idx];if(!item.href.includes('chapter_'))continue;const origIdx=parseInt(item.href.replace('Text/chapter_','').replace('.xhtml',''));const[h]=chapters[origIdx]||[''];if(h==='서문')continue;ncx+='<navPoint id="np'+origIdx+'" playOrder="'+order+'"><navLabel><text>'+escHtml(tocLabel(origIdx,h,chHasIll))+'</text></navLabel><content src="'+item.href+'"/></navPoint>\\n';order++;}
-    ncx+='</navMap></ncx>';oebps.file('toc.ncx',ncx);
-    let nav='<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>'+escHtml(title)+'</title></head><body><nav epub:type="toc"><ol>\\n';
-    for(const item of manifestItems){if(!item.href.includes('chapter_'))continue;const origIdx=parseInt(item.href.replace('Text/chapter_','').replace('.xhtml',''));const[h]=chapters[origIdx]||[''];if(h==='서문')continue;nav+='<li><a href="'+item.href+'">'+escHtml(tocLabel(origIdx,h,chHasIll))+'</a></li>\\n';}
-    nav+='</ol></nav></body></html>';oebps.file('nav.xhtml',nav);
+    // ★ 계층 목차: '1권/2부' 그룹이 있으면 권 > 화 2단계, 없으면 기존 평면 목차 (parser.js buildTocTree)
+    const tocTree=buildTocTree(tocEntries);
+    const tocDepth=tocTree.some(n=>n.children.length)?2:1;
+    // NCX 규칙: 같은 문서를 가리키는 navPoint는 같은 playOrder (합성 그룹 '1부'는 첫 자식과 문서 공유)
+    let order=1,npSeq=1;
+    const poByHref={};
+    const ncxPoints=nodes=>nodes.map(n=>{
+      const po=poByHref[n.href]||(poByHref[n.href]=order++);
+      return '<navPoint id="np'+(npSeq++)+'" playOrder="'+po+'"><navLabel><text>'+escHtml(n.label)+'</text></navLabel><content src="'+n.href+'"/>\\n'+ncxPoints(n.children)+'</navPoint>\\n';
+    }).join('');
+    let ncx='<?xml version="1.0" encoding="utf-8"?>\\n<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\\n<head><meta name="dtb:uid" content="'+uid+'"/><meta name="dtb:depth" content="'+tocDepth+'"/><meta name="dtb:totalPageCount" content="0"/><meta name="dtb:maxPageNumber" content="0"/></head>\\n<docTitle><text>'+escHtml(title)+'</text></docTitle>\\n<navMap>\\n'+ncxPoints(tocTree)+'</navMap></ncx>';
+    oebps.file('toc.ncx',ncx);
+    const navList=nodes=>'<ol>\\n'+nodes.map(n=>'<li><a href="'+n.href+'">'+escHtml(n.label)+'</a>'+(n.children.length?'\\n'+navList(n.children):'')+'</li>\\n').join('')+'</ol>\\n';
+    // nav <ol>은 비어 있으면 EPUB3 위반 → 목차 항목이 없으면 첫 스파인 문서로 대체 항목 생성
+    const navNodes=tocTree.length?tocTree:[{label:title,href:(manifestItems.find(it=>it.id===spineItems[0])||{href:'Text/cover.xhtml'}).href,children:[]}];
+    let nav='<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>'+escHtml(title)+'</title></head><body><nav epub:type="toc">\\n'+navList(navNodes)+'</nav></body></html>';
+    oebps.file('nav.xhtml',nav);
     const coverInfoX=imgStore.get('cover')||null;
-    let opf='<?xml version="1.0" encoding="utf-8"?>\\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">\\n<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\\n<dc:title>'+escHtml(title)+'</dc:title>\\n<dc:creator>'+escHtml(author)+'</dc:creator>\\n<dc:language>'+lang+'</dc:language>\\n<dc:identifier id="uid">'+uid+'</dc:identifier>\\n<dc:date>'+today+'</dc:date>\\n<dc:publisher>TXT2EPUB 변환기</dc:publisher>\\n'+(coverInfoX?'<meta name="cover" content="cover_img"/>\\n':'')+'\\n</metadata>\\n<manifest>\\n<item id="css" href="style.css" media-type="text/css"/>\\n<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\\n<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\\n';
+    // ★ 시리즈 메타: EPUB3 표준(belongs-to-collection) + Calibre/리더기 호환(calibre:series)
+    const seriesMeta=series
+      ? '<meta property="belongs-to-collection" id="series">'+escHtml(series)+'</meta>\\n'+
+        '<meta refines="#series" property="collection-type">series</meta>\\n'+
+        (seriesIndex>0?'<meta refines="#series" property="group-position">'+seriesIndex+'</meta>\\n':'')+
+        '<meta name="calibre:series" content="'+escHtml(series)+'"/>\\n'+
+        (seriesIndex>0?'<meta name="calibre:series_index" content="'+seriesIndex+'"/>\\n':'')
+      : '';
+    let opf='<?xml version="1.0" encoding="utf-8"?>\\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">\\n<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\\n<dc:title>'+escHtml(title)+'</dc:title>\\n<dc:creator>'+escHtml(author)+'</dc:creator>\\n<dc:language>'+escHtml(lang)+'</dc:language>\\n<dc:identifier id="uid">'+uid+'</dc:identifier>\\n<dc:date>'+today+'</dc:date>\\n<meta property="dcterms:modified">'+modified+'</meta>\\n'+(publisher?'<dc:publisher>'+escHtml(publisher)+'</dc:publisher>\\n':'')+seriesMeta+(coverInfoX?'<meta name="cover" content="cover_img"/>\\n':'')+'\\n</metadata>\\n<manifest>\\n<item id="css" href="style.css" media-type="text/css"/>\\n<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\\n<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\\n';
     manifestItems.forEach(it=>opf+='<item id="'+it.id+'" href="'+it.href+'" media-type="'+it.mt+'"/>\\n');
     if(coverInfoX)opf+='<item id="cover_img" href="Images/'+coverInfoX.filename+'" media-type="'+coverInfoX.mt+'" properties="cover-image"/>\\n';
     for(const[key,info]of imgStore){if(key==='cover')continue;opf+='<item id="imgf_'+info.filename.replace(/\\W/g,'_')+'" href="Images/'+info.filename+'" media-type="'+info.mt+'"/>\\n';}
@@ -416,13 +433,18 @@ self.onmessage=async function(e){
   }
 };`;
 
-  return [utilFunctions, renderFunctions, 'const xhtmlPage='+xhtmlFn.toString()+';', mainHandler].join('\n');
+  // ★ 계층 목차 빌더는 parser.js 단일 소유 — toString()으로 Worker에 이식 (복사본 없음)
+  const tocTreeSrc = (typeof buildTocTree === 'function')
+    ? buildTocTree.toString()
+    : 'function buildTocTree(items){return (items||[]).map(function(it){return {label:it.label,href:it.href,children:[]};});}';
+
+  return [utilFunctions, renderFunctions, tocTreeSrc, 'const xhtmlPage='+xhtmlFn.toString()+';', mainHandler].join('\n');
 }
 
 // ══════════════════════════════════════════
 // P2-03: launchEpubWorker — Worker URL 누수 방지 + renderedBodies 제거
 // ══════════════════════════════════════════
-async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[], useItalic=true }, onProgress){
+async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[], useItalic=true, series='', seriesIndex=0 }, onProgress){
   // ① 메인 스레드 전처리 (DOM 필요 작업)
   onProgress&&onProgress(3, '이미지 전처리 중...');
   const imageData = await processImagesParallel(coverFile, illMap);
@@ -500,6 +522,8 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
     const lang = document.getElementById('optLang')?.value||'ko';
     // ★ Part2: 본문 공백 최적화 플래그 — optRemoveBlankLines 체크박스에서 읽음
     const removeBlankLines = document.getElementById('optRemoveBlankLines')?.checked ?? false;
+    // ★ 설정 탭 '출판사(publisher) 태그' — 비워두면 dc:publisher 미포함
+    const publisher = (document.getElementById('optPublisher')?.value || '').trim();
 
     // Transferable 목록 — AB는 zero-copy 이전 후 메인 스레드에서 접근 불가
     const transferables = [
@@ -516,8 +540,15 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
           compressionLevel, lang,
           // ★ Part2: 본문 공백 최적화 플래그 전달
           removeBlankLines,
-          uid:   crypto.randomUUID(),
+          publisher,
+          series: String(series||'').trim(),
+          seriesIndex: Math.max(0, parseInt(seriesIndex,10)||0),
+          // ★ core.js genUID — crypto.randomUUID가 없는 비보안 컨텍스트(http://LAN IP 접속 등) 폴백 포함
+          //   (이전: crypto.randomUUID 직접 호출 → http 환경에서 'randomUUID is not a function'으로 변환 실패)
+          uid:   'urn:uuid:'+(typeof genUID==='function'?genUID():crypto.randomUUID()),
           today: new Date().toISOString().slice(0,10),
+          // ★ EPUB3 필수 메타 dcterms:modified (CCYY-MM-DDThh:mm:ssZ, 밀리초 없음)
+          modified: new Date().toISOString().replace(/\.\d{3}Z$/,'Z'),
           // renderedBodies: 폐지
         },
         imageData, cssText,

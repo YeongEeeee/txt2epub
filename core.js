@@ -646,13 +646,6 @@ function _safeEncodeUrl(url) {
   }
 }
 
-// ── #4: MIME-Type 화이트리스트 검증 ──
-const _ALLOWED_MIME_PREFIXES = ['image/', 'application/json', 'text/'];
-function _validateContentType(resp) {
-  const ct = resp.headers.get('Content-Type') || '';
-  return _ALLOWED_MIME_PREFIXES.some(prefix => ct.includes(prefix));
-}
-
 // ── #10: HTTP 상태코드 → 사용자 친화적 에러 메시지 ──
 function _proxyErrorMsg(status, url) {
   const host = (() => { try { return new URL(url).hostname; } catch(e) { return url.slice(0, 30); } })();

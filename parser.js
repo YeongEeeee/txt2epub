@@ -215,7 +215,7 @@ function renderBodyHtml(body, {useItalic=true, maxBlank=2, removeBlankLines=fals
     }
   }
 }
-// handleCustomFont → main.js로 이동 (customFontFile 등 main.js 전역 변수 의존)
+// handleCustomFont → settings.js (customFontName/customFontFace 전역 상태 소유)
 
 // showResultStats → convert.js에 정의됨 (result-stat-card 클래스 사용, 중복 제거)
 
@@ -335,15 +335,8 @@ if(typeof createVirtualScroll==='undefined'){
 // 📐 구성 규칙
 //   • 기존 48종 패턴은 원래 순서·내용 그대로 100% 유지 (★ 기존 표시)
 //   • 신규 패턴은 각 그룹 끝에 추가 (★ 신규 표시)
-//   • 꼬리 패턴 공통 약어:  _T = (?:\s*[^\r\n]{0,80})?  (ReDoS-safe tail)
+//   • 꼬리 허용자는 (?:\s*[^\r\n]{0,80})? 를 각 정규식에 직접 기입 (ReDoS-safe tail)
 // ════════════════════════════════════════════════════════════════════════
-
-// ─── 꼬리 안전 허용자 (공통 상수) ───────────────────────────────────────
-// 챕터 제목 뒤에 임의 텍스트가 붙는 형식을 수용하되, 최대 80자로 고정하여
-// 백트래킹 폭발을 원천 차단합니다.
-// 예) "1화 - 어둠의 시작" / "Chapter 1 The Beginning"
-// ※ PATS 안에서는 source 문자열로만 쓰이므로 RegExp 객체가 아닌 문자열로 선언
-const _T = '(?:\\s*[^\\r\\n]{0,80})?'; // ReDoS-safe 꼬리 허용자
 
 const PATS=[
   // ════════════════════════════════════════════════════════════════
@@ -778,6 +771,8 @@ const KEYWORD_PATS=[
 function preprocessLine(raw){
   return raw
     .trim()
+    // 전각 숫자(１２３) → 반각 — 패턴 감지(bestPat)와 매칭이 같은 기준으로 동작하도록
+    .replace(/[\uFF10-\uFF19]/g, c=>String.fromCharCode(c.charCodeAt(0)-0xFF10+0x30))
     // 앞뒤 대괄호 [ ] ( ) 제거 (내용은 보존)
     .replace(/^[\[\(\-\s]+/, '')
     .replace(/[\]\)\-\s]+$/, '')
@@ -801,35 +796,8 @@ function calcSequenceWeight(matchedNums){
 }
 
 // ══════════════════════════════════════════════════════════════
-// ★ 파싱 유틸리티 레이어 — 신규 (#2/#3/#5/#6)
+// ★ 파싱 유틸리티 레이어 — 신규 (#3/#5/#7)
 // ══════════════════════════════════════════════════════════════
-
-// ─── #2: 한글/한자 숫자 디코더 ───
-// '백오십사화' → 154 / '第三章' → 3 / '二十' → 20
-const _KOR_NUM_MAP={
-  '일':1,'이':2,'삼':3,'사':4,'오':5,'육':6,'칠':7,'팔':8,'구':9,'십':10,
-  '백':100,'천':1000,'만':10000,
-  '一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10,
-  '百':100,'千':1000,'萬':10000,
-};
-function _decodeKorNum(str){
-  if(!str) return null;
-  // 아라비아 숫자 그대로
-  const arabic=str.match(/^\d+$/);
-  if(arabic) return parseInt(str);
-  // 한글/한자 숫자 변환 (최대 9999)
-  let result=0, unit=0, cur=0;
-  for(const ch of str){
-    const v=_KOR_NUM_MAP[ch];
-    if(v===undefined) continue;
-    if(v>=10000){ result=(result+unit+cur)*v; unit=0; cur=0; }
-    else if(v>=100){ unit=(unit+cur||1)*v; cur=0; }
-    else if(v>=10){ cur=(cur||1)*v; unit+=cur; cur=0; }
-    else { cur=v; }
-  }
-  result+=unit+cur;
-  return result>0?result:null;
-}
 
 // ─── #3: False Positive Guard ───
 // 제목 후보 줄이 실제로 챕터 제목인지 판별
@@ -870,21 +838,24 @@ function _checkIndexJump(chapters){
   return result;
 }
 
-// ─── #6: 계층형 볼륨 분할 ───
-// '1권 1화' → {volume:1, chapter:1, title:'1권 1화'}
-// chapters 배열을 volume별로 그룹화하여 반환
-function _groupByVolume(chapters){
-  const volRx=/^(?:제?\s*(\d+)\s*권)\s+(?:제?\s*(\d+)\s*[화장])/;
-  const groups=new Map(); // volume → [{heading,body}]
-  let defaultVol=0;
-  for(const [heading,body] of chapters){
-    const m=heading.match(volRx);
-    const vol=m?parseInt(m[1]):defaultVol;
-    if(!m) defaultVol=vol;
-    if(!groups.has(vol)) groups.set(vol,[]);
-    groups.get(vol).push({heading,body});
-  }
-  return [...groups.entries()].map(([vol,items])=>({volume:vol,chapters:items}));
+// ─── #4: 본문 번호 목록 가드 ───
+// '1. 검' / '2) 방패'처럼 번호 목록 줄이 바로 위·아래 줄과 연속되면 챕터 제목이 아니라 본문 목록으로 판단
+// (실제 챕터 제목은 번호 목록 형식의 다른 줄과 빈 줄 없이 붙어 있지 않음)
+const _LIST_ITEM_RX=/^\s*\d{1,3}\s*[.)]\s+\S/;
+function _isListItemLine(lines, idx){
+  if(!_LIST_ITEM_RX.test(lines[idx]||'')) return false;
+  return _LIST_ITEM_RX.test(lines[idx-1]||'') || _LIST_ITEM_RX.test(lines[idx+1]||'');
+}
+
+// ─── 제목 줄 매칭 (목차 미리보기용) ───
+// splitChapters와 같은 기준: 전처리·정규화 문자열 또는 원문 중 하나라도 매칭
+// (이전 previewToc는 원문만 검사 → '[1화] 시작'처럼 bestPat이 찾은 패턴이 미리보기에선 0개로 보이고
+//  실제 변환에서는 잡히는 불일치)
+function _matchHeading(rx, line){
+  const raw=String(line||'').trim();
+  if(!raw||!rx) return false;
+  const t=_normalizeTitleStr(preprocessLine(raw));
+  return (!!t&&rx.test(t))||rx.test(raw);
 }
 
 // ─── #7: ReDoS 타임아웃 가드 ───
@@ -938,7 +909,7 @@ function parseCustomPattern(pat, sample=''){
 function _normalizeTitleStr(s){
   return s
     .replace(/\u2019|\u02bc|\u0060/g,'\'')   // 유사 어퍼스트로피 정규화
-    .replace(/\uFF10-\uFF19/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFF10+0x30)) // 전각숫자 → 반각
+    .replace(/[\uFF10-\uFF19]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFF10+0x30)) // 전각숫자 → 반각 (★ 이전: [] 누락으로 미동작)
     .replace(/\u3007/g,'0')                   // 〇 → 0
     .replace(/\s*([화장편막권])\s*/g,'$1')     // 화/장 앞뒤 공백 제거
     .replace(/제\s+/g,'제')                   // '제 1화' → '제1화'
@@ -1038,7 +1009,8 @@ function bestPat(raw){
 
 // splitChapters: 동기 함수. 대용량은 splitChaptersAsync 권장
 function splitChapters(raw, customPat, opts={}){
-  const {mergeShortLines=false, fpGuard=true}=opts;
+  // onProgress(pct, msg): 선택 — 파싱 Worker(buildParserWorkerSource)에서 진행률 전달용
+  const {mergeShortLines=false, fpGuard=true, onProgress=null}=opts;
 
   // ── 입력 텍스트 정규화 ──
   raw=raw
@@ -1093,7 +1065,12 @@ function splitChapters(raw, customPat, opts={}){
     if(rx){
       try{ rx=new RegExp('(?:'+rx.source+'|'+kwSrc+')','i'); }catch(e){}
     } else {
-      try{ rx=new RegExp(kwSrc,'i'); }catch(e){}
+      // ★ 패턴 감지 실패: 키워드(프롤로그·외전 등) 줄이 실제로 있을 때만 키워드 단독 사용
+      //   이전: 키워드 rx가 항상 생겨 아래 페이지 분할 폴백에 도달하지 못함 → 전체가 '본문' 1챕터
+      try{
+        const kwRx=new RegExp(kwSrc,'i');
+        if(raw.split('\n').some(l=>{ const t=_normalizeTitleStr(preprocessLine(l)); return t&&kwRx.test(t); })) rx=kwRx;
+      }catch(e){}
     }
   }
   // ★ LOGIC-04: 정규식은 루프 전 1회만 컴파일됨 (rx가 최종 컴파일된 RegExp 객체)
@@ -1120,21 +1097,30 @@ function splitChapters(raw, customPat, opts={}){
   const seenHeadings=new Map();
   const sepRx=/^[-=*─━~·.‒—]{3,}\s*$|^[─━═]{2,}$/;
 
-  for(let li=0;li<rawLines.length;li++){
+  const _totalLines=rawLines.length;
+  for(let li=0;li<_totalLines;li++){
+    if(onProgress&&li%2000===0){
+      onProgress(12+Math.round((li/_totalLines)*80),'② 챕터 파싱 중... '+(chapters.length+1)+'화 / '+(li+1).toLocaleString()+'줄');
+    }
     const line=rawLines[li];
-    // ★ #8/#10: 공백 관용·유사기호 정규화 후 패턴 검사
+    // ★ #8/#10: 공백 관용·유사기호 정규화 후 패턴 검사 (정규화 문자열은 '매칭·중복 판별'에만 사용)
     const t=_normalizeTitleStr(preprocessLine(line));
 
-    if(t&&rx.test(t)){
+    // 정규화 문자열 또는 원문(사용자 정의 패턴이 대괄호 등 원문 기호를 포함한 경우) 중 하나라도 매칭
+    if(t&&(rx.test(t)||rx.test(line.trim()))){
       // ★ #3: False Positive Guard — 30자 초과이거나 주변 공백 밀도 낮으면 본문으로 처리
-      if(fpGuard&&!_isLikelyChapterTitle(rawLines,li,0.2)){
+      // ★ #4: 위·아래 줄과 이어지는 번호 목록('1. 검' '2. 방패')은 본문
+      if(fpGuard&&(!_isLikelyChapterTitle(rawLines,li,0.2)||_isListItemLine(rawLines,li))){
         body.push(line);
         continue;
       }
-      // 중복 제목 → (2),(3)... 접미사
+      // ★ 표시 제목은 원문 그대로(앞뒤 공백·연속 공백만 정리)
+      //   이전: 정규화 문자열을 제목으로 써서 '제1화 만남'→'제1화만남', '[EP.1] 제목'→'EP.1] 제목'으로 깨짐
+      const display=line.trim().replace(/\s{2,}/g,' ')||t;
+      // 중복 제목 → (2),(3)... 접미사 (중복 판별은 정규화 문자열 기준)
       const prevCount=seenHeadings.get(t)||0;
       seenHeadings.set(t,prevCount+1);
-      const uniqueTitle=prevCount===0?t:`${t} (${prevCount+1})`;
+      const uniqueTitle=prevCount===0?display:`${display} (${prevCount+1})`;
 
       while(body.length&&(sepRx.test(body[body.length-1].trim())||body[body.length-1].trim()==='')) body.pop();
       if(cur===null&&body.length>0) chapters.push(['서문',body.join('\n').trim()]);
@@ -1155,15 +1141,20 @@ function splitChapters(raw, customPat, opts={}){
   raw=null;
 
   // ★ #5: 인덱스 도약 보정 경고
-  if(chapters.length>2){
-    const jump=_checkIndexJump(chapters);
-    if(jump.jumps.length>0&&typeof Toast!=='undefined'){
-      const warn=jump.jumps.slice(0,3).map(j=>`${j.from}→${j.to}(+${j.gap})`).join(', ');
-      Toast.warn(`⚠️ 화수 도약 감지: ${warn} — 중간에 누락된 화가 있을 수 있어요.`,5000);
-    }
-  }
+  _warnIndexJump(chapters);
 
   return chapters.length?chapters:[['본문','']];
+}
+
+// ★ #5: 화수 도약 경고 — splitChapters(메인) / splitChaptersAsync(Worker 결과 수신 후) 공용
+// Worker 안에서는 Toast가 없으므로 자동으로 건너뜀
+function _warnIndexJump(chapters){
+  if(!Array.isArray(chapters)||chapters.length<=2) return;
+  const jump=_checkIndexJump(chapters);
+  if(jump.jumps.length>0&&typeof Toast!=='undefined'){
+    const warn=jump.jumps.slice(0,3).map(j=>`${j.from}→${j.to}(+${j.gap})`).join(', ');
+    Toast.warn(`⚠️ 화수 도약 감지: ${warn} — 중간에 누락된 화가 있을 수 있어요.`,5000);
+  }
 }
 
 function extractChNum(h){
@@ -1176,6 +1167,122 @@ function extractChNum(h){
   // [ 0002_제목.txt ] — 앞자리 0 패딩 숫자
   m=h.match(/^\[\s*0*(\d+)[_\s]/);if(m)return parseInt(m[1]);
   return null;
+}
+
+// ══════════════════════════════════════════
+// 📚 Module: SeriesMeta (파일명 → 시리즈명·권 번호)
+// ══════════════════════════════════════════
+// '전지적 독자 시점 3권'            → {series:'전지적 독자 시점', index:3}
+// '[작가] 나 혼자 레벨업 제2권 각성' → {series:'나 혼자 레벨업', index:2}
+// 'Overlord Vol.4'                  → {series:'Overlord', index:4}
+// '소설 1-3권'(합본 범위)·권 표기 없음 → null
+function parseSeriesFromName(name){
+  let s=String(name||'').replace(/\.(?:txt|epub)$/i,'').trim();
+  // [작가] 제목 / 제목 @ 작가 → 제목만 (handleTxt 메타 자동 채우기 규칙과 동일)
+  let m=s.match(/^\[(.+?)\]\s*(.+)$/);
+  if(m) s=m[2].trim();
+  else{ m=s.match(/^(.+?)\s*@\s*(.+)$/); if(m) s=m[1].trim(); }
+  if(/\d\s*[-~]\s*\d+\s*권/.test(s)) return null; // 합본 범위 표기는 단일 권이 아님
+  const rxs=[
+    /^(.+?)[\s_\-]*(?:제\s*)?(\d{1,3})\s*권(?=$|[\s_\-.(\[])/,
+    /^(.+?)[\s_\-]*(?:vol(?:ume)?|book)\.?\s*(\d{1,3})(?=$|[\s_\-.(\[])/i,
+  ];
+  for(const rx of rxs){
+    const mm=s.match(rx);
+    if(!mm) continue;
+    const series=mm[1].replace(/[\s_\-·:]+$/,'').trim();
+    const index=parseInt(mm[2],10);
+    if(series&&index>0) return {series, index};
+  }
+  return null;
+}
+
+// ══════════════════════════════════════════
+// 🌲 Module: TocTree (평면 목차 → 권/부 2단계 목차)
+// ══════════════════════════════════════════
+// items: [{label, href, heading}]  heading=원문 챕터 제목, label=목차 표시명
+// 반환: [{label, href, children:[{label, href, children:[]}]}]
+// 규칙:
+//   ① '1권' '제2부' 'Vol.3' 'Book 4'처럼 권/부만 있는 제목 → 상위 노드 (자기 페이지 링크)
+//   ② '1부 3화'처럼 권/부 + 화 표지가 함께 있는 제목 → 같은 권/부 그룹의 자식
+//      (앞에 그 권/부 제목 페이지가 없으면 '1부' 그룹 노드를 합성, 링크는 첫 자식)
+//   ③ 그 외 제목 → 직전 권/부 그룹의 자식, 첫 그룹 이전이면 최상위
+//   권/부 그룹이 2개 미만이거나 중첩된 자식이 없으면 기존과 같은 평면 목차를 반환
+// ★ epub-gen.js EPUB Worker에 toString()으로 이식됨 — 외부 심볼 참조 금지
+function buildTocTree(items){
+  const VOL_RX=/^(?:제\s*)?(\d{1,4}|[일이삼사오육칠팔구십]{1,3}|[一二三四五六七八九十]{1,3})\s*(권|부)(?=$|[\s.:·\-–—)\]】」』>,])/;
+  const VOL_EN_RX=/^(vol(?:ume)?|book)\.?\s*(\d{1,4}|[ivxlc]{1,6})(?=$|[\s.:\-–—)\]])/i;
+  const CH_MARK_RX=/(?:\d+|[일이삼사오육칠팔구십백]+)\s*(?:화|장|話|章|편)|chapter|ch\.\s*\d|ep\.?\s*\d|episode|프롤로그|에필로그|외전|번외|막간/i;
+  const list=Array.isArray(items)?items:[];
+  const flat=list.map(it=>({label:it.label, href:it.href, children:[]}));
+  const volInfo=h=>{
+    const t=String(h||'').trim();
+    let m=t.match(VOL_RX);
+    if(m) return {key:m[2]+':'+m[1], label:m[0].trim(), rest:t.slice(m[0].length)};
+    m=t.match(VOL_EN_RX);
+    if(m) return {key:'v:'+m[2].toLowerCase(), label:m[0].trim(), rest:t.slice(m[0].length)};
+    return null;
+  };
+  const nodes=[];
+  let cur=null, groups=0, nested=0;
+  for(const it of list){
+    const v=volInfo(it.heading!=null?it.heading:it.label);
+    const leaf={label:it.label, href:it.href, children:[]};
+    if(v&&!CH_MARK_RX.test(v.rest)){
+      cur={label:it.label, href:it.href, key:v.key, children:[]};
+      nodes.push(cur); groups++;
+      continue;
+    }
+    if(v){
+      if(!cur||cur.key!==v.key){
+        cur={label:v.label, href:it.href, key:v.key, children:[]};
+        nodes.push(cur); groups++;
+      }
+      cur.children.push(leaf); nested++;
+      continue;
+    }
+    if(cur){ cur.children.push(leaf); nested++; }
+    else nodes.push(leaf);
+  }
+  if(groups<2||nested===0) return flat;
+  nodes.forEach(n=>{ delete n.key; });
+  return nodes;
+}
+
+// ══════════════════════════════════════════
+// ⚡ Module: ParserWorkerSource (대용량 파싱 Worker 소스 — 단일 진실의 원천)
+// ══════════════════════════════════════════
+// PATS·KEYWORD_PATS·bestPat·splitChapters를 Function.prototype.toString / RegExp 직렬화로 그대로 이식
+// → 메인 스레드 splitChapters와 Worker 파싱 결과가 항상 동일 (별도 복사본 없음)
+// convert.js createParserWorker가 이 소스로 Blob Worker를 생성
+function buildParserWorkerSource(){
+  const fns=[
+    preprocessLine, calcSequenceWeight, checkTitleWaPattern, checkNDotPattern, bestPat,
+    _normalizeTitleStr, _isLikelyChapterTitle, _isListItemLine, _checkIndexJump, _warnIndexJump,
+    _safeRegexTest, parseCustomPattern, splitChapters,
+  ];
+  const rxLit=rx=>'new RegExp('+JSON.stringify(rx.source)+','+JSON.stringify(rx.flags)+')';
+  const patsSrc='const PATS=[\n'+PATS.map(([rx,name])=>'['+rxLit(rx)+','+JSON.stringify(name)+']').join(',\n')+'\n];';
+  const kwSrc='const KEYWORD_PATS=[\n'+KEYWORD_PATS.map(rxLit).join(',\n')+'\n];';
+  const constsSrc='const _LIST_ITEM_RX='+_LIST_ITEM_RX.toString()+';';
+  const handler=[
+    'self.onmessage=function(e){',
+    '  const d=e.data||{};',
+    '  const id=d.id;',
+    "  if(d.type!=='SPLIT') return;",
+    '  try{',
+    '    const p=d.payload||{};',
+    '    let last=-1;',
+    '    const result=splitChapters(p.raw, p.customPat, {',
+    "      onProgress:function(pct,msg){ if(pct!==last){ last=pct; self.postMessage({type:'PROGRESS',id:id,pct:pct,msg:msg}); } }",
+    '    });',
+    "    self.postMessage({type:'DONE',id:id,result:result});",
+    '  }catch(err){',
+    "    self.postMessage({type:'ERROR',id:id,error:(err&&err.message)||String(err)});",
+    '  }',
+    '};',
+  ].join('\n');
+  return ["'use strict';", patsSrc, kwSrc, constsSrc, ...fns.map(f=>f.toString()), handler].join('\n\n');
 }
 
 // ══════════════════════════════════════════
@@ -1374,7 +1481,7 @@ async function previewToc(){
     try{
       const rx=new RegExp(pat,'i');
       S._detectedPat=rx;S._detectedName='입력';
-      _fullRawLines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))found.push({line:i+1,title:l.trim()});});
+      _fullRawLines.forEach((l,i)=>{if(_matchHeading(rx,l)&&!_isListItemLine(_fullRawLines,i))found.push({line:i+1,title:l.trim()});});
       patLabel='입력 패턴: '+pat+' ('+found.length+'개 매칭)';
     }catch(e){patLabel='⚠️ 정규식 오류: '+e.message;}
   }else{
@@ -1382,7 +1489,7 @@ async function previewToc(){
     patLabel='자동 선택: '+name+' ('+cnt+'개 매칭)'+(isMixed?' ⚠️ 혼합 패턴':'');
     if(rx){
       S._detectedPat=rx;S._detectedName=name;
-      _fullRawLines.forEach((l,i)=>{if(l.trim()&&rx.test(l.trim()))found.push({line:i+1,title:l.trim()});});
+      _fullRawLines.forEach((l,i)=>{if(_matchHeading(rx,l)&&!_isListItemLine(_fullRawLines,i))found.push({line:i+1,title:l.trim()});});
     }else{
       S._detectedPat=null;S._detectedName='';
     }
@@ -1825,7 +1932,6 @@ let _tocLastClickedIdx = null;
 let _tocSelectModeOn = false;
 // ★ B-FIX-07: dragSrcI도 모듈 스코프로 분리 (클로저 경합 방지)
 let _tocDragSrc = null;
-let _tocDragSrcI = null;
 
 // ★ B-FIX-08: getSuspThreshold 캐싱 — renderTocItems 내 수천 회 DOM 쿼리 방지
 // renderTocItems 진입 시 한 번만 평가하고 내부에서 재사용
@@ -1873,7 +1979,7 @@ function renderTocItems(){
   // 드래그 중 src 값이 날아가지 않도록 드래그 진행 여부로 조건 분기
   const _isDragging = _tocDragSrc !== null;
   if(!_isDragging){
-    _tocDragSrc=null; _tocDragSrcI=null;
+    _tocDragSrc=null;
   }
   const c=document.getElementById('tb0');
   // ★ PERF-GC: innerHTML='' 대신 replaceChildren() 사용
@@ -2461,7 +2567,7 @@ function renderTocItems(){
 
     // ★ 개선 09: 드래그 이벤트 — 행 중앙 드롭 = 병합, 상단/하단 드롭 = 순서 변경
     d.addEventListener('dragstart',e=>{
-      _tocDragSrcI=i; _tocDragSrc=i;
+      _tocDragSrc=i;
       d.classList.add('dragging');
       e.dataTransfer.effectAllowed='move';
     });
@@ -2495,7 +2601,7 @@ function renderTocItems(){
     d.addEventListener('drop',e=>{
       e.preventDefault();
       const src=_tocDragSrc;
-      if(src===null||src===i){_tocDragSrc=null;_tocDragSrcI=null;return;}
+      if(src===null||src===i){_tocDragSrc=null;return;}
 
       const isMergeTarget=d.classList.contains('drag-merge-target');
       d.classList.remove('drag-over','drag-merge-target');
@@ -2657,19 +2763,6 @@ function updateTocStat(){
     document.getElementById('toc-stat')?.appendChild(exportBtn);
   }
 }
-function toggleTocItem(i,v){
-  S.tocItems[i].enabled=v;
-  _chaptersCache=null;_chaptersCacheKey='';
-  // DOM만 업데이트 (전체 재렌더링 없음)
-  const el=document.querySelector(`.toc-item[data-idx="${i}"]`);
-  if(el){
-    el.classList.toggle('off',!v);
-    const chk=el.querySelector('.toc-chk');
-    if(chk) chk.checked=v;
-  }
-  updateTocStat();
-  updateTocEditBanner&&updateTocEditBanner();
-}
 function toggleAllToc(v){
   _saveTocSnapshot();
   S.tocItems.forEach(t=>t.enabled=v);
@@ -2677,9 +2770,7 @@ function toggleAllToc(v){
   renderTocItems();
   updateTocEditBanner&&updateTocEditBanner();
 }
-let tocTabActive=0;
 function tocTab(n){
-  tocTabActive=n;
   // #tocPanel 내부로 스코프 제한 (전체 문서의 .ttab 오토글 방지)
   const panel=document.getElementById('tocPanel');
   if(panel) panel.querySelectorAll('.ttab').forEach((t,i)=>t.classList.toggle('on',i===n));

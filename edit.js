@@ -133,6 +133,8 @@ async function loadEpub(file){
   document.getElementById('insertSec').style.display='block';
   // 직접 편집 섹션 표시 + 목차 초기화
   document.getElementById('epubDirectEditSec').style.display='block';
+  // ★ 새 EPUB이면 이전 편집 상태 폐기 (챕터 수가 같으면 이전 목록이 남던 문제)
+  _directEditTocItems=[]; _directEditTocSel=-1;
   renderDirectEditToc();
   // EPUB 전체 텍스트 추출 (목차 재생성용)
   extractEpubRawText();
@@ -730,12 +732,8 @@ async function startEditEpub(){
       const fname='chapter_'+String(nextNum).padStart(4,'0')+'.xhtml';
       const fullPath=opfBase+'Text/'+fname;
       const chid='ins_ch_'+String(nextNum).padStart(4,'0');
-      // keepOrigCss=true이면 원본 CSS의 커스텀 폰트가 적용됨
-// 커스텀 폰트(NF_Library 등)가 !important로 지정된 경우 새 챕터 한글이 깨짐
-// → 새 챕터 body에 시스템 폰트를 !important 인라인으로 강제 지정
-const inlineFont=keepCss
-  ? ' style="font-family: \'Noto Serif KR\',\'Malgun Gothic\',\'Apple SD Gothic Neo\',\'나눔고딕\',sans-serif !important"'
-  : '';
+      // 원본 CSS의 커스텀 폰트(NF_Library 등)가 !important로 지정돼 새 챕터 한글이 깨지는 경우 방지
+      // → 아래 <style>에서 시스템 폰트를 !important로 항상 강제 (keepCss 여부 무관)
 newZip.file(fullPath,'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml"><head>\n<title>'+escHtml(heading)+'</title>\n<link rel="stylesheet" type="text/css" href="../'+cssHref+'"/>\n'+
   '<style>/* 커스텀 폰트 폰트 오버라이드 */\np,h1,h2,h3,h4,h5,span,a{font-family:\'Noto Serif KR\',\'Malgun Gothic\',\'Apple SD Gothic Neo\',sans-serif!important}</style>\n'+
   '</head><body>\n<h1>'+escHtml(heading)+'</h1>\n'+renderBodyHtml(body,{useItalic,maxBlank:2})+'</body></html>');
@@ -1015,6 +1013,7 @@ function downloadEditEpub(){
 let _directEditResult=null; // {blob, name}
 let _directEditIllFiles=[];  // 삽화 파일 목록
 let _directEditTocItems=[];  // 목차 편집 상태
+let _directEditTocSel=-1;     // ▲▼ 이동 대상으로 선택된 항목 인덱스
 
 // ── EPUB 텍스트 추출 (목차 재생성용) ──
 let _epubRawText='';     // 전체 텍스트 (줄 배열 아님)
@@ -1255,8 +1254,15 @@ function renderDirectEditToc(){
   list.innerHTML='';
   _directEditTocItems.forEach((item,i)=>{
     const d=document.createElement('div');
-    d.className='ch-item';
+    d.className='ch-item'+(i===_directEditTocSel?' sel':'');
     d.draggable=true;
+    // 항목 클릭 = ▲▼ 이동 대상 선택 (체크박스·제목 입력 클릭은 제외)
+    d.addEventListener('click',e=>{
+      if(e.target.closest('input')) return;
+      _directEditTocSel=i;
+      list.querySelectorAll('.ch-item.sel').forEach(el=>el.classList.remove('sel'));
+      d.classList.add('sel');
+    });
     d.style.cssText='display:flex;align-items:center;gap:8px;cursor:default;'+(item.enabled?'':'opacity:.4');
     d.dataset.idx=i;
 
@@ -1282,6 +1288,7 @@ function renderDirectEditToc(){
       if(src<0||src===i) return;
       const moved=_directEditTocItems.splice(src,1)[0];
       _directEditTocItems.splice(i,0,moved);
+      _directEditTocSel=i;
       renderDirectEditToc();
     });
 
@@ -1294,22 +1301,27 @@ function directEditTocCheckAll(v){
   _directEditTocItems.forEach(it=>it.enabled=v);
   renderDirectEditToc();
 }
-function directEditTocMoveUp(){
-  // 선택된 체크된 항목 중 첫 번째를 한 칸 위로
-  const focused=document.querySelector('#directEditTocList input[type="checkbox"]:checked');
-  if(!focused) return;
-  const idx=parseInt(focused.closest('[data-idx]')?.dataset.idx??'-1');
-  if(idx<=0) return;
-  [_directEditTocItems[idx-1],_directEditTocItems[idx]]=[_directEditTocItems[idx],_directEditTocItems[idx-1]];
+// ★ ▲▼ 이동: 클릭으로 선택한 항목 기준 (이전: '첫 번째 체크 항목' 기준 — 전부 체크된 기본 상태에선 항상 1번만 움직임)
+function _moveDirectEditToc(delta){
+  const idx=_directEditTocSel;
+  const to=idx+delta;
+  if(idx<0||to<0||to>=_directEditTocItems.length){
+    if(idx<0) typeof Toast!=='undefined'&&Toast.info('이동할 항목을 먼저 눌러서 선택하세요.');
+    return;
+  }
+  [_directEditTocItems[idx],_directEditTocItems[to]]=[_directEditTocItems[to],_directEditTocItems[idx]];
+  _directEditTocSel=to;
   renderDirectEditToc();
+  document.querySelector('#directEditTocList .ch-item.sel')?.scrollIntoView({block:'nearest'});
 }
-function directEditTocMoveDown(){
-  const focused=document.querySelector('#directEditTocList input[type="checkbox"]:checked');
-  if(!focused) return;
-  const idx=parseInt(focused.closest('[data-idx]')?.dataset.idx??'-1');
-  if(idx<0||idx>=_directEditTocItems.length-1) return;
-  [_directEditTocItems[idx],_directEditTocItems[idx+1]]=[_directEditTocItems[idx+1],_directEditTocItems[idx]];
-  renderDirectEditToc();
+function directEditTocMoveUp(){ _moveDirectEditToc(-1); }
+function directEditTocMoveDown(){ _moveDirectEditToc(1); }
+
+// EPUB 초기화 시 호출 (convert.js resetEditEpub)
+function resetDirectEditToc(){
+  _directEditTocItems=[]; _directEditTocSel=-1;
+  const list=document.getElementById('directEditTocList');
+  if(list) list.innerHTML='<div class="toc-empty">EPUB을 불러오면 기존 목차가 표시돼요</div>';
 }
 
 // ── 삽화 드롭존 ──
@@ -1416,16 +1428,11 @@ async function applyDirectEdit(){
         enabledItems=_eTocItems.filter(it=>it.enabled).map(item=>{
           // _epubRawLines에서 item.line 기준으로 어느 챕터 xhtml에 해당하는지 계산
           // 챕터 전체 텍스트 합산 줄 수 기반으로 해당 챕터 href 찾기
-          let accLines=0;
-          let targetHref=E.chapters[0]?.href||'';
-          for(const ch of E.chapters){
-            const chLines=_epubRawLines.filter((_,i)=>i>=accLines&&i<accLines+9999).length;
-            // 챕터당 평균 줄수로 어느 챕터인지 근사
-            const chLineCount=Math.ceil(_epubRawLines.length/E.chapters.length);
-            const chIdx=Math.min(Math.floor((item.line-1)/Math.max(1,chLineCount)), E.chapters.length-1);
-            targetHref=E.chapters[chIdx]?.href||E.chapters[0]?.href;
-            break;
-          }
+          // 챕터당 평균 줄수로 어느 챕터인지 근사
+          // ★ 이전: 항목마다 전체 원문 줄을 filter하는 미사용 계산(chLines)과 1회 돌고 break하는 루프 → 제거 (O(항목×줄) 낭비)
+          const chLineCount=Math.ceil(_epubRawLines.length/Math.max(1,E.chapters.length));
+          const chIdx=Math.min(Math.floor((item.line-1)/Math.max(1,chLineCount)), E.chapters.length-1);
+          const targetHref=E.chapters[chIdx]?.href||E.chapters[0]?.href||'';
           return {href:targetHref, title:item.title, enabled:true};
         });
         // href 중복 제거 (같은 챕터에 여러 제목이 매핑되면 첫 번째만)

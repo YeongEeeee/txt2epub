@@ -6,7 +6,7 @@
 //   SW-03: install 핵심 에셋 캐싱 실패 시 경고 로깅 추가
 // ════════════════════════════════════════════════
 // ★ 배포 시 CACHE_VERSION 값을 갱신하면 구버전 캐시가 자동으로 삭제됩니다.
-const CACHE_VERSION = '2026-10-17T00:00:00';
+const CACHE_VERSION = '2026-10-17T05:00:00';
 const CACHE_NAME = 'novelepub-' + CACHE_VERSION;
 
 const CORE_ASSETS = [

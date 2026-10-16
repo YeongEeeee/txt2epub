@@ -99,9 +99,14 @@
         <label class="lbl" for="author">✒️ 작가</label>
         <input class="inp" id="author" placeholder="작가명" data-input-action="liveUpdateCover">
       </div>
+      <div class="row">
+        <label class="lbl" for="series">📚 시리즈</label>
+        <input class="inp" id="series" placeholder="시리즈명 (파일명 'N권'에서 자동 인식)">
+        <input class="inp series-idx-inp" id="seriesIdx" type="number" min="0" max="999" placeholder="권" aria-label="시리즈 권 번호">
+      </div>
     </div>
-    <!-- ② 장/화 분할 규칙 블록 -->
-    <div class="meta-block">
+    <!-- ② 장/화 분할 규칙 블록 (#patSection: 파일 로드 전 흐리게 표시 — Progressive Disclosure) -->
+    <div class="meta-block" id="patSection">
       <div class="meta-block-title">⚙️ 장/화 분할 규칙</div>
     <div class="row">
       <span class="lbl">⚙️ 챕터 정규식</span>
@@ -138,6 +143,8 @@
       </div>
       <!-- ★ 칩 그리드 (카테고리별 표시) -->
       <div class="pat-helper chip-group-grid" id="patHelper"></div>
+      <!-- ★ 칩이 한 줄을 넘칠 때만 표시 (ui-state.js _syncChipGroupToggle) -->
+      <button type="button" class="chip-group-toggle" id="chipGroupToggle" data-action="toggleChipGroup" aria-expanded="false" aria-controls="patHelper" style="display:none"><span class="chip-group-toggle-icon" aria-hidden="true">▼</span> 더 보기</button>
     </div>
     <div id="patApplyBar" class="flex-row" style="display:none;margin-top:5px">
       <button class="btn btn-accent btn-sm" data-action="applySelectedChips" style="font-size:12px;padding:6px 14px">✅ 선택한 패턴 적용</button>
@@ -279,6 +286,9 @@
   <h3>✅ 변환 완료!</h3>
   <div id="resultStats" style="display:flex;justify-content:center;gap:10px;margin:12px 0;flex-wrap:wrap"></div>
   <p id="resultMsg" style="font-size:11px;margin-bottom:10px"></p>
+  <!-- ★ 단계별 소요시간 스파크라인 (_renderProgressSparkline) / 변환 경고 리포트 (_renderConvertReport) -->
+  <div id="progressSparkline" class="progress-sparkline"></div>
+  <div id="convertReport" role="status" aria-live="polite"></div>
   <div class="flex-row" style="justify-content:center;flex-wrap:wrap">
     <button class="btn btn-blue" data-action="showPreview">👁 미리보기</button>
     <button class="btn btn-green" data-action="downloadEpub">⬇ EPUB 다운로드</button>
@@ -325,8 +335,9 @@
     <input type="file" id="batchCoverIn" accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
     <div class="cover-search-row" style="margin-top:8px">
       <button class="btn-search" data-action="openCoverModal" data-mode="batch" title="네이버·리디·노벨피아에서 표지 검색">🔍 표지 검색</button>
-      <span style="font-size:11px;color:var(--text2)">또는 공통 표지 URL 직접 입력</span>
+      <input class="cover-url-inp" id="batchTitle" placeholder="검색어 (비우면 첫 TXT 제목)" aria-label="일괄 변환 표지 검색어">
     </div>
+    <div class="txt-meta-sm" style="margin-top:6px">또는 공통 표지 URL 직접 입력</div>
     <div class="cover-url-row">
       <input class="cover-url-inp" id="batchCoverUrlInp" placeholder="이미지 URL 붙여넣기 (https://...)" data-input-action="previewCoverUrlBatch">
       <button class="btn-search" data-action="applyCoverUrl" data-inp="batchCoverUrlInp" data-mode="batch">적용</button>
@@ -337,6 +348,14 @@
     <div class="toggle-row" style="padding:6px 0">
       <div><label for="batchItalic">👻 회상 대사 이탤릭</label></div>
       <label class="sw"><input type="checkbox" id="batchItalic" checked><span class="sw-slider" aria-hidden="true"></span></label>
+    </div>
+    <!-- ★ 설정 탭과 공유되는 현재 스타일 요약 (updateSettingsSummary가 settingsSummary와 함께 갱신) -->
+    <div class="batch-setting-wrap">
+      <div class="flex-row-sb">
+        <span class="txt-meta-sm">현재 설정 (설정 탭과 공유)</span>
+        <button class="btn btn-ghost btn-sm" data-action="switchPage" data-page="settings" style="font-size:10px">⚙️ 설정 열기</button>
+      </div>
+      <div id="batchSettingSummary" class="opt-summary-grid"></div>
     </div>
   </div>
 </div>
@@ -411,6 +430,21 @@
       <div style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--border)">
         <div class="row"><span class="lbl">📖 제목</span><input class="inp" id="directEditTitle" placeholder="변경할 제목 (비워두면 유지)"></div>
         <div class="row"><span class="lbl">✒️ 작가</span><input class="inp" id="directEditAuthor" placeholder="변경할 작가명 (비워두면 유지)"></div>
+      </div>
+
+      <!-- ★ 기존 목차 직접 편집 (edit.js renderDirectEditToc) — 아래 패턴 감지 결과가 있으면 그쪽이 우선 -->
+      <div class="direct-toc-wrap">
+        <div class="flex-row-sb" style="margin-bottom:6px;flex-wrap:wrap;gap:6px">
+          <span class="txt-label-bold">📑 기존 목차 직접 편집</span>
+          <div class="flex-row gap-5" style="flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="directEditTocCheckAll" data-val="true">전체 포함</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="directEditTocCheckAll" data-val="false">전체 제외</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="directEditTocMoveUp" title="선택한 항목을 위로">▲ 위로</button>
+            <button class="btn btn-ghost btn-sm" style="font-size:10px" data-action="directEditTocMoveDown" title="선택한 항목을 아래로">▼ 아래로</button>
+          </div>
+        </div>
+        <div class="txt-hint-sm">항목을 눌러 선택한 뒤 ▲▼로 순서를 바꾸거나 끌어서 옮기세요. 제목은 바로 고칠 수 있고, 체크를 끄면 목차에서 빠져요.</div>
+        <div id="directEditTocList" class="direct-toc-list"><div class="toc-empty">EPUB을 불러오면 기존 목차가 표시돼요</div></div>
       </div>
 
       <!-- 챕터 정규식 -->
@@ -833,7 +867,12 @@
         </select>
       </div>
       <div class="css-field">
-        <label style="margin-bottom:4px">여백 (개별 설정)</label>
+        <!-- ★ 여백 아코디언: 접힌 상태에서도 현재 값 요약 표시 (ui-state.js togglePadAccordion / syncPadSummary) -->
+        <button type="button" class="pad-accordion-toggle" id="padAccordionToggle" data-action="togglePadAccordion" aria-expanded="false" aria-controls="padAccordionBody">
+          <span>여백 (개별 설정)</span>
+          <span class="pad-summary">위 <b id="cssPadTopVal">1.5em</b> · 아래 <b id="cssPadBottomVal">1.5em</b> · 왼쪽 <b id="cssPadLeftVal">1.8em</b> · 오른쪽 <b id="cssPadRightVal">1.8em</b></span>
+        </button>
+        <div class="pad-accordion-body" id="padAccordionBody">
         <div class="pad-grid">
           <div class="pad-field">
             <label class="pad-lbl">위</label>
@@ -859,6 +898,7 @@
             <input type="number" class="pad-num" id="cssPadRight" min="0" max="4" step="0.1" value="1.8" data-input-action="updateCssSave">
             <span class="pad-unit">em</span>
           </div>
+        </div>
         </div>
       </div>
     </div>

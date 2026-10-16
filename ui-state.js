@@ -11,7 +11,7 @@
    saveCssSettings, saveExtraSettings, loadCssSettings, loadExtraSettings,
    loadApiSettings, saveApiSettings, buildFontDropdown, loadUserPrefs,
    saveUserPrefs, updateFontPreview, renderCssPresetList, initSkin,
-   handleCustomFont, _initNotifStatus, _notifKey, _updateGeminiKeyBadge,
+   handleCustomFont, _initNotifStatus, _notifKey,
    escHtml, previewToc, splitChapters, bestPat,
    fileToText, sampleLines */
 
@@ -77,6 +77,7 @@ function initTheme(){
 // ══════════════════════════════════════════
 function updateCssPreview(){
   const _el=id=>document.getElementById(id);
+  syncPadSummary();
   const p=_el('cssPreview'); if(!p) return;
   const font=_el('cssFont')?.value||'"Noto Serif KR",serif';
   const line=_el('cssLine')?.value||'1.9';
@@ -291,6 +292,18 @@ function togglePadAccordion(){
   if(!btn||!body) return;
   const open=body.classList.toggle('open');
   btn.classList.toggle('open', open);
+  btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+// ── 여백 값 요약 (아코디언 버튼의 '위 1.5em · 아래 …') ──
+// 슬라이더·숫자 입력·설정 불러오기·프리셋 적용 모두 updateCssPreview를 거치므로 그곳에서 호출
+function syncPadSummary(){
+  [['cssPadTop','cssPadTopVal'],['cssPadBottom','cssPadBottomVal'],
+   ['cssPadLeft','cssPadLeftVal'],['cssPadRight','cssPadRightVal']].forEach(([inpId,valId])=>{
+    const v=document.getElementById(inpId)?.value;
+    const out=document.getElementById(valId);
+    if(out&&v!=null&&v!=='') out.textContent=v+'em';
+  });
 }
 
 // ── 가상 스크롤 ──
@@ -340,6 +353,29 @@ function createVirtualScroll(container, lines, lineHeight=18, visibleBuffer=60){
 
 // 패턴 칩 선택 상태
 const _chipSelected={patHelper:new Set(), insPatHelper:new Set(), eTocPatHelper:new Set()};
+
+// ── 칩 그룹 접기 토글 표시 여부: 칩이 한 줄을 넘칠 때만 '더 보기' 노출 ──
+// 탭이 숨겨진 상태(높이 0)에서 렌더된 경우를 위해 ResizeObserver로도 재계산
+function _syncChipGroupToggle(){
+  const wrap=document.getElementById('chipGroupWrap');
+  const grid=document.getElementById('patHelper');
+  const btn=document.getElementById('chipGroupToggle');
+  if(!wrap||!grid||!btn) return;
+  const first=grid.firstElementChild;
+  if(!first||!first.offsetHeight) return; // 아직 보이지 않음 — 다음 측정 때 처리
+  // 접힘을 잠시 해제하고 펼친 높이로 판단 (칩 1줄 높이의 1.8배 초과 = 2줄 이상)
+  wrap.classList.remove('collapsible');
+  const overflow=grid.scrollHeight > first.offsetHeight*1.8;
+  wrap.classList.toggle('collapsible', overflow);
+  btn.style.display=overflow?'':'none';
+}
+if(typeof ResizeObserver!=='undefined'){
+  // 스크립트 로드 시점에 요소가 없을 수 있으므로 DOM 준비 후 연결
+  document.addEventListener('DOMContentLoaded',()=>{
+    const grid=document.getElementById('patHelper');
+    if(grid) new ResizeObserver(()=>requestAnimationFrame(_syncChipGroupToggle)).observe(grid);
+  });
+}
 
 function toggleChipGroup(){
   const wrap=document.getElementById('chipGroupWrap');
@@ -452,6 +488,8 @@ function _buildMainPatHelper(){
       typeof previewToc==='function'&&previewToc();
     };
     c.appendChild(clr);
+    // ★ 칩 수가 카테고리마다 달라지므로 렌더 후 접기 토글 재계산
+    requestAnimationFrame(_syncChipGroupToggle);
   }
 
   function _syncPatInput(){
@@ -694,7 +732,6 @@ function _spawnDropConfetti(container){
     smartPatConvert:        ()   => typeof smartPatConvert==='function'&&smartPatConvert(),
     eSmartPatConvert:       ()   => typeof eSmartPatConvert==='function'&&eSmartPatConvert(),
     clearEtocChip:          ()   => clearChipSelection('eTocPatHelper'),
-    saveCssSettings:        ()   => typeof saveCssSettings==='function'&&saveCssSettings(),
     liveUpdateCover: (el) => {
       if(S.coverFile) return;
       const title  = document.getElementById('title')?.value||'';
@@ -727,7 +764,6 @@ function _spawnDropConfetti(container){
       updateCssPreview();
       typeof saveCssSettings==='function'&&saveCssSettings();
     },
-    saveOptLang:   () => typeof saveExtraSettings==='function'&&saveExtraSettings(),
     toggleNotification: (el) => {
       if(!el.checked){ localStorage.removeItem(_notifKey); _initNotifStatus&&_initNotifStatus(); return; }
       if(typeof Notification === 'undefined'){ el.checked=false; return; }
@@ -907,7 +943,6 @@ function setupEventDelegate(){
     downloadEpub:  () => typeof downloadEpub==='function'&&downloadEpub(),
     shareEpub:     () => typeof shareEpub==='function'&&shareEpub(),
     startSplit:    (el) => typeof startSplit==='function'&&startSplit(parseInt(el.dataset.n||'5')),
-    exportTocWithStats: () => typeof exportTocWithStats==='function'&&exportTocWithStats(),
     openCoverModal: (el) => typeof openCoverModal==='function'&&openCoverModal(el.dataset.mode||'convert'),
     closeCoverModal: () => typeof closeCoverModal==='function'&&closeCoverModal(),
     runCoverSearch: () => typeof runCoverSearch==='function'&&runCoverSearch(),
@@ -920,39 +955,20 @@ function setupEventDelegate(){
     addEditIllRow: () => typeof addEditIllRow==='function'&&addEditIllRow(),
     addDirectEditIllRow: () => typeof addDirectEditIllRow==='function'&&addDirectEditIllRow(),
     applyInsTocRange: (el) => typeof applyInsTocRange==='function'&&applyInsTocRange(el.dataset.mode),
-    syncInsTocRefSelect: () => typeof syncInsTocRefSelect==='function'&&syncInsTocRefSelect(),
     toggleAllInsToc: (el) => typeof toggleAllInsToc==='function'&&toggleAllInsToc(el.dataset.val==='true'),
-    selectCh:      (el) => typeof selectCh==='function'&&selectCh(parseInt(el.dataset.idx)),
     extractEpubImages: () => typeof extractEpubImages==='function'&&extractEpubImages(),
     previewToc:    () => typeof previewToc==='function'&&previewToc(),
-    // ★ #9/#10: 실시간 정규식 유효성 검사 + 오류 시 입력창 흔들기
-    patternValidate: () => {
-      const el=document.getElementById('pattern');
-      if(!el) return;
-      const pat=el.value.trim();
-      if(!pat) return;
-      if(typeof parseCustomPattern!=='function') return;
-      const {error,reDosSuspect}=parseCustomPattern(pat,'제1화\n제2화\n');
-      if(error||reDosSuspect){
-        el.style.animation='shakeInput .4s ease';
-        el.style.outline='2px solid var(--accent)';
-        setTimeout(()=>{ el.style.animation=''; el.style.outline=''; },500);
-        if(typeof Toast!=='undefined')
-          Toast.warn('⚠️ 정규식: '+(error||'ReDoS 위험 패턴'),3000);
-      } else {
-        el.style.outline='2px solid var(--green,#4a8)';
-        setTimeout(()=>{ el.style.outline=''; },800);
-      }
-    },
+    // ★ 버튼(data-action)은 있었지만 핸들러 미등록으로 클릭해도 무반응이던 4종 연결
+    applySmartPat:      () => typeof applySmartPat==='function'&&applySmartPat(),
+    applySelectedChips: () => typeof applySelectedChips==='function'&&applySelectedChips(),
+    reloadInsToc:       () => typeof reloadInsToc==='function'&&reloadInsToc(),
+    resetColors:        () => typeof resetColors==='function'&&resetColors(),
     autoSplitByInterval: () => typeof autoSplitByInterval==='function'&&autoSplitByInterval(),
     applyPat:      () => typeof applyPat==='function'&&applyPat(),
     tocTab:        (el) => typeof tocTab==='function'&&tocTab(parseInt(el.dataset.idx)),
-    undoToc:       () => typeof undoToc==='function'&&undoToc(),
-    applyPatFromBar: () => { const v=document.getElementById('pattern')?.value; if(v) typeof previewToc==='function'&&previewToc(); },
     saveCurrentAsPreset: () => saveCurrentAsPreset(),
     exportSettings: () => exportSettings(),
     importSettingsBtn: () => importSettingsBtn(),
-    setSkin:       (el) => typeof setSkin==='function'&&setSkin(el.dataset.skin),
     togglePadAccordion: () => togglePadAccordion(),
     showPreview:   () => typeof showPreview==='function'&&showPreview(),
     closePreview:  () => typeof closePreview==='function'&&closePreview(),
@@ -994,7 +1010,6 @@ function setupEventDelegate(){
     clearDirectEditCss:     ()   => { const el=document.getElementById('directEditCssInput'); if(el) el.value=''; },
     applyDirectEdit:        ()   => typeof applyDirectEdit==='function'&&applyDirectEdit(),
     downloadDirectEditEpub: ()   => typeof downloadDirectEditEpub==='function'&&downloadDirectEditEpub(),
-    showShortcutHelp:       ()   => showShortcutHelp(),
   });
 
   EventDelegate.init();
@@ -1144,7 +1159,7 @@ window.initUiState = function initUiState(){
   document.getElementById('histFilterHasFile')?.addEventListener('click', function(){ toggleHistFilter&&toggleHistFilter(this); });
   // ★ ID 교정: index.html 실제 입력창 = 'coverSearchQ'
   document.getElementById('coverSearchQ')?.addEventListener('keydown', e=>{ if(e.key==='Enter') typeof runCoverSearch==='function'&&runCoverSearch(); });
-  document.getElementById('padAccordionToggle')?.addEventListener('click', ()=>togglePadAccordion&&togglePadAccordion());
+  // (padAccordionToggle 클릭은 data-action="togglePadAccordion" EventDelegate가 처리 — 중복 리스너 제거)
 
   // ★ _bindCoverSearchBackup: 표지 검색 버튼 이벤트 위임 세이프티 가드
   // data-action="openCoverModal"이 EventDelegate에 등록되어 있는지 런타임 이중 확인

@@ -1,0 +1,43 @@
+# NovelEPUB 회귀 테스트 — push / PR마다 실행
+#   1) npm test : 골든(챕터 감지) · 파싱 Worker 동등성 · 시리즈/계층 목차 · EPUB 구조 검사
+#   2) epubcheck: npm test가 tests/out/에 만든 EPUB을 W3C 공식 검증기로 표준 검사
+# Cloudflare Pages 배포 전에 이 워크플로가 실패하면 머지하지 마세요.
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install dev dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Run regression tests
+        run: npm test
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Validate EPUBs with epubcheck
+        run: |
+          curl -sSL -o epubcheck.zip https://github.com/w3c/epubcheck/releases/download/v5.1.0/epubcheck-5.1.0.zip
+          unzip -q epubcheck.zip
+          status=0
+          for f in tests/out/*.epub; do
+            echo "::group::epubcheck $f"
+            java -jar epubcheck-5.1.0/epubcheck.jar "$f" || status=1
+            echo "::endgroup::"
+          done
+          exit $status

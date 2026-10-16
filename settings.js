@@ -580,7 +580,6 @@ function loadUserPrefs(){
 // ── 스마트 패턴 변환: Gemini AI 또는 로컬 로직 ──
 let _smartPatTimer=null;
 let _smartPatAbort=null;   // 진행 중인 Gemini 요청 취소용
-let _eSmartPatAbort=null;  // EPUB 탭용
 
 function smartPatConvert(){
   // 디바운스: 입력 멈춘 후 600ms에 실행
@@ -1288,11 +1287,10 @@ function _sendConvertNotif(title, chapterCount){
 // ══════════════════════════════════════════
 // 🔤 Module: CustomFont (커스텀 폰트 로드)
 // ══════════════════════════════════════════
-let customFontFile=null, customFontName='', customFontFace='';
+let customFontName='', customFontFace='';
 
 async function handleCustomFont(files){
   const f=files[0];if(!f)return;
-  customFontFile=f;
   const ext=f.name.split('.').pop().toLowerCase();
   const fontName=f.name.replace(/\.[^.]+$/,'');
   customFontName=fontName;

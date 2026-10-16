@@ -1,0 +1,13 @@
+{
+  "name": "novelepub",
+  "version": "1.0.0",
+  "private": true,
+  "description": "NovelEPUB — 브라우저 전용 TXT → EPUB3 변환기 (정적 사이트, 런타임 의존성 없음). package.json은 테스트 전용.",
+  "scripts": {
+    "test": "node tests/run-tests.js",
+    "test:update": "node tests/run-tests.js --update"
+  },
+  "devDependencies": {
+    "jszip": "3.10.1"
+  }
+}
