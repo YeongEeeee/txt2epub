@@ -433,6 +433,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | Worker 동등성 | `buildParserWorkerSource()` Worker 결과 === 메인 스레드 `splitChapters` (40만 줄 대용량·사용자 패턴 포함) |
 | 단위 | `parseSeriesFromName` 7케이스, `buildTocTree` 7케이스, 제목 매칭·번호 목록·제목 공백 보존 5케이스 |
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
+| 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | epubcheck (CI) | `tests/out/*.epub`을 W3C epubcheck 5.1.0으로 표준 검증 |
 
 GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검사를 실행합니다. 실패하면 Cloudflare Pages 배포 전에 머지하지 마세요.
@@ -446,7 +447,7 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 | 항목 | 수치 |
 |------|------|
 | 총 줄수 | JS 13,522줄 (+ HTML/CSS 2,600줄) |
-| 회귀 테스트 | 193개 통과 + epubcheck 0 오류 |
+| 회귀 테스트 | 200개 통과 + epubcheck 0 오류 |
 | 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |
@@ -515,6 +516,15 @@ settings.js 구문 오류 수정 (고아 코드 블록 제거)
 ├── 마크업이 없어 동작하지 않던 UI 9종 연결 (변환 리포트·스파크라인·목차 직접 편집·여백 아코디언 등)
 ├── 파싱: 제목 원문 보존·전각 숫자·번호 목록 가드·무패턴 페이지 분할·미리보기=변환 매칭 일치
 └── 죽은 코드·끊긴 연결 전수 정리 (ESLint + data-action/id 연결 검사)
+↓
+[ Phase 9: 배포 안정성 · 보안 · 단축키 ]
+├── SW: main.js 프리캐시 누락 수정, 하드코딩 버전 비교(CHECK_CACHE) 제거 → 표준 reg.update() 갱신
+├── SW: '지금 업데이트'가 대기 중인 새 SW에 SKIP_WAITING 전송, 첫 방문 자동 새로고침 제거
+├── SW: 외부 Cache-first를 JSZip·웹폰트로 한정 (표지 검색 결과 고착·캐시 무한 증가 해소)
+├── 보안: 목차 차트 툴팁 textContent 전환, Toast/confirm `_sanitizeHtml` (on* 속성·javascript: URL 제거)
+├── 단축키: 중복 keydown 핸들러 제거 (Ctrl+Space 변환 2회·Ctrl+/ 무반응), 변환·일괄 변환 재진입 방지
+├── 글자수 차트: 화수가 많으면 구간 묶음 + 폭 전체 사용, 툴팁 요소 1개 재사용
+└── 색상 토큰: --on-accent·--overlay·--red·--purple·스킨 견본 토큰, 강조색 글로우는 color-mix(var(--accent))로 스킨 연동
 ```
 
 ---

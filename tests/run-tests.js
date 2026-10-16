@@ -346,6 +346,31 @@ async function main(){
     }
   }
 
+  // ── 5. 배포·보안 정적 검사 (Phase 9) ──
+  {
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const html = read('index.html'), sw = read('sw.js'), mainJs = read('main.js'), ui = read('ui-state.js');
+    // 5-1. index.html이 읽는 로컬 스크립트·스타일과 worker.js가 모두 SW 프리캐시 목록에 있어야 오프라인 동작
+    const coreBlock = (sw.match(/const CORE_ASSETS = \[([\s\S]*?)\];/) || [])[1] || '';
+    const cached = new Set([...coreBlock.matchAll(/'([^']+)'/g)].map(m => m[1].replace(/^\.\//, '')));
+    const needed = [...html.matchAll(/<script src="([^"]+)"/g), ...html.matchAll(/<link[^>]+href="([^"]+\.css)"/g)]
+      .map(m => m[1]).filter(u => !/^https?:/.test(u)).concat(['worker.js']);
+    const missing = needed.filter(u => !cached.has(u));
+    check('[배포] SW CORE_ASSETS가 index.html 로컬 자원을 모두 포함', missing.length === 0, missing.join(', '));
+    // 5-2. 캐시 버전 문자열은 sw.js 한 곳에만 (main.js 하드코딩 금지)
+    check('[배포] main.js에 캐시 버전 하드코딩 없음', !/novelepub-\d{4}-/.test(mainJs));
+    check('[배포] sw.js에 캐시 전체 삭제 CHECK_CACHE 경로 없음', !/e\.data\.type === 'CHECK_CACHE'/.test(sw));
+    // 5-3. 표지 검색 등 동적 외부 요청은 Cache-first 대상이 아님
+    check('[배포] 외부 요청 Cache-first는 정적 자원 한정', /if \(_isStaticExternal\(url\)\) e\.respondWith/.test(sw));
+    // 5-4. 전역 단축키 keydown 핸들러는 1개
+    const kd = (mainJs.match(/document\.addEventListener\(\s*'keydown'/g) || []).length
+             + (ui.match(/document\.addEventListener\(\s*'keydown'/g) || []).length;
+    check('[UI] 전역 단축키 핸들러 단일화', kd === 1, `document keydown ${kd}개`);
+    // 5-5. 챕터 제목이 들어가는 차트 툴팁은 innerHTML 미사용
+    check('[보안] 목차 차트 툴팁 innerHTML 미사용', !/_tipEl\.innerHTML|Tip\w*\.innerHTML/.test(read('convert.js')));
+    check('[보안] Toast/confirm은 _sanitizeHtml 경유', !/parseFromString\(msg/.test(read('core.js')) && /function _sanitizeHtml/.test(read('core.js')));
+  }
+
   if(UPDATE){
     fs.writeFileSync(GOLDEN, JSON.stringify(golden, null, 2) + '\n', 'utf8');
     console.log(`golden.json 갱신: ${fixtures.length}개 픽스처`);

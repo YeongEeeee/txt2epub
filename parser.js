@@ -1869,7 +1869,7 @@ async function previewToc(){
       ? Math.round(found.length/_fullRawLines.length*100*10)/10
       : 0;
     const safeLevel = matchRate>=5?'안전':matchRate>=1?'보통':'주의';
-    const safeColor = matchRate>=5?'var(--green)':matchRate>=1?'var(--accent)':'var(--red,#d44)';
+    const safeColor = matchRate>=5?'var(--green)':matchRate>=1?'var(--accent)':'var(--red)';
     Toast.info(
       `매칭률 <b style="color:${safeColor}">${matchRate}%</b> — `+
       `<b style="color:${safeColor}">${safeLevel}</b> · ${found.length}개 목차 감지`,
@@ -2110,7 +2110,7 @@ function showSuspiciousToast(count){
     'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9000;'+
     'background:var(--panel);border:1.5px solid var(--accent2);border-radius:var(--radius-sm);'+
     'padding:12px 18px;display:flex;align-items:center;gap:12px;'+
-    'box-shadow:0 4px 24px rgba(0,0,0,.18);font-family:inherit;'+
+    'box-shadow:var(--shadow-lg);font-family:inherit;'+
     'animation:toastIn .25s ease;max-width:420px;width:90vw';
   el.innerHTML=
     '<span style="font-size:var(--fs-lg);flex-shrink:0">⚠️</span>'+
@@ -2123,7 +2123,7 @@ function showSuspiciousToast(count){
     '</div>'+
     '<div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">'+
       '<button id="susp-remove-all-btn" class="btn btn-sm" '+
-        'style="font-size:var(--fs-xs);background:var(--accent);color:#fff;border-radius:var(--radius-xs);padding:5px 10px;white-space:nowrap">'+
+        'style="font-size:var(--fs-xs);background:var(--accent);color:var(--on-accent);border-radius:var(--radius-xs);padding:5px 10px;white-space:nowrap">'+
         '전체 병합</button>'+
       '<button id="susp-toast-close" class="btn btn-ghost btn-sm" '+
         'style="font-size:var(--fs-xs);border-radius:var(--radius-xs);padding:4px 10px">'+
@@ -2293,7 +2293,7 @@ function renderTocItems(){
     _selectModeOn=!_selectModeOn;
     _tocSelectModeOn=_selectModeOn; // ★ B-FIX-06: 모듈 스코프 동기화
     selectModeBtn.style.background=_selectModeOn?'var(--blue)':'';
-    selectModeBtn.style.color=_selectModeOn?'#fff':'';
+    selectModeBtn.style.color=_selectModeOn?'var(--on-accent)':'';
     selectModeBtn.style.borderColor=_selectModeOn?'var(--blue)':'';
     selectModeBtn.title=_selectModeOn?'선택 모드 ON — 클릭만으로 선택됩니다 (다시 클릭해서 해제)':'선택 모드 OFF';
     // 선택 모드 해제 시 선택 초기화
@@ -2336,7 +2336,7 @@ function renderTocItems(){
   toolbarTop.style.cssText='display:flex;align-items:center;gap:8px;flex-wrap:wrap';
   toolbarTop.innerHTML=
     '<span id="toc-sel-count" style="font-size:var(--fs-xs);color:var(--blue);font-weight:600">0개 선택됨</span>'+
-    '<button class="btn btn-sm" id="toc-merge-btn" style="font-size:var(--fs-xs);padding:3px 10px;background:var(--blue);color:#fff;border:none;border-radius:var(--radius-xs)">🔗 병합</button>'+
+    '<button class="btn btn-sm" id="toc-merge-btn" style="font-size:var(--fs-xs);padding:3px 10px;background:var(--blue);color:var(--on-accent);border:none;border-radius:var(--radius-xs)">🔗 병합</button>'+
     '<button class="btn btn-sm" id="toc-sel-clear" style="font-size:var(--fs-xs);padding:3px 8px;background:none;border:1.5px solid var(--blue);color:var(--blue);border-radius:var(--radius-xs)">✕ 해제</button>'+
     // ★ 개선 05: 첫 번째 선택 항목으로 스크롤
     '<button class="btn btn-sm" id="toc-scroll-sel" title="선택한 첫 항목으로 스크롤" style="font-size:var(--fs-xs);padding:3px 7px;background:none;border:1.5px solid var(--blue);color:var(--blue);border-radius:var(--radius-xs)">📍 위치</button>';
@@ -2367,7 +2367,7 @@ function renderTocItems(){
       '<button class="btn btn-sm" id="toc-mtitle-first" title="첫 챕터 제목 사용" style="font-size:var(--fs-xs);padding:2px 6px">첫 제목</button>'+
       '<button class="btn btn-sm" id="toc-mtitle-range" title="범위 표기 (1~N화)" style="font-size:var(--fs-xs);padding:2px 6px">범위</button>'+
       '<button class="btn btn-sm" id="toc-mtitle-join" title="이어붙이기" style="font-size:var(--fs-xs);padding:2px 6px">이어붙이기</button>'+
-      '<button class="btn btn-sm" id="toc-mtitle-apply" style="font-size:var(--fs-xs);padding:2px 8px;background:var(--blue);color:#fff;border-radius:var(--radius-xs)">✓ 적용</button>'+
+      '<button class="btn btn-sm" id="toc-mtitle-apply" style="font-size:var(--fs-xs);padding:2px 8px;background:var(--blue);color:var(--on-accent);border-radius:var(--radius-xs)">✓ 적용</button>'+
     '</div>';
   toolbar.appendChild(titleEditArea);
 
@@ -2504,7 +2504,7 @@ function renderTocItems(){
       const sortedIdxs=[..._selectedIdxs].sort((a,b)=>a-b);
       const labels=sortedIdxs.slice(0,8).map(i=>{
         const t=S.tocItems[i]?.title||'';
-        return '<span style="background:var(--blue);color:#fff;border-radius:var(--radius-xs);padding:0 4px;margin:1px;display:inline-block">'+
+        return '<span style="background:var(--blue);color:var(--on-accent);border-radius:var(--radius-xs);padding:0 4px;margin:1px;display:inline-block">'+
           escHtml(t.length>10?t.slice(0,10)+'…':t)+'</span>';
       });
       const more=n>8?` <span style="color:var(--blue)">+${n-8}개</span>`:'';
@@ -2679,7 +2679,7 @@ function renderTocItems(){
         'white-space:nowrap;transition:all .15s;cursor:pointer';
       unmergeBtn.innerHTML='🔓&nbsp;분리';
       unmergeBtn.title='병합 전 상태로 복원합니다 (Undo와 독립적)';
-      unmergeBtn.addEventListener('mouseenter',()=>{unmergeBtn.style.background='var(--blue)';unmergeBtn.style.color='#fff';});
+      unmergeBtn.addEventListener('mouseenter',()=>{unmergeBtn.style.background='var(--blue)';unmergeBtn.style.color='var(--on-accent)';});
       unmergeBtn.addEventListener('mouseleave',()=>{unmergeBtn.style.background='var(--blue-bg)';unmergeBtn.style.color='var(--blue)';});
       unmergeBtn.addEventListener('click',e=>{
         e.stopPropagation();
@@ -2726,7 +2726,7 @@ function renderTocItems(){
         'white-space:nowrap;transition:all .15s';
       removeBtn.innerHTML='⤵&nbsp;병합';
       removeBtn.title='이 짧은 챕터와 다음 챕터를 병합합니다 (본문 이어붙이기)';
-      removeBtn.addEventListener('mouseenter',()=>{removeBtn.style.background='var(--blue)';removeBtn.style.color='#fff';removeBtn.style.borderColor='var(--blue)';});
+      removeBtn.addEventListener('mouseenter',()=>{removeBtn.style.background='var(--blue)';removeBtn.style.color='var(--on-accent)';removeBtn.style.borderColor='var(--blue)';});
       removeBtn.addEventListener('mouseleave',()=>{removeBtn.style.background='var(--accent-bg)';removeBtn.style.color='var(--accent)';removeBtn.style.borderColor='var(--accent)';});
       removeBtn.addEventListener('click',e=>{
         e.stopPropagation();
@@ -2997,7 +2997,7 @@ function updateTocStat(){
     if(!badge){
       badge = document.createElement('sup');
       badge.id = badgeId;
-      badge.style.cssText = 'margin-left:3px;font-size:var(--fs-xs);background:var(--accent);color:#fff;border-radius:99px;padding:0 5px;vertical-align:super;font-weight:700';
+      badge.style.cssText = 'margin-left:3px;font-size:var(--fs-xs);background:var(--accent);color:var(--on-accent);border-radius:99px;padding:0 5px;vertical-align:super;font-weight:700';
       convertTab.appendChild(badge);
     }
     badge.textContent = active > 0 ? active.toLocaleString() : total.toLocaleString();

@@ -506,7 +506,7 @@ function _attachTouchSort(row, listEl, idx){
       'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;'+
       'width:'+rect.width+'px;opacity:.85;z-index:9999;'+
       'pointer-events:none;border:1.5px solid var(--accent);'+
-      'border-radius:var(--radius-xs);background:var(--accent-bg);box-shadow:0 4px 16px rgba(0,0,0,.2)';
+      'border-radius:var(--radius-xs);background:var(--accent-bg);box-shadow:var(--shadow-md)';
     document.body.appendChild(clone);
 
     row.style.opacity='0.3';
@@ -682,7 +682,11 @@ function previewCoverUrl(inpId, thumbId, nameId, mode){
     const img=new Image();
     img.crossOrigin='anonymous';
     img.onload=()=>{
-      thumb.innerHTML='<img src="'+url+'" style="opacity:.6">';
+      // ★ Phase 9: URL을 HTML 문자열에 이어붙이지 않고 DOM으로 생성 (따옴표 포함 URL의 속성 주입 방지)
+      if(!thumb) return;
+      const shown=document.createElement('img');
+      shown.src=url; shown.style.opacity='.6';
+      thumb.replaceChildren(shown);
     };
     img.onerror=()=>{}; // CORS 차단 시 조용히 실패
     img.src=url;
@@ -735,9 +739,9 @@ async function applyCoverUrl(inpId, thumbId, nameId, mode){
 function showCorsHelp(inpId, url, thumbId, nameId, mode){
   // CORS 차단 시 대안 안내 모달
   const overlay=document.createElement('div');
-  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:600;display:flex;align-items:center;justify-content:center';
+  overlay.style.cssText='position:fixed;inset:0;background:var(--overlay-strong);z-index:600;display:flex;align-items:center;justify-content:center';
   overlay.innerHTML=`
-    <div style="background:var(--panel);border-radius:var(--radius-sm);padding:24px;max-width:440px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.3)">
+    <div style="background:var(--panel);border-radius:var(--radius-sm);padding:24px;max-width:440px;width:90vw;box-shadow:var(--shadow-xl)">
       <h3 style="font-size:var(--fs-base);font-weight:700;margin-bottom:10px">⚠️ 이미지를 직접 가져올 수 없어요</h3>
       <p style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:14px;line-height:1.7">
         이 이미지는 외부 사이트 보안(CORS) 정책으로 직접 가져올 수 없어요.<br>
@@ -1278,8 +1282,13 @@ function setProgress(pct, msg){
 
 // ✨ Module: Convert (변환 실행 플로우)
 // ══════════════════════════════════════════
+// ★ Phase 9: 변환 재진입 방지 — 버튼 연타·단축키 반복으로 변환이 동시에 2개 이상 돌던 문제
+let _convertRunning=false;
+let _batchRunning=false;
+
 async function startConvert(){
   if(!S.txtFiles.length){Toast.warn('TXT 파일을 선택해주세요.');return;}
+  if(_convertRunning){Toast.info('변환이 이미 진행 중이에요.');return;}
   const convertStart=Date.now();
   // ★ U-01: 타임라인 초기화
   _progressTimeline.length = 0;
@@ -1318,6 +1327,10 @@ async function startConvert(){
     document.getElementById('progWrap')?.classList.remove('show');
   };
 
+  _convertRunning=true;
+  const _convertBtnEl=document.getElementById('convertBtn');
+  _convertBtnEl?.setAttribute('aria-busy','true');
+  if(_convertBtnEl) _convertBtnEl.disabled=true;
   try{
     const sorted=[...S.txtFiles];
     const totalFiles=sorted.length;
@@ -1541,6 +1554,9 @@ async function startConvert(){
     (_progWrapEl || document.getElementById('progWrap'))?.classList.remove('show');
     const _ab = document.getElementById('convertAbortBtn');
     if(_ab) _ab.style.display = 'none';
+    _convertRunning=false;
+    _convertBtnEl?.removeAttribute('aria-busy');
+    if(_convertBtnEl) _convertBtnEl.disabled=false;
   }
 }
 
@@ -1918,67 +1934,96 @@ function _showEpubDownloadBar(epubName){
 }
 
 // ★ I7: 챕터별 글자수 분포 미니 SVG 차트
+// ★ Phase 9:
+//   · 화수가 막대 수용량(폭/2)보다 많으면 연속 화를 구간으로 묶어 그림
+//     (이전: 막대 폭 1px+간격 1px 고정 → 300px에 868화면 앞 ~150화만 보이고 나머지 잘림)
+//   · 툴팁은 textContent로 채움 (이전: data-title을 innerHTML로 넣어 '<img onerror>' 제목이 실행됨)
+//   · 툴팁 요소는 전역 1개를 재사용하고, 다시 그릴 때 숨김 (이전: 렌더마다 body에 새 div 누적)
+//   · 막대 색은 CSS 변수 (이전: #e8764a / #4472a8 하드코딩)
+let _tocChartTipEl=null;
+function _getTocChartTip(){
+  if(!_tocChartTipEl||!_tocChartTipEl.isConnected){
+    _tocChartTipEl=document.createElement('div');
+    _tocChartTipEl.className='toc-chart-tooltip';
+    _tocChartTipEl.style.display='none';
+    const strong=document.createElement('strong');
+    const sub=document.createElement('div');
+    _tocChartTipEl.append(strong,sub);
+    document.body.appendChild(_tocChartTipEl);
+  }
+  return _tocChartTipEl;
+}
+function _fmtChars(n){
+  return n>=10000?(n/10000).toFixed(1)+'만자':n>=1000?(n/1000).toFixed(1)+'k':n+'자';
+}
 function renderTocMiniChart(){
   const el=document.getElementById('tocMiniChart');
+  if(_tocChartTipEl) _tocChartTipEl.style.display='none';
   if(!el||!S.tocItems.length) return;
   const items=S.tocItems.filter(t=>t.enabled&&(t.bodyLen||0)>0);
   if(!items.length){el.innerHTML='';return;}
   // ★ FIX-07 연동: getSuspThreshold 사용
   const _suspThr = typeof getSuspThreshold==='function' ? getSuspThreshold() : 50;
+  const W=el.clientWidth||300, H=36;
+  // 막대 하나 최소 2px(폭 1 + 간격 1) — 넘치면 연속 화를 구간으로 묶음
+  const slots=Math.max(1,Math.floor((W-4)/2));
+  const per=Math.ceil(items.length/slots);
+  const groups=[];
+  for(let g=0;g<items.length;g+=per) groups.push(items.slice(g,g+per));
+  // 막대 간격을 소수로 계산해 폭 전체를 채움 (정수 내림 시 오른쪽이 비는 문제 방지)
+  const step=(W-4)/groups.length, bw=Math.max(1,step-1);
   const maxLen=Math.max(...items.map(t=>t.bodyLen||0),1);
-  const W=el.clientWidth||300, H=36, bw=Math.max(1,Math.floor((W-4)/items.length)-1);
 
-  const bars=items.map((t,i)=>{
-    const bl = t.bodyLen || 0;
-    const h=Math.max(2,Math.floor(bl/maxLen*(H-4)));
-    const x=2+i*(bw+1);
-    // ★ ADD-03: 짧은챕터(주황), 긴챕터(파랑), 정상(accent)
-    const col = bl < _suspThr ? '#e8764a' : bl > 50000 ? '#4472a8' : 'var(--accent)';
-    const titleSafe = (t.title||'').replace(/"/g,'&quot;').slice(0,30);
-    const blStr = bl>=10000?(bl/10000).toFixed(1)+'만자':bl>=1000?(bl/1000).toFixed(1)+'k':bl+'자';
+  const bars=groups.map((grp,i)=>{
+    const lens=grp.map(t=>t.bodyLen||0);
+    const top=Math.max(...lens);
+    const h=Math.max(2,Math.floor(top/maxLen*(H-4)));
+    const x=(2+i*step).toFixed(2);
+    // ★ ADD-03: 짧은 챕터(경고), 긴 챕터(파랑), 정상(accent) — 구간에 짧은 화가 하나라도 있으면 경고색
+    const col = Math.min(...lens) < _suspThr ? 'var(--yellow)' : top > 50000 ? 'var(--blue)' : 'var(--accent)';
     // ★ BUG-FIX: data-real-idx에 실제 S.tocItems 인덱스 저장 (enabled 필터 인덱스 ≠ 실제 인덱스)
-    const realIdx = S.tocItems.indexOf(t);
-    return `<rect x="${x}" y="${H-h}" width="${bw}" height="${h}" fill="${col}" rx="1"
-      data-idx="${i}" data-real-idx="${realIdx}" data-title="${titleSafe}" data-chars="${bl}" data-str="${blStr}"
-      style="cursor:pointer;opacity:.75;transition:opacity .1s"/>`;
+    const realIdx = S.tocItems.indexOf(grp[0]);
+    return `<rect x="${x}" y="${H-h}" width="${bw.toFixed(2)}" height="${h}" rx="1" data-idx="${i}" data-real-idx="${realIdx}"
+      style="fill:${col};cursor:pointer;opacity:.75;transition:opacity .1s"/>`;
   }).join('');
 
-  el.innerHTML=`<svg width="${W}" height="${H}" style="display:block;width:100%">${bars}</svg>`;
+  // viewBox + preserveAspectRatio=none: 실제 표시 폭(width:100%)에 막대 전체를 맞춤
+  el.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block;width:100%">${bars}</svg>`;
 
   // ★ ADD-03: SVG hover 툴팁
   const svg = el.querySelector('svg');
   if(!svg) return;
-  let _tipEl = null;
   svg.addEventListener('mousemove', e=>{
     const rect_svg = e.target;
-    if(rect_svg.tagName !== 'rect') return;
-    const idx  = parseInt(rect_svg.dataset.idx);
-    const chars= rect_svg.dataset.str || '';
-    const title= rect_svg.dataset.title || '';
-    // 툴팁 생성/재사용
-    if(!_tipEl){
-      _tipEl = document.createElement('div');
-      _tipEl.className = 'toc-chart-tooltip';
-      document.body.appendChild(_tipEl);
-    }
-    _tipEl.innerHTML = `<strong>${title||'챕터 '+(idx+1)}</strong><br>${chars}`;
-    _tipEl.style.left = Math.min(e.clientX+12, window.innerWidth-220)+'px';
-    _tipEl.style.top  = (e.clientY-38)+'px';
-    _tipEl.style.display='';
+    if(rect_svg?.tagName !== 'rect') return;
+    const grp = groups[parseInt(rect_svg.dataset.idx)];
+    if(!grp) return;
+    const tip=_getTocChartTip();
+    const first=grp[0], last=grp[grp.length-1];
+    const total=grp.reduce((a,t)=>a+(t.bodyLen||0),0);
+    if(tip.firstChild) tip.firstChild.textContent = grp.length>1
+      ? `${first.title||''} ~ ${last.title||''}`.slice(0,60)
+      : (first.title||'챕터 '+(S.tocItems.indexOf(first)+1)).slice(0,40);
+    if(tip.lastChild) tip.lastChild.textContent = grp.length>1
+      ? `${grp.length}개 · 평균 ${_fmtChars(Math.round(total/grp.length))}`
+      : _fmtChars(total);
+    tip.style.left = Math.min(e.clientX+12, window.innerWidth-220)+'px';
+    tip.style.top  = (e.clientY-38)+'px';
+    tip.style.display='';
     // 해당 rect hover 강조
     svg.querySelectorAll('rect').forEach(r=>r.style.opacity='.45');
     rect_svg.style.opacity='1';
   });
   svg.addEventListener('mouseleave', ()=>{
-    if(_tipEl){ _tipEl.style.display='none'; }
+    if(_tocChartTipEl) _tocChartTipEl.style.display='none';
     svg.querySelectorAll('rect').forEach(r=>r.style.opacity='.75');
   });
-  // 클릭: 해당 챕터로 스크롤 (★ BUG-FIX: data-real-idx로 실제 tocItems 인덱스 사용)
+  // 클릭: 해당 챕터(구간의 첫 화)로 스크롤 (★ BUG-FIX: data-real-idx로 실제 tocItems 인덱스 사용)
   svg.addEventListener('click', e=>{
     const rect_svg = e.target;
-    if(rect_svg.tagName !== 'rect') return;
+    if(rect_svg?.tagName !== 'rect') return;
     const realIdx = parseInt(rect_svg.dataset.realIdx ?? rect_svg.dataset.idx);
-    // 접힌 상태라면 먼저 펼치기
+    // 접힌 상태라면 먼저 펼치기 (펼치기 버튼은 접힌 상태에서만 존재)
     const collapseBtn=document.getElementById('toc-collapse-btn');
     if(collapseBtn) collapseBtn.click();
     // 펼친 뒤 DOM이 갱신되도록 rAF 후 스크롤
@@ -2279,7 +2324,7 @@ async function showBatchToc(idx, btn){
     panel.classList.add('show');
     btn.textContent='📋 목차 닫기';
   }catch(e){
-    panel.innerHTML='<div style="font-size:var(--fs-xs);color:var(--accent)">오류: '+e.message+'</div>';
+    panel.innerHTML='<div style="font-size:var(--fs-xs);color:var(--accent)">오류: '+escHtml(e?.message||String(e))+'</div>';
     panel.classList.add('show');
     btn.textContent='📋 목차 확인';
   }
@@ -2493,6 +2538,8 @@ function batchPickCover(idx){
 
 async function startBatch(){
   if(!B.txtFiles.length){Toast.warn('TXT 파일을 선택해주세요.');return;}
+  if(_batchRunning){Toast.info('일괄 변환이 이미 진행 중이에요.');return;}
+  _batchRunning=true;
   B.results=[];
   const _batchStartTime = Date.now();
   document.getElementById('batchProgWrap')?.classList.add('show');
@@ -2550,6 +2597,7 @@ async function startBatch(){
     // ★ Side-Effect 가드: 예기치 않은 예외에도 반드시 batchProgWrap 해제
     // (outer catch 없이 finally만으로 무한 스피너 방지)
     document.getElementById('batchProgWrap')?.classList.remove('show');
+    _batchRunning=false;
   }
 }
 

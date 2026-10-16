@@ -9,7 +9,7 @@
  *   2. window._autoSplitActive 등 공유 전역 상태를 최초 1회만
  *      안전하게 정의 (Proxy 재정의 레이스 원천 차단)
  *   3. JSZip CDN 로드 실패 시 사용자 안내 (오프라인 안전망)
- *   4. Service Worker 등록 · CHECK_CACHE · controllerchange
+ *   4. Service Worker 등록 · reg.update() 갱신 검사 · controllerchange
  *      · SKIP_WAITING · 업데이트 배너 로직 완전 통합
  *   5. 이미 DOMContentLoaded에서 모듈 자체 init을 수행하는
  *      ui-state.js와 충돌하지 않도록 이 파일은 load 이벤트
@@ -152,8 +152,12 @@ window.addEventListener('error', function(e) {
 (function _initServiceWorker() {
   if (!('serviceWorker' in navigator)) return;
 
-  // ★ sw.js의 CACHE_VERSION과 반드시 동기화
-  const EXPECTED_CACHE = 'novelepub-2026-05-31T00:00:00';
+  // ★ Phase 9: 하드코딩 EXPECTED_CACHE 제거
+  //   이전: 5월 날짜로 고정된 캐시 이름을 SW에 CHECK_CACHE로 보내 비교 → sw.js만 갱신되면
+  //         새로고침마다 캐시 전체 삭제 + 업데이트 배너가 뜨는 문제.
+  //   현재: 브라우저 표준 갱신 검사(reg.update())만 사용 — sw.js 바이트가 바뀌면 새 SW가 설치되고
+  //         updatefound → installed 시점에 배너를 띄운다. 버전 문자열은 sw.js 한 곳에만 존재.
+  let _swReg = null;
 
   // 새로고침(F5 / Ctrl+R) 감지
   let isReload = false;
@@ -172,11 +176,11 @@ window.addEventListener('error', function(e) {
     banner.id = '_swUpdateBanner';
     banner.style.cssText = [
       'position:fixed', 'bottom:80px', 'left:50%', 'transform:translateX(-50%)',
-      'background:var(--panel,#fff)', 'border:1.5px solid var(--accent,#d45a46)',
+      'background:var(--panel)', 'border:1.5px solid var(--accent)',
       'border-radius:var(--radius-sm)', 'padding:10px 16px',
-      'box-shadow:0 4px 20px rgba(0,0,0,.18)',
+      'box-shadow:var(--shadow-lg)',
       'z-index:99997', 'display:flex', 'align-items:center', 'gap:10px',
-      'font-size:var(--fs-base)', 'color:var(--text,#1c1410)', 'white-space:nowrap',
+      'font-size:var(--fs-base)', 'color:var(--text)', 'white-space:nowrap',
       'animation:fadeUp .3s ease',
     ].join(';');
     // textContent 사용 — XSS 방어
@@ -187,13 +191,16 @@ window.addEventListener('error', function(e) {
     const updateBtn = document.createElement('button');
     updateBtn.textContent = '지금 업데이트';
     updateBtn.style.cssText = [
-      'background:var(--accent,#d45a46)', 'color:#fff', 'border:none',
+      'background:var(--accent)', 'color:var(--on-accent)', 'border:none',
       'border-radius:var(--radius-xs)', 'padding:4px 10px', 'cursor:pointer',
       'font-size:var(--fs-sm)', 'font-weight:600',
     ].join(';');
     updateBtn.addEventListener('click', function () {
-      if (navigator.serviceWorker.controller) {
-        navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+      // ★ Phase 9: SKIP_WAITING은 '대기 중인 새 SW'에 보내야 한다.
+      //   이전에는 이미 활성인 controller에 보내 아무 일도 일어나지 않았음.
+      const waiting = _swReg?.waiting;
+      if (waiting) {
+        waiting.postMessage({ type: 'SKIP_WAITING' }); // → controllerchange → reload
       } else {
         window.location.reload();
       }
@@ -203,7 +210,7 @@ window.addEventListener('error', function(e) {
     closeBtn.textContent = '✕';
     closeBtn.style.cssText = [
       'background:none', 'border:none', 'cursor:pointer',
-      'color:var(--text2,#7a6a60)', 'font-size:var(--fs-base)', 'padding:0 2px',
+      'color:var(--text2)', 'font-size:var(--fs-base)', 'padding:0 2px',
     ].join(';');
     closeBtn.addEventListener('click', function () { banner.remove(); });
 
@@ -218,31 +225,24 @@ window.addEventListener('error', function(e) {
   // ── controllerchange: reload 레이스 방지  ★ M-05 ──
   // 빠른 연속 클릭 시 reload가 여러 번 발생하지 않도록 플래그 관리
   let _reloadPending = false;
+  // ★ Phase 9: 첫 방문(기존 컨트롤러 없음)에서 clients.claim()으로 인한 controllerchange는
+  //   '업데이트'가 아니므로 새로고침하지 않음 (이전: 첫 방문마다 페이지가 한 번 저절로 새로고침됨)
+  const _hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.addEventListener('controllerchange', function () {
-    if (_reloadPending) return;
+    if (!_hadController || _reloadPending) return;
     _reloadPending = true;
     window.location.reload();
-  });
-
-  // ── SW 메시지 수신 ──
-  navigator.serviceWorker.addEventListener('message', function (e) {
-    if (!e.data) return;
-    if (e.data.type === 'CACHE_OUTDATED') {
-      _showUpdateBanner();
-    }
   });
 
   // ── SW 등록 ──
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('./sw.js', { scope: './' })
       .then(function (reg) {
-        // 새로고침 시 캐시 버전 검증 요청
-        if (isReload && navigator.serviceWorker.controller) {
-          navigator.serviceWorker.controller.postMessage({
-            type: 'CHECK_CACHE',
-            expected: EXPECTED_CACHE,
-          });
-        }
+        _swReg = reg;
+        // 이미 설치를 마치고 대기 중인 새 버전이 있으면 바로 안내
+        if (reg.waiting && navigator.serviceWorker.controller) _showUpdateBanner();
+        // 새로고침 시 sw.js 변경 여부를 즉시 검사 (HTTP 캐시 우회)
+        if (isReload) reg.update().catch(function () {});
 
         // 새 버전 SW 설치 감지
         reg.addEventListener('updatefound', function () {
@@ -303,7 +303,7 @@ document.addEventListener('DOMContentLoaded', function _mainInit() {
         const errBanner = document.createElement('div');
         errBanner.style.cssText = [
           'position:fixed','top:0','left:0','right:0',
-          'background:#d44','color:#fff','padding:10px 16px',
+          'background:var(--red)','color:var(--on-accent)','padding:10px 16px',
           'font-size:var(--fs-base)','z-index:99999','text-align:center',
         ].join(';');
         errBanner.textContent = '초기화 오류: 핵심 모듈 로드 실패. 페이지를 새로고침해 주세요.';
@@ -459,47 +459,11 @@ document.addEventListener('DOMContentLoaded', function _wrapSwitchPage() {
 }, { once: true });
 
 // ══════════════════════════════════════════════════════════════
-// § 7. 키보드 단축키 — 통합 핸들러
-//   각 모듈에 흩어진 단축키 바인딩을 한 곳에서 관리
-//   ★ 기존 단축키 (ui-state.js setupEventListeners) 유지하되
-//     누락된 전역 단축키만 추가 등록
+// § 7. 키보드 단축키
+//   ★ Phase 9: 전역 단축키는 ui-state.js setupEventListeners()의 단일 핸들러가 담당.
+//     (이 위치에 있던 중복 keydown 핸들러가 Ctrl+Space 변환 2회 실행·Ctrl+/ 도움말 즉시 닫힘을
+//      일으켜 제거했고, 여기에만 있던 Ctrl+Z 목차 Undo는 ui-state.js로 이관함)
 // ══════════════════════════════════════════════════════════════
-document.addEventListener('keydown', function _globalShortcuts(e) {
-  const ctrl = e.ctrlKey || e.metaKey;
-  if (!ctrl) return;
-
-  // Ctrl+Space: 변환 시작 (입력창 포커스 중이면 무시)
-  if (e.code === 'Space' && !e.shiftKey) {
-    const tag = document.activeElement?.tagName;
-    if (tag === 'INPUT' || tag === 'TEXTAREA') return;
-    e.preventDefault();
-    if (typeof startConvert === 'function') startConvert();
-    return;
-  }
-
-  // Ctrl+S: EPUB 다운로드
-  // ★ BUG-FIX: ui-state.js setupEventListeners()에 동일 핸들러가 있으므로
-  //   여기서 중복 바인딩하면 이중 다운로드 발생.
-  //   main.js §7은 전역 보조 단축키 전용 — Ctrl+S는 ui-state.js가 정식 담당.
-  // (이 분기는 의도적으로 제거함)
-
-  // Ctrl+/: 단축키 도움말 토글
-  if (e.key === '/' || e.key === '?') {
-    e.preventDefault();
-    if (typeof showShortcutHelp === 'function') showShortcutHelp();
-    return;
-  }
-
-  // Ctrl+Z: 목차 Undo (목차 패널이 열려 있을 때만)
-  if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
-    const tocPanel = document.getElementById('tocPanel');
-    if (tocPanel?.classList.contains('show')) {
-      e.preventDefault();
-      if (typeof undoToc === 'function') undoToc();
-    }
-    return;
-  }
-});
 
 // ══════════════════════════════════════════════════════════════
 // § 8. 개발 환경 핫 리로드 지원
@@ -512,12 +476,10 @@ if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
     // 창 포커스 복귀 시 SW 캐시 재검증 요청 (개발 중 파일 변경 감지)
     clearTimeout(_devReloadTimer);
     _devReloadTimer = setTimeout(function() {
-      if (navigator.serviceWorker?.controller) {
-        navigator.serviceWorker.controller.postMessage({
-          type: 'CHECK_CACHE',
-          expected: 'novelepub-2026-05-31T00:00:00',
-        });
-      }
+      // ★ Phase 9: 하드코딩 버전 비교(CHECK_CACHE) 대신 표준 갱신 검사
+      navigator.serviceWorker?.getRegistration?.()
+        .then(function (reg) { return reg?.update(); })
+        .catch(function () {});
     }, 500);
   });
 }

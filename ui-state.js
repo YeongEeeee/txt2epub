@@ -639,7 +639,7 @@ function showShortcutHelp(){
   const kbdStyle='background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:2px 6px';
   const el=document.createElement('div');
   el.id='shortcutHelp';
-  el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:var(--radius);padding:20px 24px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.3);font-size:var(--fs-sm);min-width:280px';
+  el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:var(--radius);padding:20px 24px;z-index:9999;box-shadow:var(--shadow-xl);font-size:var(--fs-sm);min-width:280px';
   el.innerHTML='<div style="font-size:var(--fs-base);font-weight:700;margin-bottom:12px;color:var(--text)">⌨️ 단축키</div>'+
     '<table style="border-collapse:collapse;width:100%;line-height:2"><tbody>'+
     '<tr><td style="color:var(--text2);padding-right:16px"><kbd style="'+kbdStyle+'">Ctrl+Space</kbd></td><td>✨ 변환 시작</td></tr>'+
@@ -694,7 +694,7 @@ function setupDz(id,fn,inputId){
 
 function _spawnDropConfetti(container){
   if(!container) return;
-  const colors = ['var(--accent)','var(--blue)','var(--green)','var(--accent2)','var(--yellow)','#9b59b6'];
+  const colors = ['var(--accent)','var(--blue)','var(--green)','var(--accent2)','var(--yellow)','var(--purple)'];
   for(let i=0; i<6; i++){
     const c = document.createElement('span');
     c.className = 'dz-confetti';
@@ -874,27 +874,31 @@ function setupEventListeners(){
     if(E.selectedChIdx!==null) typeof selectCh==='function'&&selectCh(E.selectedChIdx);
   }));
 
-  // ★ 단축키 — Ctrl+Space: 변환 시작 / Ctrl+S: 다운로드 / Ctrl+?: 도움말
-  // ★ BUG-FIX: stopPropagation()으로 main.js §7 _globalShortcuts 핸들러까지
-  //   이벤트가 전파되는 것을 차단 → Ctrl+S 이중 다운로드 현상 원천 방지.
-  //   setupEventListeners()의 이 핸들러가 Ctrl+S 단일 정식 담당.
+  // ★ 단축키 — Ctrl+Space: 변환 시작 / Ctrl+S: 다운로드 / Ctrl+/: 도움말 / Ctrl+Z: 목차 되돌리기
+  // ★ Phase 9: 전역 단축키의 단일 담당 핸들러.
+  //   이전: main.js §7에도 같은 document keydown 핸들러가 있었고, 같은 대상에 붙은 리스너끼리는
+  //   stopPropagation()으로 막히지 않아 Ctrl+Space는 변환 2회 실행, Ctrl+/는 도움말을 열자마자 닫았음.
+  //   → main.js §7을 제거하고 Ctrl+Z(목차 Undo)를 이곳으로 이관.
   document.addEventListener('keydown',e=>{
-    const tag=(e.target.tagName||'').toUpperCase();
-    if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT') return;
+    const tag=(e.target?.tagName||'').toUpperCase();
+    if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||e.target?.isContentEditable) return;
     if(e.ctrlKey||e.metaKey){
-      if(e.key===' '){
+      if(e.key===' '||e.code==='Space'){
+        if(e.shiftKey) return;
         e.preventDefault();
-        e.stopPropagation();
         typeof startConvert==='function'&&startConvert();
       } else if(e.key==='s'||e.key==='S'){
-        // ★ Ctrl+S: 정식 다운로드 트리거 — stopPropagation으로 이중 실행 차단
         e.preventDefault();
-        e.stopPropagation();
         typeof downloadEpub==='function'&&downloadEpub();
       } else if(e.key==='/'||e.key==='?'){
         e.preventDefault();
-        e.stopPropagation();
         showShortcutHelp();
+      } else if((e.key==='z'||e.key==='Z')&&!e.shiftKey){
+        // 목차 패널이 열려 있을 때만 — 입력란 안의 Ctrl+Z는 위에서 걸러져 기본 실행취소 유지
+        if(document.getElementById('tocPanel')?.classList.contains('show')){
+          e.preventDefault();
+          typeof undoToc==='function'&&undoToc();
+        }
       }
     }
     if(e.key==='Escape'){

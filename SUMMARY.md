@@ -220,6 +220,34 @@
 - `extractTotalFromFilename`(0-853을 853으로 잘못 계산) → `parseChapterRange`로 대체 후 삭제
 - 테스트 155 → 193개 (`tests/gen-realistic.js` 실전형 생성기 추가)
 
+### Phase 9 — 배포 안정성 · 보안 · 단축키 정리
+
+#### 1) Service Worker (`sw.js`, `main.js`)
+- `main.js`의 `EXPECTED_CACHE`가 5월 값으로 고정 → 새로고침마다 `CHECK_CACHE`가 캐시 전체를 지우고 업데이트 배너를 띄우던 문제. 하드코딩 비교 경로를 없애고 브라우저 표준 `reg.update()`로 갱신 검사 (버전 문자열은 `sw.js` 한 곳)
+- '지금 업데이트' 버튼이 이미 활성인 SW에 `SKIP_WAITING`을 보내 아무 일도 없던 문제 → 대기 중인 새 SW(`reg.waiting`)로 전송
+- 첫 방문 시 `clients.claim()`의 controllerchange로 페이지가 한 번 저절로 새로고침되던 문제 제거
+- `CORE_ASSETS`에 `main.js` 누락 → 추가
+- 모든 외부 GET을 영구 Cache-first → 표지 검색(프록시 경유) 결과가 갱신되지 않고 캐시가 무한 증가. JSZip·웹폰트만 Cache-first, 나머지는 가로채지 않음
+
+#### 2) 보안
+- 목차 글자수 차트 툴팁이 챕터 제목을 `innerHTML`로 삽입 → TXT 제목 `<img src=x onerror=…>` 실행. `textContent`로 전환
+- Toast·confirm의 HTML 경로가 script/iframe만 제거하고 `on*` 속성을 남김 → `_sanitizeHtml()`(core.js) 공용 정화
+- 표지 URL 미리보기·일괄 목차 오류 메시지도 DOM 생성/이스케이프로 변경
+
+#### 3) 단축키 · 재진입
+- `main.js` §7과 `ui-state.js`가 같은 `document` keydown을 이중 등록(같은 대상이라 `stopPropagation`으로 못 막음) → Ctrl+Space 변환 2회, Ctrl+/ 도움말 즉시 닫힘. `ui-state.js` 단일 핸들러로 통합하고 Ctrl+Z(목차 Undo)를 이관, 입력란의 기본 Ctrl+Z는 유지
+- `startConvert`/`startBatch` 재진입 방지 (변환 중 버튼 `disabled`·`aria-busy`)
+
+#### 4) 글자수 차트 · 색상 토큰
+- 막대 1px+간격 1px 고정이라 300px에 868화면 앞 ~150화만 표시 → 연속 화를 구간으로 묶고 소수 간격으로 폭 전체 사용, 구간 툴팁(범위·평균)
+- 차트를 다시 그릴 때마다 툴팁 div가 body에 누적 → 전역 1개 재사용
+- 하드코딩 색 정리: `--on-accent`, `--overlay(-strong)`, `--red`(정의 없이 쓰이던 변수), `--purple`, 스킨 견본 토큰 추가, 강조·초록·파랑 글로우 38곳을 `color-mix(var(--…))`로 바꿔 스킨 변경에 연동
+- 남은 예외: canvas 표지 생성, 색상 입력란 기본값, 콘솔 스타일, 중립 흑백 음영
+
+#### 5) 검증
+- 테스트 193 → 200개 (배포·보안 정적 검사 7종 — 수정 전 코드에서는 7개 모두 실패함을 확인)
+- 브라우저 E2E: SW 설치·새로고침 2회 캐시 유지·새 버전 배너→업데이트, 검색 응답 비캐시, 단축키 1회 실행, XSS 3경로 차단, 868화 차트, 변환 재진입 차단 후 EPUB 생성
+
 ---
 
 ## 파일별 역할 요약

@@ -6,7 +6,7 @@
 //   SW-03: install 핵심 에셋 캐싱 실패 시 경고 로깅 추가
 // ════════════════════════════════════════════════
 // ★ 배포 시 CACHE_VERSION 값을 갱신하면 구버전 캐시가 자동으로 삭제됩니다.
-const CACHE_VERSION = '2026-10-17T07:00:00';
+const CACHE_VERSION = '2026-10-17T10:00:00';
 const CACHE_NAME = 'novelepub-' + CACHE_VERSION;
 
 const CORE_ASSETS = [
@@ -22,8 +22,17 @@ const CORE_ASSETS = [
   './convert.js',
   './edit.js',
   './ui-state.js',
+  './main.js',   // ★ Phase 9: 누락돼 있던 부트스트랩 스크립트 (index.html이 마지막에 로드)
   'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
 ];
+
+// 버전 고정 외부 정적 자원 — 이 목록(+ 웹폰트 호스트)만 Cache-first
+const _STATIC_EXTERNAL = new Set(CORE_ASSETS.filter(u => u.startsWith('http')));
+const _STATIC_EXTERNAL_HOSTS = new Set(['fonts.googleapis.com', 'fonts.gstatic.com']);
+function _isStaticExternal(url){
+  if (_STATIC_EXTERNAL.has(url)) return true;
+  try { return _STATIC_EXTERNAL_HOSTS.has(new URL(url).hostname); } catch (e) { return false; }
+}
 
 // ── install: 핵심 에셋 프리캐싱 ──
 // ★ SW-03: 실패 에셋 로깅 추가 (무조건 catch 무시 → 실패 원인 추적 가능)
@@ -65,9 +74,13 @@ self.addEventListener('fetch', e => {
   const isExternal = url.startsWith('http') &&
     !url.startsWith(self.location.origin);
 
-  // ── 외부 CDN: Cache-first (네트워크 비용 절감) ──
+  // ── 외부 요청 ──
+  // ★ Phase 9: Cache-first는 버전이 고정된 정적 CDN(CORE_ASSETS의 외부 URL)에만 적용.
+  //   이전에는 모든 외부 GET을 영구 캐시 → 표지 검색(프록시 경유 리디·카카오·노벨피아 등)이
+  //   같은 검색어에 옛 결과를 계속 반환하고, 프록시 오류 페이지까지 저장되며 캐시가 무한 증가.
+  //   그 밖의 외부 요청은 가로채지 않고 브라우저 기본 네트워크 처리에 맡긴다.
   if (isExternal) {
-    e.respondWith(_cacheFirstExternal(e.request));
+    if (_isStaticExternal(url)) e.respondWith(_cacheFirstExternal(e.request));
     return;
   }
 
@@ -195,20 +208,6 @@ self.addEventListener('message', e => {
     self.skipWaiting();
     return;
   }
-
-  if (e.data.type === 'CHECK_CACHE') {
-    const expected = e.data.expected || '';
-    if (expected && expected !== CACHE_NAME) {
-      caches.keys()
-        .then(keys => Promise.all(keys.map(k => caches.delete(k))))
-        .then(() => {
-          e.source && e.source.postMessage({ type: 'CACHE_OUTDATED' });
-        })
-        .catch(err => {
-          // ★ 삭제 실패 시에도 CACHE_OUTDATED 발송하지 않음 (오인 방지)
-          console.warn('[SW] 캐시 삭제 실패:', err);
-        });
-    }
-    return;
-  }
+  // ★ Phase 9: CHECK_CACHE(하드코딩 버전 비교 → 캐시 전체 삭제) 제거.
+  //   버전 갱신은 브라우저 표준 SW 업데이트(install → activate의 구버전 캐시 삭제)로만 처리.
 });

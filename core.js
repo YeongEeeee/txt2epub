@@ -19,6 +19,29 @@
 // ══════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────
+// Layer 0 · HTML 정화 (Toast·confirm 공용)
+// ★ Phase 9: TXT 제목·파일명 등 외부 문자열이 섞인 HTML 메시지를 안전하게 표시.
+//   위험 요소 제거 + 모든 on* 이벤트 속성 + javascript:/vbscript:/data:text URL 속성 제거.
+// ─────────────────────────────────────────
+const _SANITIZE_DROP_SEL = 'script,iframe,object,embed,style,link,meta,base,form,frame,frameset,template,noscript';
+const _SANITIZE_URL_ATTRS = new Set(['href','src','xlink:href','action','formaction','srcset','poster','background']);
+function _sanitizeHtml(html){
+  const doc = new DOMParser().parseFromString(String(html ?? ''), 'text/html');
+  doc.querySelectorAll(_SANITIZE_DROP_SEL).forEach(el => el.remove());
+  doc.body?.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(attr => {
+      const name = attr.name.toLowerCase();
+      const val  = attr.value.replace(/[\s\u0000-\u001f]+/g, '').toLowerCase();
+      if (name.startsWith('on') ||
+          (_SANITIZE_URL_ATTRS.has(name) && /^(javascript|vbscript|data:text)/.test(val))) {
+        el.removeAttribute(attr.name);
+      }
+    });
+  });
+  return doc.body?.innerHTML || '';
+}
+
+// ─────────────────────────────────────────
 // Layer 0 · Toast UI
 // ─────────────────────────────────────────
 const Toast = (() => {
@@ -81,7 +104,7 @@ const Toast = (() => {
     el.style.cssText =
       `background:${colors[type]};border:1.5px solid ${borders[type]};` +
       'border-radius:var(--radius-sm);padding:10px 14px;font-size:var(--fs-sm);font-family:inherit;' +
-      'color:var(--text);box-shadow:0 4px 18px rgba(0,0,0,.15);' +
+      'color:var(--text);box-shadow:var(--shadow-md);' +
       'pointer-events:auto;display:flex;align-items:flex-start;gap:8px;' +
       'animation:toastIn .22s ease;max-width:340px;line-height:1.5';
 
@@ -103,11 +126,9 @@ const Toast = (() => {
     } else if (typeof msg === 'string' && /<[a-z][\s\S]*>/i.test(msg)) {
       // ★ 기존 호출 호환성 유지: 내부 HTML 태그가 포함된 경우
       // 단, 이 경로는 레거시 용도이며 향후 __html 마커로 마이그레이션 권장
-      // DOMParser로 파싱해 스크립트 실행 방지
-      const parsed = new DOMParser().parseFromString(msg, 'text/html');
-      // script/iframe 등 위험 요소 제거
-      parsed.querySelectorAll('script,iframe,object,embed').forEach(el=>el.remove());
-      msgSpan.innerHTML = parsed.body.innerHTML;
+      // ★ Phase 9: _sanitizeHtml — 위험 태그 + on* 이벤트 속성 + javascript: URL 제거
+      //   (이전: script/iframe만 제거해 챕터 제목 '<img src=x onerror=…>'가 그대로 실행됨)
+      msgSpan.innerHTML = _sanitizeHtml(msg);
     } else {
       msgSpan.textContent = String(msg);
     }
@@ -136,13 +157,13 @@ const Toast = (() => {
       _ensureContainer();
       const overlay = document.createElement('div');
       overlay.style.cssText =
-        'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;' +
+        'position:fixed;inset:0;background:var(--overlay);z-index:9998;' +
         'display:flex;align-items:center;justify-content:center';
 
       const box = document.createElement('div');
       box.style.cssText =
         'background:var(--panel);border-radius:var(--radius);padding:24px 28px;' +
-        'max-width:360px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.25);' +
+        'max-width:360px;width:90vw;box-shadow:var(--shadow-xl);' +
         'font-family:inherit;border:1.5px solid var(--border)';
 
       const p = document.createElement('p');
@@ -150,9 +171,7 @@ const Toast = (() => {
       // ★ confirm은 내부에서만 호출 (autoSplitByInterval 경고 등) — HTML 허용
       // 단, script/iframe 위험 태그 필터링
       if(typeof msg === 'string' && /<[a-z][\s\S]*>/i.test(msg)){
-        const parsed = new DOMParser().parseFromString(msg, 'text/html');
-        parsed.querySelectorAll('script,iframe,object,embed').forEach(el=>el.remove());
-        p.innerHTML = parsed.body.innerHTML;
+        p.innerHTML = _sanitizeHtml(msg); // ★ Phase 9: on* 속성까지 제거
       } else {
         p.textContent = String(msg);
       }
@@ -193,13 +212,13 @@ const Toast = (() => {
       _ensureContainer();
       const overlay = document.createElement('div');
       overlay.style.cssText =
-        'position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:9998;' +
+        'position:fixed;inset:0;background:var(--overlay);z-index:9998;' +
         'display:flex;align-items:center;justify-content:center';
 
       const box = document.createElement('div');
       box.style.cssText =
         'background:var(--panel);border-radius:var(--radius);padding:24px 28px;' +
-        'max-width:380px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.25);' +
+        'max-width:380px;width:90vw;box-shadow:var(--shadow-xl);' +
         'font-family:inherit;border:1.5px solid var(--border)';
 
       const p = document.createElement('p');

@@ -431,7 +431,7 @@ function renderInsTocList(){
       d.appendChild(chk); d.appendChild(num); d.appendChild(title); d.appendChild(dupBadge);
     } else if(isNext){
       const marker=document.createElement('span');
-      marker.style.cssText='font-size:var(--fs-xs);background:var(--blue);color:#fff;border-radius:var(--radius-xs);padding:1px 5px;flex-shrink:0';
+      marker.style.cssText='font-size:var(--fs-xs);background:var(--blue);color:var(--on-accent);border-radius:var(--radius-xs);padding:1px 5px;flex-shrink:0';
       marker.textContent='← 연결점';
       marker.title='EPUB 마지막('+epubLastNum+'화) 바로 다음 챕터';
       const newBadge=document.createElement('span');
