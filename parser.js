@@ -1504,6 +1504,9 @@ async function previewToc(){
     '<div style="font-size:11px;color:var(--text2);margin-bottom:8px;padding:0 4px">'+patLabel+'</div>');
   refreshDetectedChip();
 
+  // ★ 유사 목차 후보 검색 — PAT_PRESETS 전체 점수화 (yield 포함 비동기, 메인 스레드 블로킹 방지)
+  if(typeof renderTocSuggest==='function') renderTocSuggest(found).catch(()=>{});
+
   // ★ splitBtn 상태 동기화 — _syncSplitBtn으로 단일 관리
   // ★ 핵심: found.length > 0이어도 disabled 설정하지 않음 (교착 방지)
   if(found.length>0){
@@ -1547,6 +1550,117 @@ function _renderHybridSuggestBtn(foundCount){
   btn.title='감지 결과가 부족한 구간을 간격 분할로 자동 채웁니다 (하이브리드 모드)';
   btn.addEventListener('click', ()=>autoSplitByInterval(true));
   document.getElementById('tb0')?.insertAdjacentElement('beforebegin', btn);
+}
+
+// ══════════════════════════════════════════
+// 🔎 Module: TocSuggest (가장 유사한 목차 후보 검색)
+// ══════════════════════════════════════════
+// TXT 로드 → previewToc(bestPat 자동 적용) 직후 실행
+// PAT_PRESETS 전체를 원문과 대조해 '목차다운' 정도를 bestPat과 같은 척도로 점수화:
+//   점수 = Σ(빈 줄에 감싸인 줄 3점 / 일반 줄 1점) × (1 + 연속성×0.5, 연속성 ≥ 0.6일 때)
+// 오탐 방지:
+//   - 120자 초과 줄은 본문으로 간주해 검사 제외 (목차 줄은 짧음)
+//   - 매칭이 비어있지 않은 줄의 20% 초과면 본문 패턴으로 보고 제외
+//   - 같은 줄 집합을 잡는 후보는 최고점 1개만 유지
+// ★ parser.js 핵심 감지 로직(bestPat/PATS)은 건드리지 않는 읽기 전용 보조 레이어
+let _tocSuggestSeq=0;
+
+async function rankTocCandidates(lines, topN=4){
+  if(!Array.isArray(lines)||!lines.length||typeof PAT_PRESETS==='undefined') return [];
+  const n=lines.length;
+  const pre=new Array(n), blank=new Array(n);
+  let nonEmpty=0;
+  for(let i=0;i<n;i++){
+    const raw=lines[i]||'';
+    blank[i]=!raw.trim();
+    if(!blank[i]) nonEmpty++;
+    pre[i]=(!blank[i]&&raw.length<=120)?preprocessLine(raw):'';
+  }
+  const isWrapped=i=>(blank[i-1]===true||blank[i-2]===true)&&(blank[i+1]===true||blank[i+2]===true);
+
+  const out=[];
+  for(let pi=0;pi<PAT_PRESETS.length;pi++){
+    const p=PAT_PRESETS[pi];
+    let rx;
+    try{ rx=new RegExp(p.val,'i'); }catch(e){ continue; }
+    let cnt=0, score=0, first=-1, last=-1;
+    const nums=[];
+    for(let i=0;i<n;i++){
+      const t=pre[i];
+      if(!t||!rx.test(t)) continue;
+      cnt++;
+      if(first<0) first=i;
+      last=i;
+      score+=isWrapped(i)?3:1;
+      const nm=t.match(/\d+/);
+      nums.push(nm?parseInt(nm[0],10):null);
+    }
+    if(cnt>=3&&cnt<=nonEmpty*0.2){
+      const seqW=calcSequenceWeight(nums);
+      if(seqW>=0.6) score=Math.round(score*(1+seqW*0.5));
+      out.push({label:p.label, val:p.val, desc:p.desc||'', cnt, score, seqW, first, last});
+    }
+    // 4개 패턴마다 메인 스레드 양보 (대용량 TXT 대응)
+    if(pi%4===3&&typeof yieldToMain==='function') await yieldToMain();
+  }
+
+  out.sort((a,b)=>b.score-a.score||b.seqW-a.seqW);
+  const seen=new Set();
+  const uniq=out.filter(c=>{
+    const sig=c.cnt+':'+c.first+':'+c.last;
+    if(seen.has(sig)) return false;
+    seen.add(sig); return true;
+  });
+  return uniq.slice(0, topN);
+}
+
+async function renderTocSuggest(found){
+  const seq=++_tocSuggestSeq;
+  const lines=_fullRawLines;
+  if(!document.getElementById('tb0')||!lines?.length) return;
+  const cands=await rankTocCandidates(lines, 4);
+  // 그 사이 새 목차 확인이 시작됐으면 오래된 결과 폐기
+  if(seq!==_tocSuggestSeq) return;
+  const host=document.getElementById('tb0');
+  if(!host) return;
+  document.getElementById('tocSuggestBar')?.remove();
+  if(!cands.length) return;
+
+  const curPat=(document.getElementById('pattern')?.value||'').trim();
+  const detFirst=Array.isArray(found)&&found.length?found[0].line-1:-1;
+  const detCnt=Array.isArray(found)?found.length:0;
+
+  const bar=document.createElement('div');
+  bar.id='tocSuggestBar';
+  bar.className='toc-suggest-bar';
+  const head=document.createElement('span');
+  head.className='toc-suggest-head';
+  head.textContent='🔎 유사 목차 후보';
+  bar.appendChild(head);
+
+  cands.forEach((c,i)=>{
+    // 현재 적용된 목차와 같은 줄 집합이면 '적용됨' 표시
+    const isApplied=curPat===c.val||(!curPat&&c.cnt===detCnt&&c.first===detFirst);
+    const chip=document.createElement('button');
+    chip.type='button';
+    chip.className='pat-chip toc-suggest-chip'+(isApplied?' detected':'');
+    chip.textContent=(isApplied?'✅ ':(i===0?'⭐ ':''))+c.label+' · '+c.cnt+'개';
+    const sample=String(lines[c.first]||'').trim().slice(0,40);
+    chip.title=(c.desc?c.desc+' — ':'')+'연속성 '+Math.round(c.seqW*100)+'% · 첫 매칭 '+(c.first+1)+'행: '+sample;
+    chip.addEventListener('click',()=>applyTocSuggestion(c.val));
+    bar.appendChild(chip);
+  });
+  host.insertAdjacentElement('afterbegin', bar);
+}
+
+// 후보 칩 클릭 → 챕터 정규식 입력에 반영 후 목차 재확인
+function applyTocSuggestion(val){
+  const inp=document.getElementById('pattern');
+  if(!inp||!val) return;
+  inp.value=val;
+  const clr=document.getElementById('patternClearBtn');
+  if(clr) clr.style.display='';
+  typeof previewToc==='function'&&previewToc();
 }
 
 // ════════════════════════════════════════════════════════

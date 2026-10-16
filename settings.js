@@ -51,7 +51,8 @@ function saveExtraSettings(){
       removeBlankLines:document.getElementById('optRemoveBlankLines')?.checked ?? false,
       chTitle:document.getElementById('optChTitle')?.checked,
       darkCover:document.getElementById('optDarkCover')?.checked,
-      autoPreview:document.getElementById('optAutoPreview')?.checked,
+      // ★ 키 변경(autoPreview → autoPreview2): 기본값을 ON으로 바꾸면서 기존 저장값(기본 OFF로 저장된 값) 1회 초기화
+      autoPreview2:document.getElementById('optAutoPreview')?.checked,
       showLineNum:document.getElementById('optShowLineNum')?.checked,
       defaultPat:document.getElementById('optDefaultPat')?.value||'',
       lang:document.getElementById('optLang')?.value||'ko',
@@ -99,7 +100,7 @@ function loadExtraSettings(){
     }
     if(s.chTitle!=null){ const _elCT=document.getElementById('optChTitle'); if(_elCT) _elCT.checked=s.chTitle; }
     if(s.darkCover!=null){ const _elDC=document.getElementById('optDarkCover'); if(_elDC) _elDC.checked=s.darkCover; }
-    if(s.autoPreview!=null){ const _elAP=document.getElementById('optAutoPreview'); if(_elAP) _elAP.checked=s.autoPreview; }
+    if(s.autoPreview2!=null){ const _elAP=document.getElementById('optAutoPreview'); if(_elAP) _elAP.checked=s.autoPreview2; }
     if(s.showLineNum!=null){ const _elSL=document.getElementById('optShowLineNum'); if(_elSL) _elSL.checked=s.showLineNum; }
     if(s.italic!=null){ const _elIt=document.getElementById('optItalic'); if(_elIt) _elIt.checked=s.italic; }
     if(s.indent!=null){ const _elIn=document.getElementById('optIndent'); if(_elIn) _elIn.checked=s.indent; }

@@ -41,9 +41,9 @@
     <div class="dz" id="txtDz" tabindex="0" role="button" aria-label="TXT 파일 업로드 영역. Enter나 Space로 파일 탐색기 열기">
       <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);display:block;margin:0 auto 6px" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></svg>
       <div class="dz-text">TXT 파일을 드래그하거나 클릭</div>
-      <div class="dz-sub">여러 파일 가능 · 자동 정렬 병합 · EUC-KR 자동 감지</div>
+      <div class="dz-sub">여러 파일 가능 · 자동 정렬 병합 · EUC-KR 자동 감지 · 이름이 비슷한 이미지를 함께 넣으면 표지 자동 연결</div>
     </div>
-    <input type="file" id="txtIn" accept=".txt" multiple hidden>
+    <input type="file" id="txtIn" accept=".txt,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
     <div id="txtInfo" class="txt-green-sm" hidden></div>
     <div id="txtFileList" class="file-list-wrap" hidden>
       <div class="flex-row-sb" style="margin-bottom:5px">
@@ -308,9 +308,9 @@
     <div class="dz" id="batchTxtDrop">
       <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);display:block;margin:0 auto 6px" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/><polyline points="17 14 19 16 17 18"/></svg>
       <div class="dz-text">TXT 파일 여러 개 드래그하거나 클릭</div>
-      <div class="dz-sub">파일마다 epub 하나씩 생성 · 파일명에서 제목/작가 자동 인식</div>
+      <div class="dz-sub">파일마다 epub 하나씩 생성 · 파일명에서 제목/작가 자동 인식 · 표지 이미지를 함께 넣어도 이름으로 자동 매핑</div>
     </div>
-    <input type="file" id="batchTxtIn" accept=".txt" multiple hidden>
+    <input type="file" id="batchTxtIn" accept=".txt,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
     <div class="reset-bar" id="batchResetBar" style="display:none">
       <button class="btn-reset" data-action="resetBatchTxt">✕ TXT 파일 초기화</button>
       <button class="btn-reset" data-action="resetBatchCover">✕ 표지 이미지 초기화</button>
@@ -976,8 +976,8 @@
   <div class="sec-hdr"><span class="sec-title">📋 목차 감지 설정</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="toggle-row">
-      <div><label for="optAutoPreview">파일 선택 시 목차 자동 확인</label><small>TXT 파일 드롭 즉시 목차 감지 실행</small></div>
-      <label class="sw"><input type="checkbox" id="optAutoPreview" data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
+      <div><label for="optAutoPreview">파일 선택 시 목차 자동 확인</label><small>TXT 파일 드롭 즉시 가장 유사한 목차 패턴을 찾아 적용</small></div>
+      <label class="sw"><input type="checkbox" id="optAutoPreview" data-input-action="saveExtraSettings" checked><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="toggle-row">
       <div><label for="optShowLineNum">줄 번호 표시</label><small>목차 패널에 줄 번호 표시</small></div>

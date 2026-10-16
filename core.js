@@ -553,7 +553,8 @@ const PAT_PRESETS = [
 const _sStore  = StateManager.create('convert', {
   txtFiles:[], coverFile:null, illFiles:[], tocItems:[],
   epubBlob:null, epubName:'', manualCnt:0,
-  _rawTextFull:[], _detectedPat:null, _detectedName:''
+  _rawTextFull:[], _detectedPat:null, _detectedName:'',
+  _coverAuto:false // ★ 표지가 파일명 유사도 자동 매칭으로 지정됐는지 (수동 지정 표지 보호용)
 });
 const _bStore  = StateManager.create('batch', {
   txtFiles:[], coverMap:{}, results:[], urlCoverFile:null,

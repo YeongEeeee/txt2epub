@@ -938,6 +938,10 @@ body.modal-open .page-tabs{
 .pat-chip.detected{background:var(--green-bg);color:var(--green);border-color:var(--green);font-weight:600}
 .pat-chip.detected.active{background:var(--green);color:#fff;border-color:var(--green)}
 .pat-chip.detected.just-detected{animation:chipBounce .35s var(--ease) forwards}
+/* ── 유사 목차 후보 바 (TocSuggest) ── */
+.toc-suggest-bar{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin:0 4px 8px;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-xs)}
+.toc-suggest-head{font-size:11px;font-weight:600;color:var(--text2);margin-right:2px}
+.toc-suggest-chip{font-family:inherit;line-height:1.4}
 /* 칩 툴팁 */
 .pat-chip[title]:hover::after{
   content:attr(title);position:absolute;

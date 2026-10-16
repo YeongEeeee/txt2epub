@@ -810,7 +810,8 @@ function setupEventListeners(){
     if(!files||!files.length) return;
     const txtFiles=[...files].filter(f=>f.name.toLowerCase().endsWith('.txt')||f.type==='text/plain');
     const imgFiles=[...files].filter(f=>/\.(jpg|jpeg|png|gif|webp|bmp|tiff|tif|avif)$/i.test(f.name)||f.type.startsWith('image/'));
-    if(txtFiles.length){ e.preventDefault(); typeof handleTxt==='function'&&handleTxt(txtFiles, S.txtFiles.length>0); Toast.info(`📋 TXT ${txtFiles.length}개 파일 붙여넣기됨`); }
+    // ★ TXT와 이미지를 함께 붙여넣으면 이미지는 파일명 유사도 기반 표지 자동 매칭으로 전달
+    if(txtFiles.length){ e.preventDefault(); typeof handleTxt==='function'&&handleTxt([...txtFiles, ...imgFiles], S.txtFiles.length>0); Toast.info(`📋 TXT ${txtFiles.length}개 파일 붙여넣기됨`); }
     else if(imgFiles.length){ e.preventDefault(); typeof handleIll==='function'&&handleIll(imgFiles); Toast.info(`📋 이미지 ${imgFiles.length}개 파일 붙여넣기됨`); }
   });
 

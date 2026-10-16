@@ -400,8 +400,15 @@ async function imgToJpgBlob(file, quality=0.92){
 // 📂 Module: FileHandlers (드롭·파일 입력 처리)
 // ══════════════════════════════════════════
 function handleTxt(files, append=false){
-  const txts=Array.from(files).filter(f=>f.name.endsWith('.txt'));
-  if(!txts.length)return;
+  const _all=Array.from(files||[]);
+  const txts=_all.filter(f=>/\.txt$/i.test(f?.name||''));
+  // ★ TXT와 함께 선택·드롭된 이미지 — 파일명 유사도로 표지 자동 매칭
+  const imgs=_all.filter(f=>_IMG_EXT_RX.test(f?.name||''));
+  if(!txts.length){
+    // 이미지만 들어온 경우: 이미 로드된 TXT 기준으로 표지 매칭만 수행
+    if(imgs.length&&S.txtFiles.length) autoMatchCoverImage(imgs, S.txtFiles);
+    return;
+  }
 
   // append 모드: 기존 파일에 추가 (중복 제거)
   if(append&&S.txtFiles.length){
@@ -457,6 +464,9 @@ function handleTxt(files, append=false){
     if(titleEl&&!titleEl.value) titleEl.value=title;
     if(authorEl&&!authorEl.value) authorEl.value=author;
   }
+
+  // ★ 이름이 유사한 이미지가 함께 들어왔으면 표지로 자동 연결
+  if(imgs.length) autoMatchCoverImage(imgs, S.txtFiles);
 }
 handleTxt._timer=null; // 디바운스 타이머 초기화
 
@@ -773,7 +783,10 @@ function blobToDataUrl(blob){
 }
 
 function handleCover(files){
-  const f=files[0];if(!f)return;
+  const f=files?.[0];if(!f)return;
+  // ★ 수동 지정 표지 — 이후 TXT+이미지 자동 매칭이 덮어쓰지 않도록 플래그 해제
+  // (autoMatchCoverImage는 이 함수 호출 직후 _coverAuto=true로 재설정)
+  S._coverAuto=false;
   // ★ BUG-3 수정: coverThumb의 이전 blob URL 해제 (메모리 누수 방지)
   const thumb=document.getElementById('coverThumb');
   if(thumb){
@@ -785,6 +798,109 @@ function handleCover(files){
   document.getElementById('coverDz')?.classList.add('ok');
   const objUrl=URL.createObjectURL(f);
   if(thumb){ thumb.innerHTML=''; const img=document.createElement('img'); img.src=objUrl; img.dataset.blobUrl=objUrl; thumb.appendChild(img); }
+}
+
+// ══════════════════════════════════════════
+// 🖼 Module: CoverAutoMatch (TXT ↔ 이미지 파일명 유사도 매칭)
+// ══════════════════════════════════════════
+// 동작 원리:
+//   1. 파일명 stem 정규화 (normStem + 'cover/표지' 꼬리표 제거)
+//   2. 유사도 = max(문자 바이그램 Dice 계수, 포함 관계 점수)
+//      - 포함 관계: 짧은 쪽이 긴 쪽에 통째로 들어있으면 0.75~1.0
+//   3. TXT 파일명 전체 / [작가] 제목 · 제목@작가 에서 추출한 제목 둘 다 비교해 최고점 사용
+//   4. 임계값(0.5) 이상 최고점 이미지를 표지로 지정 — 이미지가 1개뿐이면 임계값 미달이어도 사용
+const _IMG_EXT_RX=/\.(jpg|jpeg|png|webp|bmp|tiff|tif|avif)$/i;
+const COVER_MATCH_MIN=0.5;
+
+function _fileStem(name){ return String(name||'').replace(/\.[^.]+$/,''); }
+
+// 파일명 stem에서 제목만 추출 ([작가] 제목 / 제목 @ 작가 규칙 — handleTxt 메타 자동 채우기와 동일)
+function _titleFromStem(stem){
+  const s=String(stem||'');
+  let m=s.match(/^\[(.+?)\]\s*(.+)$/);
+  if(m) return m[2].trim();
+  m=s.match(/^(.+?)\s*@\s*(.+)$/);
+  if(m) return m[1].trim();
+  return s;
+}
+
+// 매칭 전용 키: 표지 꼬리표 제거 후 normStem 정규화
+function _coverMatchKey(stem){
+  const cleaned=String(stem||'').replace(/(?:cover|front|thumbnail|thumb|표지|커버)/gi,'');
+  return normStem(cleaned);
+}
+
+// 두 파일명의 유사도 (0.0 ~ 1.0)
+function nameSimilarity(a, b){
+  const x=_coverMatchKey(a), y=_coverMatchKey(b);
+  if(!x||!y) return 0;
+  if(x===y) return 1;
+  const shortK=x.length<=y.length?x:y;
+  const longK =x.length<=y.length?y:x;
+  let contain=0;
+  if(shortK.length>=2&&longK.includes(shortK)) contain=0.75+0.25*(shortK.length/longK.length);
+  if(x.length<2||y.length<2) return contain;
+  // 문자 바이그램 Dice 계수 — O(n) Map 카운팅
+  const bigrams=t=>{
+    const m=new Map();
+    for(let i=0;i<t.length-1;i++){ const k=t.slice(i,i+2); m.set(k,(m.get(k)||0)+1); }
+    return m;
+  };
+  const A=bigrams(x), Bm=bigrams(y);
+  let inter=0;
+  A.forEach((c,k)=>{ inter+=Math.min(c, Bm.get(k)||0); });
+  const dice=(2*inter)/((x.length-1)+(y.length-1));
+  return Math.max(dice, contain);
+}
+
+// TXT 목록과 이미지 목록 중 가장 이름이 비슷한 이미지 1개 반환 → {file, score, txtName} | null
+function findSimilarImage(txtFiles, imgs, minScore=COVER_MATCH_MIN){
+  let best=null;
+  (imgs||[]).forEach(img=>{
+    if(!img?.name) return;
+    const iStem=_fileStem(img.name);
+    (txtFiles||[]).forEach(t=>{
+      if(!t?.name) return;
+      const tStem=_fileStem(t.name);
+      [tStem, _titleFromStem(tStem)].forEach(k=>{
+        const sc=nameSimilarity(k, iStem);
+        if(!best||sc>best.score) best={file:img, score:sc, txtName:t.name};
+      });
+    });
+  });
+  return best&&best.score>=minScore?best:null;
+}
+
+// 표지 자동 매칭 실행 — 성공 시 true
+function autoMatchCoverImage(imgs, txtFiles){
+  const list=Array.from(imgs||[]).filter(f=>_IMG_EXT_RX.test(f?.name||''));
+  if(!list.length) return false;
+  // ★ 사용자가 직접 지정한 표지(수동·검색·URL)는 보호 — 자동 매칭 표지만 교체 허용
+  if(S.coverFile&&!S._coverAuto){
+    Toast.info('🖼 이미 지정한 표지가 있어서 이미지 자동 매칭을 건너뛰었어요.');
+    return false;
+  }
+  let hit=findSimilarImage(txtFiles, list);
+  let fallback=false;
+  if(!hit&&list.length===1){
+    // 이미지가 하나뿐이면 이름이 달라도 표지로 사용 (함께 선택한 의도 존중)
+    hit={file:list[0], score:findSimilarImage(txtFiles, list, 0)?.score||0, txtName:''};
+    fallback=true;
+  }
+  if(!hit){
+    Toast.info(`🖼 TXT와 이름이 비슷한 이미지를 찾지 못했어요 (${list.length}개 검사)`);
+    return false;
+  }
+  handleCover([hit.file]);
+  S._coverAuto=true;
+  const pct=Math.round(hit.score*100);
+  const nameEl=document.getElementById('coverName');
+  if(nameEl) nameEl.textContent=fallback
+    ? '✅ '+hit.file.name+' · 함께 선택한 이미지'
+    : '✅ '+hit.file.name+' · 이름 유사도 '+pct+'%';
+  if(fallback) Toast.info(`🖼 이름 유사도는 낮지만(${pct}%) 함께 선택한 이미지라 표지로 지정했어요.`);
+  else Toast.success(`🖼 표지 자동 매칭: ${hit.file.name} (유사도 ${pct}%)`);
+  return true;
 }
 
 // ── 공통 삽화 파일 처리 함수 ──
@@ -2075,8 +2191,14 @@ function renderBatchFileStatus(itemEl, files, statuses){
 // 📦 Module: Batch (일괄 변환 플로우)
 // ══════════════════════════════════════════
 function handleBatchTxt(files){
-  const txts=Array.from(files).filter(f=>f.name.endsWith('.txt'));
-  if(!txts.length)return;
+  const _all=Array.from(files||[]);
+  const txts=_all.filter(f=>/\.txt$/i.test(f?.name||''));
+  // ★ TXT 드롭존에 이미지가 섞여 오면 표지 맵으로 전달 (파일명 유사도 자동 매핑)
+  const imgs=_all.filter(f=>_IMG_EXT_RX.test(f?.name||''));
+  if(!txts.length){
+    if(imgs.length) handleBatchCover(imgs);
+    return;
+  }
   B.txtFiles=txts.sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
   B.patterns={};
   B.sampleTexts={};
@@ -2086,7 +2208,9 @@ function handleBatchTxt(files){
   dz.querySelector('.dz-text').textContent='✅ '+txts.length+'개 파일 선택됨';
   document.getElementById('batchResetBar').style.display='flex';
   renderBatchList();
-  document.getElementById('batchListSec').style.display='block';
+  const _listSec=document.getElementById('batchListSec');
+  if(_listSec) _listSec.style.display='block';
+  if(imgs.length) handleBatchCover(imgs);
 }
 
 function handleBatchCover(files){
@@ -2127,6 +2251,14 @@ function findFuzzyCover(txtStem){
     return common>acc.score?{k,score:common}:acc;
   },{k:null,score:1}); // 최소 2개 이상 (score>1)
   if(best.k) return B.coverMap[best.k];
+
+  // 4순위: 바이그램 유사도 — 오타·띄어쓰기·부제 차이 흡수 (nameSimilarity ≥ 0.6)
+  let simBest=null;
+  keys.forEach(k=>{
+    const sc=Math.max(nameSimilarity(txtStem,k), nameSimilarity(_titleFromStem(txtStem),k));
+    if(sc>=0.6&&(!simBest||sc>simBest.score)) simBest={k,score:sc};
+  });
+  if(simBest) return B.coverMap[simBest.k];
 
   return null;
 }
@@ -2893,7 +3025,7 @@ async function splitChaptersAsync(raw, customPat, onProgress){
 // ── DOMContentLoaded에 폰트 패널 초기화 추가 ──
 async function resetAll(){
   if(!await Toast.confirm('모든 설정을 초기화할까요?')) return;
-  _sStore.set({txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0});
+  _sStore.set({txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0,_coverAuto:false});
   _chaptersCache=null;_chaptersCacheKey='';
   document.getElementById('txtDz').className='dz';
   document.getElementById('illDz').className='dz';
@@ -2982,6 +3114,7 @@ function resetConvertTxt(){
 }
 function resetConvertCover(){
   S.coverFile=null;
+  S._coverAuto=false;
   document.getElementById('coverDz').className='dz';
   const t=document.getElementById('coverThumb');
   if(t)t.innerHTML='<span style="display:flex;flex-direction:column;align-items:center;gap:4px"><span style="font-size:22px">🖼</span><span>표지</span></span>';
