@@ -60,7 +60,7 @@ const Toast = (() => {
         cnt.className = 'toast-cnt';
         cnt.style.cssText =
           'background:var(--text2);color:var(--panel);border-radius:99px;'+
-          'font-size:9px;padding:0 4px;margin-left:4px;font-weight:700';
+          'font-size:var(--fs-xs);padding:0 4px;margin-left:4px;font-weight:700';
         cnt.textContent = '2';
         existing.querySelector('span:nth-child(2)')?.appendChild(cnt);
       } else {
@@ -80,14 +80,14 @@ const Toast = (() => {
     el.dataset.toastType = type;
     el.style.cssText =
       `background:${colors[type]};border:1.5px solid ${borders[type]};` +
-      'border-radius:10px;padding:10px 14px;font-size:12px;font-family:inherit;' +
+      'border-radius:var(--radius-sm);padding:10px 14px;font-size:var(--fs-sm);font-family:inherit;' +
       'color:var(--text);box-shadow:0 4px 18px rgba(0,0,0,.15);' +
       'pointer-events:auto;display:flex;align-items:flex-start;gap:8px;' +
       'animation:toastIn .22s ease;max-width:340px;line-height:1.5';
 
     // ★ XSS 방지: innerHTML → DOM API
     const iconSpan = document.createElement('span');
-    iconSpan.style.cssText = 'flex-shrink:0;font-size:14px';
+    iconSpan.style.cssText = 'flex-shrink:0;font-size:var(--fs-base)';
     iconSpan.textContent = icons[type];
 
     const msgSpan = document.createElement('span');
@@ -115,7 +115,7 @@ const Toast = (() => {
     const closeBtn = document.createElement('button');
     closeBtn.style.cssText =
       'background:none;border:none;cursor:pointer;color:var(--text2);' +
-      'font-size:14px;padding:0;line-height:1;margin-left:4px;flex-shrink:0';
+      'font-size:var(--fs-base);padding:0;line-height:1;margin-left:4px;flex-shrink:0';
     closeBtn.textContent = '✕';
     closeBtn.onclick = () => el.remove();
 
@@ -141,12 +141,12 @@ const Toast = (() => {
 
       const box = document.createElement('div');
       box.style.cssText =
-        'background:var(--panel);border-radius:14px;padding:24px 28px;' +
+        'background:var(--panel);border-radius:var(--radius);padding:24px 28px;' +
         'max-width:360px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.25);' +
         'font-family:inherit;border:1.5px solid var(--border)';
 
       const p = document.createElement('p');
-      p.style.cssText = 'font-size:13px;line-height:1.7;color:var(--text);margin-bottom:18px';
+      p.style.cssText = 'font-size:var(--fs-base);line-height:1.7;color:var(--text);margin-bottom:18px';
       // ★ confirm은 내부에서만 호출 (autoSplitByInterval 경고 등) — HTML 허용
       // 단, script/iframe 위험 태그 필터링
       if(typeof msg === 'string' && /<[a-z][\s\S]*>/i.test(msg)){
@@ -162,13 +162,13 @@ const Toast = (() => {
 
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'btn btn-ghost';
-      cancelBtn.style.cssText = 'font-size:12px;padding:7px 16px';
+      cancelBtn.style.cssText = 'font-size:var(--fs-sm);padding:7px 16px';
       cancelBtn.textContent = '취소';
       cancelBtn.onclick = () => { overlay.remove(); resolve(false); };
 
       const okBtn = document.createElement('button');
       okBtn.className = 'btn btn-accent';
-      okBtn.style.cssText = 'font-size:12px;padding:7px 18px;border-radius:8px';
+      okBtn.style.cssText = 'font-size:var(--fs-sm);padding:7px 18px;border-radius:var(--radius-sm)';
       okBtn.textContent = '확인';
       okBtn.onclick = () => { overlay.remove(); resolve(true); };
 
@@ -198,12 +198,12 @@ const Toast = (() => {
 
       const box = document.createElement('div');
       box.style.cssText =
-        'background:var(--panel);border-radius:14px;padding:24px 28px;' +
+        'background:var(--panel);border-radius:var(--radius);padding:24px 28px;' +
         'max-width:380px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.25);' +
         'font-family:inherit;border:1.5px solid var(--border)';
 
       const p = document.createElement('p');
-      p.style.cssText = 'font-size:13px;line-height:1.7;color:var(--text);margin-bottom:12px';
+      p.style.cssText = 'font-size:var(--fs-base);line-height:1.7;color:var(--text);margin-bottom:12px';
       p.textContent = msg;
 
       const inp = document.createElement('input');
@@ -217,13 +217,13 @@ const Toast = (() => {
 
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'btn btn-ghost';
-      cancelBtn.style.cssText = 'font-size:12px;padding:7px 16px';
+      cancelBtn.style.cssText = 'font-size:var(--fs-sm);padding:7px 16px';
       cancelBtn.textContent = '취소';
       cancelBtn.onclick = () => { overlay.remove(); resolve(null); };
 
       const okBtn = document.createElement('button');
       okBtn.className = 'btn btn-accent';
-      okBtn.style.cssText = 'font-size:12px;padding:7px 18px;border-radius:8px';
+      okBtn.style.cssText = 'font-size:var(--fs-sm);padding:7px 18px;border-radius:var(--radius-sm)';
       okBtn.textContent = '확인';
       okBtn.onclick = () => { overlay.remove(); resolve(inp.value); };
 

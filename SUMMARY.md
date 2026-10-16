@@ -174,6 +174,29 @@
 - 제거: `_T`, `_KOR_NUM_MAP`/`_decodeKorNum`, `_groupByVolume`, `toggleTocItem`, `tocTabActive`, `_tocDragSrcI`, `kwSearch`/`selectKwResult`/`debounceKwSearch`/`getManualIllTarget`, `renderBatchFileStatus`, `_validateContentType`, 메인 스레드 `xhtmlPage`, `triggerCoverSearch` 별칭, `_eSmartPatAbort`, `customFontFile`, 미사용 지역변수 다수, 트리거 없는 data-action 등록 8종, 사용처 없는 data-input-action 2종(`saveOptLang`·`saveCssSettings`)
 - `edit.js` 목차 재생성 시 항목마다 전체 원문을 filter하던 미사용 계산 제거 (O(항목×줄))
 
+### Phase 7 — 디자인 정리
+
+#### 1) 결함 수정
+- `.page-tabs`의 `position:sticky;top:49px` 뒤 `position:relative`가 덮어써 탭이 49px 밀림 → 헤더 아래 빈 띠 + 첫 섹션 제목 가림. sticky + `--hdr-h`(ResizeObserver·transitionend로 실제 헤더 높이 반영)로 해결
+- 모바일 가로 넘침: 미니 리더(421px), CSS 설정 그리드(721px), 여백 그리드 잘림 → 1단 반응형 + `minmax(0,1fr)`
+- 히스토리·설정 페이지가 `.wrap` 밖 → 카드가 화면 끝까지 붙던 문제
+- 컬러 스킨: `setSkin`이 `data-skin`만 바꾸고 CSS가 없어 스와치가 보이지 않고 색도 안 바뀜 → 스와치·스킨 토큰(라이트/다크) 신설
+- 표지 초기화가 `className='dz'`로 덮어써 새 클래스가 사라지던 문제 → `classList` 사용, 빈 썸네일 마크업을 상수로 단일화
+
+#### 2) 통일
+- UI 산세리프(`--font-ui`), 명조는 로고·리더 전용(`--font-serif`)
+- 타입 스케일 고정 6단계, 반경 3단계 — CSS·HTML·JS 인라인의 px 글자 크기 308곳·반경 131곳을 토큰으로 치환 (EPUB 출력용 `epub-gen.js`는 제외, 테스트로 미유출 확인)
+- 정적 UI 이모지 113곳 제거, 드롭존 아이콘 SVG 통일, 설정 요약 칩 중립화
+
+#### 3) 덜어내기
+- 고급 패턴 도구 `<details id="patAdvanced">` 접기 (감지 실패 시 `previewToc`가 자동 펼침)
+- 표지 영역 압축, 하단 바 재구성(`btm-inner`), 파일 없을 때 `.is-idle`로 버튼만 비활성
+
+#### 4) 정리
+- 미사용 CSS 규칙 71개(클래스 58종)·키프레임 10개·토큰 4개·고아 주석 제거, 사용처 없던 `.page-tabs-wrap` 규칙 제거
+- `convert.js` 항상 정의돼 있는 `_syncSplitBtn`의 폴백 분기, `parser.js`의 덮어써지는 `createVirtualScroll` 사본(53줄) 제거
+- 설정 요약 `badge()`의 미사용 아이콘 인자 제거
+
 ---
 
 ## 파일별 역할 요약
@@ -183,7 +206,7 @@
 | `convert.js` | 2,790 | 변환 탭: 파일 I/O, 인코딩 감지, 이미지 처리, 삽화 자동/수동 | 없음 |
 | `parser.js` | 2,044 | 챕터 파싱, 목차 렌더링, 가상 스크롤, 통계, 캐시 | 없음 |
 | `edit.js` | 1,603 | EPUB 편집 탭: OPF 파싱, 챕터 수정, 재생성, 연속 삽입 | 없음 |
-| `style.css` | **1,340** | 테마, 컴포넌트, 애니메이션, 스킨 시스템 | **✅ 대폭 업데이트** — 키프레임 20개+, CSS 변수 76개+, clamp 타이포, 글래스모피즘, 스크롤바, floatBob |
+| `style.css` | **1,305** | 테마, 컴포넌트, 애니메이션, 스킨 시스템 | Phase 7: 글꼴·타입·반경 토큰 통일, 스킨 CSS 신설, 미사용 규칙 정리 |
 | `index.html` | **1,260** | SPA 마크업, 탭 구조, SVG 드롭존 | **✅ 업데이트** — .page-tabs-wrap 래퍼 추가, Base64 SVG 파비콘 인라인 교체 |
 | `settings.js` | 1,317 | CSS 설정, 폰트, 프리셋, 스마트 패턴, 히스토리, Gemini API 교류부 | 없음 |
 | `core.js` | 1,420 | 아키텍처 코어, 상태 프록시, Cloudflare Workers 보안 프록시 인프라 허브 | 없음 |

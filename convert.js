@@ -436,8 +436,7 @@ function handleTxt(files, append=false){
   const resetBar=document.getElementById('convertResetBar');
   if(resetBar) resetBar.style.display='flex';
   // ★ UX-PD: Progressive Disclosure — 패턴 영역을 파일 로드 후 선명하게 전환
-  const patSection=document.getElementById('patSection');
-  if(patSection) patSection.style.opacity='1';
+  document.getElementById('patSection')?.classList.remove('is-idle');
   _chaptersCache=null; // 캐시 무효화
 
   renderTxtFileList();
@@ -506,7 +505,7 @@ function _attachTouchSort(row, listEl, idx){
       'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;'+
       'width:'+rect.width+'px;opacity:.85;z-index:9999;'+
       'pointer-events:none;border:1.5px solid var(--accent);'+
-      'border-radius:6px;background:var(--accent-bg);box-shadow:0 4px 16px rgba(0,0,0,.2)';
+      'border-radius:var(--radius-xs);background:var(--accent-bg);box-shadow:0 4px 16px rgba(0,0,0,.2)';
     document.body.appendChild(clone);
 
     row.style.opacity='0.3';
@@ -737,22 +736,22 @@ function showCorsHelp(inpId, url, thumbId, nameId, mode){
   const overlay=document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:600;display:flex;align-items:center;justify-content:center';
   overlay.innerHTML=`
-    <div style="background:var(--panel);border-radius:12px;padding:24px;max-width:440px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.3)">
-      <h3 style="font-size:14px;font-weight:700;margin-bottom:10px">⚠️ 이미지를 직접 가져올 수 없어요</h3>
-      <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.7">
+    <div style="background:var(--panel);border-radius:var(--radius-sm);padding:24px;max-width:440px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.3)">
+      <h3 style="font-size:var(--fs-base);font-weight:700;margin-bottom:10px">⚠️ 이미지를 직접 가져올 수 없어요</h3>
+      <p style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:14px;line-height:1.7">
         이 이미지는 외부 사이트 보안(CORS) 정책으로 직접 가져올 수 없어요.<br>
         아래 방법 중 하나를 사용해주세요.
       </p>
       <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
-        <div style="background:var(--bg2);border-radius:8px;padding:10px;font-size:12px">
+        <div style="background:var(--bg2);border-radius:var(--radius-sm);padding:10px;font-size:var(--fs-sm)">
           <b>방법 1 (권장)</b> — 구글 이미지에서 이미지를 <b>다운로드</b>한 뒤<br>
           드래그앤드롭으로 표지에 넣기
         </div>
-        <div style="background:var(--bg2);border-radius:8px;padding:10px;font-size:12px">
+        <div style="background:var(--bg2);border-radius:var(--radius-sm);padding:10px;font-size:var(--fs-sm)">
           <b>방법 2</b> — 이미지 페이지를 열어서<br>
           이미지를 <b>다른 이름으로 저장</b> 후 드래그앤드롭
         </div>
-        <div style="background:var(--bg2);border-radius:8px;padding:10px;font-size:12px">
+        <div style="background:var(--bg2);border-radius:var(--radius-sm);padding:10px;font-size:var(--fs-sm)">
           <b>방법 3</b> — 아래 버튼으로 이미지 페이지 열기 →<br>
           이미지 우클릭 → 다른 이름으로 저장
         </div>
@@ -793,6 +792,9 @@ function blobToDataUrl(blob){
     r.readAsDataURL(blob);
   });
 }
+
+// 표지 미지정 상태 썸네일 (index.html #coverThumb 초기 마크업과 동일)
+const COVER_THUMB_EMPTY_HTML='<span class="cover-thumb-empty"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>표지</span></span>';
 
 function handleCover(files){
   const f=files?.[0];if(!f)return;
@@ -940,10 +942,10 @@ function renderIllTags(){
     const isJpg=['jpg','jpeg'].includes(ext);
     const needsConvert=!isJpg&&willConvert;
     const fmtBadge=isJpg
-      ? `<span style="font-size:9px;background:var(--green-bg);color:var(--green);border-radius:3px;padding:1px 4px;font-weight:700">JPG</span>`
+      ? `<span style="font-size:var(--fs-xs);background:var(--green-bg);color:var(--green);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">JPG</span>`
       : needsConvert
-        ? `<span style="font-size:9px;background:var(--yellow-bg);color:var(--yellow);border-radius:3px;padding:1px 4px;font-weight:700">${ext.toUpperCase()}→JPG</span>`
-        : `<span style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 4px;font-weight:700">${ext.toUpperCase()}</span>`;
+        ? `<span style="font-size:var(--fs-xs);background:var(--yellow-bg);color:var(--yellow);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">${ext.toUpperCase()}→JPG</span>`
+        : `<span style="font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">${ext.toUpperCase()}</span>`;
 
     const t=document.createElement('div');
     t.className='tag';
@@ -953,7 +955,7 @@ function renderIllTags(){
 
     // 썸네일
     const thumb=document.createElement('img');
-    thumb.style.cssText='width:22px;height:22px;object-fit:cover;border-radius:3px;flex-shrink:0;border:1px solid var(--border)';
+    thumb.style.cssText='width:22px;height:22px;object-fit:cover;border-radius:var(--radius-xs);flex-shrink:0;border:1px solid var(--border)';
     thumb.alt=f.name;
     const url=URL.createObjectURL(f);
     thumb.src=url;
@@ -961,7 +963,7 @@ function renderIllTags(){
     thumb.onerror=()=>{thumb.style.display='none';};
 
     const label=document.createElement('span');
-    label.style.cssText='max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px';
+    label.style.cssText='max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs)';
     label.textContent=f.name;
 
     // 챕터 인덱스 배지 — 파일명에서 파싱해서 어느 챕터에 삽입될지 표시
@@ -971,7 +973,7 @@ function renderIllTags(){
       const chIdx=parseInt(mi[1]);      // 1-based 표시용
       const sub=mi[2]?('-'+parseInt(mi[2])):'';
       const b=document.createElement('span');
-      b.style.cssText='font-size:9px;background:var(--accent-bg);color:var(--accent);border-radius:3px;padding:1px 5px;font-weight:700;flex-shrink:0;white-space:nowrap';
+      b.style.cssText='font-size:var(--fs-xs);background:var(--accent-bg);color:var(--accent);border-radius:var(--radius-xs);padding:1px 5px;font-weight:700;flex-shrink:0;white-space:nowrap';
       b.textContent=chIdx+'번째'+sub;
       b.title=chIdx+'번째 챕터 앞에 삽입 (파일명 기준 인덱스)';
       return b;
@@ -1021,7 +1023,7 @@ function addManualIllRow(containerId){
       '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" data-action="removeManualIllRow" data-row-id="mr'+id+'">✕</button>'+
     '</div>'+
     '<div class="mill-preview" id="mpv'+id+'">'+
-      '<div style="font-size:11px;color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>'+
+      '<div style="font-size:var(--fs-xs);color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>'+
     '</div>';
   c.appendChild(r);
 }
@@ -1056,7 +1058,7 @@ async function loadIllRange(id){
   const chNum=parseInt(document.getElementById('mc'+id).value);
   const pv=document.getElementById('mpv'+id);
   if(!chNum||!S.txtFiles.length){
-    pv.innerHTML='<div style="font-size:11px;color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>';
+    pv.innerHTML='<div style="font-size:var(--fs-xs);color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>';
     pv.classList.remove('show');
     return;
   }
@@ -1132,7 +1134,7 @@ function renderIllRangePanel(id, kw, selectedCi){
   // 키워드 검색바
   const kwBar=
     '<div class="mill-kw-bar">'+
-      '<span style="font-size:11px;color:var(--text2);white-space:nowrap">🔍 범위 내 검색:</span>'+
+      '<span style="font-size:var(--fs-xs);color:var(--text2);white-space:nowrap">🔍 범위 내 검색:</span>'+
       '<input id="mkw'+id+'" placeholder="키워드로 정확한 위치 찾기" value="'+escHtml(kw)+'" '+
              'oninput="debounceIllKwSearch('+id+')">'+
     '</div>'+
@@ -1315,7 +1317,7 @@ async function startConvert(){
     abortBtn=document.createElement('button');
     abortBtn.id='convertAbortBtn';
     abortBtn.className='btn';
-    abortBtn.style.cssText='font-size:11px;padding:4px 12px;background:var(--accent-bg);color:var(--accent);border:1.5px solid var(--accent);border-radius:6px;margin-top:6px;display:block';
+    abortBtn.style.cssText='font-size:var(--fs-xs);padding:4px 12px;background:var(--accent-bg);color:var(--accent);border:1.5px solid var(--accent);border-radius:var(--radius-xs);margin-top:6px;display:block';
     abortBtn.textContent='⛔ 변환 중단';
     progWrapEl?.appendChild(abortBtn);
   }
@@ -1584,9 +1586,9 @@ function _renderConvertReport(warnings){
   // ★ style.css의 #convertReport{display:none} 기본값 때문에 ''가 아닌 'block'으로 명시
   el.style.display = 'block';
   el.innerHTML =
-    `<div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">⚠ 변환 경고 ${warnings.length}건</div>` +
+    `<div style="font-size:var(--fs-xs);font-weight:700;color:var(--accent);margin-bottom:6px">⚠ 변환 경고 ${warnings.length}건</div>` +
     `<div style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto">` +
-    warnings.map(w=>`<div style="font-size:11px;color:var(--text2);padding:3px 6px;background:var(--accent-bg);border-radius:4px;border-left:2px solid var(--accent)">⚠ ${escHtml(String(w))}</div>`).join('') +
+    warnings.map(w=>`<div style="font-size:var(--fs-xs);color:var(--text2);padding:3px 6px;background:var(--accent-bg);border-radius:var(--radius-xs);border-left:2px solid var(--accent)">⚠ ${escHtml(String(w))}</div>`).join('') +
     `</div>`;
 }
 
@@ -1615,7 +1617,7 @@ function _renderProgressSparkline(){
     `<svg width="${W}" height="${H}" style="display:block;margin:6px auto 0" aria-label="단계별 소요시간 스파크라인">
       <title>변환 단계별 소요시간</title>${svgBars}
     </svg>
-    <div style="font-size:10px;color:var(--text2);margin-top:2px">단계별 소요시간 (총 ${(totalMs/1000).toFixed(1)}초)</div>`;
+    <div style="font-size:var(--fs-xs);color:var(--text2);margin-top:2px">단계별 소요시간 (총 ${(totalMs/1000).toFixed(1)}초)</div>`;
   container.style.display = 'block'; // ★ #progressSparkline{display:none} 기본값 대응
 }
 
@@ -1784,7 +1786,7 @@ function renderPreview(){
       if(/^[-\u2014]/.test(t)) html+='<p><em>'+escHtml(t)+'</em></p>';
       else html+='<p>'+escHtml(t)+'</p>';
     }
-    if(b.split('\n').length>30) html+='<p style="color:var(--text2);font-size:11px;margin-top:8px">... (이하 생략)</p>';
+    if(b.split('\n').length>30) html+='<p style="color:var(--text2);font-size:var(--fs-xs);margin-top:8px">... (이하 생략)</p>';
     html+='</div>';
   }
   body.innerHTML=html;
@@ -1816,7 +1818,7 @@ async function startSplit(){
   const useItalic=document.getElementById('optItalic')?.checked!==false;
   const coverFile=S.coverFile;
   const listEl=document.getElementById('splitList');
-  listEl.innerHTML='<div style="font-size:12px;color:var(--text2);grid-column:1/-1">분리 중...</div>';
+  listEl.innerHTML='<div style="font-size:var(--fs-sm);color:var(--text2);grid-column:1/-1">분리 중...</div>';
   document.getElementById('splitSec').style.display='block';
 
   const chapters=_previewChapters.filter(([h])=>h!=='서문');
@@ -1836,8 +1838,8 @@ async function startSplit(){
     div.className='split-item';
     div.id='spi_'+pi;
     div.innerHTML='<div style="font-weight:600;margin-bottom:4px">'+escHtml(partTitle)+'</div>'+
-      '<div style="font-size:11px;color:var(--text2)">'+escHtml(firstCh)+' ~ '+escHtml(lastCh)+'</div>'+
-      '<div id="sps_'+pi+'" style="font-size:11px;color:var(--text2);margin-top:4px">생성 중...</div>';
+      '<div style="font-size:var(--fs-xs);color:var(--text2)">'+escHtml(firstCh)+' ~ '+escHtml(lastCh)+'</div>'+
+      '<div id="sps_'+pi+'" style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px">생성 중...</div>';
     listEl.appendChild(div);
 
     try{
@@ -2253,7 +2255,7 @@ async function showBatchToc(idx, btn){
       else failMsg=`${chapters.length}개 감지 (파일 ${totalCh}화 기준 ${detectedPct.toFixed(0)}% - 80% 미달)`;
 
       panel.innerHTML=
-        '<div style="font-size:11px;color:var(--accent);padding:4px;margin-bottom:6px">'+
+        '<div style="font-size:var(--fs-xs);color:var(--accent);padding:4px;margin-bottom:6px">'+
           '⚠️ '+failMsg+' 아래에서 패턴을 선택해주세요.'+
         '</div>'+
         buildPatPresetPanel(idx,text,totalCh);
@@ -2261,10 +2263,10 @@ async function showBatchToc(idx, btn){
       // 성공: 챕터 목록 + 패턴 변경 버튼
       const pctStr=totalCh>0?` · ${detectedPct.toFixed(0)}% (${totalCh}화 기준)`:'';
       const info=document.createElement('div');
-      info.style.cssText='font-size:11px;color:var(--text2);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center';
+      info.style.cssText='font-size:var(--fs-xs);color:var(--text2);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center';
       info.innerHTML=
         `<span>총 <b style="color:var(--accent)">${chapters.length}</b>개 챕터${pctStr}${detectedName?' · '+detectedName:''}</span>`+
-        '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="toggleBatchPreset('+idx+')">✏️ 패턴 변경</button>';
+        '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="toggleBatchPreset('+idx+')">✏️ 패턴 변경</button>';
       panel.appendChild(info);
 
       const presetDiv=document.createElement('div');
@@ -2281,7 +2283,7 @@ async function showBatchToc(idx, btn){
       show.forEach(ch=>{
         const row=document.createElement('div');
         if(!ch){
-          row.style.cssText='text-align:center;color:var(--text3);font-size:10px;padding:3px 0';
+          row.style.cssText='text-align:center;color:var(--text3);font-size:var(--fs-xs);padding:3px 0';
           row.textContent='··· '+(chapters.length-HEAD-TAIL)+'개 더 ···';
         } else {
           row.className='batch-toc-row';
@@ -2294,7 +2296,7 @@ async function showBatchToc(idx, btn){
     panel.classList.add('show');
     btn.textContent='📋 목차 닫기';
   }catch(e){
-    panel.innerHTML='<div style="font-size:11px;color:var(--accent)">오류: '+e.message+'</div>';
+    panel.innerHTML='<div style="font-size:var(--fs-xs);color:var(--accent)">오류: '+e.message+'</div>';
     panel.classList.add('show');
     btn.textContent='📋 목차 확인';
   }
@@ -2360,12 +2362,12 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
   }
 
   let html =
-    '<div style="margin-top:6px;padding:8px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">' +
-    '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:8px">📐 챕터 패턴 선택</div>' +
+    '<div style="margin-top:6px;padding:8px;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border)">' +
+    '<div style="font-size:var(--fs-sm);font-weight:700;color:var(--text);margin-bottom:8px">📐 챕터 패턴 선택</div>' +
     '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="batchPresetCheckAll('+idx+',true)">전체 선택</button>' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="batchPresetCheckAll('+idx+',false)">전체 해제</button>' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="batchPresetAuto('+idx+')">🔍 자동 감지</button>' +
+      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="batchPresetCheckAll('+idx+',true)">전체 선택</button>' +
+      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="batchPresetCheckAll('+idx+',false)">전체 해제</button>' +
+      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="batchPresetAuto('+idx+')">🔍 자동 감지</button>' +
     '</div>' +
     '<div id="bpck_list_'+idx+'" style="display:flex;flex-direction:column;gap:4px">';
 
@@ -2377,14 +2379,14 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
     const goodBg = pct!==null&&parseFloat(pct)>=80 ? 'background:var(--green-bg);border-color:var(--green)' : '';
 
     html +=
-      `<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 6px;border-radius:5px;cursor:pointer;border:1px solid var(--border);background:var(--bg2);${goodBg}">` +
+      `<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 6px;border-radius:var(--radius-xs);cursor:pointer;border:1px solid var(--border);background:var(--bg2);${goodBg}">` +
         `<input type="checkbox" class="bpck_${idx}" data-val="${escHtml(val)}" ${checked}` +
                ` onchange="applyBatchPreset(${idx})" style="margin-top:2px;flex-shrink:0">` +
         '<div style="min-width:0;flex:1">' +
-          '<div style="font-size:12px;font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+          '<div style="font-size:var(--fs-sm);font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
             escHtml(label) +
-            `<span style="font-size:11px;color:${parseFloat(pct)>=80?'var(--green)':'var(--accent)'};font-weight:700">${pctStr}</span>` +
-            `<span style="font-size:10px;color:var(--text2);font-weight:400">${escHtml(desc)}</span>` +
+            `<span style="font-size:var(--fs-xs);color:${parseFloat(pct)>=80?'var(--green)':'var(--accent)'};font-weight:700">${pctStr}</span>` +
+            `<span style="font-size:var(--fs-xs);color:var(--text2);font-weight:400">${escHtml(desc)}</span>` +
           '</div>' +
         '</div>' +
       '</label>';
@@ -2393,13 +2395,13 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
   html +=
     '</div>' +
     '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">' +
-      '<div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px">직접 입력 (정규식)</div>' +
+      '<div style="font-size:var(--fs-xs);font-weight:600;color:var(--text2);margin-bottom:4px">직접 입력 (정규식)</div>' +
       '<div style="display:flex;gap:6px">' +
         `<input class="inp" id="bpat_direct_${idx}" placeholder="직접 입력하거나 위에서 선택" ` +
-               `value="${escHtml(curPat)}" style="flex:1;font-size:11px" oninput="applyBatchPreset(${idx})">` +
+               `value="${escHtml(curPat)}" style="flex:1;font-size:var(--fs-xs)" oninput="applyBatchPreset(${idx})">` +
         `<button class="btn btn-blue btn-sm" onclick="confirmBatchPreset(${idx})">✅ 적용</button>` +
       '</div>' +
-      `<div id="bpat_preview_${idx}" style="font-size:10px;color:var(--text2);margin-top:4px">` +
+      `<div id="bpat_preview_${idx}" style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px">` +
         (curPat?'현재: '+escHtml(curPat):'(자동 감지)') +
       '</div>' +
     '</div>' +
@@ -2689,8 +2691,8 @@ async function resetAll(){
   _chaptersCache=null;_chaptersCacheKey='';
   document.getElementById('txtDz').className='dz';
   document.getElementById('illDz').className='dz';
-  document.getElementById('coverDz').className='dz';
-  document.getElementById('coverThumb').innerHTML='표지';
+  document.getElementById('coverDz')?.classList.remove('ok'); // className 덮어쓰기 금지 — dz-compact 유지
+  const _ct=document.getElementById('coverThumb'); if(_ct) _ct.innerHTML=COVER_THUMB_EMPTY_HTML;
   document.getElementById('coverName').textContent='';
   document.getElementById('txtInfo').style.display='none';
   document.getElementById('illTags').innerHTML='';
@@ -2711,7 +2713,7 @@ function resetBatchTxt(){
 function resetBatchCover(){
   _bStore.set({coverMap:{},urlCoverFile:null});
   const dz=document.getElementById('batchCoverDrop');
-  dz.className='dz';dz.querySelector('div').textContent='🖼 표지 이미지들 한꺼번에 드래그';
+  dz.className='dz';dz.querySelector('div').textContent='표지 이미지들 한꺼번에 드래그';
   document.getElementById('batchCoverUrlInp').value='';
   renderBatchList();
 }
@@ -2753,17 +2755,11 @@ function resetConvertTxt(){
   // DOM 잔재 정리
   document.getElementById('hybrid-suggest-btn')?.remove();
   document.getElementById('title-template-bar')?.remove();
-  // ★ splitBtn 원상 복구 — _syncSplitBtn으로 단일 관리
-  typeof _syncSplitBtn==='function'
-    ? _syncSplitBtn('reset')
-    : (()=>{
-        const btn=document.querySelector('button[data-action="autoSplitByInterval"]');
-        if(btn){ btn.disabled=false; btn.style.opacity='1'; btn.style.pointerEvents=''; btn.style.color=''; btn.textContent='⚡ 간격 분할'; btn.title=''; }
-      })();
+  // ★ splitBtn 원상 복구 — _syncSplitBtn(parser.js)으로 단일 관리 (항상 정의돼 있어 폴백 분기 제거)
+  _syncSplitBtn('reset');
   document.getElementById('txtDz').className='dz';
-  // ★ UX-PD: Progressive Disclosure — 파일 리셋 시 패턴 영역 다시 흐리게
-  const patSec=document.getElementById('patSection');
-  if(patSec) patSec.style.opacity='0.45';
+  // ★ UX-PD: 파일 리셋 → 목차 확인·간격 분할 버튼 비활성 표시 (.is-idle)
+  document.getElementById('patSection')?.classList.add('is-idle');
   document.getElementById('txtInfo').style.display='none';
   const fl=document.getElementById('txtFileList'); if(fl) fl.style.display='none';
   const sl=document.getElementById('txtSortList'); if(sl) sl.innerHTML='';
@@ -2776,9 +2772,9 @@ function resetConvertTxt(){
 function resetConvertCover(){
   S.coverFile=null;
   S._coverAuto=false;
-  document.getElementById('coverDz').className='dz';
+  document.getElementById('coverDz')?.classList.remove('ok'); // className 덮어쓰기 금지 — dz-compact 유지
   const t=document.getElementById('coverThumb');
-  if(t)t.innerHTML='<span style="display:flex;flex-direction:column;align-items:center;gap:4px"><span style="font-size:22px">🖼</span><span>표지</span></span>';
+  if(t)t.innerHTML=COVER_THUMB_EMPTY_HTML;
   document.getElementById('coverName').textContent='';
   const inp=document.getElementById('coverUrlInp');if(inp)inp.value='';
 }

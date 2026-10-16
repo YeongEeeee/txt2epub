@@ -252,6 +252,9 @@ async function main(){
     check('[EPUB] 평면 목차 ol 1개', (e.nav.match(/<ol>/g) || []).length === 1);
     check('[EPUB] 평면 ncx dtb:depth=1', e.ncx.includes('<meta name="dtb:depth" content="1"/>'));
     check('[EPUB] 서문은 목차 제외', !/>서문</.test(e.nav));
+    // 앱 UI용 CSS 토큰(var(--…))이 EPUB 본문·스타일로 새어 나가지 않았는지 (리더기는 앱 변수를 모름)
+    const texts = await Promise.all(Object.keys(e.zip.files).filter(n => /\.(xhtml|css|opf|ncx)$/.test(n)).map(n => e.zip.file(n).async('string')));
+    check('[EPUB] 앱 CSS 변수 미유출', texts.every(t => !t.includes('var(--')));
   }
   // 4-3. 표지 + 삽화
   {

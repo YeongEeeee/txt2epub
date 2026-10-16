@@ -153,7 +153,7 @@ async function loadEpub(file){
   if(E.chapters.length>0){
     const lastCh=E.chapters[E.chapters.length-1];
     document.getElementById('insertPos').innerHTML=
-      '📍 <b>'+escHtml(lastCh.title)+'</b> <span style="color:var(--accent)">뒤</span>에 삽입 <span style="font-size:10px;color:var(--text2)">(기본값 - 클릭해서 변경)</span>';
+      '📍 <b>'+escHtml(lastCh.title)+'</b> <span style="color:var(--accent)">뒤</span>에 삽입 <span style="font-size:var(--fs-xs);color:var(--text2)">(기본값 - 클릭해서 변경)</span>';
   }
 }
 
@@ -425,13 +425,13 @@ function renderInsTocList(){
 
     if(isDup){
       const dupBadge=document.createElement('span');
-      dupBadge.style.cssText='font-size:9px;background:var(--yellow-bg);color:var(--yellow);border:1px solid var(--accent2);border-radius:3px;padding:1px 5px;flex-shrink:0';
+      dupBadge.style.cssText='font-size:var(--fs-xs);background:var(--yellow-bg);color:var(--yellow);border:1px solid var(--accent2);border-radius:var(--radius-xs);padding:1px 5px;flex-shrink:0';
       dupBadge.textContent='중복';
       dupBadge.title='EPUB에 이미 있는 챕터예요 ('+chKey+')';
       d.appendChild(chk); d.appendChild(num); d.appendChild(title); d.appendChild(dupBadge);
     } else if(isNext){
       const marker=document.createElement('span');
-      marker.style.cssText='font-size:9px;background:var(--blue);color:#fff;border-radius:3px;padding:1px 5px;flex-shrink:0';
+      marker.style.cssText='font-size:var(--fs-xs);background:var(--blue);color:#fff;border-radius:var(--radius-xs);padding:1px 5px;flex-shrink:0';
       marker.textContent='← 연결점';
       marker.title='EPUB 마지막('+epubLastNum+'화) 바로 다음 챕터';
       const newBadge=document.createElement('span');
@@ -553,7 +553,7 @@ function _showEpubConnectInfo(){
   textEl.innerHTML=
     `현재 EPUB 마지막 챕터: <b>${escHtml(lastCh.title)}</b>${numText} — `+
     `<b>${E.chapters.length}번째</b> 위치<br>`+
-    `<span style="color:var(--accent);font-size:10px">➡ 아래에서 이 이후 챕터들을 선택해 삽입하세요</span>`;
+    `<span style="color:var(--accent);font-size:var(--fs-xs)">➡ 아래에서 이 이후 챕터들을 선택해 삽입하세요</span>`;
   infoEl.style.display='block';
 }
 
@@ -1050,7 +1050,7 @@ async function previewEpubToc(){
   const pat=document.getElementById('eTocPattern')?.value.trim();
   const tb0=document.getElementById('eTb0');
   const tb1=document.getElementById('eTb1');
-  tb0.innerHTML='<div style="font-size:12px;color:var(--text2);padding:8px">🔍 감지 중...</div>';
+  tb0.innerHTML='<div style="font-size:var(--fs-sm);color:var(--text2);padding:8px">🔍 감지 중...</div>';
 
   // 원본 텍스트 탭 내용 채우기
   tb1.innerHTML='<pre class="toc-raw">'+
@@ -1065,7 +1065,7 @@ async function previewEpubToc(){
         if(l.trim()&&rx.test(l.trim())) found.push({line:i+1,title:l.trim(),enabled:true});
       });
     }catch(e){
-      tb0.innerHTML='<div style="color:var(--accent);padding:8px;font-size:12px">⚠️ 정규식 오류: '+escHtml(e.message)+'</div>';
+      tb0.innerHTML='<div style="color:var(--accent);padding:8px;font-size:var(--fs-sm)">⚠️ 정규식 오류: '+escHtml(e.message)+'</div>';
       return;
     }
   }else{
@@ -1095,7 +1095,7 @@ function renderETocItems(){
   tb0.innerHTML='';
   const stat=document.createElement('div');
   stat.style.cssText='margin-bottom:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
-  stat.innerHTML='<span style="font-size:11px;color:var(--text2)">총 <b>'+_eTocItems.length+'</b>개 감지</span>'+
+  stat.innerHTML='<span style="font-size:var(--fs-xs);color:var(--text2)">총 <b>'+_eTocItems.length+'</b>개 감지</span>'+
     '<button class="btn btn-ghost btn-sm" data-action="eToggleAllToc" data-val="true">전체 선택</button>'+
     '<button class="btn btn-ghost btn-sm" data-action="eToggleAllToc" data-val="false">전체 해제</button>';
   tb0.appendChild(stat);
@@ -1353,10 +1353,10 @@ function renderDirectEditIllTags(){
   _directEditIllFiles.forEach((f,i)=>{
     const stem=f.name.replace(/\.[^.]+$/,'');
     const mi=stem.match(/^(\d+)(?:_(\d+))?/);
-    const badge=mi?`<span style="font-size:9px;background:var(--accent-bg);color:var(--accent);border-radius:3px;padding:1px 5px;font-weight:700">${parseInt(mi[1])}번째${mi[2]?'-'+parseInt(mi[2]):''}</span>`:'';
+    const badge=mi?`<span style="font-size:var(--fs-xs);background:var(--accent-bg);color:var(--accent);border-radius:var(--radius-xs);padding:1px 5px;font-weight:700">${parseInt(mi[1])}번째${mi[2]?'-'+parseInt(mi[2]):''}</span>`:'';
     const t=document.createElement('div');
     t.className='tag';
-    t.innerHTML=`<span style="font-size:11px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.name)}</span>${badge}<span class="x" onclick="removeDirectEditIll(${i})">✕</span>`;
+    t.innerHTML=`<span style="font-size:var(--fs-xs);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.name)}</span>${badge}<span class="x" onclick="removeDirectEditIll(${i})">✕</span>`;
     c.appendChild(t);
   });
 }
@@ -1369,12 +1369,12 @@ function addDirectEditIllRow(){
   div.style.marginBottom='8px';
   div.innerHTML=
     '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+
-    '<select id="deif_'+id+'" style="flex:2;min-width:100px;font-size:12px;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit">'+
+    '<select id="deif_'+id+'" style="flex:2;min-width:100px;font-size:var(--fs-sm);padding:5px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-family:inherit">'+
     '<option value="">파일 선택</option>'+
     _directEditIllFiles.map(f=>`<option value="${escHtml(f.name)}">${escHtml(f.name)}</option>`).join('')+
     '</select>'+
-    '<input type="number" id="deich_'+id+'" placeholder="챕터 번호(1-based)" min="1" style="width:130px;font-size:12px;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text)">'+
-    '<select id="deip_'+id+'" style="font-size:12px;padding:5px 8px;border:1.5px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:inherit"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
+    '<input type="number" id="deich_'+id+'" placeholder="챕터 번호(1-based)" min="1" style="width:130px;font-size:var(--fs-sm);padding:5px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text)">'+
+    '<select id="deip_'+id+'" style="font-size:var(--fs-sm);padding:5px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-family:inherit"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
     '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" data-action="removeDirectIllRow" data-row-id="deir_'+id+'">✕</button>'+
     '</div>';
   list.appendChild(div);

@@ -405,7 +405,7 @@ function renderCssPresetList(){
   const all=[...CSS_PRESET_DEFAULTS,...userPresets];
   container.innerHTML='';
   if(!all.length){
-    container.innerHTML='<span style="font-size:11px;color:var(--text2)">저장된 프리셋 없음</span>';
+    container.innerHTML='<span style="font-size:var(--fs-xs);color:var(--text2)">저장된 프리셋 없음</span>';
     return;
   }
   all.forEach((p,idx)=>{
@@ -1016,7 +1016,7 @@ async function renderHistory(){
     ...metas.filter(m=>!_starred[m.key]),
   ];
 
-  c.innerHTML='<div style="text-align:center;padding:12px 0;font-size:11px;color:var(--text2)">⏳ 로딩 중...</div>';
+  c.innerHTML='<div style="text-align:center;padding:12px 0;font-size:var(--fs-xs);color:var(--text2)">⏳ 로딩 중...</div>';
   const blobExists=await Promise.all(metas.map(m=>idbGet(m.key).then(b=>!!b).catch(()=>false)));
   c.innerHTML='';
 
@@ -1074,12 +1074,12 @@ async function renderHistory(){
     row.innerHTML=
       '<div class="hist-thumb">📚</div>'+
       '<div class="hist-info">'+
-        '<div class="hist-title">'+escHtml(m.title)+(m.author?'<span style="font-weight:400;color:var(--text2);font-size:11px"> / '+escHtml(m.author)+'</span>':'')+(compareBadge?' '+compareBadge:'')+'</div>'+
+        '<div class="hist-title">'+escHtml(m.title)+(m.author?'<span style="font-weight:400;color:var(--text2);font-size:var(--fs-xs)"> / '+escHtml(m.author)+'</span>':'')+(compareBadge?' '+compareBadge:'')+'</div>'+
         '<div class="hist-meta">'+safeDate+' · '+safeChCount+'화 · '+safeSizeMB+'MB · '+safeElapsed+'초</div>'+
       '</div>'+
       (hasBlob
         ?'<button class="btn btn-green btn-sm" data-action="histDownload" data-key="'+safeKey+'" data-name="'+safeName+'">⬇ 다운로드</button>'
-        :'<span style="font-size:11px;color:var(--text2);white-space:nowrap">파일 없음</span>')+
+        :'<span style="font-size:var(--fs-xs);color:var(--text2);white-space:nowrap">파일 없음</span>')+
       '<button class="hist-del" data-action="deleteHistory" data-key="'+safeKey+'" title="기록 삭제">✕</button>';
     row.insertBefore(starBtn, row.firstChild);
     c.appendChild(row);

@@ -110,6 +110,25 @@ EPUB 스타일 설정(폰트·줄간격·배경색·글자색) 변경 시 **0.4�
 
 ---
 
+### Phase 7 — 디자인 정리 (줄이고 통일하기)
+
+| 항목 | 이전 | 이후 |
+|------|------|------|
+| 헤더~탭 빈 띠 | 49px (sticky 규칙 충돌) | 0px, 탭이 헤더 아래 sticky |
+| 모바일(390px) 페이지 폭 | 421px (가로 스크롤) | 390px (전 탭) |
+| 변환 탭 글자 크기 종류 / 최소 크기 | 8종 / 9px | 4종 / 11px |
+| 모서리 둥글기 종류 | 7종 | 5종 (토큰 3단계 + pill·원) |
+| 변환 탭 이모지 | 32개 | 0개 (선 아이콘 SVG로 통일) |
+| UI 글꼴 | Noto Serif KR(명조) | 산세리프 (명조는 로고·리더 전용) |
+
+- 헤더: 주황 그라디언트 → 중립 글래스 배경 + 로고만 강조색, 아이콘 버튼 `aria-label`
+- 하단 고정 바: 상태 한 줄 · 변환 버튼 · (데스크톱) 단축키 — 콘텐츠 폭에 정렬
+- 설정 요약 칩·힌트 박스·보조 버튼 중립 톤 (강조색은 주요 동작·선택·오류 전용)
+- 패턴 예시 입력·빠른 선택 칩·정규식 도움말을 `패턴 직접 지정` 접기로 이동 (감지 실패 시 자동 펼침)
+- 표지 영역: 4단 구성 → 썸네일 + 한 줄 드롭존 + 검색·URL 한 줄
+- 파일 로드 전에는 영역 전체를 흐리게 하지 않고 `목차 확인`·`간격 분할` 버튼만 비활성
+- 히스토리·설정 탭이 `.wrap` 밖에 있던 마크업 오류 수정, 컬러 스킨 CSS(스와치·`[data-skin]` 토큰) 신설
+
 ### Phase 5 신규 추가 — Folio 프리미엄 미니멀리즘 대개혁
 
 #### 16. 유동적 반응형 타이포그래피
@@ -185,7 +204,7 @@ CSS 변수(`--tab-indicator-x`, `--tab-indicator-w`)와 `switchPage()` 함수를
 
 ```
 index.html      — 단일 페이지 SPA 마크업 (1,257줄)
-├── style.css   — CSS 변수 76개+, 키프레임 20개+ (1,343줄)
+├── style.css   — 디자인 토큰 61개(글꼴·타입 스케일·반경·색), 키프레임 24개 (1,305줄)
 ├── core.js     — StateManager, Toast, SettingsDB, EventBus, Cloudflare 프록시 (833줄)
 ├── convert.js  — 변환 탭 로직: 파일 I/O, 인코딩, 이미지, 삽화, 표지 자동 매칭, 파싱 Worker 관리 (2,781줄)
 ├── parser.js   — 텍스트 파싱 엔진(패턴 단일 소유), 목차 렌더링·후보 검색, 계층 목차, 시리즈 메타, Worker 소스 생성 (3,286줄)
@@ -325,14 +344,24 @@ side.jpg     → 외전 챕터에 자동 매핑
 ### 테마
 - **라이트**: `radial-gradient` 배경 미세 그라데이션
 - **다크**: OLED 친화 `#0e0c0a` 심해 다크 브라운 기반, warm-slate 텍스트, `backdrop-filter` 글래스모피즘 계층
-- CSS 변수 76개+ + 키프레임 애니메이션 20개+
+- 디자인 토큰 61개 + 키프레임 애니메이션 24개 (Phase 7에서 미사용 토큰·키프레임 정리)
 - JS `initTheme()` 우선, OS `prefers-color-scheme` 폴백
-- CSS `clamp()` 기반 유동 반응형 타이포그래피, `word-break: keep-all` 한국어 최적화
+- `word-break: keep-all` 한국어 최적화
+
+### 타이포그래피 · 형태 토큰 (Phase 7)
+| 토큰 | 값 | 용도 |
+|------|----|------|
+| `--font-ui` | Pretendard → Apple SD Gothic Neo → Noto Sans KR | 모든 UI 텍스트 |
+| `--font-serif` | Noto Serif KR → 나눔명조 | 로고 · 리더 미리보기 |
+| `--fs-xs/sm/base/md/lg/xl` | 11 / 12 / 14 / 15 / 17 / 21px | 고정 6단계 (이전 clamp는 모바일 9px까지 축소) |
+| `--radius-xs/sm/(기본)` | 6 / 10 / 14px | 3단계 (pill은 99px) |
+| `--hdr-h` | JS가 실제 헤더 높이로 갱신 | 탭 바 sticky 위치 |
+| `--content-max` | 900px | 본문·헤더·탭·하단 바 시작선 정렬 |
 
 ### 컬러 스킨 3종
 | 스킨 | 액센트 | 적용 |
 |------|--------|------|
-| 테라코타 (기본) | `#d45a46` | 기본값, `data-skin` 없음 |
+| 테라코타 (기본) | `#c8503c` | 기본값, `data-skin` 없음 |
 | 인디고 블루 | `#4855a8` | `[data-skin=indigo]` |
 | 포레스트 그린 | `#2a7a4a` | `[data-skin=forest]` |
 
@@ -407,7 +436,7 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 |------|------|
 | 총 줄수 | JS 13,522줄 (+ HTML/CSS 2,600줄) |
 | 회귀 테스트 | 154개 통과 + epubcheck 0 오류 |
-| 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6) |
+| 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |
 | 하드코딩 색상 | 0개 (전부 CSS 변수, :root 정의부 제외) |

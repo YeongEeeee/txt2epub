@@ -173,10 +173,10 @@ window.addEventListener('error', function(e) {
     banner.style.cssText = [
       'position:fixed', 'bottom:80px', 'left:50%', 'transform:translateX(-50%)',
       'background:var(--panel,#fff)', 'border:1.5px solid var(--accent,#d45a46)',
-      'border-radius:10px', 'padding:10px 16px',
+      'border-radius:var(--radius-sm)', 'padding:10px 16px',
       'box-shadow:0 4px 20px rgba(0,0,0,.18)',
       'z-index:99997', 'display:flex', 'align-items:center', 'gap:10px',
-      'font-size:13px', 'color:var(--text,#1c1410)', 'white-space:nowrap',
+      'font-size:var(--fs-base)', 'color:var(--text,#1c1410)', 'white-space:nowrap',
       'animation:fadeUp .3s ease',
     ].join(';');
     // textContent 사용 — XSS 방어
@@ -188,8 +188,8 @@ window.addEventListener('error', function(e) {
     updateBtn.textContent = '지금 업데이트';
     updateBtn.style.cssText = [
       'background:var(--accent,#d45a46)', 'color:#fff', 'border:none',
-      'border-radius:6px', 'padding:4px 10px', 'cursor:pointer',
-      'font-size:12px', 'font-weight:600',
+      'border-radius:var(--radius-xs)', 'padding:4px 10px', 'cursor:pointer',
+      'font-size:var(--fs-sm)', 'font-weight:600',
     ].join(';');
     updateBtn.addEventListener('click', function () {
       if (navigator.serviceWorker.controller) {
@@ -203,7 +203,7 @@ window.addEventListener('error', function(e) {
     closeBtn.textContent = '✕';
     closeBtn.style.cssText = [
       'background:none', 'border:none', 'cursor:pointer',
-      'color:var(--text2,#7a6a60)', 'font-size:14px', 'padding:0 2px',
+      'color:var(--text2,#7a6a60)', 'font-size:var(--fs-base)', 'padding:0 2px',
     ].join(';');
     closeBtn.addEventListener('click', function () { banner.remove(); });
 
@@ -304,7 +304,7 @@ document.addEventListener('DOMContentLoaded', function _mainInit() {
         errBanner.style.cssText = [
           'position:fixed','top:0','left:0','right:0',
           'background:#d44','color:#fff','padding:10px 16px',
-          'font-size:13px','z-index:99999','text-align:center',
+          'font-size:var(--fs-base)','z-index:99999','text-align:center',
         ].join(';');
         errBanner.textContent = '초기화 오류: 핵심 모듈 로드 실패. 페이지를 새로고침해 주세요.';
         document.body?.appendChild(errBanner);

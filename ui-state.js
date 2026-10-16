@@ -91,7 +91,7 @@ function updateCssPreview(){
   const bgColor  =_el('cssBgColor')?.value  ||'';
   const align=document.querySelector('input[name="cssAlign"]:checked')?.value||'justify';
   const titleStyle=document.querySelector('input[name="cssTitleStyle"]:checked')?.value||'center';
-  p.style.cssText=`font-family:${font};line-height:${line};font-size:${size};padding:${paddingVal};${textColor?'color:'+textColor+';':''}${bgColor?'background:'+bgColor+';':''}text-align:${align};border-radius:8px`;
+  p.style.cssText=`font-family:${font};line-height:${line};font-size:${size};padding:${paddingVal};${textColor?'color:'+textColor+';':''}${bgColor?'background:'+bgColor+';':''}text-align:${align};border-radius:var(--radius-sm)`;
   const te=_el('cssPreviewTitle');
   if(te){
     te.style.textAlign=titleStyle==='left'?'left':'center';
@@ -154,18 +154,19 @@ function updateSettingsSummary(){
   const merge=document.getElementById('optMergeShortLines')?.checked;
   const imgConv=document.getElementById('optImgConvert')?.checked!==false;
 
-  function badge(icon, label, val, on){
+  // 정보성 요약 칩 — 아이콘 없이 '라벨 값'만, 강조색 대신 중립 톤 (style.css .opt-badge)
+  function badge(label, val, on){
     const cls='opt-badge'+(on?' on':' off');
-    return `<span class="${cls}"><span class="opt-badge-icon">${icon}</span> ${label} <span class="opt-badge-val">${val}</span></span>`;
+    return `<span class="${cls}">${label} <span class="opt-badge-val">${val}</span></span>`;
   }
   const chipHtml=
-    badge('🔤','폰트',fontName,true)+
-    badge('↕','줄간격',line,true)+
-    badge('📐','크기',size,true)+
-    badge('👻','이탤릭',italic?'ON':'OFF',italic)+
-    badge('⬛','들여쓰기',indent?'ON':'OFF',indent)+
-    badge('📏','문단정합',merge?'ON':'OFF',merge)+
-    badge('🖼','JPG변환',imgConv?'ON':'OFF',imgConv);
+    badge('폰트',fontName,true)+
+    badge('줄간격',line,true)+
+    badge('크기',size,true)+
+    badge('이탤릭',italic?'ON':'OFF',italic)+
+    badge('들여쓰기',indent?'ON':'OFF',indent)+
+    badge('문단정합',merge?'ON':'OFF',merge)+
+    badge('JPG변환',imgConv?'ON':'OFF',imgConv);
 
   [document.getElementById('settingsSummary'), document.getElementById('batchSettingSummary')].forEach(el=>{
     if(el) el.innerHTML=chipHtml;
@@ -186,7 +187,7 @@ function updateBtmBar(files){
   if(stat){
     if(!hasFile){
       stat.className='btm-status-val none';
-      stat.textContent='선택 안 됨';
+      stat.textContent='TXT 파일을 추가하세요';
     }else if(files.length===1){
       // ★ BUG-24 수정: 파일 크기 표시 단위 보정 (1KB 미만은 B 단위)
       const bytes=files[0].size;
@@ -317,7 +318,7 @@ function createVirtualScroll(container, lines, lineHeight=18, visibleBuffer=60){
   container.appendChild(spacer);
   const content = document.createElement('pre');
   content.className = 'toc-raw';
-  content.style.cssText = 'position:absolute;top:0;left:0;right:0;margin:0;white-space:pre;font-size:11px;line-height:'+ITEM_H+'px;font-family:monospace';
+  content.style.cssText = 'position:absolute;top:0;left:0;right:0;margin:0;white-space:pre;font-size:var(--fs-xs);line-height:'+ITEM_H+'px;font-family:monospace';
   container.appendChild(content);
   let lastStart = -1, lastEnd = -1, rafId = null;
 
@@ -469,7 +470,7 @@ function _buildMainPatHelper(){
 
     if(presets.length===0){
       const empty=document.createElement('span');
-      empty.style.cssText='font-size:11px;color:var(--text3);padding:4px 0';
+      empty.style.cssText='font-size:var(--fs-xs);color:var(--text3);padding:4px 0';
       empty.textContent=cat==='recent'?'아직 사용한 패턴이 없어요':'패턴 없음';
       c.appendChild(empty);
     }
@@ -537,7 +538,7 @@ function _buildLegacyChips(id){
   const targetInput=id==='insPatHelper'?'insPattern':'eTocPatEdit';
   c.innerHTML='';
   const hint=document.createElement('span');
-  hint.style.cssText='font-size:11px;color:var(--text2);align-self:center;margin-right:2px';
+  hint.style.cssText='font-size:var(--fs-xs);color:var(--text2);align-self:center;margin-right:2px';
   hint.textContent='빠른 선택:';
   c.appendChild(hint);
 
@@ -635,11 +636,11 @@ function clearChipSelection(helperId){
 function showShortcutHelp(){
   const existing=document.getElementById('shortcutHelp');
   if(existing){existing.remove();return;}
-  const kbdStyle='background:var(--bg2);border:1px solid var(--border);border-radius:4px;padding:2px 6px';
+  const kbdStyle='background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:2px 6px';
   const el=document.createElement('div');
   el.id='shortcutHelp';
-  el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:14px;padding:20px 24px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.3);font-size:12px;min-width:280px';
-  el.innerHTML='<div style="font-size:14px;font-weight:700;margin-bottom:12px;color:var(--text)">⌨️ 단축키</div>'+
+  el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:var(--radius);padding:20px 24px;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,.3);font-size:var(--fs-sm);min-width:280px';
+  el.innerHTML='<div style="font-size:var(--fs-base);font-weight:700;margin-bottom:12px;color:var(--text)">⌨️ 단축키</div>'+
     '<table style="border-collapse:collapse;width:100%;line-height:2"><tbody>'+
     '<tr><td style="color:var(--text2);padding-right:16px"><kbd style="'+kbdStyle+'">Ctrl+Space</kbd></td><td>✨ 변환 시작</td></tr>'+
     '<tr><td><kbd style="'+kbdStyle+'">Ctrl+S</kbd></td><td>⬇ EPUB 다운로드</td></tr>'+
@@ -1084,6 +1085,12 @@ window.initUiState = function initUiState(){
   (function _setupHeaderCompact(){
     const hdr=document.querySelector('.hdr');
     if(!hdr) return;
+    // ★ 탭 바(sticky)가 헤더 바로 아래 붙도록 실제 헤더 높이를 --hdr-h로 공유 (축소 애니메이션 포함)
+    const _syncHdrH=()=>document.documentElement.style.setProperty('--hdr-h', hdr.getBoundingClientRect().height+'px');
+    _syncHdrH();
+    // border-box 관찰: 축소(.compact)는 padding만 바뀌므로 기본(content-box) 관찰로는 감지되지 않음
+    if(typeof ResizeObserver!=='undefined') new ResizeObserver(_syncHdrH).observe(hdr,{box:'border-box'});
+    hdr.addEventListener('transitionend',_syncHdrH); // 축소 애니메이션 종료 시점 최종 높이 확정
     let _hdrTicking=false;
     const THRESHOLD=40;
     function _onScroll(){
@@ -1112,8 +1119,8 @@ window.initUiState = function initUiState(){
 
   // ★ UX-PD: Progressive Disclosure — 초기 로드 시 패턴 영역 흐리게 설정
   // 파일 드롭 전에는 패턴 입력이 주 액션이 아님을 시각적으로 표현
-  const patSectionInit = document.getElementById('patSection');
-  if(patSectionInit) patSectionInit.style.opacity = '0.45';
+  // 파일이 없으면 목차 확인·간격 분할 버튼만 비활성 표시 (영역 전체를 흐리게 하지 않음)
+  if(!S.txtFiles.length) document.getElementById('patSection')?.classList.add('is-idle');
 
   initTheme();
   loadCssSettings();

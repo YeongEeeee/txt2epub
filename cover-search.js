@@ -363,7 +363,7 @@ function openCoverSearchModal(mode='convert') {
     if(grid){
       grid.replaceChildren();
       const hint = document.createElement('div');
-      hint.style.cssText = 'text-align:center;padding:40px 0;color:var(--text2);font-size:13px';
+      hint.style.cssText = 'text-align:center;padding:40px 0;color:var(--text2);font-size:var(--fs-base)';
       hint.innerHTML = '소설 제목을 입력하고 검색하면<br>네이버·리디·카카오페이지·노벨피아·구글에서 동시 검색해요';
       grid.appendChild(hint);
     }
@@ -439,7 +439,7 @@ function runCoverSearch() {
         grid.replaceChildren();
         const errEl = document.createElement('div');
         errEl.className = 'cover-search-empty';
-        errEl.innerHTML = `⚠️ 오류가 발생했습니다.<br><span style="font-size:11px;color:var(--text3)">${escHtml(err.message)}</span>`;
+        errEl.innerHTML = `⚠️ 오류가 발생했습니다.<br><span style="font-size:var(--fs-xs);color:var(--text3)">${escHtml(err.message)}</span>`;
         grid.appendChild(errEl);
       }
     });
@@ -701,7 +701,7 @@ function renderCoverSearchResults(items) {
     const card = document.createElement('div');
     card.className = 'cover-search-card';
     // ★ 카드 레이아웃 고정: flex column + 너비 고정으로 격자 붕괴 방지
-    card.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;padding:8px;border-radius:8px;border:1.5px solid var(--border);background:var(--bg2);transition:border-color .15s';
+    card.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;padding:8px;border-radius:var(--radius-sm);border:1.5px solid var(--border);background:var(--bg2);transition:border-color .15s';
 
     // ★ 이미지 크기 고정: 표지 표준 1:1.43 배율 (120×171px)
     // object-fit:cover → 종횡비 무관하게 잘라맞춤, 크기 불일치로 인한 UI 붕괴 방지
@@ -712,7 +712,7 @@ function renderCoverSearchResults(items) {
       'width:120px',
       'height:171px',
       'object-fit:cover',
-      'border-radius:6px',
+      'border-radius:var(--radius-xs)',
       'background-color:var(--border)',
       'display:block',
       'flex-shrink:0',
@@ -730,7 +730,7 @@ function renderCoverSearchResults(items) {
 
     const titleDiv = document.createElement('div');
     titleDiv.className = 'cover-search-card-title';
-    titleDiv.style.cssText = 'font-size:11px;line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all';
+    titleDiv.style.cssText = 'font-size:var(--fs-xs);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all';
     titleDiv.textContent = item.title;  // textContent: XSS 방어
 
     info.appendChild(titleDiv);
