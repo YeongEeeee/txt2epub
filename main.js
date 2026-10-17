@@ -44,41 +44,10 @@ if (window.__NOVELEPUB_MAIN_LOADED__) {
 window.__NOVELEPUB_MAIN_LOADED__ = true;
 
 // ══════════════════════════════════════════════════════════════
-// § 1. 전역 공유 상태 — 최초 1회 안전 정의
-//   ★ M-02: Proxy 재정의 레이스 원천 차단
-//   convert.js / parser.js 어느 쪽이 먼저 로드되어도
-//   main.js가 스크립트 맨 마지막에 로드되어 단 1회만 defineProperty
+// § 1. 전역 공유 상태
+//   ★ Phase 10: 이 블록의 window._autoSplitActive/_autoSplitLines/_fullRawLines 대체 정의 제거
+//   parser.js가 항상 먼저 로드되어 정의하므로 실행되지 않던 코드였음 (정의 위치: parser.js 단일)
 // ══════════════════════════════════════════════════════════════
-(function _initSharedState() {
-  // _autoSplitActive
-  if (!Object.getOwnPropertyDescriptor(window, '_autoSplitActive')) {
-    let __val = false;
-    Object.defineProperty(window, '_autoSplitActive', {
-      get() { return __val; },
-      set(v) { __val = !!v; },
-      configurable: true,
-    });
-  }
-
-  // _autoSplitLines — parser.js 소유이지만 convert.js도 읽어야 함
-  // parser.js가 이미 정의했을 수 있으므로 미정의 시에만 초기 stub 설정
-  if (!Object.getOwnPropertyDescriptor(window, '_autoSplitLines')) {
-    Object.defineProperty(window, '_autoSplitLines', {
-      get() { return null; },
-      set() {},
-      configurable: true,   // parser.js가 나중에 정확한 getter로 덮어씀
-    });
-  }
-
-  // _fullRawLines
-  if (!Object.getOwnPropertyDescriptor(window, '_fullRawLines')) {
-    Object.defineProperty(window, '_fullRawLines', {
-      get() { return []; },
-      set() {},
-      configurable: true,
-    });
-  }
-})();
 
 // ══════════════════════════════════════════════════════════════
 // § 2. JSZip 로드 실패 가드  ★ M-01
@@ -346,6 +315,9 @@ function _runMainInit() {
     ['previewToc',         () => typeof previewToc !== 'undefined'],
     ['autoSplitByInterval',() => typeof autoSplitByInterval !== 'undefined'],
     ['bestPat',            () => typeof bestPat !== 'undefined'],
+    ['detectToc',          () => typeof detectToc !== 'undefined'],
+    ['assembleTocChapters',() => typeof assembleTocChapters !== 'undefined'],
+    ['tocScrollToIndex',   () => typeof tocScrollToIndex !== 'undefined'],
     // epub-gen.js
     ['buildEpub',          () => typeof buildEpub !== 'undefined'],
     ['buildCss',           () => typeof buildCss !== 'undefined'],
@@ -355,6 +327,7 @@ function _runMainInit() {
     ['fileToText',         () => typeof fileToText !== 'undefined'],
     ['startConvert',       () => typeof startConvert !== 'undefined'],
     ['splitChapters',      () => typeof splitChapters !== 'undefined'],
+    ['detectTocAsync',     () => typeof detectTocAsync !== 'undefined'],
     // settings.js
     ['saveCssSettings',    () => typeof saveCssSettings !== 'undefined'],
     ['loadCssSettings',    () => typeof loadCssSettings !== 'undefined'],

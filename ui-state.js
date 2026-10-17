@@ -124,7 +124,8 @@ function updateMiniReader(){
   const toc=typeof S!=='undefined'&&S.tocItems?S.tocItems.filter(t=>t.enabled):[];
   if(toc.length>0&&title&&body){
     title.textContent=toc[0].title||'1화';
-    const previewText=(toc[0].body||'').slice(0,200).replace(/\n{2,}/g,'\n').trim();
+    // ★ Phase 10: 목차 항목은 본문 문자열 대신 원문 줄 범위를 가리킴 → 필요한 앞부분만 읽기
+    const previewText=(typeof _tocItemText==='function'?_tocItemText(toc[0],200):'').replace(/\n{2,}/g,'\n').trim();
     if(previewText){
       const _esc=s=>s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       body.innerHTML=_esc(previewText)
@@ -790,11 +791,8 @@ function _spawnDropConfetti(container){
         clearTimeout(_debTimer);
         _debTimer = setTimeout(() => {
           if(!S?.tocItems?.length) return;
-          S.tocItems.forEach((t, fi) => {
-            const bl = typeof t.bodyLen === 'number' ? t.bodyLen : (t.body||'').replace(/\s/g,'').length;
-            t.suspicious = bl < val && fi < S.tocItems.length - 1;
-          });
-          typeof updateTocStat === 'function' && updateTocStat();
+          // ★ Phase 10: 짧은 챕터 판정은 _recalcTocStats 단일 규칙 (권·키워드 제목 제외 포함 — 이전엔 여기서만 규칙이 달랐음)
+          typeof _recalcTocStats === 'function' && _recalcTocStats(S.tocItems, undefined, val);
           typeof renderTocItems === 'function' && renderTocItems();
         }, 80);
       };
@@ -984,16 +982,15 @@ function setupEventDelegate(){
     toggleAllToc:  (el) => typeof toggleAllToc==='function'&&toggleAllToc(el.dataset.val === 'true'),
     removeDirectIllRow: (el) => { const row = document.getElementById(el.dataset.rowId); if(row) row.remove(); },
     removeAllSuspicious: () => {
-      const indices=[];
-      S.tocItems.forEach((t,i)=>{ if(t.suspicious && i+1<S.tocItems.length) indices.push(i+1); });
-      const toRemove=[...new Set(indices)].sort((a,b)=>b-a);
+      // ★ Phase 10: '본문 짧음' 항목 자신을 목차에서 제거 — 내용은 줄 순서상 앞 챕터 본문으로 이어짐(손실 없음)
+      //   (이전: 짧은 항목의 '다음' 항목을 지워 멀쩡한 다음 화의 제목이 사라짐)
+      const toRemove=[];
+      S.tocItems.forEach((t,i)=>{ if(t.suspicious) toRemove.push(i); });
+      toRemove.sort((a,b)=>b-a);
       if(toRemove.length>0) typeof _saveTocSnapshot==='function'&&_saveTocSnapshot();
       toRemove.forEach(i=>S.tocItems.splice(i,1));
-      typeof _chaptersCache!=='undefined'&&(_chaptersCache=null);
-      typeof _chaptersCacheKey!=='undefined'&&(_chaptersCacheKey='');
-      typeof renderTocItems==='function'&&renderTocItems();
-      typeof updateTocStat==='function'&&updateTocStat();
-      typeof updateTocEditBanner==='function'&&updateTocEditBanner();
+      if(typeof _tocCommit==='function') _tocCommit();
+      else typeof renderTocItems==='function'&&renderTocItems();
       document.getElementById('susp-toast')?.remove();
       if(toRemove.length>0) Toast.success('오감지 챕터 '+toRemove.length+'개를 목차에서 제거했어요.');
     },
@@ -1272,19 +1269,13 @@ function updateFeedFromToc(tocArray){
   // ★ 글자수 집계 (bodyLen 기반)
   let totalChars = 0;
   if(total > 0){
-    tocArray.forEach(c=>{
-      const bl = typeof c.bodyLen === 'number' ? c.bodyLen : (c.body||'').replace(/\s/g,'').length;
-      totalChars += bl;
-    });
+    tocArray.forEach(c=>{ totalChars += c.bodyLen||0; });
   }
   const avgChars = total > 0 ? Math.round(totalChars / total) : 0;
   const totalCharsStr = totalChars >= 10000
     ? (totalChars/10000).toFixed(1)+'만자'
     : totalChars.toLocaleString()+'자';
-  const shortCount=total?tocArray.filter(c=>{
-    const bl = typeof c.bodyLen === 'number' ? c.bodyLen : (c.body||'').replace(/\s/g,'').length;
-    return bl > 0 && bl < suspThreshold;
-  }).length:0;
+  const shortCount=total?tocArray.filter(c=>(c.bodyLen||0) > 0 && (c.bodyLen||0) < suspThreshold).length:0;
   if(badge){
     badge.className='detect-badge'+(total===0?' zero':shortCount>0?' warn':'');
     badge.innerHTML=total>0
@@ -1294,11 +1285,11 @@ function updateFeedFromToc(tocArray){
   if(list&&total>0){
     const preview=(tocArray||[]).slice(0,8);
     list.innerHTML=preview.map((ch,i)=>{
-      const chars = typeof ch.bodyLen === 'number' ? ch.bodyLen : (ch.body||'').replace(/\s/g,'').length;
+      const chars = ch.bodyLen||0;
       const isShort=chars>0&&chars<suspThreshold;
       const badgeCls='feed-item-badge'+(isShort?' short':chars>0?' ok':'');
       const badgeTxt=chars>0?(isShort?`⚠ ${chars}자`:`${chars.toLocaleString()}자`):'';
-      const prev=(ch.body||'').replace(/\n/g,' ').slice(0,60);
+      const prev=(typeof _tocItemText==='function'?_tocItemText(ch,120):'').replace(/\n/g,' ').slice(0,60);
       const titleSafe=(ch.title||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const prevSafe=prev.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       return `<div class="feed-item"><span class="feed-item-num">${i+1}</span><div class="feed-item-body"><div class="feed-item-title">${titleSafe}</div>${prevSafe?`<div class="feed-item-preview">${prevSafe}…</div>`:''}</div>${badgeTxt?`<span class="${badgeCls}">${badgeTxt}</span>`:''}</div>`;

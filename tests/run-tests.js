@@ -371,6 +371,113 @@ async function main(){
     check('[보안] Toast/confirm은 _sanitizeHtml 경유', !/parseFromString\(msg/.test(read('core.js')) && /function _sanitizeHtml/.test(read('core.js')));
   }
 
+  // ── 6. Phase 10 회귀 (본문 렌더링·목차 줄 범위 모델·삽화 매핑·성능·Worker 감지) ──
+  {
+    // 6-1. 본문 렌더링: 메인 스레드 = EPUB Worker (단일 소스) + 손실·오분류 없음
+    const renderMain = G('renderBodyHtml');
+    const wctx = { console }; wctx.self = wctx; vm.createContext(wctx);
+    vm.runInContext(epubSrc.replace(/^importScripts\(.*\);$/m, ''), wctx);
+    const cases = ['2층 [창고]', '6시 방향 [적]', '≪상태창≫', '【스킬】 화염', '[퀘스트 완료]', '웃음😀 𠀀한자', '단어 단어',
+      'HP &amp; MP <강화>', '&lt;시스템&gt; 알림', '&#128512; ok', 'bad &#0; &#xD800;', '\uD800짝없음', '— 회상', 'a​b'];
+    check('[렌더] 메인 스레드 = EPUB Worker', cases.every(c => renderMain(c) === wctx.renderBodyHtml(c)));
+    const R = c => renderMain(c).trim();
+    check('[렌더] 숫자로 시작해 ]로 끝나는 본문은 일반 문단', R('2층 [창고]') === '<p>2층 [창고]</p>' && R('6시 방향 [적]') === '<p>6시 방향 [적]</p>');
+    check('[렌더] ≪≫ 상태창은 sysmsg', R('≪상태창≫').includes('sysmsg'));
+    check('[렌더] 이모지·확장 한자 보존', R('웃음😀 𠀀한자') === '<p>웃음😀 𠀀한자</p>');
+    check('[렌더] NBSP는 공백', R('단어 단어') === '<p>단어 단어</p>');
+    check('[렌더] 엔티티+날것 < 혼재 → 모두 이스케이프', R('HP &amp; MP <강화>') === '<p>HP &amp; MP &lt;강화&gt;</p>');
+    check('[렌더] 짝 없는 서로게이트 제거', R('\uD800짝없음') === '<p>짝없음</p>');
+    check('[렌더] 무효 숫자 엔티티는 문자열로 안전 처리', R('bad &#0; &#xD800;') === '<p>bad &amp;#0; &amp;#xD800;</p>');
+    // XHTML 파싱 가능 여부 (날것 <, & 없음)
+    const xh = cases.map(R).join('');
+    check('[렌더] 출력에 날것 < 또는 미이스케이프 & 없음', !/<(?!\/?(p|em)\b)/.test(xh) && !/&(?!(amp|lt|gt|quot|#\d+|#39);)/.test(xh));
+
+    // 6-2. 목차 줄 범위 모델 — 순서 변경·떨어진 병합·분리·비활성·통계
+    const L = ['머리말', '', '1화', 'A1', 'A2', '', '2화', 'B1', '', '3화', 'C1', 'C2', 'C3', '', '4화', 'D1'];
+    const mk = () => [{ line: 3, title: '1화', enabled: true, num: 1, kind: 'ch' }, { line: 7, title: '2화', enabled: true, num: 2, kind: 'ch' },
+                      { line: 10, title: '3화', enabled: true, num: 3, kind: 'ch' }, { line: 15, title: '4화', enabled: true, num: 4, kind: 'ch' }];
+    const build = G('buildChaptersFromTocItems');
+    app.S = { tocItems: mk() };
+    let out = build(L, app.S.tocItems, null);
+    check('[목차] 기본 조립 + 서문 meta', eq(out.map(c => c[0]), ['서문', '1화', '2화', '3화', '4화']) && out[0][2]?.pre === true && out[1][2]?.num === 1);
+    const moved = mk(); moved.unshift(moved.splice(2, 1)[0]);   // 3화를 맨 앞으로
+    out = build(L, moved, null);
+    check('[목차] 드래그 순서 변경이 출력에 반영', eq(out.map(c => c[0]), ['서문', '3화', '1화', '2화', '4화']) && out[1][1] === 'C1\nC2\nC3');
+    app.S = { tocItems: mk() };
+    const res = G('_tocMergeItems')([0, 2]);   // 1화 + 3화 (떨어진 항목)
+    out = build(L, app.S.tocItems, null);
+    check('[목차] 떨어진 항목 병합 = 두 범위만 결합', res && eq(out.map(c => c[0]), ['서문', '1화 + 3화', '2화', '4화']) &&
+      out[1][1] === 'A1\nA2\n\n3화\nC1\nC2\nC3' && out[2][1] === 'B1', JSON.stringify(out));
+    check('[목차] 병합 원본 줄 번호 보존(분리용)', eq(app.S.tocItems[0]._mergedSources.map(s => s.line), [3, 10]));
+    const stats = G('_recalcTocStats')(mk(), L, 50);
+    check('[목차] 글자수 통계 = 줄 범위', eq(stats.map(t => t.bodyLen), [4, 2, 6, 2]), stats.map(t => t.bodyLen).join(','));
+    check('[목차] 짧은 챕터 판정(마지막 제외)', eq(stats.map(t => t.suspicious), [true, true, true, false]));
+    const dis = mk(); dis[1].enabled = false;
+    out = build(L, dis, null);
+    check('[목차] 비활성 항목 내용은 앞 챕터에 이어짐', out.find(c => c[0] === '1화')[1].includes('2화\nB1'));
+    const dup = mk(); dup.push({ line: 7, title: '2화 중복', enabled: true });
+    out = build(L, dup, null);
+    check('[목차] 같은 줄 항목 중복 출력 없음', out.filter(c => c[1] === 'B1').length === 1);
+    // 문단 정합 옵션은 조립 후 본문에 적용 (목차 줄 번호 무관)
+    const pm = G('applyParagraphMerge')([['1화', '짧은 줄\n또 짧은 줄\n\n' + '긴 줄 '.repeat(10), { num: 1 }]]);
+    check('[목차] 문단 정합 적용 + meta 유지', pm[0][1].startsWith('짧은 줄 또 짧은 줄') && pm[0][2]?.num === 1);
+
+    // 6-3. Worker 미리보기 감지(DETECT) = 메인 스레드 detectToc
+    const raw = fs.readFileSync(path.join(FIX_DIR, '02_n_hwa_keywords.txt'), 'utf8');
+    const wd = await runWorker(workerSrc, { type: 'DETECT', id: 11, payload: { raw, opts: {} } });
+    const md = G('detectToc')(raw.split('\n'), {});
+    check('[Worker] DETECT 결과 = 메인 스레드', wd.last.type === 'DONE' && eq(wd.last.result.items, md.items) && eq(wd.last.result.dropLines, md.dropLines));
+
+    // 6-4. 성능: 패턴 없는 대용량 TXT (이전 8~11초)
+    const big = Array.from({ length: 200000 }, (_, i) => i % 7 ? '그는 천천히 고개를 들어 하늘을 바라보았다. 바람이 불었다 ' + (i % 13) : '').join('\n');
+    const t0 = Date.now(); splitChapters(big, ''); const ms = Date.now() - t0;
+    check('[성능] 패턴 없는 20만 줄 감지 < 4초', ms < 4000, ms + 'ms');
+    console.log(`  · 패턴 없는 20만 줄 감지 ${ms}ms`);
+
+    // 6-5. EPUB 삽화 매핑: 순번은 서문 제외 · 화 번호는 감지 번호(meta.num) · 키워드는 원문 기준
+    const chs = [['서문', '소개글', { pre: true }], ['제1부 1화', '첫 화 & 시작', { num: 1 }], ['제2부 15화', '열다섯', { num: 15 }], ['외전', '외전 본문', { num: null }]];
+    const params = { title: '삽화', author: 'a', chapters: chs, useItalic: true, showChTitle: true, compressionLevel: 1, lang: 'ko',
+      uid: 'urn:uuid:00000000-0000-4000-8000-000000000001', today: '2026-10-17', modified: '2026-10-17T00:00:00Z',
+      illMapMeta: [{ idx: 0, pos: 'before', file_idx: 0 }, { ch: 15, pos: 'after', file_idx: 1 }, { kw: '& 시작', pos: 'after', file_idx: 2 }] };
+    const imageData = { cover: null, ills: [0, 1, 2].map(i => ({ ab: tinyPng(), ext: 'png', mt: 'image/png', file_idx: i })) };
+    const we = await runWorker(epubSrc, { params, imageData, cssText: '' }, w => ({ importScripts(){ vm.runInContext(jszipSrc, w); } }));
+    check('[EPUB] 삽화 Worker 성공', we.last.type === 'done', we.last.message);
+    if(we.last.type === 'done'){
+      const z = await JSZip.loadAsync(Buffer.from(await we.last.blob.arrayBuffer()));
+      const opf = await z.file('OEBPS/content.opf').async('string');
+      const spine = [...opf.matchAll(/<itemref idref="([^"]+)"\/>/g)].map(m => m[1]);
+      check('[EPUB] 01.jpg → 서문이 아닌 첫 챕터 앞', eq(spine, ['ch_0000', 'ill_0000', 'ch_0001', 'ill_0001', 'ch_0002', 'ill_0002', 'ch_0003']) ||
+        eq(spine.slice(0, 3), ['ch_0000', 'ill_0000', 'ch_0001']), spine.join(','));
+      const ill1 = await z.file('OEBPS/Text/ill_0001.xhtml').async('string');
+      const ill2 = await z.file('OEBPS/Text/ill_0002.xhtml').async('string');
+      check('[EPUB] 화 번호 15 → \'제2부 15화\' (첫 숫자 2가 아님)', ill1.includes('<title>제1부 1화 삽화</title>') ? ill2.includes('제2부 15화') : ill1.includes('제2부 15화'));
+      check('[EPUB] 키워드 매칭은 원문 기준(& 포함)', spine.indexOf('ch_0001') >= 0 && spine[spine.indexOf('ch_0001') + 1] && spine[spine.indexOf('ch_0001') + 1].startsWith('ill_'));
+      // 중앙 디렉터리에서 이미지 항목의 압축 방식(0=STORE) 확인
+      const zbuf = Buffer.from(await we.last.blob.arrayBuffer());
+      const methods = {};
+      for(let o = zbuf.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02])); o >= 0; o = zbuf.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]), o + 4)){
+        const nameLen = zbuf.readUInt16LE(o + 28);
+        methods[zbuf.slice(o + 46, o + 46 + nameLen).toString()] = zbuf.readUInt16LE(o + 10);
+      }
+      const imgs = Object.keys(methods).filter(n => n.startsWith('OEBPS/Images/') && !n.endsWith('/'));
+      check('[EPUB] 이미지는 재압축 없이 STORE', imgs.length === 3 && imgs.every(n => methods[n] === 0), JSON.stringify(methods));
+      check('[EPUB] 본문은 DEFLATE', methods['OEBPS/Text/chapter_0001.xhtml'] === 8);
+      const ch1 = await z.file('OEBPS/Text/chapter_0001.xhtml').async('string');
+      check('[EPUB] XHTML xml:lang', ch1.includes('xml:lang="ko"'));
+    }
+
+    // 6-6. 정적 검사 — 상태·저장·배포
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const core = read('core.js'), settings = read('settings.js'), html = read('index.html'), sw = read('sw.js');
+    const setBody = ((core.match(/function set\(patch\) \{([\s\S]*?)\n    \}/) || [])[1] || '').replace(/\/\/.*$/gm, '');
+    check('[상태] StateManager.set이 기존 배열을 비우지 않음', setBody && !/\.length\s*=\s*0/.test(setBody));
+    check('[저장] idbSet은 await + onabort 처리', /async function idbSet[\s\S]*?await new Promise[\s\S]*?tx\.onabort/.test(settings));
+    check('[보안] JSZip SRI integrity', /jszip\.min\.js" integrity="sha512-[A-Za-z0-9+/=]+" crossorigin="anonymous"/.test(html));
+    check('[배포] SW 외부 자원 CORS 프리캐시', /mode: 'cors'/.test(sw));
+    const defs = ['parser.js', 'convert.js', 'main.js'].map(f => (read(f).match(/defineProperty\(window,\s*'_autoSplitActive'/g) || []).length);
+    check('[구조] window._autoSplitActive 정의 1곳', defs.reduce((a, b) => a + b, 0) === 1, defs.join('/'));
+  }
+
   if(UPDATE){
     fs.writeFileSync(GOLDEN, JSON.stringify(golden, null, 2) + '\n', 'utf8');
     console.log(`golden.json 갱신: ${fixtures.length}개 픽스처`);

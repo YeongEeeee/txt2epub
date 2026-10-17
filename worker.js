@@ -55,11 +55,18 @@ function detectEncoding(buffer){
   // EUC-KR vs UTF-8 비교
   const utf8Text=new TextDecoder('utf-8',{fatal:false}).decode(bytes);
   const eucText =new TextDecoder('euc-kr',{fatal:false}).decode(bytes);
-  const utf8Bad =(utf8Text.match(/\ufffd/g)||[]).length;
-  const eucBad  =(eucText.match(/\ufffd/g)||[]).length;
+  const utf8Bad =countChar(utf8Text,'\ufffd');
+  const eucBad  =countChar(eucText,'\ufffd');
 
   if(utf8Bad===0) return 'utf-8';
   return utf8Bad<=eucBad ? 'utf-8' : 'euc-kr';
+}
+
+// ★ Phase 10: 개수만 필요 — match(/x/g)처럼 일치 배열을 만들지 않음
+function countChar(text, ch){
+  let n=0, i=-1;
+  while((i=text.indexOf(ch,i+1))!==-1) n++;
+  return n;
 }
 
 // ══════════════════════════════════════════
@@ -71,10 +78,10 @@ function decodeText(buffer, enc){
 
   // UTF-8로 판정했는데 깨진 문자가 많으면 EUC-KR로 재시도
   if(enc==='utf-8'){
-    const badCount=(text.match(/\ufffd/g)||[]).length;
+    const badCount=countChar(text,'\ufffd');
     if(badCount>10){
       const text2=new TextDecoder('euc-kr',{fatal:false}).decode(new Uint8Array(buffer));
-      const bad2=(text2.match(/\ufffd/g)||[]).length;
+      const bad2=countChar(text2,'\ufffd');
       return bad2<badCount ? text2 : text;
     }
   }
@@ -96,7 +103,8 @@ self.onmessage = async function(e){
 
       // ── 인코딩 감지 + 디코딩 통합 ──
       case 'FILE_TO_TEXT': {
-        const enc2 = detectEncoding(payload.buffer);
+        // ★ Phase 10: 메인 스레드가 이미 감지한 인코딩이 있으면 재감지하지 않음
+        const enc2 = payload.enc || detectEncoding(payload.buffer);
         const text2 = decodeText(payload.buffer, enc2);
         // ★ W-02: 처리 완료 후 buffer 참조 해제
         payload.buffer = null;

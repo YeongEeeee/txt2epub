@@ -668,6 +668,19 @@ function updateInsTocCount(){
   document.getElementById('insTocCount').textContent=on+'/'+items.length+'개 선택됨';
 }
 
+// ★ Phase 10: EPUB 복제 — mimetype을 첫 항목·무압축(STORE)으로 고정
+//   (이전: 원본 항목을 그대로 복사한 뒤 전체 DEFLATE → mimetype까지 압축되어 epubcheck PKG-007 오류,
+//    mimetype을 첫 항목으로 요구하는 리더기에서 열리지 않을 수 있음)
+async function _cloneEpubZip(srcZip){
+  const z=new JSZip();
+  z.file('mimetype','application/epub+zip',{compression:'STORE'});
+  for(const [name,f] of Object.entries(srcZip.files)){
+    if(f.dir||name==='mimetype') continue;
+    z.file(name, await f.async('arraybuffer'));
+  }
+  return z;
+}
+
 async function startEditEpub(){
   if(!E.epubZip){Toast.warn('EPUB 파일을 먼저 불러와주세요.');return;}
   if(!E.insTxtFiles.length){Toast.warn('삽입할 TXT 파일을 선택해주세요.');return;}
@@ -689,11 +702,7 @@ async function startEditEpub(){
     newChapters=newChapters.filter(([h])=>h!=='서문'||newChapters.length===1);
     if(!newChapters.length)throw new Error('삽입할 챕터가 없습니다.');
     ep(15,'EPUB 복제 중...');
-    const newZip=new JSZip();
-    for(const[name,f]of Object.entries(E.epubZip.files)){
-      if(f.dir)continue;
-      newZip.file(name,await f.async('arraybuffer'));
-    }
+    const newZip=await _cloneEpubZip(E.epubZip);
     const containerXml=await E.epubZip.file('META-INF/container.xml').async('text');
     const opfPath=containerXml.match(/full-path="([^"]+)"/)[1];
     const opfBase=opfPath.replace(/[^/]+$/,'');
@@ -1018,6 +1027,7 @@ let _directEditTocSel=-1;     // ▲▼ 이동 대상으로 선택된 항목 인
 // ── EPUB 텍스트 추출 (목차 재생성용) ──
 let _epubRawText='';     // 전체 텍스트 (줄 배열 아님)
 let _epubRawLines=[];    // 줄 배열
+let _epubChapterStarts=[];  // ★ Phase 10: E.chapters[k]의 원문 시작 줄 (0-based)
 let _eTocItems=[];       // 감지된 목차 아이템
 let _eSmartPatTimer=null;
 
@@ -1025,14 +1035,21 @@ async function extractEpubRawText(){
   if(!E.epubZip||!E.chapters.length){ _epubRawText=''; _epubRawLines=[]; return; }
   // EPUB 각 챕터 xhtml → 텍스트 추출 후 합치기
   const parts=[];
+  // ★ Phase 10: 챕터별 시작 줄(0-based) 기록 → 재감지한 목차 항목을 정확한 챕터 파일에 매핑
+  //   (이전: '전체 줄 수 ÷ 챕터 수' 평균으로 근사 → 챕터 길이가 고르지 않으면 엉뚱한 파일을 가리킴)
+  _epubChapterStarts=[];
+  let offset=0;
   for(const ch of E.chapters){
+    let text='';
     try{
       const xhtml=await E.epubZip.file(ch.href)?.async('text')||'';
       const doc=new DOMParser().parseFromString(xhtml,'text/html');
       // body 텍스트만 추출 (태그 제거)
-      const body=doc.body?.innerText||doc.body?.textContent||'';
-      parts.push(body.trim());
+      text=(doc.body?.innerText||doc.body?.textContent||'').trim();
     }catch(e){}
+    parts.push(text);   // 실패한 챕터도 빈 자리로 유지 — 줄 오프셋 정렬 보장
+    _epubChapterStarts.push(offset);
+    offset+=text.split('\n').length+1;   // join('\n\n')이 챕터 사이에 빈 줄 1개 추가
   }
   _epubRawText=parts.join('\n\n');
   _epubRawLines=_epubRawText.split('\n');
@@ -1396,11 +1413,7 @@ async function applyDirectEdit(){
 
   try{
     ep(5,'EPUB 복제 중...');
-    const newZip=new JSZip();
-    for(const[name,f] of Object.entries(E.epubZip.files)){
-      if(f.dir) continue;
-      newZip.file(name, await f.async('arraybuffer'));
-    }
+    const newZip=await _cloneEpubZip(E.epubZip);
 
     const containerXml=await E.epubZip.file('META-INF/container.xml').async('text');
     const opfPath=containerXml.match(/full-path="([^"]+)"/)[1];
@@ -1418,8 +1431,10 @@ async function applyDirectEdit(){
           // 챕터 전체 텍스트 합산 줄 수 기반으로 해당 챕터 href 찾기
           // 챕터당 평균 줄수로 어느 챕터인지 근사
           // ★ 이전: 항목마다 전체 원문 줄을 filter하는 미사용 계산(chLines)과 1회 돌고 break하는 루프 → 제거 (O(항목×줄) 낭비)
-          const chLineCount=Math.ceil(_epubRawLines.length/Math.max(1,E.chapters.length));
-          const chIdx=Math.min(Math.floor((item.line-1)/Math.max(1,chLineCount)), E.chapters.length-1);
+          // ★ Phase 10: 챕터 시작 줄 표에서 이진 탐색 (item.line-1 이하인 마지막 챕터)
+          let lo=0, hi=_epubChapterStarts.length-1, chIdx=0;
+          while(lo<=hi){ const mid=(lo+hi)>>1; if(_epubChapterStarts[mid]<=item.line-1){ chIdx=mid; lo=mid+1; } else hi=mid-1; }
+          chIdx=Math.min(chIdx, E.chapters.length-1);
           const targetHref=E.chapters[chIdx]?.href||E.chapters[0]?.href||'';
           return {href:targetHref, title:item.title, enabled:true};
         });
@@ -1442,14 +1457,23 @@ async function applyDirectEdit(){
 
       // Spine 재생성 (활성화된 챕터 순서로)
       // 새 목차(_eTocItems)일 경우: 기존 모든 챕터 순서 유지 + 제목만 갱신
+      // ★ Phase 10: itemref id는 manifest의 실제 item id로 (이전: href 문자열로 id를 지어내 manifest에 없는 id 참조
+      //   → epubcheck OPF-049/RSC-005, 리더기에서 본문이 열리지 않음)
+      const idByHref=new Map();
+      for(const m of opfXml.matchAll(/<item\b[^>]*>/g)){
+        const tag=m[0];
+        const id=tag.match(/\bid="([^"]+)"/)?.[1], href=tag.match(/\bhref="([^"]+)"/)?.[1];
+        if(id&&href) idByHref.set(decodeURIComponent(href), id);
+      }
       const spineItems=(_eTocItems.length>0
         ? E.chapters.map(ch=>ch.href)   // 원본 순서 유지
         : enabledItems.map(it=>it.href) // 편집 순서 적용
       ).map(href=>{
-        const relHref=href.replace(opfBase,'');
-        const id=relHref.replace(/[^a-zA-Z0-9_-]/g,'_').replace(/^_+/,'ch_');
-        return `<itemref idref="${id}"/>`;
-      }).join('\n    ');
+        const relHref=decodeURIComponent(href.startsWith(opfBase)?href.slice(opfBase.length):href);
+        const id=idByHref.get(relHref);
+        return id?`<itemref idref="${id}"/>`:'';
+      }).filter(Boolean).join('\n    ');
+      if(!spineItems) throw new Error('목차 항목을 EPUB 본문 파일에 연결하지 못했어요.');
       opfXml=opfXml.replace(/<spine[^>]*>[\s\S]*?<\/spine>/,
         `<spine toc="ncx">\n    ${spineItems}\n  </spine>`);
       newZip.file(opfPath, opfXml);

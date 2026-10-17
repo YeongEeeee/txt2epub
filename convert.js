@@ -125,26 +125,16 @@ const TextWorker = (() => {
   // ★ 파일 크기 기반 자동 라우팅
   // 소형 파일: 메인 스레드 직접 처리 (Worker 오버헤드 없음)
   // 대형 파일: Worker에 ArrayBuffer 전송 (Transferable → 복사 비용 없음)
-  async function fileToTextViaWorker(file, enc){
-    if(file.size < LARGE_FILE_THRESHOLD || !_getWorker()){
-      return null; // 메인 스레드 폴백 신호
-    }
-    const ab = await new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = e => res(e.target.result);
-      r.onerror = rej;
-      r.readAsArrayBuffer(file);
-    });
-    // ★ Transferable: ArrayBuffer 소유권을 Worker로 이전 (zero-copy)
-    const result = await post(
-      'FILE_TO_TEXT',
-      { buffer: ab },
-      [ab] // transferables
-    );
+  // ★ Phase 10: 이미 읽은 버퍼와 감지된 인코딩을 그대로 전달 (이전: 메인에서 읽은 뒤 Worker용으로 파일을 한 번 더 읽고,
+  //   Worker는 인코딩을 다시 감지 → 대용량 파일 I/O·메모리 2배)
+  //   반환 null = Worker 미사용(메인 스레드 처리) / 전송 후 버퍼는 detached → 실패 시 호출자가 다시 읽음
+  async function decodeViaWorker(ab, enc){
+    if(!ab || ab.byteLength < LARGE_FILE_THRESHOLD || !_getWorker()) return null;
+    const result = await post('FILE_TO_TEXT', { buffer: ab, enc }, [ab]);
     return result.text;
   }
 
-  return { fileToTextViaWorker };
+  return { decodeViaWorker, LARGE_FILE_THRESHOLD };
 })();
 
 // ★ U-12: detectEncodingFromAB — ArrayBuffer를 직접 받아 처리 (이중 FileReader 제거용)
@@ -168,11 +158,48 @@ function _detectEncodingFromAB(ab){
   if(errorRate<0.001) return 'utf-8';
   const utf8Text=new TextDecoder('utf-8',{fatal:false}).decode(bytes);
   const eucText=new TextDecoder('euc-kr',{fatal:false}).decode(bytes);
-  const utf8Bad=(utf8Text.match(/\ufffd/g)||[]).length;
-  const eucBad=(eucText.match(/\ufffd/g)||[]).length;
+  const utf8Bad=_countChar(utf8Text,'\ufffd');
+  const eucBad=_countChar(eucText,'\ufffd');
   if(utf8Bad===0) return 'utf-8';
   return utf8Bad<=eucBad ? 'utf-8' : 'euc-kr';
 }
+
+// ★ Phase 10: 개수 세기용 — match(/x/g)는 일치 수만큼 배열을 만듦 (대용량 텍스트에서 수십만 개)
+function _countChar(text, ch){
+  let n=0, i=-1;
+  while((i=text.indexOf(ch,i+1))!==-1) n++;
+  return n;
+}
+function _countLines(text){ return text?_countChar(text,'\n'):0; }
+
+// ══════════════════════════════════════════
+// ★ Phase 10: 디코딩 결과 캐시 (LRU · 총 글자 수 상한)
+//   미리보기·목차 재확인·간격 분할·변환·삽화 범위 검색이 같은 파일을 매번 다시 읽고 디코딩하던 문제
+//   키: 파일명|크기|수정시간 (_encCache와 동일) · 동시 요청은 진행 중 Promise 공유
+// ══════════════════════════════════════════
+const _TEXT_CACHE_MAX_CHARS=48*1024*1024;   // 약 96MB(UTF-16) — 이보다 큰 단일 파일은 캐시하지 않음
+const _textCache=new Map();
+const _textInflight=new Map();
+let _textCacheChars=0;
+function _fileKey(file){ return `${file?.name}|${file?.size}|${file?.lastModified||0}`; }
+function _textCacheGet(file){
+  const k=_fileKey(file);
+  if(!_textCache.has(k)) return null;
+  const v=_textCache.get(k);
+  _textCache.delete(k); _textCache.set(k,v);   // LRU 갱신
+  return v;
+}
+function _textCacheSet(file, text){
+  if(typeof text!=='string'||text.length>_TEXT_CACHE_MAX_CHARS) return;
+  const k=_fileKey(file);
+  if(_textCache.has(k)){ _textCacheChars-=_textCache.get(k).length; _textCache.delete(k); }
+  while(_textCache.size&&_textCacheChars+text.length>_TEXT_CACHE_MAX_CHARS){
+    const [ok,ov]=_textCache.entries().next().value;
+    _textCache.delete(ok); _textCacheChars-=ov.length;
+  }
+  _textCache.set(k,text); _textCacheChars+=text.length;
+}
+function clearTextCache(){ _textCache.clear(); _textCacheChars=0; }
 
 async function detectEncoding(file){
   const ab=await fileToAB(file);
@@ -181,40 +208,32 @@ async function detectEncoding(file){
 }
 
 async function fileToText(file){
-  // ★ U-12 FIX: ArrayBuffer를 한 번만 읽고 detectEncoding + 디코딩 모두 재사용
-  // 기존: detectEncoding(fileToAB) → fileToText(readAsArrayBuffer) = 2회 I/O
-  // 개선: fileToAB 1회 → _detectEncodingFromAB + 직접 디코딩
-
-  // ★ B-FIX-01: LRU 캐시에서 인코딩 조회 (파일명+크기+수정시간 기반 키)
-  let enc = _encCacheGet(file);
-  if(!enc){
-    const ab = await fileToAB(file);
-    enc = _detectEncodingFromAB(ab);
-    _encCacheSet(file, enc);
-    // 이미 읽은 ab를 직접 디코딩
-    if(file.size >= 5 * 1024 * 1024){
-      try{
-        const workerResult = await TextWorker.fileToTextViaWorker(file, enc);
-        if(workerResult !== null) return workerResult;
-      }catch(e){}
+  // ★ Phase 10: 디코딩 결과 캐시 → 같은 파일은 다시 읽지 않음
+  const hit=_textCacheGet(file);
+  if(hit!=null) return hit;
+  const key=_fileKey(file);
+  if(_textInflight.has(key)) return _textInflight.get(key);
+  const job=(async()=>{
+    // ★ U-12 FIX: ArrayBuffer를 한 번만 읽고 인코딩 감지 + 디코딩 모두 재사용
+    let ab = await fileToAB(file);
+    // ★ B-FIX-01: LRU 캐시에서 인코딩 조회 (파일명+크기+수정시간 기반 키)
+    let enc = _encCacheGet(file);
+    if(!enc){ enc = _detectEncodingFromAB(ab); _encCacheSet(file, enc); }
+    let text = null;
+    // ★ 대용량 파일(5MB+)은 Worker에 위임 → 메인 스레드 UI 비블로킹 (읽은 버퍼를 그대로 전송)
+    if(file.size >= TextWorker.LARGE_FILE_THRESHOLD){
+      try{ text = await TextWorker.decodeViaWorker(ab, enc); }
+      catch(e){ text = null; }
+      // 전송된 버퍼는 detached — Worker 실패 시 다시 읽어 메인 스레드에서 디코딩
+      if(text === null && ab.byteLength === 0) ab = await fileToAB(file);
     }
-    return _decodeFromAB(ab, enc);
-  }
-
-  // 캐시 히트: ab 재독 필요 (인코딩만 캐시됨)
-  const ab2 = await fileToAB(file);
-
-  // ★ 대용량 파일(5MB+)은 Worker에 위임 → 메인 스레드 UI 비블로킹
-  if(file.size >= 5 * 1024 * 1024){
-    try{
-      const workerResult = await TextWorker.fileToTextViaWorker(file, enc);
-      if(workerResult !== null) return workerResult;
-    }catch(e){
-      // Worker 실패 시 메인 스레드 폴백 (아래 계속)
-    }
-  }
-
-  return _decodeFromAB(ab2, enc);
+    if(text === null) text = await _decodeFromAB(ab, enc);
+    _textCacheSet(file, text);
+    return text;
+  })();
+  _textInflight.set(key, job);
+  try{ return await job; }
+  finally{ _textInflight.delete(key); }
 }
 
 // ★ B-FIX-02: ab 디코딩 로직 분리 — fileToText 재사용성 및 가독성 향상
@@ -229,11 +248,11 @@ function _decodeFromAB(ab, enc){
       const decoder=new TextDecoder(enc,{fatal:false});
       const text=decoder.decode(new Uint8Array(ab));
       // U+FFFD(대체문자) 포함 여부 — EUC-KR 오판 감지
-      const badCount=(text.match(/\ufffd/g)||[]).length;
+      const badCount=enc==='utf-8'?_countChar(text,'\ufffd'):0;
       if(badCount>10&&enc==='utf-8'){
         try{
           const text2=new TextDecoder('euc-kr',{fatal:false}).decode(new Uint8Array(ab));
-          const bad2=(text2.match(/\ufffd/g)||[]).length;
+          const bad2=_countChar(text2,'\ufffd');
           done(bad2<badCount?text2:text);
         }catch(err2){ done(text); }
       }else{
@@ -423,6 +442,10 @@ function handleTxt(files, append=false){
   }else{
     S.txtFiles=smartSortFiles(txts); // 스마트 정렬 적용
     S.tocItems=[]; _tocDropLines=[];   // ★ 새 파일 세트 → 이전 목차 폐기 (미리보기 전 변환 시 잘못된 목차 사용 방지)
+    // ★ Phase 10: 이전 파일의 EPUB 결과·간격 분할 상태도 폐기 — 하단에 옛 EPUB 다운로드 바가 남아 변환 버튼이 가려지던 문제
+    _resetConvertResultUi();
+    window._autoSplitActive=false; window._autoSplitLines=null;
+    _tocSelectedIdxs.clear(); _tocPendingTitleIdx=null; _tocFilterQ=''; _tocUndoStack.length=0;
   }
 
   const txtDz=document.getElementById('txtDz');
@@ -1071,8 +1094,8 @@ async function loadIllRange(id){
   const chapters=await getCachedChapters();
   if(!chapters.length){pv.classList.remove('show');return;}
 
-  // extractChNum으로 중심 챕터 인덱스 찾기
-  const centerCi=chapters.findIndex(([h])=>extractChNum(h)===chNum);
+  // 중심 챕터 인덱스 — ★ Phase 10: 감지 단계 화 번호(meta.num) 우선, 없으면 제목에서 추출 (EPUB 삽입 기준과 동일)
+  const centerCi=chapters.findIndex(c=>((c[2]&&c[2].num!=null)?c[2].num:extractChNum(c[0]))===chNum);
 
   if(centerCi<0){
     pv.innerHTML='<div class="mill-ch-match"><div class="mill-ch-title" style="color:var(--accent)">⚠️ '+chNum+'화를 찾지 못했어요</div>'+
@@ -1088,7 +1111,8 @@ async function loadIllRange(id){
   if(centerCi<chapters.length-1)   range.push({ci:centerCi+1, role:'next'});
 
   // 범위 캐시 저장 (키워드 검색에 사용)
-  _illRangeCache[id]={chNum, range:range.map(({ci,role})=>({ci,role,...{heading:chapters[ci][0],body:chapters[ci][1]||''}}))} ;
+  _illRangeCache[id]={chNum, range:range.map(({ci,role})=>({ci,role,heading:chapters[ci][0],body:chapters[ci][1]||'',
+    num:(chapters[ci][2]&&chapters[ci][2].num!=null)?chapters[ci][2].num:null}))};
 
   renderIllRangePanel(id, '', null);
 }
@@ -1163,8 +1187,9 @@ function selectIllRangeCard(id, ci){
   if(!ch) return;
 
   // 화 번호 입력란에 선택된 화 번호 반영
-  const chNum=extractChNum(ch.heading);
-  if(chNum) document.getElementById('mc'+id).value=chNum;
+  const chNum=ch.num!=null?ch.num:extractChNum(ch.heading);
+  const mcEl=document.getElementById('mc'+id);
+  if(chNum&&mcEl) mcEl.value=chNum;
 
   // 미리보기 재렌더 (선택 표시)
   const kw=document.getElementById('mkw'+id)?.value||'';
@@ -1194,19 +1219,8 @@ function illKwSearch(id){
 // ★ 간격 분할 전역 상태 — window 단일 소유권
 // parser.js / convert.js 양쪽에서 동일한 객체를 참조
 // ════════════════════════════════════════════════════════
-// ★ B-FIX-04 (치명): 재정의 레이스 가드
-// 동일 프로퍼티를 두 번 defineProperty 하면 configurable:true여도
-// 두 번째 호출에서 getter/setter 충돌 → silent fail 또는 TypeError
-// 해결: 이미 정의된 경우 defineProperty를 건너뜀
-if(!Object.getOwnPropertyDescriptor(window,'_autoSplitActive')){
-  Object.defineProperty(window,'_autoSplitActive',{
-    get(){ return window.__autoSplitActiveVal||false; },
-    set(v){ window.__autoSplitActiveVal=!!v; },
-    configurable:true,
-  });
-}
-// 초기화 (아직 true로 세팅된 적 없을 때만)
-if(window.__autoSplitActiveVal === undefined) window._autoSplitActive=false;
+// ★ Phase 10: window._autoSplitActive 정의는 parser.js 한 곳 (값은 StateManager 'convert' 스토어 보관)
+//   (이전: parser.js 접근자·convert.js·main.js 세 곳에 서로 다른 저장소로 중복 정의)
 
 
 // tocItems(간격분할 결과)를 [heading, body] 쌍으로 조립
@@ -1305,8 +1319,10 @@ async function startConvert(){
   // ── 단계별 진행 표시 ──
   setProgress(0,'① 파일 읽는 중...');
 
-  // ★ 파싱 중단 버튼 표시
-  let _convertAborted=false;
+  // ★ Phase 10: 중단은 AbortController 하나로 — 파일 읽기·파싱·EPUB 빌드(Worker) 어느 단계에서든 즉시 멈춤
+  //   (이전: 파싱 Worker만 종료 → 그 밖의 단계에서 누르면 변환이 끝까지 진행되고 결과까지 표시됨)
+  const ac=new AbortController();
+  const checkAbort=()=>{ if(ac.signal.aborted){ const err=new Error('사용자 중단'); err.name='AbortError'; throw err; } };
   const progWrapEl=document.getElementById('progWrap');
   let abortBtn=document.getElementById('convertAbortBtn');
   if(!abortBtn){
@@ -1319,8 +1335,8 @@ async function startConvert(){
   }
   abortBtn.style.display='block';
   abortBtn.onclick=()=>{
-    _convertAborted=true;
-    // ★ 파싱 Worker 즉시 종료 (동기 루프 중이라 메시지로는 중단 불가)
+    ac.abort();
+    // ★ 파싱 Worker 즉시 종료 (동기 루프 중이라 메시지로는 중단 불가) — EPUB Worker는 signal로 종료
     terminateParserWorker('사용자 중단');
     abortBtn.style.display='none';
     setProgress(0,'⛔ 중단됨');
@@ -1333,98 +1349,81 @@ async function startConvert(){
   if(_convertBtnEl) _convertBtnEl.disabled=true;
   try{
     const sorted=[...S.txtFiles];
-    const totalFiles=sorted.length;
-    // 파일별 진행률 표시
-    const raws=[];
-    for(let fi=0;fi<totalFiles;fi++){
-      setProgress(Math.round(fi/totalFiles*12)+1,
-        `① 파일 읽는 중... (${fi+1}/${totalFiles}) ${sorted[fi].name}`);
-      await yieldToMain();
-      raws.push(await fileToText(sorted[fi]));
+    const customPat=document.getElementById('pattern')?.value.trim();
+    const optMergeLines=document.getElementById('optMergeShortLines')?.checked===true;
+    const tocMode=S.tocItems.length>0;
+    // ★ Phase 10: 목차가 이미 있고 원문 줄이 메모리에 있으면 파일을 다시 읽지 않음
+    //   (이전: 목차 기반 조립에서도 모든 파일을 매번 다시 읽고 디코딩)
+    let srcLines=tocMode?_tocSourceLines():null;
+    let raw=null, fileBreaks=[];
+    if(!srcLines){
+      const raws=[];
+      for(let fi=0;fi<sorted.length;fi++){
+        setProgress(Math.round(fi/sorted.length*12)+1,
+          `① 파일 읽는 중... (${fi+1}/${sorted.length}) ${sorted[fi].name}`);
+        await yieldToMain();
+        checkAbort();
+        raws.push(await fileToText(sorted[fi]));
+      }
+      // ★ 파일 경계(여러 TXT)·파일명 화수 범위를 목차 감지에 전달
+      ({text:raw, fileBreaks}=joinTextsWithBreaks(raws, sorted.map(f=>f.name)));
     }
-    // ★ 파일 경계(여러 TXT)·파일명 화수 범위를 목차 감지에 전달
-    const {text:raw, fileBreaks}=joinTextsWithBreaks(raws, sorted.map(f=>f.name));
-    const detectOpts={
-      fileBreaks,
-      range:rangeForFiles(sorted.map(f=>f.name)),
-      mergeParts:document.getElementById('optMergeParts')?.checked===true,
-    };
     setProgress(14,'① 파일 읽기 완료');
     await yieldToMain();
+    checkAbort();
 
     setProgress(15,'② 챕터 패턴 분석 중...');
     await yieldToMain();
-    const customPat=document.getElementById('pattern')?.value.trim();
 
     let chapters;
-    // ════════════════════════════════════════════════════════
-    // ★ 간격 분할 최우선 분기 — window._autoSplitActive 기반
-    // parser.js와 동일한 window 프로퍼티를 읽으므로 유실 없음
-    // ════════════════════════════════════════════════════════
-    if(window._autoSplitActive && S.tocItems.length>0){
-      setProgress(20,'② 간격 분할 모드 — tocItems 기반 챕터 조립 중...');
+    if(tocMode){
+      // ★ tocItems가 있으면 항상 tocItems 기반 조립 (간격 분할 결과 포함 — 원문은 _tocSourceLines 단일 기준)
+      // ★ L-16 FIX: 원문 줄이 해제된 경우(대용량 변환 후) 같은 결합 규칙으로 다시 만든 줄 배열 사용
+      if(!srcLines){
+        srcLines=raw.split('\n');
+        if(window._autoSplitActive) window._autoSplitLines=srcLines.length<=200000?srcLines:null;
+        window._fullRawLines=srcLines;
+      }
+      setProgress(20, window._autoSplitActive?'② 간격 분할 모드 — 목차 기반 챕터 조립 중...':'② 목차 기반 챕터 조립 중...');
       await yieldToMain();
-      // ★ window._autoSplitLines: parser.js에서 window 미러로 노출한 값
-      const sourceForSplit=(window._autoSplitLines&&window._autoSplitLines.length>0)
-        ? window._autoSplitLines
-        : raw.split('\n');
-      chapters=buildChaptersFromTocItems(sourceForSplit, S.tocItems);
-      setProgress(28,`② 간격 분할 조립 완료 (${chapters.length}개)`);
-    } else if(S.tocItems.length>0){
-      // ★ tocItems가 있으면 항상 tocItems 기반 조립
-      // ★ L-16 FIX: _fullRawLines null 가드 — startConvert 완료 후 메모리 해제된 경우 대비
-      const sourceLines=(_fullRawLines && _fullRawLines.length>0)
-        ? _fullRawLines
-        : raw.split('\n');
-      setProgress(20,'② 목차 기반 챕터 조립 중...');
-      await yieldToMain();
-      chapters=buildChaptersFromTocItems(sourceLines, S.tocItems);
+      chapters=buildChaptersFromTocItems(srcLines, S.tocItems);
       setProgress(28,`② 챕터 조립 완료 (활성 ${S.tocItems.filter(t=>t.enabled).length}개 → ${chapters.length}개)`);
     } else {
       // tocItems 없음 → 원본 텍스트 직접 파싱
+      const detectOpts={
+        fileBreaks,
+        range:rangeForFiles(sorted.map(f=>f.name)),
+        mergeParts:document.getElementById('optMergeParts')?.checked===true,
+      };
       setProgress(18,'② 목차 패턴 감지 중...');
       await yieldToMain();
-      const lineCount=(raw.match(/\n/g)||[]).length;
-      if(lineCount>=100000){
-        chapters=await splitChaptersAsync(raw,customPat,(pct,msg)=>setProgress(pct,msg),detectOpts);
-      } else {
-        chapters=splitChapters(raw,customPat,detectOpts);
-      }
+      chapters=_countLines(raw)>=100000
+        ? await splitChaptersAsync(raw,customPat,(pct,msg)=>setProgress(pct,msg),detectOpts)
+        : splitChapters(raw,customPat,detectOpts);
       setProgress(24,`② 챕터 분리 완료 (${chapters.length}개)`);
-      // tocItems 없는 경우 disabledTitles 폴백
-      const disabledTitles=new Set(S.tocItems.filter(t=>!t.enabled).map(t=>t.title));
-      if(disabledTitles.size>0){
-        setProgress(28,'② 비활성 챕터 병합 중...');
-        await yieldToMain();
-        const merged=[];let pb='';
-        for(const[h,b]of chapters){
-          if(disabledTitles.has(h)){
-            pb+=(pb?'\n\n':'')+h+'\n'+b;
-          } else {
-            if(pb&&merged.length>0){merged[merged.length-1][1]+='\n\n'+pb;pb='';}
-            else if(pb){merged.push([h,pb+'\n\n'+b]);pb='';continue;}
-            merged.push([h,b]);
-          }
-        }
-        if(pb&&merged.length>0) merged[merged.length-1][1]+='\n\n'+pb;
-        chapters=merged;
-      }
+    }
+    raw=null;
+    checkAbort();
+    // ★ Phase 10: '문단 정합' 옵션 — 조립된 본문에 적용 (이전: 실제 변환에는 전달되지 않아 무시됨)
+    if(optMergeLines){
+      setProgress(28,'② 문단 정합 중...');
+      await yieldToMain();
+      chapters=applyParagraphMerge(chapters);
     }
     await yieldToMain();
     setProgress(30,'③ 삽화 파싱 중...');
     await yieldToMain();
-    // 삽화 파싱 — 파일명 숫자 = 챕터 인덱스(1-based)
-    // 01.jpg → chapters[0] (첫 번째 챕터)
-    // 100.jpg → chapters[99] (100번째 챕터)
-    // 01_01.jpg → chapters[0]의 첫 번째 삽화
-    // 01_02.jpg → chapters[0]의 두 번째 삽화
+    checkAbort();
+    // 삽화 파싱 — 파일명 숫자 = 챕터 순번(1-based, '서문' 제외 — Worker에서 매핑)
+    // 01.jpg → 첫 번째 챕터 / 100.jpg → 100번째 챕터
+    // 01_01.jpg → 첫 번째 챕터의 첫 번째 삽화 / 01_02.jpg → 두 번째 삽화
     const autoIlls=[];
     for(const f of S.illFiles){
       const stem=f.name.replace(/\.[^.]+$/,'');
       const m=stem.match(/^(\d+)(?:_(\d+))?/);
       if(m){
-        const chIdx=parseInt(m[1])-1;   // 1-based → 0-based 인덱스
-        const order=parseInt(m[2]||'1'); // 서브넘버 (01_01 → 1, 01_02 → 2)
+        const chIdx=parseInt(m[1],10)-1;   // 1-based → 0-based 순번
+        const order=parseInt(m[2]||'1',10); // 서브넘버 (01_01 → 1, 01_02 → 2)
         autoIlls.push({file:f, idx:chIdx, order, pos:'before'});
       }
     }
@@ -1436,7 +1435,7 @@ async function startConvert(){
       const file=S.illFiles.find(f=>f.name===name);if(!file)return;
       const pos=document.getElementById('mpos'+id)?.value||'before';
       // 새 UI: 화 번호 기준 (키워드는 범위 내 검색용, 최종 삽입은 화 번호 기준)
-      const ch=parseInt(document.getElementById('mc'+id)?.value);
+      const ch=parseInt(document.getElementById('mc'+id)?.value,10);
       if(ch) manualIlls.push({file,ch,order:999,pos});
       // 키워드도 병행 저장 (buildEpub에서 kw 매칭도 지원)
       const kw=document.getElementById('mkw'+id)?.value.trim();
@@ -1454,6 +1453,7 @@ async function startConvert(){
       await yieldToMain();
       effectiveCover=await generateTextCover(title, author);
     }
+    checkAbort();
 
     setProgress(40,'④ EPUB 빌드 중...');
     await yieldToMain();
@@ -1466,8 +1466,10 @@ async function startConvert(){
         series:(document.getElementById('series')?.value||'').trim(),
         seriesIndex:parseInt(document.getElementById('seriesIdx')?.value||'0',10)||0,
       },
-      (pct,msg)=>setProgress(40+Math.round(pct*0.52), msg)
+      (pct,msg)=>setProgress(40+Math.round(pct*0.52), msg),
+      {signal:ac.signal}
     );
+    checkAbort();
     let blob;
     if(epubResult && epubResult.blob){
       blob = epubResult.blob;
@@ -1481,22 +1483,22 @@ async function startConvert(){
     S.epubName=title.replace(/[\\/:*?"<>|]/g,'_')+'.epub';
     const elapsed=((Date.now()-convertStart)/1000).toFixed(1);
     setProgress(100,'✅ 변환 완료! ('+elapsed+'초)');
-    document.getElementById('convertAbortBtn').style&&(document.getElementById('convertAbortBtn').style.display='none');
+    const _abDone=document.getElementById('convertAbortBtn'); if(_abDone) _abDone.style.display='none';
 
     // ★ 메모리 정리: 200,000줄 이하는 유지 (대용량 장편에서 간격 분할 재접근 가능하도록)
-    // window 프로퍼티를 통해 parser.js의 실제 변수를 갱신
+    // window 프로퍼티를 통해 parser.js의 실제 변수를 갱신 (원문 문자열은 텍스트 캐시에 남아 재조립 시 디코딩 없이 복원)
     if(window._fullRawLines&&window._fullRawLines.length>200000){
       window._fullRawLines=null;
     }
     if(window._autoSplitLines&&window._autoSplitLines.length>200000){
       window._autoSplitLines=null;
     }
-    // 챕터 캐시는 미리보기/분리에서 필요하므로 유지 (단, 대용량은 제한)
+    const realChapters=chapters.filter(c=>!(c[2]&&c[2].pre)&&c[0]!=='서문');
     document.getElementById('resultMsg').textContent=S.epubName;
     showResultStats('resultStats',[
       {
-        label: /^\(\d+\/\d+\)$/.test(chapters.filter(([h])=>h!=='서문')[0]?.[0]||'') ? '페이지' : '챕터',
-        value: chapters.filter(([h])=>h!=='서문').length+'개'
+        label: /^\(\d+\/\d+\)$/.test(realChapters[0]?.[0]||'') ? '페이지' : '챕터',
+        value: realChapters.length+'개'
       },
       {label:'파일 크기',value:(blob.size/1024/1024).toFixed(1)+'MB'},
       {label:'소요 시간',value:elapsed+'초'},
@@ -1504,16 +1506,18 @@ async function startConvert(){
     // 미리보기/분리용 챕터 저장
     _previewChapters=chapters;
     // ── 히스토리 저장 (IndexedDB 비동기) ──
-    await saveHistory({
+    // ★ Phase 10: 기록 저장은 변환 결과 표시를 막지 않음 (이전: await — 저장 공간 부족 시 변환 실패로 표시되거나
+    //   트랜잭션 abort 미처리로 Promise가 끝나지 않아 변환 버튼이 계속 비활성 상태로 남음)
+    saveHistory({
       title,author,
-      chapterCount:chapters.filter(([h])=>h!=='서문').length,
+      chapterCount:realChapters.length,
       sizeMB:(blob.size/1024/1024).toFixed(1),
       elapsed,
       date:new Date().toLocaleString('ko-KR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
       name:S.epubName,
       blob
-    });
-    document.getElementById('splitSec').style.display='block';
+    }).catch(err=>console.warn('[history] 저장 실패:', err));
+    const _splitSec=document.getElementById('splitSec'); if(_splitSec) _splitSec.style.display='block';
     const _resBox = _progResultEl || document.getElementById('resultBox');
     if(_resBox){
       _resBox.classList.add('show');
@@ -1531,12 +1535,17 @@ async function startConvert(){
     // ★ U-17: 변환 경고 리포트 렌더링
     _renderConvertReport(epubWarnings);
     // ★ ADD-10: 변환 완료 브라우저 알림 (탭 백그라운드 시)
-    _sendConvertNotif(title || S.epubName, chapters.filter(([h])=>h!=='서문').length);
+    _sendConvertNotif(title || S.epubName, realChapters.length);
   }catch(e){
-    if(_convertAborted) return;
-    // ★ U-20: 복구 가능 오류와 치명적 오류 분류
+    // ★ Phase 10: 사용자 중단은 오류로 표시하지 않음
+    if(ac.signal.aborted||e?.name==='AbortError'){
+      Toast.info('변환을 중단했어요.',2000);
+      return;
+    }
+    // ★ U-20: 복구 가능 오류와 치명적 오류 분류 — EPUB 생성 실패는 치명적 오류(오류 박스)로 표시
+    //   (이전: buildEpub이 모든 오류를 RecoverableError로 감싸 '계속 진행합니다' 경고만 뜨고 결과도 오류 안내도 없었음)
     if(e instanceof RecoverableError){
-      Toast.warn('⚠ ' + e.message + (e.context ? ` (${e.context})` : '') + ' — 계속 진행합니다.');
+      Toast.warn('⚠ ' + e.message + (e.context ? ` (${e.context})` : ''));
     } else {
       // ★ UX-ANIM: 에러 박스 scrollIntoView + err-shake 애니메이션 트리거
       const errEl = _progErrEl || document.getElementById('errBox');
@@ -1547,6 +1556,7 @@ async function startConvert(){
         errEl.classList.add('show', 'err-shake');
         errEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
+      console.error('[startConvert]', e);
     }
   }finally{
     // ★ Side-Effect 가드: 예외·정상 종료 모두 UI 스피너·중단 버튼 반드시 해제
@@ -1564,7 +1574,7 @@ async function startConvert(){
 function _collectConvertWarnings(chapters, illMap){
   const out=[];
   const list=Array.isArray(chapters)?chapters:[];
-  const real=list.filter(([h])=>h!=='서문');
+  const real=list.filter(c=>!(c[2]&&c[2].pre)&&c[0]!=='서문');
   if(!real.length) return out;
   // 패턴 미감지 → 페이지/본문 단위 분할
   if(real.every(([h])=>h==='본문'||/^\(\d+\/\d+\)$/.test(h))){
@@ -1580,9 +1590,11 @@ function _collectConvertWarnings(chapters, illMap){
   const th=typeof getSuspThreshold==='function'?getSuspThreshold():50;
   const short=real.slice(0,-1).filter(([,b])=>String(b||'').replace(/\s/g,'').length<th);
   if(short.length) out.push(`본문이 ${th}자 미만인 챕터 ${short.length}개: ${short.slice(0,3).map(([h])=>h).join(', ')}${short.length>3?' …':''}`);
-  // 삽화 매핑 실패 (해당 화가 없음)
+  // 삽화 매핑 실패 (해당 화가 없음) — 순번은 '서문' 제외 기준 (EPUB Worker 매핑과 동일)
+  const nums=new Set(list.map(c=>(c[2]&&c[2].num!=null)?c[2].num:extractChNum(String(c[0]||''))).filter(n=>n!=null));
   (illMap||[]).forEach(il=>{
-    if(typeof il.idx==='number'&&(il.idx<0||il.idx>=list.length)) out.push(`삽화 ${il.file?.name||''}: ${il.idx+1}번째 챕터가 없어 삽입되지 않았어요.`);
+    if(typeof il.idx==='number'&&(il.idx<0||il.idx>=real.length)) out.push(`삽화 ${il.file?.name||''}: ${il.idx+1}번째 챕터가 없어 삽입되지 않았어요.`);
+    else if(typeof il.ch==='number'&&!nums.has(il.ch)) out.push(`삽화 ${il.file?.name||''}: ${il.ch}화를 찾지 못해 삽입되지 않았어요.`);
   });
   return out;
 }
@@ -1884,7 +1896,7 @@ async function downloadSplitZip(){
   if(!window._splitBlobs) return;
   const zip=new JSZip();
   window._splitBlobs.forEach(r=>zip.file(r.name,r.blob));
-  const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
+  const blob=await zip.generateAsync({type:'blob',compression:'STORE'});   // ★ Phase 10: EPUB 재압축 생략
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download='epub_분리.zip';a.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -1903,6 +1915,16 @@ function downloadEpub(){
 }
 
 // ★ EPUB 다운로드 완료 플로팅 바 — 변환 완료 시 하단에 상시 표시
+// ★ Phase 10: 변환 결과 상태 해제 + 하단 바를 '변환' 상태로 복귀 (새 파일 로드·초기화 공용)
+function _resetConvertResultUi(){
+  S.epubBlob=null; S.epubName='';
+  _previewChapters=[];
+  const dl=document.getElementById('btmDownload'); if(dl) dl.style.display='none';
+  const cv=document.getElementById('btmConvert'); if(cv&&document.getElementById('page-convert')?.offsetParent!==null) cv.style.display='flex';
+  document.getElementById('resultBox')?.classList.remove('show');
+  const sp=document.getElementById('splitSec'); if(sp) sp.style.display='none';
+}
+
 function _showEpubDownloadBar(epubName){
   const bar=document.getElementById('btmDownload');
   const nameEl=document.getElementById('btmDlName');
@@ -1972,7 +1994,8 @@ function renderTocMiniChart(){
   for(let g=0;g<items.length;g+=per) groups.push(items.slice(g,g+per));
   // 막대 간격을 소수로 계산해 폭 전체를 채움 (정수 내림 시 오른쪽이 비는 문제 방지)
   const step=(W-4)/groups.length, bw=Math.max(1,step-1);
-  const maxLen=Math.max(...items.map(t=>t.bodyLen||0),1);
+  // ★ Phase 10: 수만 항목 spread(Math.max(...arr))는 인자 수 한도(RangeError) 위험 → reduce
+  const maxLen=items.reduce((m,t)=>Math.max(m,t.bodyLen||0),1);
 
   const bars=groups.map((grp,i)=>{
     const lens=grp.map(t=>t.bodyLen||0);
@@ -2022,21 +2045,10 @@ function renderTocMiniChart(){
   svg.addEventListener('click', e=>{
     const rect_svg = e.target;
     if(rect_svg?.tagName !== 'rect') return;
-    const realIdx = parseInt(rect_svg.dataset.realIdx ?? rect_svg.dataset.idx);
-    // 접힌 상태라면 먼저 펼치기 (펼치기 버튼은 접힌 상태에서만 존재)
-    const collapseBtn=document.getElementById('toc-collapse-btn');
-    if(collapseBtn) collapseBtn.click();
-    // 펼친 뒤 DOM이 갱신되도록 rAF 후 스크롤
-    requestAnimationFrame(()=>{
-      const tocEl = document.querySelector(`#tb0 .toc-item[data-idx="${realIdx}"]`);
-      if(tocEl){
-        tocEl.scrollIntoView({block:'center',behavior:'smooth'});
-        // 잠깐 하이라이트
-        tocEl.style.transition='background .15s';
-        tocEl.style.background='var(--blue-bg)';
-        setTimeout(()=>{ tocEl.style.background=''; },900);
-      }
-    });
+    const realIdx = parseInt(rect_svg.dataset.realIdx ?? rect_svg.dataset.idx, 10);
+    // ★ Phase 10: 가상 스크롤 목록 — 화면 밖 행도 tocScrollToIndex로 이동 + 강조
+    if(typeof tocTab==='function') tocTab(0);
+    if(typeof tocScrollToIndex==='function') tocScrollToIndex(realIdx);
   });
 }
 
@@ -2046,7 +2058,7 @@ function exportTocWithStats(){
   const lines=S.tocItems
     .filter(t=>t.enabled)
     .map((t,i)=>{
-      const bl=typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length;
+      const bl=t.bodyLen||0;
       const blStr=bl>=10000?(bl/10000).toFixed(1)+'만자':bl>=1000?(bl/1000).toFixed(1)+'k자':bl+'자';
       return String(i+1).padStart(3,'0')+'. '+t.title+' ('+blStr+')';
     }).join('\n');
@@ -2603,10 +2615,12 @@ async function startBatch(){
 
 async function downloadBatchZip(){
   if(!B.results.length)return;
-  if(B.results.length===1){const a=document.createElement('a');a.href=URL.createObjectURL(B.results[0].blob);a.download=B.results[0].name;a.click();return;}
+  // ★ Phase 10: 단일 파일 다운로드도 Object URL 해제 (이전: 누수)
+  if(B.results.length===1){const a=document.createElement('a');a.href=URL.createObjectURL(B.results[0].blob);a.download=B.results[0].name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);return;}
   const zip=new JSZip();
   B.results.forEach(r=>zip.file(r.name,r.blob));
-  const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
+  // ★ Phase 10: EPUB은 이미 ZIP 압축 파일 → STORE (DEFLATE 재압축은 CPU만 쓰고 크기는 거의 그대로)
+  const blob=await zip.generateAsync({type:'blob',compression:'STORE'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='epub_일괄변환.zip';a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
@@ -2677,7 +2691,7 @@ function terminateParserWorker(reason){
  * 10만 줄 이상 파일에서 메인 스레드 블로킹 없음
  */
 async function splitChaptersAsync(raw, customPat, onProgress, opts={}){
-  const lineCount=(raw.match(/\n/g)||[]).length;
+  const lineCount=_countLines(raw);
 
   if(lineCount<100000){
     // 소형 파일: 동기 처리 (Worker 오버헤드 없음)
@@ -2694,7 +2708,9 @@ async function splitChaptersAsync(raw, customPat, onProgress, opts={}){
     const timer=setTimeout(()=>{
       if(_workerCallbacks.has(id)){
         _workerCallbacks.delete(id);
-        // Worker 타임아웃 → 동기 폴백
+        // ★ Phase 10: 응답 없는 Worker는 종료한 뒤 동기 폴백 (이전: Worker가 계속 CPU를 쓰는 채로 메인 스레드도 파싱)
+        //   terminateParserWorker는 남은 콜백을 모두 reject — 이 요청은 위에서 이미 제거됨
+        terminateParserWorker('파싱 타임아웃');
         try{resolve(splitChapters(raw,customPat,opts));}
         catch(e){reject(new Error('파싱 타임아웃: '+e.message));}
       }
@@ -2719,11 +2735,37 @@ async function splitChaptersAsync(raw, customPat, onProgress, opts={}){
   });
 }
 
+/**
+ * ★ Phase 10: 미리보기용 목차 감지 — 10만 줄 이상은 파싱 Worker에서 (메인 스레드 멈춤 방지)
+ * @returns {Promise<object|null>} detectToc 결과 · 사용자 중단 시 null
+ */
+async function detectTocAsync(lines, text, opts={}){
+  if(!Array.isArray(lines)||lines.length<100000||typeof Worker==='undefined') return detectToc(lines, opts);
+  return new Promise(resolve=>{
+    const id=++_workerIdCounter;
+    const fallback=()=>{ try{ resolve(detectToc(lines, opts)); }catch(e){ resolve(null); } };
+    const timer=setTimeout(()=>{
+      if(_workerCallbacks.has(id)){ _workerCallbacks.delete(id); terminateParserWorker('감지 타임아웃'); fallback(); }
+    },120000);
+    _workerCallbacks.set(id,{
+      resolve:r=>{ clearTimeout(timer); resolve(r); },
+      // 사용자 중단(변환 중단 버튼)은 조용히 종료, 그 밖의 Worker 오류는 메인 스레드로 다시 감지
+      reject:e=>{ clearTimeout(timer); if(/중단/.test(String(e?.message||''))) resolve(null); else fallback(); },
+    });
+    try{
+      getParserWorker().postMessage({type:'DETECT', payload:{raw:text, opts}, id});
+    }catch(e){
+      clearTimeout(timer); _workerCallbacks.delete(id); fallback();
+    }
+  });
+}
+
 // ── DOMContentLoaded에 폰트 패널 초기화 추가 ──
 async function resetAll(){
   if(!await Toast.confirm('모든 설정을 초기화할까요?')) return;
   _sStore.set({txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0,_coverAuto:false});
   _chaptersCache=null;_chaptersCacheKey='';
+  clearTextCache();   // ★ Phase 10
   document.getElementById('txtDz').className='dz';
   document.getElementById('illDz').className='dz';
   document.getElementById('coverDz')?.classList.remove('ok'); // className 덮어쓰기 금지 — dz-compact 유지
@@ -2784,6 +2826,10 @@ async function resetEditAll(){
 function resetConvertTxt(){
   // ★ 목차·감지 상태도 함께 초기화 (이전: tocItems가 남아 자동 미리보기 OFF일 때 새 파일을 이전 목차로 자름)
   S.txtFiles=[];S._rawTextFull=[];S.tocItems=[];_tocDropLines=[];_chaptersCache=null;_chaptersCacheKey='';
+  // ★ Phase 10: 목차 편집 UI 상태·디코딩 캐시·이전 변환 결과도 함께 정리
+  _tocSelectedIdxs.clear(); _tocPendingTitleIdx=null; _tocFilterQ=''; _tocUndoStack.length=0;
+  clearTextCache();
+  _resetConvertResultUi();
   // ★ window 단일 소유권: 전역 분할 상태 완전 초기화
   window._autoSplitActive=false;
   window._autoSplitLines=null;
@@ -2824,8 +2870,9 @@ async function resetConvertAll(){
   }
   _sStore.set({illFiles:[],tocItems:[],epubBlob:null,manualCnt:0});
 
-  // ★ B-FIX-01: 초기화 시 _encCache도 정리
+  // ★ B-FIX-01: 초기화 시 _encCache도 정리 (+ Phase 10 디코딩 캐시)
   _encCache.clear();
+  clearTextCache();
 
   // ★ PERF-GC: illTags 내 Blob URL 전체 해제 후 replaceChildren() — innerHTML 대비 GC 친화적
   const illTagsEl = document.getElementById('illTags');

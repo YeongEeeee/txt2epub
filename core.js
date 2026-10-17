@@ -309,15 +309,10 @@ const StateManager = (() => {
 
     function set(patch) {
       const prev = { ..._state };
-      // ★ 대용량 배열 교체 시 기존 참조를 null로 끊어 GC 수거 유도
-      Object.keys(patch).forEach(k => {
-        if (Array.isArray(_state[k]) && Array.isArray(patch[k]) && _state[k] !== patch[k]) {
-          _state[k].length = 0;
-          _state[k] = patch[k];
-        } else {
-          _state[k] = patch[k];
-        }
-      });
+      // ★ Phase 10: 교체되는 기존 배열을 비우지 않음 (참조 교체만으로 GC 대상이 됨)
+      //   이전: _state[k].length=0 → 구독자에게 넘기는 prev의 배열이 빈 배열이 되고,
+      //   기존 배열을 들고 있던 코드(스냅샷·진행 중 작업)의 데이터가 사라짐
+      Object.keys(patch).forEach(k => { _state[k] = patch[k]; });
       _subscribers.forEach(fn => { try { fn(_state, prev); } catch(e){} });
       EventBus.emit(`state:${name}:change`, { state: _state, prev });
     }
@@ -573,7 +568,8 @@ const _sStore  = StateManager.create('convert', {
   txtFiles:[], coverFile:null, illFiles:[], tocItems:[],
   epubBlob:null, epubName:'', manualCnt:0,
   _rawTextFull:[], _detectedPat:null, _detectedName:'',
-  _coverAuto:false // ★ 표지가 파일명 유사도 자동 매칭으로 지정됐는지 (수동 지정 표지 보호용)
+  _coverAuto:false, // ★ 표지가 파일명 유사도 자동 매칭으로 지정됐는지 (수동 지정 표지 보호용)
+  _autoSplitActive:false // ★ Phase 10: 간격 분할 모드 (window._autoSplitActive 접근자 백킹 — parser.js)
 });
 const _bStore  = StateManager.create('batch', {
   txtFiles:[], coverMap:{}, results:[], urlCoverFile:null,

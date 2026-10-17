@@ -27,6 +27,16 @@
 // _autoSplitActive 접근 헬퍼 (read/write 모두 window 경유)
 function _getAutoSplitActive(){ return window._autoSplitActive===true; }
 function _setAutoSplitActive(v){ window._autoSplitActive=!!v; }
+// ★ Phase 10: window._autoSplitActive 단일 정의 — 값은 StateManager('convert' 스토어 _autoSplitActive)에 보관
+//   core.js(StateManager)는 이 파일 뒤에 로드되지만 접근은 런타임에만 일어나므로 지연 참조로 충분
+//   (스토어 생성 전 접근 시 false / 쓰기는 무시)
+if(!Object.getOwnPropertyDescriptor(window,'_autoSplitActive')){
+  Object.defineProperty(window,'_autoSplitActive',{
+    get(){ return typeof _sStore!=='undefined'&&_sStore.get()._autoSplitActive===true; },
+    set(v){ if(typeof _sStore!=='undefined') _sStore.set({_autoSplitActive:!!v}); },
+    configurable:true,
+  });
+}
 
 // _autoSplitLines: parser.js 소유, window에도 미러
 // (convert.js에서 읽어야 하는 경우 window._autoSplitLines 참조)
@@ -96,22 +106,38 @@ function escHtml(s){
 // #6  잘못된 엔티티(&undefined; 등) 사전 제거
 // #8  EUC-KR 디코딩 후 특수문자 주변 제로너비 공백 제거
 // ════════════════════════════════════════════════════════════
+// ★ Phase 10: 제거 대상 한 번에 처리 — 제로너비 문자·XML 비허용 제어문자·U+FFFE/FFFF·짝 없는 서로게이트
+//   (이전: [\uD800-\uDFFF] 전체 삭제 → 정상 서로게이트 쌍인 이모지·확장 한자까지 사라짐)
+//   첫 분기([고위][저위])가 정상 쌍을 먼저 소비하므로 콜백에서 길이 2는 보존, 나머지는 삭제
+//   (lookbehind 미사용 — Safari 16.4 미만 구문 오류 방지)
+const _RX_SANITIZE=/[\uD800-\uDBFF][\uDC00-\uDFFF]|[\u200B\u200C\u200D\uFEFF\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F\uFFFE\uFFFF\uD800-\uDFFF]/g;
 function sanitizeLine(s){
   if(typeof s!=='string') return '';
   // U+00AD soft hyphen → em dash (대화 표시)
   s=s.replace(/\u00ad/g,'\u2014');
-  // ★ B-FIX-10: 유령 공백을 '' 로 제거 (이전: ' '로 치환 → 단어 분리 오류)
-  // 예: "스킬이름<ZWS>표시" → "스킬이름표시" (의도한 결합 보존)
-  s=s.replace(/[\u200B\u200C\u200D\uFEFF\u00A0]/g,'');
-  // XML 1.0 비허용 제어문자: U+0000-U+0008, U+000B, U+000C, U+000E-U+001F, U+007F
-  s=s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'');
-  // U+FFFE, U+FFFF, 서로게이트 쌍 범위 (XML 비허용)
-  s=s.replace(/[\uFFFE\uFFFF\uD800-\uDFFF]/g,'');
-  // #6: 잘못된 XML 엔티티 패턴 클린업 (& 뒤에 비표준 문자가 오는 경우)
-  // 표준 엔티티(&amp; &lt; &gt; &quot; &#숫자; &#x헥스;)는 보호, 그 외 &만 남은 경우 제거
-  // ★ 단, 이 시점에서 &는 아직 이스케이프 전 — escHtml이 이후에 &amp;로 처리
+  // ★ Phase 10: NBSP(U+00A0)는 '공백'이므로 일반 공백으로 (이전: 삭제 → '단어 단어'가 '단어단어'로 붙음)
+  s=s.replace(/\u00A0/g,' ');
+  // ★ B-FIX-10: 제로너비 문자는 '' 로 제거 (예: "스킬이름<ZWS>표시" → "스킬이름표시")
+  // XML 1.0 비허용 제어문자 · U+FFFE/FFFF · 짝 없는 서로게이트 제거 (정상 쌍은 보존)
+  s=s.replace(_RX_SANITIZE, m=>m.length===2?m:'');
   // 후행 공백 제거
   return s.trimEnd();
+}
+
+// ★ Phase 10: 웹에서 긁어온 TXT의 HTML 엔티티(&amp; &lt; &#39; &nbsp; …)를 문자로 되돌린 뒤 escHtml 1회 적용
+//   (이전: 엔티티가 하나라도 있으면 줄 전체 이스케이프를 건너뜀 → 같은 줄의 날것 '<'가 XHTML에 그대로 들어가
+//    리더기에서 챕터 전체가 파싱 오류)
+const _RX_ENTITY=/&(?:#(\d{1,7})|#[xX]([\da-fA-F]{1,6})|(amp|lt|gt|quot|apos|nbsp));/g;
+const _NAMED_ENTITY={amp:'&',lt:'<',gt:'>',quot:'"',apos:'\'',nbsp:' '};
+function _decodeHtmlEntities(s){
+  if(typeof s!=='string'||s.indexOf('&')<0) return s;
+  return s.replace(_RX_ENTITY,(m,dec,hex,name)=>{
+    if(name) return _NAMED_ENTITY[name];
+    const cp=dec!=null?parseInt(dec,10):parseInt(hex,16);
+    // 무효 코드포인트(0·서로게이트·범위 밖)는 원문 유지 → escHtml이 &amp;로 안전 처리
+    if(!cp||cp>0x10FFFF||(cp>=0xD800&&cp<=0xDFFF)) return m;
+    return String.fromCodePoint(cp);
+  });
 }
 
 // ════════════════════════════════════════════════════════════
@@ -119,19 +145,25 @@ function sanitizeLine(s){
 //
 // 파이프라인: sanitizeLine → escHtml → <p> 래핑
 // #1  escHtml이 모든 < > & " ' 를 이스케이프 — 순서 보장
-// #5  이중 이스케이프 방지: 이미 &lt; &gt;가 있는 문자열은 raw 감지
+// #5  이중 이스케이프 방지: 엔티티(&lt; 등)를 먼저 문자로 복원한 뒤 escHtml 1회 (Phase 10)
 // #8  charCount(글자수)는 이스케이프 전 원본 기준 계산 (독립성 유지)
 // #10 예외 격리: 챕터 전체 깨짐 방지 try-catch
 // ════════════════════════════════════════════════════════════
 
-// ★ #5: 이중 이스케이프 방지 감지 — 이미 이스케이프된 문자열인지 확인
-// "&lt;" "&#39;" 등 HTML 엔티티가 있으면 이미 처리된 것으로 판단
-const _RX_ALREADY_ESC = /&(?:lt|gt|amp|quot|#\d+|#x[\da-fA-F]+);/;
+// ★ Phase 10: renderBodyHtml은 메인 스레드·EPUB Worker 공용 단일 소스
+//   epub-gen.js _buildWorkerSrc()가 toString()으로 Worker에 이식 — 외부 심볼은
+//   escHtml·_escHtmlViaDOM·sanitizeLine·_decodeHtmlEntities와 _RX_* 상수만 참조할 것
+//   (이전: Worker에 손으로 복사한 문자열 사본이 있었고, 그 사본의 정규식 오타(\\u226a)로
+//    '2층 [창고]'처럼 숫자로 시작해 ]로 끝나는 본문 줄이 시스템 메시지 스타일이 됨)
+const _RX_SYSMSG_OPEN  = /^(?:【|〔|\[|≪|❰)/;
+const _RX_SYSMSG_CLOSE = /(?:】|〕|\]|≫|❱)\s*$/;
+const _RX_FLASHBACK    = /^[-\u2014\u2012\u2013─]/;
 
 function renderBodyHtml(body, {useItalic=true, maxBlank=2, removeBlankLines=false}={}){
   // #10: 예외 격리 — 이 함수가 실패해도 원본 텍스트로 폴백
   try{
-    let html='';
+    // ★ Phase 10: 문자열 += 대신 배열 join (긴 챕터에서 중간 문자열 생성 감소)
+    const out=[];
     let blankRun=0;
     // CRLF → LF 정규화
     const rawLines=body.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
@@ -162,51 +194,37 @@ function renderBodyHtml(body, {useItalic=true, maxBlank=2, removeBlankLines=fals
       lines=rawLines;
     }
 
-    // #10: 보정 가동 로그 (개발자 도구에서 확인 가능)
-    let _hasBracket=false;
     for(const line of lines){
-      if(/<[^>]+>/.test(line)){ _hasBracket=true; break; }
-    }
-    if(_hasBracket){
-      console.warn('[특수문자 이스케이프 가드 가동: 화살괄호 보호 완료]',
-        '본문에 < > 포함 — escHtml 파이프라인 적용');
-    }
-
-    for(const line of lines){
-      // #8: sanitizeLine — 유령 공백·제어문자 제거 (이스케이프 전)
-      const t=sanitizeLine(line).trim();
+      // #8: 엔티티 복원 → sanitizeLine(유령 공백·제어문자 제거) → escHtml 1회 (이중 이스케이프·날것 '<' 모두 방지)
+      const t=sanitizeLine(_decodeHtmlEntities(line)).trim();
 
       if(!t){
         blankRun++;
-        if(blankRun < maxBlank) html+='<p>&#160;</p>\n';
+        if(blankRun < maxBlank) out.push('<p>&#160;</p>\n');
         continue;
       }
       blankRun=0;
 
-      // ★ #5: 이중 이스케이프 방지 원타임 가드
-      // 이미 &lt; &gt; 등 엔티티가 있으면 escHtml 중복 적용하지 않음
-      // (이 경우는 외부에서 이미 처리된 body가 들어온 비정상 케이스)
-      const alreadyEscaped = _RX_ALREADY_ESC.test(t);
-      const escaped = alreadyEscaped ? t : escHtml(t);
+      const escaped = escHtml(t);
 
-      if(useItalic&&/^[-\u2014\u2012\u2013─]/.test(t)){
+      if(useItalic&&_RX_FLASHBACK.test(t)){
         // 회상/대사 이탤릭 — 전체 이스케이프 후 em 태그 래핑
-        html+='<p class="noindent"><em class="flashback">'+escaped+'</em></p>\n';
-      } else if(/^(?:【|〔|\[|≪|❰)/.test(t)&&/(?:】|〕|\]|≫|❱)\s*$/.test(t)){
+        out.push('<p class="noindent"><em class="flashback">'+escaped+'</em></p>\n');
+      } else if(_RX_SYSMSG_OPEN.test(t)&&_RX_SYSMSG_CLOSE.test(t)){
         // ★ #4: 웹소설 상태창/스킬창 — 시스템 메시지 스타일
         // 여는·닫는 특수 괄호 쌍이 모두 있을 때만 sysmsg 처리
-        html+='<p class="noindent sysmsg"><em>'+escaped+'</em></p>\n';
+        out.push('<p class="noindent sysmsg"><em>'+escaped+'</em></p>\n');
       } else {
-        html+='<p>'+escaped+'</p>\n';
+        out.push('<p>'+escaped+'</p>\n');
       }
     }
-    return html;
+    return out.join('');
   }catch(err){
     // #10: 예외 격리 폴백 — 원본을 escHtml만 적용해서 반환
     console.warn('[renderBodyHtml] 예외 발생, 안전 폴백 적용:', err);
     try{
-      return body.split('\n').map(l=>{
-        const t=sanitizeLine(l).trim();
+      return String(body||'').split('\n').map(l=>{
+        const t=sanitizeLine(_decodeHtmlEntities(l)).trim();
         return t ? '<p>'+escHtml(t)+'</p>\n' : '';
       }).join('');
     }catch(e2){
@@ -878,12 +896,16 @@ function bestPat(raw){
     if(lines[i].trim()&&(prevB||prev2B)&&(nextB||next2B)) blankWrapped.add(i);
   }
 
+  // ★ Phase 10: 전처리 1회 캐시 — 이전엔 패턴 79종마다 모든 줄을 다시 preprocessLine(정규식 5회)
+  //   → 패턴 없는 30만 줄 TXT 감지 8.5초 → 0.9초
+  const pre=new Array(lines.length);
+  for(let i=0;i<lines.length;i++) pre[i]=preprocessLine(lines[i]);
   for(const[rx,name]of PATS){
     const matchedIdxs=[];
     const matchedNums=[];
     for(let i=0;i<lines.length;i++){
       // ★ 전처리 후 패턴 검사
-      const t=preprocessLine(lines[i]);
+      const t=pre[i];
       if(!t) continue;
       if(rx.test(t)){
         matchedIdxs.push(i);
@@ -925,7 +947,7 @@ function bestPat(raw){
   }
   if(bestScore<3){
     const fb=/^\d+$/;
-    const validCnt=lines.filter((l,i)=>i<tailStart&&preprocessLine(l)&&fb.test(preprocessLine(l))).length;
+    let validCnt=0; for(let i=0;i<tailStart;i++){ if(pre[i]&&fb.test(pre[i])) validCnt++; }
     if(validCnt>=3){bestScore=validCnt;best=fb;bestName='숫자만';}
   }
 
@@ -946,7 +968,7 @@ function bestPat(raw){
   });
   if(uniq.length>1){
     const combined=new RegExp('(?:'+uniq.map(m=>m.rx.source).join('|')+')','i');
-    const uniqueMatches=[...new Set(lines.filter(l=>preprocessLine(l)&&combined.test(preprocessLine(l))).map(l=>preprocessLine(l)))];
+    const uniqueMatches=[...new Set(pre.filter(t=>t&&combined.test(t)))];
     if(uniqueMatches.length>bestScore){
       return {rx:combined,name:'혼합('+uniq.map(m=>m.name).join('+')+')[자동]',cnt:uniqueMatches.length,isMixed:true,mixedParts:uniq};
     }
@@ -1025,7 +1047,11 @@ function _tocLineInfo(raw, fams){
   const orig=s.replace(/\s{2,}/g,' ');   // 표시용 원문 (전각 숫자 등 원래 글자 유지)
   s=s.replace(/[０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFF10+0x30)).replace(/\s{2,}/g,' ');
   // 빠른 거르기: 숫자·한자/한글 수사·키워드 시작이 없으면 제목 후보 아님
-  if(!/[\d一二三四五六七八九十百千]|제\s*[일이삼사오육칠팔구십백]/.test(s) &&
+  // ★ Phase 10: 모든 형식 계열은 줄 앞부분(괄호·'제'·'Chapter' 등 접두 포함 24자 이내)에 번호가 오고,
+  //   예외인 '소설명 N화'는 줄 끝이 'N화'로 끝남 → 숫자가 문장 중간에만 있는 본문 줄은 정규식 13종 검사 없이 탈락
+  if(!/[\d一二三四五六七八九十百千]/.test(s.slice(0,24)) &&
+     !/\d\s*(?:화|話|회)(?:\s*\(\d{1,2}\))?\s*$/.test(s) &&
+     !/^[\s[(<〈《【「『]*제\s*[일이삼사오육칠팔구십백]/.test(s) &&
      !/^[\s[(<〈《【「『]*(?:프롤|에필|서장|종장|서문|서론|후기|작가|막간|인터|공지|외전|번외|특별편|스페셜|prolog|epilog|interlude|afterword|author|side|extra)/i.test(s)) return null;
   const inner=s.replace(/^[[(<〈《【「『]\s*/,'');
   if(/^(?:프롤로그|프롤|에필로그|에필|서장|종장|서문|서론|후기|작가\s*후기|작가의\s*말|작가\s*노트|작가\s*공지|막간|인터루드|공지사항|공지|prologue|epilogue|interlude|afterword|author'?s?\s*note)(?=$|[\s.:)\]\-–—~,!』」】>〉])/i.test(inner))
@@ -1115,10 +1141,19 @@ function _tocChain(cands, p, volLines){
   return out.reverse();
 }
 
-function _detectAuto(lines, infos, p){
-  const cands=[];
-  for(const [i,info] of infos) if(info.kind==='ch') cands.push({i, num:info.num, fam:info.fam, part:info.part, w:_tocWeight(lines,i,info), info});
-  const vols=[]; for(const [i,info] of infos) if(info.kind==='vol') vols.push(i);
+// 후보(화 제목 줄)와 권 줄 — 매개변수와 무관하므로 detectToc에서 1회만 계산해 변형 재탐색에 재사용
+function _tocCandidates(lines, infos){
+  const cands=[], vols=[];
+  for(const [i,info] of infos){
+    if(info.kind==='ch') cands.push({i, num:info.num, fam:info.fam, part:info.part, w:_tocWeight(lines,i,info), info});
+    else if(info.kind==='vol') vols.push(i);
+  }
+  return {cands, vols};
+}
+
+function _detectAuto(lines, infos, p, pre){
+  // ★ Phase 10: 가중치는 변형(완화·엄격·간격 축소)마다 다시 계산하지 않음 (이전: 최대 4회 중복 계산)
+  const {cands, vols}=pre||_tocCandidates(lines, infos);
   let chain=_tocChain(cands, p, vols);
   // 화수 범위 밖 번호 제거 (파일명 범위가 있을 때)
   if(p.range){
@@ -1154,6 +1189,9 @@ function detectToc(lines, opts={}){
     if(rx){
       customRx=rx; mode='custom';
       for(let i=0;i<lines.length;i++){
+        // ★ Phase 10: 제목은 짧음 — 150자 넘는 본문 줄은 사용자 정규식에 넣지 않음
+        //   (_safeRegexTest는 실행이 끝난 뒤 시간을 재므로 폭주를 끊을 수 없음 → 입력 길이 상한이 실질적 ReDoS 방어)
+        if(String(lines[i]||'').length>150) continue;
         if(_matchHeading(rx,lines[i])&&!_isListItemLine(lines,i)){
           const info=_tocLineInfo(lines[i],fams);
           items.push({line:i+1, title:String(lines[i]).trim().replace(/\s{2,}/g,' '), num:info&&info.kind==='ch'?info.num:null, kind:'ch', fam:'입력'});
@@ -1163,7 +1201,8 @@ function detectToc(lines, opts={}){
   }
   if(mode==='auto'){
     const base={maxGap:30, minW:0, start:range?range.start:null, range};
-    chain=_detectAuto(lines, infos, base);
+    const pre=_tocCandidates(lines, infos);
+    chain=_detectAuto(lines, infos, base, pre);
     let usedVariant='기본';
     // ★ 파일명 화수 대비 오차가 5%를 넘으면 매개변수를 바꿔 재탐색 — 오차가 가장 작은 결과 채택
     if(range){
@@ -1175,7 +1214,7 @@ function detectToc(lines, opts={}){
           ['간격 축소', {...base, maxGap:8}],
         ];
         for(const [label,v] of variants){
-          const alt=_detectAuto(lines, infos, v);
+          const alt=_detectAuto(lines, infos, v, pre);
           if(err(alt)<err(chain)){ chain=alt; usedVariant=label; }
         }
       }
@@ -1338,7 +1377,8 @@ function assembleChapters(lines, items, dropLines, {dedupe=true}={}){
   };
   if(!sorted.length) return chapters;
   const pre=bodyOf(0, sorted[0].line-1);
-  if(pre) chapters.push(['서문', pre]);
+  // ★ Phase 10: 3번째 요소 meta — 서문 표시·감지된 화 번호 (EPUB 삽화 매핑용, 기존 [제목, 본문] 구조분해와 호환)
+  if(pre) chapters.push(['서문', pre, {pre:true}]);
   sorted.forEach((it,k)=>{
     const head=it.line-1;
     const next=k+1<sorted.length?sorted[k+1].line-1:total;
@@ -1349,7 +1389,7 @@ function assembleChapters(lines, items, dropLines, {dedupe=true}={}){
       const c=seen.get(key)||0; seen.set(key,c+1);
       if(c) title=title+' ('+(c+1)+')';
     }
-    chapters.push([title, body]);
+    chapters.push([title, body, {num:it.num!=null?it.num:null, kind:it.kind||null}]);
   });
   return chapters;
 }
@@ -1377,6 +1417,39 @@ function fallbackPageSplit(lines){
   return pages.map((b,k)=>['('+(k+1)+'/'+pages.length+')', b]);
 }
 
+// ── 문단 정합: 30자 미만 짧은 줄이 이어지면 한 줄(문단)로 합침 — 제목 후보·구분선 줄은 유지 ──
+// ★ Phase 10: 루프 밖에서 만든 형식 계열(fams) 재사용 (이전: 짧은 줄마다 정규식 13개 재생성)
+function _mergeShortLineArray(rawLines, fams){
+  const merged=[];
+  let buf='';
+  for(let i=0;i<rawLines.length;i++){
+    const t=rawLines[i];
+    const tt=t.trim();
+    if(tt&&tt.length<30&&!/^[-=*─]{3,}$/.test(tt)&&!_tocLineInfo(t,fams)){
+      buf+=(buf?' ':'')+tt;
+      const nx=rawLines[i+1];
+      if(!(nx&&nx.trim())||nx.trim().length>=30){ merged.push(buf); buf=''; }
+    } else {
+      if(buf){merged.push(buf);buf='';}
+      merged.push(t);
+    }
+  }
+  if(buf) merged.push(buf);
+  return merged;
+}
+
+// ★ Phase 10: '문단 정합' 옵션을 조립된 챕터 본문에 적용 — 목차 줄 번호에 영향 없음
+//   (이전: getCachedChapters 경로에서만 원문 전체에 적용되고 실제 변환(startConvert)에는 전달되지 않아 옵션이 무시됨)
+function applyParagraphMerge(chapters){
+  if(!Array.isArray(chapters)) return chapters;
+  const fams=_tocFamilies();
+  return chapters.map(c=>{
+    const o=[c[0], _mergeShortLineArray(String(c[1]||'').split('\n'), fams).join('\n')];
+    if(c.length>2) o.push(c[2]);
+    return o;
+  });
+}
+
 // splitChapters: 동기 함수. 대용량은 splitChaptersAsync(Worker) 권장
 // ★ Phase 8: 패턴 하나(bestPat)로 줄을 자르던 방식 → detectToc(복합 패턴·번호 사슬·화수 보정) + assembleChapters
 //   미리보기(previewToc)와 같은 감지 함수를 쓰므로 "미리보기에 보이는 목차 = 변환 결과"
@@ -1394,21 +1467,7 @@ function splitChapters(raw, customPat, opts={}){
 
   // ★ 지능형 문단 정합: 짧은 줄(30자 미만)이 연속되면 합산
   if(mergeShortLines){
-    const rawLines=raw.split('\n');
-    const merged=[];
-    let buf='';
-    for(let i=0;i<rawLines.length;i++){
-      const t=rawLines[i];
-      if(t.trim()&&t.trim().length<30&&!t.trim().match(/^[\-=*─]{3,}$/)&&!_tocLineInfo(t,_tocFamilies())){
-        buf+=(buf?' ':'')+t.trim();
-        if(!rawLines[i+1]?.trim()||rawLines[i+1].trim().length>=30){ merged.push(buf); buf=''; }
-      } else {
-        if(buf){merged.push(buf);buf='';}
-        merged.push(t);
-      }
-    }
-    if(buf) merged.push(buf);
-    raw=merged.join('\n');
+    raw=_mergeShortLineArray(raw.split('\n'), _tocFamilies()).join('\n');
   }
 
   onProgress&&onProgress(15,'② 목차 감지 중...');
@@ -1540,8 +1599,8 @@ function buildParserWorkerSource(){
     _normalizeTitleStr, _isLikelyChapterTitle, _isListItemLine, _matchHeading, _checkIndexJump, _warnIndexJump,
     _safeRegexTest, parseCustomPattern,
     // TocEngine (Phase 8)
-    _parseNumToken, _tocFamilies, _tocLineInfo, _tocWeight, _tocChain, _detectAuto, detectToc,
-    assembleChapters, fallbackPageSplit, splitChapters,
+    _parseNumToken, _tocFamilies, _tocLineInfo, _tocWeight, _tocChain, _tocCandidates, _detectAuto, detectToc,
+    _mergeShortLineArray, assembleChapters, fallbackPageSplit, splitChapters,
   ];
   const rxLit=rx=>'new RegExp('+JSON.stringify(rx.source)+','+JSON.stringify(rx.flags)+')';
   const patsSrc='const PATS=[\n'+PATS.map(([rx,name])=>'['+rxLit(rx)+','+JSON.stringify(name)+']').join(',\n')+'\n];';
@@ -1551,6 +1610,15 @@ function buildParserWorkerSource(){
     'self.onmessage=function(e){',
     '  const d=e.data||{};',
     '  const id=d.id;',
+    // ★ Phase 10: DETECT — 미리보기 목차 감지(detectToc)만 Worker에서 (대용량 TXT 미리보기 중 화면 멈춤 방지)
+    "  if(d.type==='DETECT'){",
+    '    try{',
+    '      const p=d.payload||{};',
+    "      const det=detectToc(String(p.raw||'').split('\\n'), p.opts||{});",
+    "      self.postMessage({type:'DONE',id:id,result:det});",
+    "    }catch(err){ self.postMessage({type:'ERROR',id:id,error:(err&&err.message)||String(err)}); }",
+    '    return;',
+    '  }',
     "  if(d.type!=='SPLIT') return;",
     '  try{',
     '    const p=d.payload||{};',
@@ -1591,11 +1659,202 @@ let _chaptersComputePromise=null;
 // 목차 항목(미리보기·편집 결과) → [[제목, 본문], ...]
 // ★ Phase 8: assembleChapters 공용 — 이전엔 본문 없는 제목을 버려 '1권' 같은 상위 제목이 사라짐
 //   dropLines: 감지 단계에서 본문에서 뺄 줄(두 줄 제목의 부제·반복 머리줄) — 같은 원문 배열일 때만 적용
+// ★ Phase 10: 줄 범위 모델(assembleTocChapters) — 병합 세그먼트·목차 순서(드래그 이동)를 출력에 반영
 function buildChaptersFromTocItems(lines, tocItems, dropLines=(lines===_fullRawLines?_tocDropLines:null)){
   const enabled=(tocItems||[]).filter(t=>t.enabled&&t.line!=null&&t.line>=1&&t.line<=lines.length);
   if(!enabled.length) return [['본문', lines.join('\n').trim()]];
   // 사용자가 편집한 제목은 그대로 (중복 접미사 미부여)
-  return assembleChapters(lines, enabled, dropLines, {dedupe:false});
+  return assembleTocChapters(lines, enabled, dropLines);
+}
+
+// ══════════════════════════════════════════
+// 🧩 Module: TocModel (목차 항목 ↔ 원문 줄 범위) — Phase 10
+// ══════════════════════════════════════════
+// 목차 항목(S.tocItems)은 본문 문자열을 들고 있지 않고 '원문 줄 범위'만 가리킴 → 미리보기·통계·EPUB 출력이 같은 기준
+//   (이전: 감지 시 항목마다 body 문자열을 복사해 원문이 메모리에 2벌, 병합은 body 문자열만 이어 붙여
+//    떨어진 항목끼리 병합하거나 드래그로 순서를 바꾸면 미리보기와 실제 EPUB이 달랐음)
+//   · 세그먼트: {line(1-based 제목 줄), autoSplit} — 기본은 항목 자신 1개, 병합 항목은 원본 세그먼트를 순서대로 보유(_segs)
+//   · 세그먼트 본문: 제목 다음 줄(간격 분할·파일 경계·병합된 두 번째 이후 세그먼트는 제목 줄 포함) ~ 다음 경계 직전
+//   · 출력 경계: '활성' 항목의 세그먼트 줄 — 비활성 항목의 내용은 줄 순서상 앞 챕터에 이어짐(기존 동작 유지)
+//   · 통계 경계: 활성·비활성 모든 항목 — 항목 각자의 글자수
+//   · 출력 순서: 목차 순서 (드래그 순서 변경 반영) · 첫 경계 앞 내용은 '서문'
+function _tocSegs(it){
+  if(it&&Array.isArray(it._segs)&&it._segs.length) return it._segs;
+  return [{line:it?it.line:0, autoSplit:!!(it&&it.autoSplit)}];
+}
+function _tocBoundaries(items, total){
+  const set=new Set();
+  for(const it of items){ for(const s of _tocSegs(it)) if(s.line>=1&&s.line<=total) set.add(s.line); }
+  return Float64Array.from(set).sort();
+}
+// 경계 배열에서 line보다 큰 첫 경계 (없으면 total+1)
+function _tocNextBoundary(bounds, line, total){
+  let lo=0, hi=bounds.length;
+  while(lo<hi){ const mid=(lo+hi)>>1; if(bounds[mid]<=line) lo=mid+1; else hi=mid; }
+  return lo<bounds.length?bounds[lo]:total+1;
+}
+// 세그먼트 → 0-based [from, to)
+function _tocSegRange(seg, segIdx, bounds, total){
+  const head=seg.line-1;
+  const from=(seg.autoSplit||segIdx>0)?head:head+1;
+  const to=_tocNextBoundary(bounds, seg.line, total)-1;
+  return [from, Math.max(from, to)];
+}
+// [a,b) 줄 → 본문 (dropLines 제외, 앞뒤 빈 줄·구분선 정리 — assembleChapters와 같은 규칙)
+const _TOC_SEP_RX=/^[-=*─━~·.‒—]{3,}\s*$|^[─━═]{2,}$/;
+function _tocBodyOf(lines, a, b, drop){
+  let s=a, e=b;
+  const skip=k=>drop&&drop.has(k);
+  const edge=k=>{ const t=String(lines[k]==null?'':lines[k]).trim(); return !t||_TOC_SEP_RX.test(t); };
+  while(s<e&&(skip(s)||edge(s))) s++;
+  while(e>s&&(skip(e-1)||edge(e-1))) e--;
+  const out=[];
+  for(let k=s;k<e;k++) if(!skip(k)) out.push(lines[k]);
+  return out.join('\n').trim();
+}
+// 현재 목차가 가리키는 원문 줄 배열 (간격 분할 활성 시 그 원문)
+function _tocSourceLines(){
+  if(_getAutoSplitActive()&&_autoSplitLines&&_autoSplitLines.length) return _autoSplitLines;
+  return (_fullRawLines&&_fullRawLines.length)?_fullRawLines:null;
+}
+function _tocDropSetFor(lines){
+  return (lines&&lines===_fullRawLines&&_tocDropLines&&_tocDropLines.length)?new Set(_tocDropLines):null;
+}
+
+/**
+ * assembleTocChapters — 편집된 목차(S.tocItems) → [[제목, 본문, meta], ...]
+ * meta: {num, kind} / 서문은 {pre:true} — EPUB Worker가 삽화를 화 번호·순번으로 매핑할 때 사용
+ */
+function assembleTocChapters(lines, items, dropLines){
+  const total=lines.length;
+  const drop=dropLines instanceof Set?dropLines:(dropLines&&dropLines.length?new Set(dropLines):null);
+  const enabled=(items||[]).filter(t=>t&&t.enabled&&t.line!=null&&t.line>=1&&t.line<=total);
+  if(!enabled.length) return [];
+  const bounds=_tocBoundaries(enabled, total);
+  const out=[];
+  const pre=_tocBodyOf(lines, 0, bounds[0]-1, drop);
+  if(pre) out.push(['서문', pre, {pre:true}]);
+  const used=new Set();   // 같은 줄을 가리키는 세그먼트가 여러 개면 첫 항목만 본문을 가짐 (중복 출력 방지)
+  for(const it of enabled){
+    const parts=[];
+    _tocSegs(it).forEach((seg,si)=>{
+      if(seg.line<1||seg.line>total||used.has(seg.line)) return;
+      used.add(seg.line);
+      const [a,b]=_tocSegRange(seg, si, bounds, total);
+      const t=_tocBodyOf(lines, a, b, drop);
+      if(t) parts.push(t);
+    });
+    out.push([it.title, parts.join('\n\n'), {num:it.num!=null?it.num:null, kind:it.kind||null}]);
+  }
+  return out;
+}
+
+// 줄별 '공백 제외 글자수' 누적합 (원문 배열·dropLines가 같으면 재사용)
+let _tocPrefixCache={lines:null, dropKey:'', pre:null};
+function _tocCharPrefix(lines, drop){
+  const dropKey=drop?drop.size+':'+(_tocDropLines[0]||0)+':'+(_tocDropLines[_tocDropLines.length-1]||0):'';
+  if(_tocPrefixCache.lines===lines&&_tocPrefixCache.pre&&_tocPrefixCache.pre.length===lines.length+1&&_tocPrefixCache.dropKey===dropKey) return _tocPrefixCache.pre;
+  const pre=new Float64Array(lines.length+1);
+  for(let i=0;i<lines.length;i++){
+    const l=lines[i];
+    pre[i+1]=pre[i]+((drop&&drop.has(i))||!l?0:String(l).replace(/\s+/g,'').length);
+  }
+  _tocPrefixCache={lines, dropKey, pre};
+  return pre;
+}
+
+/**
+ * _recalcTocStats — 항목별 bodyLen(공백 제외 글자수)·suspicious(짧은 챕터) 계산 — O(줄 수 + 항목 log 항목)
+ *   권·키워드 제목('1권', '작가의 말')과 마지막 항목은 짧아도 경고하지 않음
+ */
+function _recalcTocStats(items, lines=_tocSourceLines(), thr=getSuspThreshold()){
+  if(!Array.isArray(items)||!items.length) return items;
+  if(!lines||!lines.length){ items.forEach(t=>{ if(typeof t.bodyLen!=='number') t.bodyLen=0; }); return items; }
+  const total=lines.length;
+  const drop=_tocDropSetFor(lines);
+  const pre=_tocCharPrefix(lines, drop);
+  const bounds=_tocBoundaries(items, total);
+  items.forEach((it,idx)=>{
+    let len=0;
+    _tocSegs(it).forEach((seg,si)=>{
+      if(seg.line<1||seg.line>total) return;
+      const [a,b]=_tocSegRange(seg, si, bounds, total);
+      len+=pre[b]-pre[a];
+    });
+    it.bodyLen=len;
+    it.suspicious=len<thr&&idx<items.length-1&&it.kind!=='vol'&&it.kind!=='kw';
+  });
+  return items;
+}
+
+// 항목 본문 앞부분 (툴팁·미리보기용) — 전체 본문을 만들지 않고 필요한 글자 수만 읽음
+function _tocItemText(item, maxChars=Infinity){
+  const lines=_tocSourceLines();
+  if(!item||!lines) return '';
+  const total=lines.length;
+  const bounds=_tocBoundaries(S.tocItems.length?S.tocItems:[item], total);
+  const drop=_tocDropSetFor(lines);
+  const out=[]; let n=0;
+  const segs=_tocSegs(item);
+  for(let si=0;si<segs.length&&n<maxChars;si++){
+    const seg=segs[si];
+    if(seg.line<1||seg.line>total) continue;
+    const [a,b]=_tocSegRange(seg, si, bounds, total);
+    for(let k=a;k<b&&n<maxChars;k++){
+      if(drop&&drop.has(k)) continue;
+      const l=String(lines[k]==null?'':lines[k]);
+      if(!out.length&&!l.trim()) continue;
+      out.push(l); n+=l.length+1;
+    }
+  }
+  const s=out.join('\n').trim();
+  return Number.isFinite(maxChars)?s.slice(0,maxChars):s;
+}
+
+/**
+ * _tocMergeItems — idxs 항목을 하나로 병합 (가장 앞 위치에 남김)
+ *   세그먼트는 목차 순서대로 이어 붙이고, 원본 항목 정보(_mergedSources)는 평탄화해 보관 → 🔓 분리로 정확히 복원
+ * @returns {{merged, index}|null}
+ */
+function _tocMergeItems(idxs, title){
+  const list=S.tocItems;
+  const sorted=[...new Set(idxs)].filter(i=>list[i]).sort((a,b)=>a-b);
+  if(sorted.length<2) return null;
+  const items=sorted.map(i=>list[i]);
+  const first=items[0];
+  const segs=[], sources=[];
+  for(const it of items){
+    _tocSegs(it).forEach(s=>segs.push({line:s.line, autoSplit:!!s.autoSplit}));
+    if(it._isMerged&&Array.isArray(it._mergedSources)) sources.push(...it._mergedSources.map(s=>({...s})));
+    else sources.push({line:it.line, title:it.title, autoSplit:!!it.autoSplit, num:it.num!=null?it.num:null,
+      kind:it.kind||'ch', originalTitle:it.originalTitle||it.title, enabled:it.enabled!==false});
+  }
+  const merged={
+    ...first,
+    title:         title||items.map(t=>t.title).join(' + '),
+    enabled:       true,
+    suspicious:    false,
+    originalTitle: first.originalTitle||first.title,
+    _isMerged:     true,          // ★ 개선 04: 분리 버튼 표시용 플래그
+    _segs:         segs,
+    _mergedSources:sources,       // ★ 개선 04: 원본 정보
+  };
+  for(let k=sorted.length-1;k>=1;k--) list.splice(sorted[k],1);
+  list[sorted[0]]=merged;
+  _recalcTocStats(list);
+  return {merged, index:sorted[0]};
+}
+
+// 목차 데이터만 바뀜(제목·체크) — 캐시 무효화 + 상태 구독자(regexFeed·미니 리더) 알림
+function _tocTouch(){
+  _chaptersCache=null; _chaptersCacheKey='';
+  if(typeof _sStore!=='undefined') _sStore.set({tocItems:S.tocItems});
+}
+// 목차 구조가 바뀜(병합·분리·이동·Undo) — 통계 재계산 + 다시 그리기
+function _tocCommit(){
+  _tocTouch();
+  renderTocItems();
+  typeof updateTocEditBanner==='function'&&updateTocEditBanner();
 }
 
 async function getCachedChapters(){
@@ -1603,18 +1862,19 @@ async function getCachedChapters(){
 
   // ★ tocItems가 있으면 항상 tocItems 기반 챕터 조립 (_autoSplitActive 무관)
   // ★ window._autoSplitActive: 간격 분할 원문 참조
+  const optMerge  = document.getElementById('optMergeShortLines')?.checked??false;
   if(S.tocItems.length>0){
-    const sourceLines=_getAutoSplitActive()&&_autoSplitLines
-      ? _autoSplitLines
-      : (_fullRawLines&&_fullRawLines.length>0 ? _fullRawLines : null);
-    if(sourceLines) return buildChaptersFromTocItems(sourceLines, S.tocItems);
+    const sourceLines=_tocSourceLines();
+    if(sourceLines){
+      const chs=buildChaptersFromTocItems(sourceLines, S.tocItems);
+      return optMerge?applyParagraphMerge(chs):chs;
+    }
   }
 
   // tocItems 없거나 sourceLines 없음 → 원본 텍스트 파싱 (캐시 사용)
   // ★ 캐시 키 정교화: 파일명+크기+최종수정시간+패턴+설정 해시
   const pat=document.getElementById('pattern')?.value.trim()||'';
   const optItalic = document.getElementById('optItalic')?.checked??true;
-  const optMerge  = document.getElementById('optMergeShortLines')?.checked??false;
   const settingHash = `${optItalic}:${optMerge}:${document.getElementById('optMergeParts')?.checked===true}`;
   const fileHash = S.txtFiles
     .map(f=>`${f.name}:${f.size}:${f.lastModified||0}`)
@@ -1638,11 +1898,12 @@ async function getCachedChapters(){
       const raws=await Promise.all(sorted.map(fileToText));
       const {text:raw, fileBreaks}=joinTextsWithBreaks(raws, sorted.map(f=>f.name));
       await yieldToMain();
-      _chaptersCache=splitChapters(raw,pat,{
-        mergeShortLines:optMerge, fileBreaks,
+      const chs=splitChapters(raw,pat,{
+        fileBreaks,
         range:rangeForFiles(sorted.map(f=>f.name)),
         mergeParts:document.getElementById('optMergeParts')?.checked===true,
       });
+      _chaptersCache=optMerge?applyParagraphMerge(chs):chs;
       _chaptersCacheKey=cacheKey;
     }catch(e){
       _chaptersCache=[];
@@ -1657,8 +1918,11 @@ async function getCachedChapters(){
 // ══════════════════════════════════════════
 // 📋 Module: TocPreview (목차 감지·미리보기·드래그)
 // ══════════════════════════════════════════
+let _previewTocSeq=0;
 async function previewToc(){
   if(!S.txtFiles.length){Toast.warn('TXT 파일을 먼저 선택해주세요.');return;}
+  // ★ Phase 10: 연속 호출(패턴 칩 연타 등) 시 늦게 끝난 이전 감지 결과가 최신 결과를 덮어쓰지 않도록
+  const seq=++_previewTocSeq;
 
   // ════════════════════════════════════════════════════════
   // ★ 최우선 가드: 간격 분할 활성 상태면 패턴 분석 완전 우회
@@ -1717,17 +1981,24 @@ async function previewToc(){
   }catch(e){
     text=await sampleLines(S.txtFiles[0]).catch(()=>'');
   }
-  _fullRawLines=text.split('\n');
+  if(seq!==_previewTocSeq) return;
+  const lines=text.split('\n');
 
   const pat=_patInput;
   let found=[],patLabel='';
   // ★ Phase 8: splitChapters와 같은 detectToc 사용 — 미리보기 목차 = 변환 결과
   //   (이전: 미리보기는 bestPat 단일 패턴만 써서 프롤로그·외전·에필로그가 빠지고, 첫 제목 앞 내용은 '서문'으로 묶여 EPUB에서 읽을 수 없었음)
-  const det=detectToc(_fullRawLines,{
+  // ★ Phase 10: 10만 줄 이상은 Worker에서 감지 (detectTocAsync — convert.js)
+  if(lines.length>=100000) Toast.info('대용량 파일 — 목차를 감지하는 중이에요...',2000);
+  const detOpts={
     customPat:pat, fileBreaks,
     range:rangeForFiles(S.txtFiles.map(f=>f.name)),
     mergeParts:document.getElementById('optMergeParts')?.checked===true,
-  });
+  };
+  const det=typeof detectTocAsync==='function'?await detectTocAsync(lines, text, detOpts):detectToc(lines, detOpts);
+  if(!det||seq!==_previewTocSeq) return;
+  text=null;
+  _fullRawLines=lines;
   if(pat&&det.stats.mode!=='custom') Toast.warn('⚠️ 정규식 오류 — 자동 감지 결과를 보여드려요');
   S._detectedPat=det.rx; S._detectedName=det.rx?det.name:'';
   _tocDropLines=det.dropLines;
@@ -1737,25 +2008,15 @@ async function previewToc(){
   if(det.stats.range&&Math.abs(det.stats.errorRate)>0.05)
     Toast.warn(`파일명 기준 ${det.stats.range.total}화와 감지 결과(${det.stats.main}화)가 ${(Math.abs(det.stats.errorRate)*100).toFixed(1)}% 달라요. 목차를 확인해 주세요.`,6000);
 
-  // ★ I1+B2+B5: tocItems에 body 직접 저장 — 드래그 재정렬/병합 후에도 정확한 글자수 보장
-  found = found.map((f, fi) => {
-    const nextLine = found[fi+1] ? found[fi+1].line - 1 : _fullRawLines.length;
-    const bodyText = _fullRawLines.slice(f.line, nextLine).join('\n').trimEnd();
-    const bodyLen  = bodyText.replace(/\s/g, '').length;
-    return {
-      ...f,
-      enabled:       true,
-      body:          bodyText,
-      bodyLen:       bodyLen,
-      // 권·키워드 제목은 본문이 짧거나 없는 게 정상 → 짧은 챕터 경고 제외
-      suspicious:    bodyLen < getSuspThreshold() && fi < found.length - 1 && f.kind!=='vol' && f.kind!=='kw',
-      originalTitle: f.title,
-    };
-  });
+  // ★ Phase 10: 항목은 원문 줄 범위만 가리킴 (본문 문자열 복사 없음 → 원문 메모리 1벌)
+  //   글자수(bodyLen)·짧은 챕터(suspicious)는 _recalcTocStats가 줄 범위에서 계산 — 출력(assembleTocChapters)과 같은 기준
+  //   (이전: 감지 직후 항목마다 body를 slice해 저장 — dropLines·파일 경계 규칙이 빠져 통계와 출력이 달랐음)
+  found = found.map(f => ({ ...f, enabled:true, originalTitle:f.title }));
+  _recalcTocStats(found, _fullRawLines);
 
   // ★ I9: 재감지 전 통계 저장 (delta 비교용)
   const _prevTotal = S.tocItems.length;
-  const _prevChars = S.tocItems.reduce((s,t)=>s+(typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length),0);
+  const _prevChars = S.tocItems.reduce((s,t)=>s+(t.bodyLen||0),0);
 
   S.tocItems=found;
   renderTocItems();
@@ -1791,12 +2052,12 @@ async function previewToc(){
     }
   }
 
-  // ★ I5: updateTocStat의 짧은챕터 칩 클릭 → 해당 항목 스크롤
+  // ★ I5: updateTocStat의 짧은챕터 칩 클릭 → 첫 짧은 챕터로 스크롤 (가상 목록 — 화면 밖 행도 이동)
   requestAnimationFrame(()=>requestAnimationFrame(()=>{
     document.querySelectorAll('#toc-stat [data-filter-short]').forEach(btn=>{
       btn.addEventListener('click',()=>{
-        const firstSusp=document.querySelector('.toc-item .toc-char-badge[data-short]');
-        firstSusp?.closest('.toc-item')?.scrollIntoView({block:'center',behavior:'smooth'});
+        const i=S.tocItems.findIndex(t=>t.suspicious);
+        if(i>=0) tocScrollToIndex(i);
       });
     });
   }));
@@ -2136,34 +2397,14 @@ function showSuspiciousToast(count){
   el.querySelector('#susp-remove-all-btn').addEventListener('click', ()=>{
     _saveTocSnapshot();
     let mergedCount=0;
-    // 뒤에서부터 순회해야 인덱스 밀림 없음
-    for(let i=S.tocItems.length-1; i>=0; i--){
-      const t=S.tocItems[i];
-      if(!t.suspicious) continue;
-      if(i+1 < S.tocItems.length){
-        const next=S.tocItems[i+1];
-        const mergedBody=(t.body||'')+'\n'+(next.body||'');
-        S.tocItems[i]={
-          ...t,
-          body: mergedBody,
-          bodyLen: mergedBody.replace(/\s/g,'').length,
-          suspicious: false,
-          _isMerged: true,
-          _mergedSources:[
-            {title:t.title, body:t.body||'', bodyLen:t.bodyLen||0, line:t.line},
-            {title:next.title, body:next.body||'', bodyLen:next.bodyLen||0, line:next.line},
-          ],
-        };
-        S.tocItems.splice(i+1,1);
-        mergedCount++;
-      } else {
-        // 마지막 챕터면 suspicious만 해제
-        S.tocItems[i].suspicious=false;
-      }
+    // 뒤에서부터 순회해야 인덱스 밀림 없음 — 각 짧은 챕터를 다음 챕터와 병합 (제목은 짧은 챕터 유지)
+    //   (판정은 시작 시점 기준 — 병합 결과로 다시 계산된 suspicious에 연쇄 반응하지 않음)
+    const targets=S.tocItems.map((t,i)=>t.suspicious&&i+1<S.tocItems.length?i:-1).filter(i=>i>=0);
+    for(let k=targets.length-1;k>=0;k--){
+      const i=targets[k];
+      if(_tocMergeItems([i,i+1], S.tocItems[i].title)) mergedCount++;
     }
-    _chaptersCache=null;_chaptersCacheKey='';
-    renderTocItems();
-    updateTocStat();
+    _tocCommit();
     el.remove();
     Toast.success('짧은 챕터 '+mergedCount+'개를 다음 챕터와 병합했어요.');
   });
@@ -2189,6 +2430,10 @@ let _tocLastClickedIdx = null;
 let _tocSelectModeOn = false;
 // ★ B-FIX-07: dragSrcI도 모듈 스코프로 분리 (클로저 경합 방지)
 let _tocDragSrc = null;
+// ★ Phase 10: 가상 스크롤 인스턴스 · 검색어(재렌더 후에도 유지) · 병합 직후 제목 편집 대상
+let _tocVS = null;
+let _tocFilterQ = '';
+let _tocPendingTitleIdx = null;
 
 // ★ B-FIX-08: getSuspThreshold 캐싱 — renderTocItems 내 수천 회 DOM 쿼리 방지
 // renderTocItems 진입 시 한 번만 평가하고 내부에서 재사용
@@ -2198,15 +2443,12 @@ function _refreshSuspThreshold(){
 }
 
 function _saveTocSnapshot(){
-  // ★ L-20 FIX: body 문자열 제외 → 대용량(3000화+) JSON 직렬화 블로킹 방지
+  // ★ L-20 FIX: 항목은 본문 문자열을 갖지 않음(Phase 10 줄 범위 모델) → 얕은 복사로 충분
+  //   ★ Phase 10: 병합 세그먼트·원본 정보·화 번호도 보존 (이전: 누락 → Undo 후 병합 분리 불가, 출력 경계 손실)
   const slim=(S.tocItems||[]).map(t=>({
-    line:          t.line,
-    title:         t.title,
-    enabled:       t.enabled,
-    autoSplit:     t.autoSplit,
-    suspicious:    t.suspicious,
-    originalTitle: t.originalTitle,
-    bodyLen:       typeof t.bodyLen==='number' ? t.bodyLen : 0,
+    ...t,
+    _segs:          Array.isArray(t._segs)?t._segs.map(s=>({...s})):undefined,
+    _mergedSources: Array.isArray(t._mergedSources)?t._mergedSources.map(s=>({...s})):undefined,
   }));
   _tocUndoStack.push(slim);
   if(_tocUndoStack.length>_TOC_UNDO_MAX) _tocUndoStack.shift();
@@ -2215,50 +2457,33 @@ function undoToc(){
   if(_tocUndoStack.length===0){Toast.warn('되돌릴 내역이 없어요.');return;}
   const snap=_tocUndoStack.pop();
   S.tocItems=snap;
-  _chaptersCache=null;_chaptersCacheKey='';
-  renderTocItems();
-  updateTocStat();
+  _tocSelectedIdxs.clear(); _tocPendingTitleIdx=null;
+  _tocCommit();
   Toast.success('되돌리기 완료 (남은 스냅샷: '+_tocUndoStack.length+'개)');
 }
 
 function renderTocItems(){
   // ══════════════════════════════════════════════════════════
-  // 🗂 renderTocItems — 목차 병합 UX 전면 개선판
-  // ★ B-FIX-06: _selectedIdxs 모듈 스코프 사용 (재렌더 시 선택 상태 보존)
-  // ★ B-FIX-07: drag 변수 모듈 스코프 사용
+  // 🗂 renderTocItems — 목차 편집 목록 (Phase 10: 가상 스크롤)
+  // ★ Phase 10: 화면에 보이는 행(약 40개)만 DOM으로 생성
+  //   이전: 2만 화면 2만 행(행마다 리스너 10개+)을 display:none으로 모두 만들고, 체크 하나에도 전체 재생성
+  //   → 접기/펼치기 버튼 제거 (펼치기가 [style*="display: none"] 선택자로 병합 툴바·검색 필터 행까지 드러내던 문제 해소)
+  // ★ B-FIX-06: 선택 상태는 모듈 스코프 (재렌더 시 보존)
   // ★ B-FIX-08: getSuspThreshold 진입 시 1회 캐싱
   // ══════════════════════════════════════════════════════════
-  // ★ B-FIX-08: 렌더링 시작 시점에 getSuspThreshold 1회 평가
   _refreshSuspThreshold();
-  // ★ B-FIX-07: drag 소스 초기화 (재렌더마다 리셋)
-  // ★ Side-Effect 가드: 드래그가 진행 중이면 초기화하지 않음
-  // renderTocItems가 updateTocStat → rerender 체인으로 재진입해도
-  // 드래그 중 src 값이 날아가지 않도록 드래그 진행 여부로 조건 분기
-  const _isDragging = _tocDragSrc !== null;
-  if(!_isDragging){
-    _tocDragSrc=null;
-  }
   const c=document.getElementById('tb0');
+  if(!c) return;
+  _tocVS?.destroy(); _tocVS=null;
   // ★ PERF-GC: innerHTML='' 대신 replaceChildren() 사용
-  // DOM 자식을 분리하면서 자식에 붙은 이벤트 핸들러 참조도 함께 끊어
-  // 이전 렌더 사이클의 클로저(tocItem 참조)가 GC 수거될 수 있도록 유도
   c.replaceChildren();
   // ★ L-06: 전체 재렌더 시 내보내기 버튼 플래그 초기화 (updateTocStat에서 재생성)
   _tocExportBtnCreated=false;
   if(!S.tocItems.length){c.innerHTML='<div class="toc-empty">⚠️ 챕터가 감지되지 않았습니다.</div>';return;}
+  // 글자수·짧은 챕터 표시는 원문 줄 범위로 다시 계산 (병합·분리·Undo 후에도 출력과 같은 기준)
+  _recalcTocStats(S.tocItems);
 
-  const total=S.tocItems.length;
-  const HEAD=5, TAIL=5;
-  const alwaysShow=new Set();
-  for(let i=0;i<Math.min(HEAD,total);i++) alwaysShow.add(i);
-  for(let i=Math.max(0,total-TAIL);i<total;i++) alwaysShow.add(i);
-
-  // ★ B-FIX-06: 모듈 스코프 변수 직접 참조 (const 내부 선언 제거)
-  // _tocSelectedIdxs, _tocLastClickedIdx, _tocSelectModeOn 은 모듈 스코프에서 유지됨
-  // 렌더링 이후에도 선택 상태가 보존됨
   const _selectedIdxs = _tocSelectedIdxs;   // 참조 공유 (동일 Set 객체)
-  let _lastClickedIdx = _tocLastClickedIdx;
-  let _selectModeOn   = _tocSelectModeOn;
 
   // ══ 검색/필터 바 ══
   const filterBar=document.createElement('div');
@@ -2273,33 +2498,31 @@ function renderTocItems(){
   c.appendChild(filterBar);
 
   const searchInp=filterBar.querySelector('#toc-search');
-  let _filterQ='';
-  searchInp.addEventListener('input',e=>{
-    _filterQ=e.target.value.toLowerCase().trim();
-    c.querySelectorAll('.toc-item[data-idx]').forEach(el=>{
-      const idx=parseInt(el.dataset.idx);
-      const t=(S.tocItems[idx]?.title||'').toLowerCase();
-      el.style.display=(!_filterQ||t.includes(_filterQ))?'':'none';
-    });
-    const foldBtn=c.querySelector('.toc-fold-btn');
-    if(foldBtn) foldBtn.style.display=_filterQ?'none':'';
+  if(searchInp) searchInp.value=_tocFilterQ;
+  searchInp?.addEventListener('input',e=>{
+    _tocFilterQ=e.target.value.toLowerCase().trim();
+    vs.setFilter(_tocFilterQ);
     // 검색 중 자동선택 버튼 숨김
     updateAutoSelBtn();
   });
 
   // ★ 개선 01: 선택 모드 토글
   const selectModeBtn=filterBar.querySelector('#toc-select-mode-btn');
-  selectModeBtn.addEventListener('click',()=>{
-    _selectModeOn=!_selectModeOn;
-    _tocSelectModeOn=_selectModeOn; // ★ B-FIX-06: 모듈 스코프 동기화
-    selectModeBtn.style.background=_selectModeOn?'var(--blue)':'';
-    selectModeBtn.style.color=_selectModeOn?'var(--on-accent)':'';
-    selectModeBtn.style.borderColor=_selectModeOn?'var(--blue)':'';
-    selectModeBtn.title=_selectModeOn?'선택 모드 ON — 클릭만으로 선택됩니다 (다시 클릭해서 해제)':'선택 모드 OFF';
+  const paintSelectMode=()=>{
+    if(!selectModeBtn) return;
+    selectModeBtn.style.background=_tocSelectModeOn?'var(--blue)':'';
+    selectModeBtn.style.color=_tocSelectModeOn?'var(--on-accent)':'';
+    selectModeBtn.style.borderColor=_tocSelectModeOn?'var(--blue)':'';
+    selectModeBtn.title=_tocSelectModeOn?'선택 모드 ON — 클릭만으로 선택됩니다 (다시 클릭해서 해제)':'선택 모드 OFF';
+  };
+  paintSelectMode();
+  selectModeBtn?.addEventListener('click',()=>{
+    _tocSelectModeOn=!_tocSelectModeOn;
+    paintSelectMode();
     // 선택 모드 해제 시 선택 초기화
-    if(!_selectModeOn){
+    if(!_tocSelectModeOn){
       _selectedIdxs.clear();
-      c.querySelectorAll('.toc-item.multi-selected').forEach(el=>el.classList.remove('multi-selected'));
+      vs.refresh();
       updateMergeBar();
     }
   });
@@ -2308,20 +2531,16 @@ function renderTocItems(){
   const autoSelBtn=filterBar.querySelector('#toc-auto-sel-susp');
   function updateAutoSelBtn(){
     const suspCount=S.tocItems.filter(t=>t.suspicious).length;
-    if(autoSelBtn) autoSelBtn.style.display=(suspCount>0&&!_filterQ)?'':'none';
+    if(autoSelBtn) autoSelBtn.style.display=(suspCount>0&&!_tocFilterQ)?'':'none';
   }
   updateAutoSelBtn();
   autoSelBtn?.addEventListener('click',()=>{
-    _saveTocSnapshot();
-    S.tocItems.forEach((t,i)=>{ if(t.suspicious){ _selectedIdxs.add(i); } });
-    c.querySelectorAll('.toc-item[data-idx]').forEach(el=>{
-      const idx=parseInt(el.dataset.idx);
-      if(_selectedIdxs.has(idx)) el.classList.add('multi-selected');
-    });
+    let first=-1;
+    S.tocItems.forEach((t,i)=>{ if(t.suspicious){ _selectedIdxs.add(i); if(first<0) first=i; } });
+    vs.refresh();
     updateMergeBar();
     // 첫 번째 선택 항목으로 스크롤
-    const firstSusp=c.querySelector('.toc-item.multi-selected');
-    firstSusp?.scrollIntoView({block:'center',behavior:'smooth'});
+    if(first>=0) tocScrollToIndex(first);
     Toast.info('짧은챕터 '+_selectedIdxs.size+'개를 선택했어요. 병합 또는 제거를 선택하세요.',3000);
   });
 
@@ -2356,7 +2575,7 @@ function renderTocItems(){
     'padding:8px 10px;font-size:var(--fs-xs);color:var(--text2);line-height:1.7;max-height:120px;overflow-y:auto';
   toolbar.appendChild(previewPanel);
 
-  // ★ 개선 03: 제목 편집 영역 (병합 직후 표시)
+  // ★ 개선 03: 제목 편집 영역 — 병합 직후 표시 (Phase 10: 이전엔 표시하는 코드가 없어 항상 숨겨져 있었음)
   const titleEditArea=document.createElement('div');
   titleEditArea.id='toc-merge-title-edit';
   titleEditArea.style.cssText='display:none;gap:6px;align-items:center;flex-wrap:wrap';
@@ -2368,6 +2587,7 @@ function renderTocItems(){
       '<button class="btn btn-sm" id="toc-mtitle-range" title="범위 표기 (1~N화)" style="font-size:var(--fs-xs);padding:2px 6px">범위</button>'+
       '<button class="btn btn-sm" id="toc-mtitle-join" title="이어붙이기" style="font-size:var(--fs-xs);padding:2px 6px">이어붙이기</button>'+
       '<button class="btn btn-sm" id="toc-mtitle-apply" style="font-size:var(--fs-xs);padding:2px 8px;background:var(--blue);color:var(--on-accent);border-radius:var(--radius-xs)">✓ 적용</button>'+
+      '<button class="btn btn-sm" id="toc-mtitle-close" title="닫기" style="font-size:var(--fs-xs);padding:2px 6px">✕</button>'+
     '</div>';
   toolbar.appendChild(titleEditArea);
 
@@ -2379,7 +2599,7 @@ function renderTocItems(){
     if(idxs.length<2) return;
 
     // ★ 개선 08: 검색 필터 중 병합 안전 확인
-    if(_filterQ){
+    if(_tocFilterQ){
       const ok=await Toast.confirm(
         '🔍 검색 필터가 활성 상태예요.<br>'+
         '필터된 화면에서 선택된 '+idxs.length+'개를 병합할까요?<br>'+
@@ -2390,114 +2610,84 @@ function renderTocItems(){
 
     // ★ 개선 10: 대량(20개+) 병합 시 로딩 표시
     const mergeBtn=toolbar.querySelector('#toc-merge-btn');
-    if(idxs.length>20){
+    if(idxs.length>20&&mergeBtn){
       mergeBtn.textContent='⏳ 병합 중...';
       mergeBtn.disabled=true;
       await yieldToMain();
     }
 
     _saveTocSnapshot();
-    const first=S.tocItems[idxs[0]];
-    // ★ B8: 병합된 챕터들의 body/bodyLen 합산
-    const mergedBody    = idxs.map(i=>S.tocItems[i].body||'').join('\n');
-    const mergedBodyLen = mergedBody.replace(/\s/g,'').length;
-    // 원본 항목 정보 저장 (개선 04 분리 기능용)
-    const _mergedSources = idxs.map(i=>({
-      title: S.tocItems[i].title,
-      body:  S.tocItems[i].body||'',
-      bodyLen: S.tocItems[i].bodyLen||0,
-      line:  S.tocItems[i].line,
-    }));
-    const defaultTitle=idxs.map(i=>S.tocItems[i].title).join(' + ');
-    const merged={
-      ...first,
-      title:         defaultTitle,
-      enabled:       true,
-      body:          mergedBody,
-      bodyLen:       mergedBodyLen,
-      suspicious:    false,
-      originalTitle: first.originalTitle||first.title,
-      _isMerged:     true,         // ★ 개선 04: 분리 버튼 표시용 플래그
-      _mergedSources: _mergedSources, // ★ 개선 04: 원본 정보
-    };
-    for(let k=idxs.length-1;k>=1;k--) S.tocItems.splice(idxs[k],1);
-    S.tocItems[idxs[0]]=merged;
+    // ★ Phase 10: 병합 = 원문 줄 범위(세그먼트)를 한 챕터로 묶기 → 떨어진 항목끼리 병합해도 EPUB 출력과 일치
+    const res=_tocMergeItems(idxs);
     _selectedIdxs.clear();
-    _chaptersCache=null;_chaptersCacheKey='';
-    renderTocItems();
-    updateTocStat();
-    updateTocEditBanner&&updateTocEditBanner();
+    if(!res) return;
+    _tocPendingTitleIdx=res.index;   // ★ 개선 03: 병합 직후 제목 편집 영역 표시
+    _tocCommit();
 
     // ★ 개선 10: 완료 토스트
-    const totalWan=mergedBodyLen>=10000?(mergedBodyLen/10000).toFixed(1)+'만자':mergedBodyLen.toLocaleString()+'자';
+    const len=res.merged.bodyLen||0;
+    const totalWan=len>=10000?(len/10000).toFixed(1)+'만자':len.toLocaleString()+'자';
     Toast.success(idxs.length+'개 챕터를 1개로 병합했어요 (총 '+totalWan+')',3000);
   }
 
   // ══ 병합 버튼 이벤트 ══
-  toolbarTop.querySelector('#toc-merge-btn').addEventListener('click', execMerge);
+  toolbarTop.querySelector('#toc-merge-btn')?.addEventListener('click', execMerge);
 
-  toolbarTop.querySelector('#toc-sel-clear').addEventListener('click',()=>{
+  toolbarTop.querySelector('#toc-sel-clear')?.addEventListener('click',()=>{
     _selectedIdxs.clear();
-    _lastClickedIdx=null;
-    c.querySelectorAll('.toc-item.multi-selected').forEach(el=>el.classList.remove('multi-selected'));
+    _tocLastClickedIdx=null;
+    vs.refresh();
     updateMergeBar();
   });
 
   // ★ 개선 05: 선택 위치로 스크롤
-  toolbarTop.querySelector('#toc-scroll-sel').addEventListener('click',()=>{
+  toolbarTop.querySelector('#toc-scroll-sel')?.addEventListener('click',()=>{
     const firstIdx=[..._selectedIdxs].sort((a,b)=>a-b)[0];
-    if(firstIdx!=null){
-      const el=c.querySelector(`.toc-item[data-idx="${firstIdx}"]`);
-      el?.scrollIntoView({block:'center',behavior:'smooth'});
-    }
+    if(firstIdx!=null) tocScrollToIndex(firstIdx);
   });
 
-  // ★ 개선 03: 제목 프리셋 버튼
+  // ★ 개선 03: 제목 프리셋 버튼 — 방금 병합한 항목의 원본 제목 기준
+  const pendingSources=()=>{
+    const it=_tocPendingTitleIdx!=null?S.tocItems[_tocPendingTitleIdx]:null;
+    return (it&&Array.isArray(it._mergedSources))?it._mergedSources:[];
+  };
+  const titleInpEl=titleEditArea.querySelector('#toc-merge-title-inp');
   titleEditArea.querySelector('#toc-mtitle-first')?.addEventListener('click',()=>{
-    const idxs=[..._selectedIdxs].sort((a,b)=>a-b);
-    const inp=titleEditArea.querySelector('#toc-merge-title-inp');
-    if(inp&&idxs.length) inp.value=S.tocItems[idxs[0]]?.title||'';
+    const src=pendingSources(); if(titleInpEl&&src.length) titleInpEl.value=src[0].title||'';
   });
   titleEditArea.querySelector('#toc-mtitle-range')?.addEventListener('click',()=>{
-    const idxs=[..._selectedIdxs].sort((a,b)=>a-b);
-    const inp=titleEditArea.querySelector('#toc-merge-title-inp');
-    if(inp&&idxs.length>1){
-      const t0=S.tocItems[idxs[0]]?.title||'';
-      const t1=S.tocItems[idxs[idxs.length-1]]?.title||'';
-      inp.value=t0+' ~ '+t1;
-    }
+    const src=pendingSources(); if(titleInpEl&&src.length>1) titleInpEl.value=(src[0].title||'')+' ~ '+(src[src.length-1].title||'');
   });
   titleEditArea.querySelector('#toc-mtitle-join')?.addEventListener('click',()=>{
-    const idxs=[..._selectedIdxs].sort((a,b)=>a-b);
-    const inp=titleEditArea.querySelector('#toc-merge-title-inp');
-    if(inp) inp.value=idxs.map(i=>S.tocItems[i]?.title||'').join(' + ');
+    const src=pendingSources(); if(titleInpEl) titleInpEl.value=src.map(s=>s.title||'').join(' + ');
+  });
+  titleEditArea.querySelector('#toc-mtitle-close')?.addEventListener('click',()=>{
+    _tocPendingTitleIdx=null; updateMergeBar();
   });
 
   // ★ 개선 03: 제목 적용 버튼
   titleEditArea.querySelector('#toc-mtitle-apply')?.addEventListener('click',()=>{
-    const inp=titleEditArea.querySelector('#toc-merge-title-inp');
-    const newTitle=(inp?.value||'').trim();
-    if(!newTitle) return;
-    // 가장 최근 병합된 항목(_isMerged)에 제목 적용
-    const mergedIdx=S.tocItems.findIndex(t=>t._isMerged&&!t._titleApplied);
-    if(mergedIdx>=0){
-      S.tocItems[mergedIdx].title=newTitle;
-      S.tocItems[mergedIdx]._titleApplied=true;
-      _chaptersCache=null;_chaptersCacheKey='';
-      // 해당 행 제목 input만 업데이트 (전체 재렌더 없이)
-      const rowInp=c.querySelector(`.toc-item[data-idx="${mergedIdx}"] .toc-title-edit`);
-      if(rowInp) rowInp.value=newTitle;
-      titleEditArea.style.display='none';
-      Toast.success('제목을 "'+newTitle+'"으로 설정했어요.',2000);
-    }
+    const newTitle=(titleInpEl?.value||'').trim();
+    const it=_tocPendingTitleIdx!=null?S.tocItems[_tocPendingTitleIdx]:null;
+    if(!newTitle||!it) return;
+    it.title=newTitle;
+    _tocPendingTitleIdx=null;
+    _tocTouch();
+    vs.refresh();
+    updateMergeBar();
+    Toast.success('제목을 "'+newTitle+'"으로 설정했어요.',2000);
   });
 
   function updateMergeBar(){
     const n=_selectedIdxs.size;
-    toolbar.style.display=n>0?'flex':'none';
-    toolbarTop.querySelector('#toc-sel-count').textContent=n+'개 선택됨';
-    toolbarTop.querySelector('#toc-merge-btn').disabled=n<2;
-    toolbarTop.querySelector('#toc-merge-btn').textContent=n>=2?'🔗 병합':'🔗 병합';
+    const pendingItem=_tocPendingTitleIdx!=null?S.tocItems[_tocPendingTitleIdx]:null;
+    if(!pendingItem) _tocPendingTitleIdx=null;
+    toolbar.style.display=(n>0||pendingItem)?'flex':'none';
+    const cnt=toolbarTop.querySelector('#toc-sel-count');
+    if(cnt) cnt.textContent=n>0?n+'개 선택됨':'병합 완료';
+    const mb=toolbarTop.querySelector('#toc-merge-btn');
+    if(mb){ mb.disabled=n<2; mb.textContent='🔗 병합'; mb.style.display=n>0?'':'none'; }
+    ['#toc-sel-clear','#toc-scroll-sel'].forEach(sel=>{ const b=toolbarTop.querySelector(sel); if(b) b.style.display=n>0?'':'none'; });
 
     // ★ 개선 05: 미니맵 업데이트
     if(n>0){
@@ -2517,14 +2707,11 @@ function renderTocItems(){
     // ★ 개선 07: 병합 미리보기 업데이트
     if(n>=2){
       const sortedIdxs=[..._selectedIdxs].sort((a,b)=>a-b);
-      const totalChars=sortedIdxs.reduce((s,i)=>{
-        const bl=typeof S.tocItems[i]?.bodyLen==='number'?S.tocItems[i].bodyLen:(S.tocItems[i]?.body||'').replace(/\s/g,'').length;
-        return s+bl;
-      },0);
+      const totalChars=sortedIdxs.reduce((s,i)=>s+(S.tocItems[i]?.bodyLen||0),0);
       const totalWan=totalChars>=10000?(totalChars/10000).toFixed(1)+'만자':totalChars.toLocaleString()+'자';
       const previews=sortedIdxs.slice(0,5).map(i=>{
         const t=S.tocItems[i];
-        const firstLine=(t?.body||'').split('\n').find(l=>l.trim())||'(본문 없음)';
+        const firstLine=_tocItemText(t,200).split('\n').find(l=>l.trim())||'(본문 없음)';
         return `<div style="border-left:2px solid var(--blue);padding-left:6px;margin:2px 0">
           <b style="font-size:var(--fs-xs);color:var(--blue)">${escHtml(t?.title||'')}</b>
           <span style="font-size:var(--fs-xs);opacity:.7"> — ${escHtml(firstLine.slice(0,40))}${firstLine.length>40?'…':''}</span>
@@ -2539,18 +2726,19 @@ function renderTocItems(){
       previewPanel.style.display='none';
     }
 
-    // ★ 개선 03: 제목 편집 영역은 병합 후 자동 표시 (execMerge 후 renderTocItems에서 재설정)
-    titleEditArea.style.display='none';
+    // ★ 개선 03: 병합 직후에만 제목 편집 영역 표시
+    titleEditArea.style.display=pendingItem?'flex':'none';
+    if(pendingItem&&titleInpEl&&document.activeElement!==titleInpEl) titleInpEl.value=pendingItem.title||'';
   }
 
-  // ══ buildTocRow — 각 행 생성 ══
-  function buildTocRow(item, i, isHidden){
+  // ══ buildTocRow — 각 행 생성 (화면에 보이는 행만 호출됨) ══
+  function buildTocRow(item, i){
     const d=document.createElement('div');
     d.className='toc-item'+(item.enabled?'':' off');
     d.dataset.idx=i;
-    if(isHidden) d.style.display='none';
+    if(item._isMerged) d.dataset.merged='1';
     d.draggable=true;
-    // 이미 선택된 상태 복원 (renderTocItems 재호출 시)
+    // 이미 선택된 상태 복원
     if(_selectedIdxs.has(i)) d.classList.add('multi-selected');
 
     // 드래그 핸들 — ★ 접근성: tabindex + aria-label + role 추가
@@ -2565,12 +2753,14 @@ function renderTocItems(){
     // 체크박스
     const chk=document.createElement('input');
     chk.type='checkbox'; chk.className='toc-chk'; chk.checked=item.enabled;
+    chk.setAttribute('aria-label',(item.title||'')+' 포함');
     chk.addEventListener('change',e=>{
       e.stopPropagation();
-      S.tocItems[i].enabled=e.target.checked;
-      // ★ DOM만 업데이트 (전체 재렌더링 없음 → 1,000화 이상 성능 개선)
+      const it=S.tocItems[i]; if(!it) return;
+      it.enabled=e.target.checked;
+      // ★ DOM만 업데이트 (전체 재렌더링 없음)
       d.classList.toggle('off',!e.target.checked);
-      _chaptersCache=null;_chaptersCacheKey='';
+      _tocTouch();
       updateTocStat();
     });
 
@@ -2578,23 +2768,19 @@ function renderTocItems(){
     const num=document.createElement('span');
     num.className='toc-num'; num.textContent=item.line+'줄';
 
-    // ★ B2+B3+B6+B9: 글자수 배지 — item.bodyLen 직접 사용 (드래그 순서 무관)
+    // ★ B2+B3+B6+B9: 글자수 배지 — item.bodyLen (원문 줄 범위 기준, Phase 10)
     const charBadge=document.createElement('span');
     charBadge.className='toc-char-badge';
-    const _bLen = typeof item.bodyLen==='number'
-      ? item.bodyLen
-      : (item.body||'').replace(/\s/g,'').length;
-    if(_bLen > 0 || item.body !== undefined){
-      // ★ B3: Math.floor로 내림 표시, 1만자 이상은 '만자' 단위
+    const _bLen = item.bodyLen||0;
+    {
+      // ★ B3: 1만자 이상은 '만자' 단위
       let _bTxt;
       if(_bLen < 1000)       _bTxt = _bLen + '자';
       else if(_bLen < 10000) _bTxt = (_bLen/1000).toFixed(1) + 'k';
       else                   _bTxt = (_bLen/10000).toFixed(1) + '만';
       charBadge.textContent = _bTxt;
       charBadge.title = '본문 글자수 (공백 제외): ' + _bLen.toLocaleString() + '자 (기준: ' + _suspThresholdCached + '자)';
-      // ★ FIX-07: getSuspThreshold() 호출 시점 평가 → 설정 변경 즉시 반영
-      const _suspThr = _suspThresholdCached // ★ B-FIX-08: 캐싱;
-      const _isShort = _bLen > 0 && _bLen < _suspThr;
+      const _isShort = _bLen > 0 && _bLen < _suspThresholdCached;
       // ★ FIX-04: CSS 변수로 교체 (하드코딩 색상 제거)
       charBadge.style.cssText=
         'font-size:var(--fs-xs);padding:1px 5px;border-radius:var(--radius-xs);flex-shrink:0;white-space:nowrap;cursor:default;'+
@@ -2603,11 +2789,11 @@ function renderTocItems(){
           : 'background:var(--bg2);color:var(--text2);border:1px solid var(--border)');
       if(_isShort) charBadge.dataset.short='1';
 
-      // ★ I6: hover 시 본문 앞 3줄 팝오버 표시
+      // ★ I6: hover 시 본문 앞 3줄 팝오버 표시 (본문은 원문 줄에서 필요한 만큼만 읽음)
       let _charPopTimer=null;
       charBadge.addEventListener('mouseenter',()=>{
         _charPopTimer=setTimeout(()=>{
-          const preview=(item.body||'').split('\n').filter(l=>l.trim()).slice(0,3).join('\n')||'(본문 없음)';
+          const preview=_tocItemText(item,600).split('\n').filter(l=>l.trim()).slice(0,3).join('\n')||'(본문 없음)';
           const pop=document.createElement('div');
           pop.style.cssText='position:fixed;z-index:9999;background:var(--panel);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;font-size:var(--fs-xs);max-width:280px;box-shadow:var(--shadow-md);pointer-events:none;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-all';
           pop.textContent=preview;
@@ -2629,17 +2815,20 @@ function renderTocItems(){
     titleInp.className='toc-title-edit';
     titleInp.value=item.title;
     titleInp.title='클릭해서 제목 편집';
+    titleInp.setAttribute('aria-label','챕터 제목');
     titleInp.addEventListener('click',e=>e.stopPropagation());
     titleInp.addEventListener('change',e=>{
-      const newTitle=e.target.value.trim()||item.title;
-      if(!S.tocItems[i].originalTitle) S.tocItems[i].originalTitle=S.tocItems[i].title;
-      S.tocItems[i].title=newTitle;
-      // ★ 제목 편집 시에도 캐시 무효화
-      _chaptersCache=null;_chaptersCacheKey='';
+      const it=S.tocItems[i]; if(!it) return;
+      const newTitle=e.target.value.trim()||it.title;
+      if(!it.originalTitle) it.originalTitle=it.title;
+      it.title=newTitle;
+      // ★ 제목 편집 시에도 캐시 무효화 + 상태 구독자 알림
+      _tocTouch();
+      updateTocEditBanner&&updateTocEditBanner();
     });
     titleInp.addEventListener('keydown',e=>{
       if(e.key==='Enter'){e.target.blur();}
-      if(e.key==='Escape'){e.target.value=S.tocItems[i].title;e.target.blur();}
+      if(e.key==='Escape'){e.target.value=S.tocItems[i]?.title||'';e.target.blur();}
     });
 
     // ★ 개선 01: 호버 퀵 선택 버튼 (+)
@@ -2647,6 +2836,7 @@ function renderTocItems(){
     quickSelBtn.className='toc-quick-sel-btn';
     quickSelBtn.textContent='+';
     quickSelBtn.title='클릭해서 병합 선택에 추가 (또는 Ctrl+클릭)';
+    quickSelBtn.setAttribute('aria-label',(item.title||'')+' 병합 선택');
     quickSelBtn.addEventListener('click',e=>{
       e.stopPropagation();
       if(_selectedIdxs.has(i)){
@@ -2655,10 +2845,14 @@ function renderTocItems(){
       } else {
         _selectedIdxs.add(i);
         d.classList.add('multi-selected');
-        _lastClickedIdx=i;
+        _tocLastClickedIdx=i;
       }
       updateMergeBar();
     });
+
+    d.appendChild(handle);d.appendChild(chk);d.appendChild(num);
+    d.appendChild(charBadge);
+    d.appendChild(titleInp);
 
     // ★ 개선 04: 병합된 챕터에 🔓 분리 버튼
     if(item._isMerged && item._mergedSources && item._mergedSources.length>=2){
@@ -2667,7 +2861,7 @@ function renderTocItems(){
         'font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);'+
         'padding:1px 5px;flex-shrink:0;white-space:nowrap;cursor:default;'+
         'border:1px solid var(--blue);display:inline-flex;align-items:center;gap:3px';
-      splitBadge.innerHTML='🔗 '+item._mergedSources.length+'개 병합';
+      splitBadge.textContent='🔗 '+item._mergedSources.length+'개 병합';
       splitBadge.title='이 챕터는 '+item._mergedSources.length+'개 챕터가 병합된 상태입니다';
 
       const unmergeBtn=document.createElement('button');
@@ -2686,36 +2880,38 @@ function renderTocItems(){
         _saveTocSnapshot();
         const idx=S.tocItems.indexOf(item);
         if(idx<0) return;
-        // 원본 소스로 복원 (line은 첫 소스 기준 연속 부여)
-        const restored=item._mergedSources.map((src,si)=>({
-          line:   si===0 ? item.line : (item.line+si),
-          title:  src.title,
-          enabled: true,
-          body:   src.body,
-          bodyLen: src.bodyLen,
-          suspicious: src.bodyLen < getSuspThreshold() && si < item._mergedSources.length-1,
-          originalTitle: src.title,
+        // ★ Phase 10: 원본 줄 번호(src.line)로 복원 (이전: item.line+si로 임의 부여 → 분리 후 본문 경계가 1줄씩 어긋남)
+        const restored=item._mergedSources.map(src=>({
+          line:          src.line,
+          title:         src.title,
+          enabled:       src.enabled!==false,
+          autoSplit:     !!src.autoSplit,
+          num:           src.num!=null?src.num:null,
+          kind:          src.kind||'ch',
+          originalTitle: src.originalTitle||src.title,
         }));
-        S.tocItems.splice(idx, 1, ...restored);
-        _chaptersCache=null;_chaptersCacheKey='';
-        renderTocItems();
-        updateTocStat();
-        updateTocEditBanner&&updateTocEditBanner();
+        // 첫 원본은 병합 항목 자리에, 나머지는 줄 번호 순서상 원래 자리에 다시 끼움
+        //   (떨어진 항목끼리 병합했던 경우 — 이전 위치(사이 항목들 뒤)로 정확히 복원)
+        const list=S.tocItems;
+        list.splice(idx, 1, restored[0]);
+        for(const r of restored.slice(1)){
+          let at=list.findIndex((t,k)=>k>idx&&t.line>r.line);
+          if(at<0) at=list.length;
+          list.splice(at, 0, r);
+        }
+        _tocCommit();
         Toast.success('챕터를 '+restored.length+'개로 분리했어요.',2500);
       });
-
-      d.appendChild(handle);d.appendChild(chk);d.appendChild(num);
-      if(charBadge.textContent) d.appendChild(charBadge);
-      d.appendChild(titleInp);d.appendChild(splitBadge);d.appendChild(unmergeBtn);d.appendChild(quickSelBtn);
+      d.appendChild(splitBadge);d.appendChild(unmergeBtn);
     } else if(item.suspicious){
-      // 오감지 배지 + 제거 버튼
+      // 오감지 배지 + 병합 버튼
       const badge=document.createElement('span');
       badge.style.cssText=
         'font-size:var(--fs-xs);background:var(--yellow-bg);color:var(--yellow);border-radius:var(--radius-xs);'+
         'padding:1px 6px;flex-shrink:0;white-space:nowrap;cursor:default;'+
         'border:1px solid var(--accent2);display:inline-flex;align-items:center;gap:3px';
       badge.innerHTML='<span>⚠</span><span>본문 짧음</span>';
-      badge.title='이 챕터 본문이 '+getSuspThreshold()+'자 미만이에요 — 오감지일 수 있어요';
+      badge.title='이 챕터 본문이 '+_suspThresholdCached+'자 미만이에요 — 오감지일 수 있어요';
 
       const removeBtn=document.createElement('button');
       removeBtn.className='btn btn-sm';
@@ -2730,94 +2926,48 @@ function renderTocItems(){
       removeBtn.addEventListener('mouseleave',()=>{removeBtn.style.background='var(--accent-bg)';removeBtn.style.color='var(--accent)';removeBtn.style.borderColor='var(--accent)';});
       removeBtn.addEventListener('click',e=>{
         e.stopPropagation();
-        _saveTocSnapshot();
         const idx=S.tocItems.indexOf(item);
         if(idx<0) return;
+        _saveTocSnapshot();
         if(idx+1 < S.tocItems.length){
-          // ★ BUG-FIX 04: 다음 챕터 본문을 현재 챕터에 병합 후 다음 챕터 제거
-          const next=S.tocItems[idx+1];
-          const mergedBody=(item.body||'')+'\n'+(next.body||'');
-          const mergedBodyLen=mergedBody.replace(/\s/g,'').length;
-          S.tocItems[idx]={
-            ...item,
-            body:          mergedBody,
-            bodyLen:       mergedBodyLen,
-            suspicious:    false,
-            _isMerged:     true,
-            _mergedSources:[
-              {title:item.title, body:item.body||'', bodyLen:item.bodyLen||0, line:item.line},
-              {title:next.title, body:next.body||'', bodyLen:next.bodyLen||0, line:next.line},
-            ],
-          };
-          S.tocItems.splice(idx+1,1);
+          // ★ BUG-FIX 04: 다음 챕터를 현재 챕터에 병합 (제목은 현재 챕터 유지)
+          _tocMergeItems([idx,idx+1], item.title);
           Toast.success(`"${item.title}"에 다음 챕터를 병합했어요.`,2500);
-        } else {
+        } else if(idx>0){
           // 마지막 챕터: 이전 챕터에 병합
-          if(idx>0){
-            const prev=S.tocItems[idx-1];
-            const mergedBody=(prev.body||'')+'\n'+(item.body||'');
-            const mergedBodyLen=mergedBody.replace(/\s/g,'').length;
-            S.tocItems[idx-1]={
-              ...prev,
-              body:          mergedBody,
-              bodyLen:       mergedBodyLen,
-              suspicious:    false,
-              _isMerged:     true,
-              _mergedSources:[
-                {title:prev.title, body:prev.body||'', bodyLen:prev.bodyLen||0, line:prev.line},
-                {title:item.title, body:item.body||'', bodyLen:item.bodyLen||0, line:item.line},
-              ],
-            };
-            S.tocItems.splice(idx,1);
-            Toast.success(`마지막 챕터를 이전 챕터에 병합했어요.`,2500);
-          } else {
-            // 챕터가 1개뿐이면 그냥 suspicious 해제
-            S.tocItems[idx].suspicious=false;
-            Toast.info('짧은 챕터 표시를 해제했어요.',2000);
-          }
+          _tocMergeItems([idx-1,idx], S.tocItems[idx-1].title);
+          Toast.success('마지막 챕터를 이전 챕터에 병합했어요.',2500);
+        } else {
+          Toast.info('병합할 다른 챕터가 없어요.',2000);
+          return;
         }
-        _chaptersCache=null;_chaptersCacheKey='';
-        renderTocItems();
-        updateTocStat();
-        updateTocEditBanner&&updateTocEditBanner();
+        _tocCommit();
         const remaining=S.tocItems.filter(t=>t.suspicious).length;
         if(remaining===0) document.getElementById('susp-toast')?.remove();
       });
-
-      d.appendChild(handle);d.appendChild(chk);d.appendChild(num);
-      if(charBadge.textContent) d.appendChild(charBadge);
-      d.appendChild(titleInp);d.appendChild(badge);d.appendChild(removeBtn);d.appendChild(quickSelBtn);
-    } else {
-      d.appendChild(handle);d.appendChild(chk);d.appendChild(num);
-      if(charBadge.textContent) d.appendChild(charBadge);
-      d.appendChild(titleInp);d.appendChild(quickSelBtn);
+      d.appendChild(badge);d.appendChild(removeBtn);
     }
+    d.appendChild(quickSelBtn);
 
     // ★ 개선 01+02: Ctrl+클릭 / Cmd+클릭 → 다중 선택 토글 / Shift+클릭 → 범위 선택
     d.addEventListener('click',e=>{
-      // 선택 모드이거나 Ctrl/Cmd+클릭
-      const isSelectMode=_selectModeOn||(e.ctrlKey||e.metaKey);
+      const isSelectMode=_tocSelectModeOn||(e.ctrlKey||e.metaKey);
       if(!isSelectMode&&!e.shiftKey) return;
       e.preventDefault();
 
-      if(e.shiftKey && _lastClickedIdx!==null){
-        // ★ 개선 02: Shift+클릭 범위 선택
-        const from=Math.min(_lastClickedIdx, i);
-        const to  =Math.max(_lastClickedIdx, i);
-        for(let k=from;k<=to;k++){
-          _selectedIdxs.add(k);
-          const el=c.querySelector(`.toc-item[data-idx="${k}"]`);
-          el?.classList.add('multi-selected');
-        }
+      if(e.shiftKey && _tocLastClickedIdx!==null){
+        // ★ 개선 02: Shift+클릭 범위 선택 (검색 필터 중이면 보이는 항목만)
+        const from=Math.min(_tocLastClickedIdx, i);
+        const to  =Math.max(_tocLastClickedIdx, i);
+        for(let k=from;k<=to;k++){ if(vs.isVisibleIdx(k)) _selectedIdxs.add(k); }
+        vs.refresh();
+      } else if(_selectedIdxs.has(i)){
+        _selectedIdxs.delete(i);
+        d.classList.remove('multi-selected');
       } else {
-        if(_selectedIdxs.has(i)){
-          _selectedIdxs.delete(i);
-          d.classList.remove('multi-selected');
-        } else {
-          _selectedIdxs.add(i);
-          d.classList.add('multi-selected');
-          _lastClickedIdx=i;
-        }
+        _selectedIdxs.add(i);
+        d.classList.add('multi-selected');
+        _tocLastClickedIdx=i;
       }
       updateMergeBar();
     });
@@ -2827,20 +2977,21 @@ function renderTocItems(){
       _tocDragSrc=i;
       d.classList.add('dragging');
       e.dataTransfer.effectAllowed='move';
+      try{ e.dataTransfer.setData('text/plain', String(i)); }catch(_){}   // Firefox: setData 없으면 드래그 시작 안 됨
     });
     d.addEventListener('dragend',()=>{
       d.classList.remove('dragging');
-      document.querySelectorAll('.toc-item.drag-over,.toc-item.drag-merge-target').forEach(el=>{
+      _tocDragSrc=null;
+      c.querySelectorAll('.toc-item.drag-over,.toc-item.drag-merge-target').forEach(el=>{
         el.classList.remove('drag-over','drag-merge-target');
       });
     });
     d.addEventListener('dragover',e=>{
       e.preventDefault();
       if(_tocDragSrc===null||_tocDragSrc===i) return;
-      document.querySelectorAll('.toc-item.drag-over,.toc-item.drag-merge-target').forEach(el=>{
+      c.querySelectorAll('.toc-item.drag-over,.toc-item.drag-merge-target').forEach(el=>{
         el.classList.remove('drag-over','drag-merge-target');
       });
-      // ★ 개선 09: 드롭 위치에 따라 순서 변경 vs 병합 구분
       const rect=d.getBoundingClientRect();
       const relY=(e.clientY-rect.top)/rect.height;
       if(relY>0.3 && relY<0.7 && !e.altKey){
@@ -2858,81 +3009,121 @@ function renderTocItems(){
     d.addEventListener('drop',e=>{
       e.preventDefault();
       const src=_tocDragSrc;
-      if(src===null||src===i){_tocDragSrc=null;return;}
-
+      _tocDragSrc=null;
       const isMergeTarget=d.classList.contains('drag-merge-target');
       d.classList.remove('drag-over','drag-merge-target');
-      _tocDragSrc=null;
+      if(src===null||src===i||!S.tocItems[src]) return;
 
+      _saveTocSnapshot();
       if(isMergeTarget){
-        // ★ 개선 09: 드래그 병합 실행
-        _saveTocSnapshot();
-        const srcItem=S.tocItems[src];
-        const dstItem=S.tocItems[i];
-        const sortedIdxs=[src,i].sort((a,b)=>a-b);
-        const mergedBody=sortedIdxs.map(idx=>S.tocItems[idx].body||'').join('\n');
-        const mergedBodyLen=mergedBody.replace(/\s/g,'').length;
-        const mergedSources=sortedIdxs.map(idx=>({
-          title: S.tocItems[idx].title,
-          body:  S.tocItems[idx].body||'',
-          bodyLen: S.tocItems[idx].bodyLen||0,
-          line:  S.tocItems[idx].line,
-        }));
-        const newItem={
-          ...S.tocItems[sortedIdxs[0]],
-          title: srcItem.title+' + '+dstItem.title,
-          enabled: true,
-          body: mergedBody,
-          bodyLen: mergedBodyLen,
-          suspicious: false,
-          originalTitle: S.tocItems[sortedIdxs[0]].originalTitle||S.tocItems[sortedIdxs[0]].title,
-          _isMerged: true,
-          _mergedSources: mergedSources,
-        };
-        S.tocItems.splice(sortedIdxs[1],1);
-        S.tocItems[sortedIdxs[0]]=newItem;
-        _chaptersCache=null;_chaptersCacheKey='';
-        renderTocItems();
-        updateTocStat();
-        updateTocEditBanner&&updateTocEditBanner();
-        const totalWan=mergedBodyLen>=10000?(mergedBodyLen/10000).toFixed(1)+'만자':mergedBodyLen.toLocaleString()+'자';
+        // ★ 개선 09: 드래그 병합 실행 (세그먼트 결합 — 출력과 일치)
+        const res=_tocMergeItems([src,i], S.tocItems[src].title+' + '+S.tocItems[i].title);
+        _selectedIdxs.clear();
+        _tocCommit();
+        const len=res?.merged?.bodyLen||0;
+        const totalWan=len>=10000?(len/10000).toFixed(1)+'만자':len.toLocaleString()+'자';
         Toast.success('드래그 병합 완료 (총 '+totalWan+')',2500);
       } else {
-        // 기존 순서 변경
+        // 순서 변경 — ★ Phase 10: EPUB 출력도 목차 순서를 따름 (이전: 줄 번호로 재정렬되어 무시됨)
         const moved=S.tocItems.splice(src,1)[0];
         const dest=src<i?i-1:i;
         S.tocItems.splice(dest,0,moved);
-        renderTocItems();
+        _selectedIdxs.clear();
+        _tocCommit();
       }
     });
     return d;
   }
 
-  let collapsed=false;
-  S.tocItems.forEach((item,i)=>{
-    if(total>HEAD+TAIL&&i===HEAD&&!collapsed){
-      collapsed=true;
-      const mid=total-HEAD-TAIL;
-      const midDiv=document.createElement('div');
-      midDiv.style.cssText='text-align:center;padding:4px;font-size:var(--fs-xs);color:var(--text2);border:1px dashed var(--border);border-radius:var(--radius-xs);margin:3px 0;cursor:pointer';
-      midDiv.id='toc-collapse-btn';
-      midDiv.innerHTML='··· 중간 <b>'+mid+'</b>개 ··· <span style="color:var(--accent);font-size:var(--fs-xs)">(클릭해서 펼치기)</span>';
-      midDiv.onclick=()=>{
-        document.getElementById('toc-collapse-btn')?.remove();
-        c.querySelectorAll('[style*="display: none"]').forEach(el=>el.style.display='');
-      };
-      c.appendChild(midDiv);
-    }
-    const isEdge=alwaysShow.has(i);
-    const isHidden=!isEdge&&total>HEAD+TAIL;
-    c.appendChild(buildTocRow(item,i,isHidden));
-  });
+  // ══ 가상 스크롤 목록 ══
+  const host=document.createElement('div');
+  host.className='toc-vlist';
+  host.setAttribute('role','list');
+  c.appendChild(host);
+  const vs=_createTocVirtualList(c, host, buildTocRow);
+  _tocVS=vs;
+  vs.setFilter(_tocFilterQ);
 
   const stat=document.createElement('div');
   stat.id='toc-stat';
   stat.style.cssText='margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
   c.appendChild(stat);
+  updateMergeBar();
   updateTocStat();
+}
+
+// ── 목차 가상 스크롤 (tb0 스크롤 컨테이너 안의 host에 보이는 행만 렌더) ──
+//   행 높이는 첫 행을 그려 실측 (탭이 숨겨져 0이면 마지막 실측값 사용)
+let _tocRowH=34;
+function _createTocVirtualList(scroller, host, buildRow){
+  const BUF=12;
+  let view=[];              // 표시 대상 tocItems 인덱스 (검색 필터 적용)
+  let viewPos=new Map();    // tocItems 인덱스 → view 위치
+  let lastStart=-1,lastEnd=-1,raf=0;
+  const measure=()=>{
+    const first=host.firstElementChild;
+    const h=first?first.getBoundingClientRect().height:0;
+    if(h>4&&Math.abs(h-_tocRowH)>0.5){ _tocRowH=h; host.style.height=(view.length*_tocRowH)+'px'; return true; }
+    return false;
+  };
+  const hostTop=()=>host.getBoundingClientRect().top-scroller.getBoundingClientRect().top+scroller.scrollTop;
+  function render(force){
+    raf=0;
+    const top=Math.max(0, scroller.scrollTop-hostTop());
+    const viewH=scroller.clientHeight||280;
+    const start=Math.max(0, Math.floor(top/_tocRowH)-BUF);
+    const end=Math.min(view.length, Math.ceil((top+viewH)/_tocRowH)+BUF);
+    if(!force&&start===lastStart&&end===lastEnd) return;
+    lastStart=start; lastEnd=end;
+    const frag=document.createDocumentFragment();
+    for(let k=start;k<end;k++){
+      const i=view[k], item=S.tocItems[i];
+      if(!item) continue;
+      const row=buildRow(item,i);
+      row.style.top=(k*_tocRowH)+'px';
+      row.setAttribute('role','listitem');
+      frag.appendChild(row);
+    }
+    host.replaceChildren(frag);
+    if(measure()) render(true);
+  }
+  const onScroll=()=>{ if(!raf) raf=requestAnimationFrame(()=>render(false)); };
+  scroller.addEventListener('scroll', onScroll, {passive:true});
+  return {
+    setFilter(q){
+      view=[]; viewPos=new Map();
+      S.tocItems.forEach((t,i)=>{ if(!q||String(t.title||'').toLowerCase().includes(q)){ viewPos.set(i,view.length); view.push(i); } });
+      host.style.height=(view.length*_tocRowH)+'px';
+      render(true);
+    },
+    refresh(){ render(true); },
+    isVisibleIdx(i){ return viewPos.has(i); },
+    scrollTo(i){
+      if(!viewPos.has(i)) return false;
+      const k=viewPos.get(i);
+      scroller.scrollTop=Math.max(0, hostTop()+k*_tocRowH-(scroller.clientHeight||280)/2+_tocRowH/2);
+      render(true);
+      return true;
+    },
+    destroy(){ scroller.removeEventListener('scroll', onScroll); if(raf) cancelAnimationFrame(raf); },
+  };
+}
+
+// 목차 목록에서 특정 항목으로 스크롤 + 잠깐 강조 (차트·짧은 챕터 칩·선택 위치 버튼 공용)
+function tocScrollToIndex(i){
+  if(!_tocVS||i==null||!S.tocItems[i]) return;
+  if(!_tocVS.isVisibleIdx(i)){
+    // 검색 필터에 가려진 항목이면 필터 해제 후 이동
+    _tocFilterQ='';
+    const inp=document.getElementById('toc-search'); if(inp) inp.value='';
+    _tocVS.setFilter('');
+  }
+  _tocVS.scrollTo(i);
+  const row=document.querySelector('#tb0 .toc-item[data-idx="'+i+'"]');
+  if(row){
+    row.classList.add('toc-focus');
+    setTimeout(()=>row.classList.remove('toc-focus'),1200);
+  }
 }
 
 function updateTocStat(){
@@ -2946,8 +3137,7 @@ function updateTocStat(){
   let totalChars = 0;
   S.tocItems.forEach(t=>{
     if(!t.enabled) return;
-    const bl = typeof t.bodyLen==='number' ? t.bodyLen : (t.body||'').replace(/\s/g,'').length;
-    totalChars += bl;
+    totalChars += t.bodyLen||0;
   });
   const avgChars  = active > 0 ? Math.round(totalChars / active) : 0;
   // ★ 총글자수 표시: 1만자 미만이면 '자' 단위, 이상이면 '만자' 단위
@@ -2957,8 +3147,8 @@ function updateTocStat(){
   // ★ FIX-07: getSuspThreshold() 호출 시점 평가
   const _suspThr = getSuspThreshold();
   // ★ I2: 짧은/긴 챕터 경고 집계 (B10: enabled만)
-  const shortCount= S.tocItems.filter(t=>t.enabled&&(typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length)<_suspThr).length;
-  const longCount = S.tocItems.filter(t=>t.enabled&&(typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length)>50000).length;
+  const shortCount= S.tocItems.filter(t=>t.enabled&&(t.bodyLen||0)<_suspThr).length;
+  const longCount = S.tocItems.filter(t=>t.enabled&&(t.bodyLen||0)>50000).length;
 
   // ★ I2: 통계 칩 배지 스타일
   const chip = (txt,color)=>
@@ -3023,15 +3213,14 @@ function updateTocStat(){
 function toggleAllToc(v){
   _saveTocSnapshot();
   S.tocItems.forEach(t=>t.enabled=v);
-  _chaptersCache=null;_chaptersCacheKey='';
-  renderTocItems();
-  updateTocEditBanner&&updateTocEditBanner();
+  _tocCommit();
 }
 function tocTab(n){
   // #tocPanel 내부로 스코프 제한 (전체 문서의 .ttab 오토글 방지)
   const panel=document.getElementById('tocPanel');
   if(panel) panel.querySelectorAll('.ttab').forEach((t,i)=>t.classList.toggle('on',i===n));
-  [0,1,2,3].forEach(i=>document.getElementById('tb'+i).style.display=i===n?'':'none');
+  [0,1,2,3].forEach(i=>{ const el=document.getElementById('tb'+i); if(el) el.style.display=i===n?'':'none'; });
+  if(n===0) _tocVS?.refresh();   // ★ Phase 10: 숨겨진 상태에서 그린 가상 목록을 실제 높이로 다시 계산
   if(n===1) renderTocPreview();
 }
 function applyPat(){document.getElementById('pattern').value=document.getElementById('patEdit').value;previewToc();}
@@ -3450,15 +3639,12 @@ async function autoSplitByInterval(hybridMode=false){
   }
 
   // STEP 2: 확정된 경계로 found 배열 구성
-  const _suspThr=getSuspThreshold();
   const found=[];
 
   for(let ch=0;ch<totalChapters;ch++){
     const startIdx=chapterStarts[ch];
-    const nextIdx =ch+1<totalChapters ? chapterStarts[ch+1] : totalLines;
-    // #7: 역전 방지
-    const safeNext=Math.max(startIdx+1, nextIdx);
-    const isLast  =(ch===totalChapters-1);
+    // #7: 역전·중복 방지 — 보정 결과 앞 경계와 같은 줄이면 빈 챕터가 되므로 건너뜀
+    if(ch>0&&startIdx<=chapterStarts[ch-1]) continue;
 
     // STEP 3: 제목 탐색 — title만 설정, body 불변 (#1 Zero-Loss)
     let title='[간격 분할] '+(ch+1)+'화'; // 기본 제목 (#8)
@@ -3467,14 +3653,8 @@ async function autoSplitByInterval(hybridMode=false){
       if(hint&&hint.trim().length>=2) title=hint.trim();
     }catch(e){}
 
-    // ★ #1 Zero-Loss Body: startIdx~safeNext 전체를 body로 사용
-    // title에 사용된 줄이어도 body에서 제거하지 않음
-    // — 정규식 파싱과 달리 분할 경계 줄이 목차 제목으로 소비되지 않음
-    const bodyLines=lines.slice(startIdx, safeNext);
-    // #9: 앞뒤 유령 공백만 제거, 내부 내용 완전 보존
-    const bodyText =bodyLines.join('\n').replace(/^[\r\n\u200B\uFEFF\u00A0]+|[\r\n\u200B\uFEFF\u00A0]+$/g,'');
-    const bodyLen  =bodyText.replace(/[\s\r\n\u200B\uFEFF\u00A0]/g,'').length;
-
+    // ★ #1 Zero-Loss Body: autoSplit 항목은 startIdx(경계 줄)부터 다음 경계 직전까지 본문으로 사용
+    //   title에 사용된 줄이어도 본문에서 제거하지 않음 (Phase 10: 줄 범위 모델 — 본문 문자열은 저장하지 않음)
     found.push({
       line:           startIdx+1,  // 1-based (표시용)
       title,
@@ -3482,9 +3662,7 @@ async function autoSplitByInterval(hybridMode=false){
       autoSplit:      true,
       _autoGenerated: true,
       originalTitle:  undefined,
-      body:           bodyText,    // ★ 원본 줄 온전히 보존
-      bodyLen,
-      suspicious:     bodyLen<_suspThr&&!isLast,
+      kind:           'ch',
     });
   }
 
@@ -3495,12 +3673,10 @@ async function autoSplitByInterval(hybridMode=false){
     for(let ch=0;ch<totalChapters;ch++){
       const si=ch*fallbackInterval;
       const ni=Math.min(si+fallbackInterval, totalLines);
-      const bodyText=lines.slice(si,ni).join('\n').replace(/^[\r\n]+|[\r\n]+$/g,'');
+      if(si>=ni) continue;
       found.push({
         line:si+1, title:'[간격 분할] '+(ch+1)+'화',
-        enabled:true, autoSplit:true, _autoGenerated:true, originalTitle:undefined,
-        body:bodyText, bodyLen:bodyText.replace(/[\s\r\n]/g,'').length,
-        suspicious:false,
+        enabled:true, autoSplit:true, _autoGenerated:true, originalTitle:undefined, kind:'ch',
       });
     }
   }
@@ -3516,10 +3692,13 @@ async function autoSplitByInterval(hybridMode=false){
   }
 
   // ─── 상태 반영 ───
-  S.tocItems=finalItems;
   _fullRawLines=lines;
   _autoSplitLines=totalLines<=200000?lines:null;
   _setAutoSplitActive(true);
+  // ★ Phase 10: 간격 분할 원문(_fullRawLines)에는 감지 단계 dropLines가 해당되지 않음
+  _tocDropLines=[];
+  _recalcTocStats(finalItems, lines);
+  S.tocItems=finalItems;
   _chaptersCache=null;
   _chaptersCacheKey='__autoSplit__';
 

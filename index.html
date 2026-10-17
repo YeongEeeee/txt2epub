@@ -11,8 +11,8 @@
   <link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700&family=Nanum+Myeongjo:wght@400;700&family=Noto+Sans+KR:wght@300;400;500;700&family=Noto+Serif+KR:wght@300;400;500;700&family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
   <!-- ② 레이아웃 & 테마 -->
   <link rel="stylesheet" href="style.css">
-  <!-- ③ JSZip (EPUB 패키징) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- ③ JSZip (EPUB 패키징) — ★ Phase 10: SRI 무결성 검증 (CDN 변조 시 실행 차단) · sw.js는 같은 파일을 CORS로 캐시 -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 </head>
 <body>
 <!-- 헤더 -->

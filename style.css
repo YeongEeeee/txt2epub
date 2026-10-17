@@ -931,6 +931,10 @@ body.modal-open .page-tabs{
 .toc-item.off{opacity:.35;text-decoration:line-through}
 .toc-item.drag-over{border-top:2px solid var(--accent)}
 .toc-item.dragging{opacity:.35;background:var(--accent-bg)}
+/* ★ Phase 10: 목차 가상 스크롤 — 보이는 행만 절대 위치로 배치 (높이는 JS가 '행 수 × 실측 행 높이'로 설정) */
+.toc-vlist{position:relative;width:100%}
+.toc-vlist>.toc-item{position:absolute;left:0;right:0;box-sizing:border-box}
+.toc-item.toc-focus{outline:2px solid var(--accent);outline-offset:-2px;background:var(--accent-bg)}
 .toc-drag-handle{cursor:grab;color:var(--text2);opacity:.35;font-size:var(--fs-base);flex-shrink:0;user-select:none;transition:opacity var(--dur-fast);padding:2px 4px;border-radius:var(--radius-xs)}
 .toc-drag-handle:hover{opacity:.85;color:var(--accent)}
 .toc-drag-handle:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:var(--radius-xs)}

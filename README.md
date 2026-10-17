@@ -29,7 +29,8 @@
 
 ### 📚 일괄 변환 (Batch)
 - 여러 소설 파일을 한 번에 변환
-- `navigator.hardwareConcurrency` 기반 **최대 4개 병렬 처리**
+- 파일을 **순서대로 1개씩** 변환 (파일별 오류는 해당 항목만 실패 표시, 나머지는 계속)
+- 결과 ZIP은 무압축(STORE) 묶음 — EPUB은 이미 압축 파일이라 재압축하지 않음
 - 파일별 진행률·성공/실패 상태 카드
 - TXT 드롭존에 표지 이미지를 섞어 넣어도 파일명 유사도로 자동 매핑
 - 표지 검색어 입력란(비우면 첫 TXT 제목) · 설정 탭과 공유되는 현재 스타일 요약
@@ -37,6 +38,7 @@
 ### ✏️ EPUB 편집
 - 기존 EPUB 파일을 불러와 목차·CSS 수정 후 재생성
 - 연속 챕터 삽입(TXT 파일로 목차 보강)
+- 재생성 EPUB은 `mimetype`을 첫 항목·무압축으로 고정, spine은 manifest의 실제 item id로 연결 (epubcheck 통과)
 
 ### 🗂 변환 히스토리
 - IndexedDB에 변환 이력(제목·작가·챕터수·크기·날짜) 저장
@@ -203,31 +205,32 @@ CSS 변수(`--tab-indicator-x`, `--tab-indicator-w`)와 `switchPage()` 함수를
 ## 🏗 아키텍처
 
 ```
-index.html      — 단일 페이지 SPA 마크업 (1,257줄)
-├── style.css   — 디자인 토큰 61개(글꼴·타입 스케일·반경·색), 키프레임 24개 (1,305줄)
-├── core.js     — StateManager, Toast, SettingsDB, EventBus, Cloudflare 프록시 (833줄)
-├── convert.js  — 변환 탭 로직: 파일 I/O, 인코딩, 이미지, 삽화, 표지 자동 매칭, 파싱 Worker 관리 (2,781줄)
-├── parser.js   — 텍스트 파싱 엔진(패턴 단일 소유), 목차 렌더링·후보 검색, 계층 목차, 시리즈 메타, Worker 소스 생성 (3,286줄)
-├── ui-state.js — 테마, CSS 미리보기, 탭/칩/피드/스와이프, 이벤트 위임 등록 (1,279줄)
-├── settings.js — CSS/폰트/프리셋/스킨, 스마트 패턴, 히스토리, Gemini API (1,344줄)
-├── edit.js     — EPUB 편집 탭: OPF 파싱, 챕터 수정, 재생성 (1,604줄)
-├── cover-search.js — 표지 검색 모달, 플랫폼 링크, 이미지 크롭 및 .file 가드 (922줄)
-├── epub-gen.js — EPUB3 생성 엔진, Blob Worker 격리, 계층 nav/ncx (589줄)
-├── worker.js   — 5MB+ 파일 인코딩 감지·디코딩 전담 Web Worker (121줄, 챕터 파싱 없음)
-├── sw.js       — Service Worker, 오프라인/PWA 지원 (214줄)
+index.html      — 단일 페이지 SPA 마크업 (1,302줄)
+├── style.css   — 디자인 토큰(글꼴·타입 스케일·반경·색), 키프레임 (1,315줄)
+├── core.js     — StateManager, Toast, SettingsDB, EventBus, Cloudflare 프록시 (848줄)
+├── convert.js  — 변환 탭 로직: 파일 I/O, 인코딩·디코딩 캐시, 이미지, 삽화, 표지 자동 매칭, 파싱 Worker 관리 (2,892줄)
+├── parser.js   — 텍스트 파싱 엔진(패턴 단일 소유), 본문 렌더링 단일 소스, 목차 줄 범위 모델·가상 목록, 계층 목차, 시리즈 메타, Worker 소스 생성 (3,755줄)
+├── ui-state.js — 테마, CSS 미리보기, 탭/칩/피드/스와이프, 이벤트 위임 등록 (1,317줄)
+├── settings.js — CSS/폰트/프리셋/스킨, 스마트 패턴, 히스토리, Gemini API (1,373줄)
+├── edit.js     — EPUB 편집 탭: OPF 파싱, 챕터 수정, 재생성 (1,632줄)
+├── cover-search.js — 표지 검색 모달, 플랫폼 링크, 이미지 크롭 및 .file 가드 (924줄)
+├── epub-gen.js — EPUB3 생성 엔진, Blob Worker 격리(parser.js 렌더링 함수 toString 이식), 계층 nav/ncx (564줄)
+├── main.js     — 부트스트랩: JSZip 로드 가드, 필수 심볼 점검, SW 등록·업데이트 배너
+├── worker.js   — 5MB+ 파일 인코딩 감지·디코딩 전담 Web Worker (129줄, 챕터 파싱 없음)
+├── sw.js       — Service Worker, 오프라인/PWA 지원 (218줄)
 └── tests/      — 회귀 테스트 (개발 전용, 런타임 미사용)
     ├── run-tests.js  — Node vm 기반 러너
     ├── fixtures/     — 형식별 샘플 TXT 15종
     └── golden.json   — 기대 챕터 목록·감지 패턴·계층 형태
 ```
 
-> **총 코드량: 약 15,850줄** (JS 13,522 + HTML/CSS) | 구문 오류 0개 | 중복 ID 0개 | 회귀 테스트 154개 통과
+> **총 코드량: 약 16,750줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 회귀 테스트 232개 통과 | 브라우저 E2E 75개 통과
 
 ### 상태 관리 (StateManager + Proxy)
 
 | 스토어 | 역할 |
 |--------|------|
-| `convert` | 변환 탭: txtFiles, coverFile, illFiles, tocItems, epubBlob |
+| `convert` | 변환 탭: txtFiles, coverFile, illFiles, tocItems(줄 범위만 — 본문 문자열 없음), epubBlob, `_autoSplitActive`(간격 분할 모드 — `window._autoSplitActive` 접근자 백킹) |
 | `batch`   | 일괄변환 탭: txtFiles, coverMap, patterns, results |
 | `edit`    | EPUB편집 탭: epubFile, chapters, spineOrder |
 | `editIll` | 편집 삽화: files, manualRows |
@@ -279,12 +282,11 @@ index.html      — 단일 페이지 SPA 마크업 (1,257줄)
 ### 자동 매핑 규칙 (C-07 강화)
 
 ```
-16.jpg       → 16화 앞에 삽입
-16_1.jpg     → 16화 1번째 삽화 (file_idx 정렬로 순서 보장)
-cover.jpg    → 표지로 자동 인식
-prologue.jpg → 프롤로그 챕터에 자동 매핑
-epilogue.jpg → 에필로그 챕터에 자동 매핑
-side.jpg     → 외전 챕터에 자동 매핑
+16.jpg       → 16번째 챕터 앞에 삽입 ('서문'=첫 제목 앞 내용은 순번에서 제외)
+16_1.jpg     → 16번째 챕터의 1번째 삽화 (16_2.jpg는 2번째)
+수동 행(화 번호) → 감지된 화 번호(제2부 15화 → 15) 기준 첫 챕터
+수동 행(키워드) → 원문에 키워드가 처음 나오는 챕터
+표지          → TXT와 함께 넣은 이미지 중 파일명이 가장 비슷한 것 자동 연결
 ```
 
 ---
@@ -335,12 +337,15 @@ side.jpg     → 외전 챕터에 자동 매핑
 
 | 항목 | 방식 |
 |------|------|
-| EPUB 압축 | Blob Worker 격리 (JSZip importScripts) — 메인 스레드 비블로킹 |
-| 텍스트 디코딩 | 5MB 이상 파일 → `worker.js` Transferable 위임 |
-| 챕터 파싱 | `splitChaptersAsync` 2분 타임아웃 + 동기 폴백 |
-| 일괄 변환 | `navigator.hardwareConcurrency` 기반 최대 4개 병렬 슬롯 |
+| EPUB 압축 | Blob Worker 격리 (JSZip importScripts) — 메인 스레드 비블로킹 · 챕터당 렌더링 1회 · 이미지 STORE |
+| 텍스트 디코딩 | 5MB 이상 파일 → `worker.js`에 이미 읽은 버퍼·인코딩을 Transferable로 전달 (파일 1회 읽기) |
+| 디코딩 캐시 | 파일명·크기·수정시간 키 LRU(약 48M자) — 미리보기·재확인·변환이 같은 파일을 다시 디코딩하지 않음 |
+| 목차 감지 | 무패턴 폴백 `bestPat` 전처리 1회 캐시 (30만 줄 8.5초 → 0.9초) · 후보 가중치 1회 계산 · 줄 앞부분 사전 필터 |
+| 미리보기 감지 | 10만 줄 이상은 파싱 Worker `DETECT` (메인 스레드 멈춤 없음) |
+| 챕터 파싱 | `splitChaptersAsync` 2분 타임아웃 → Worker 종료 후 동기 폴백 |
 | 이미지 변환 | Promise.all 4개 배치 병렬 + file_idx 정렬로 순서 보장 |
-| 목차 렌더링 | 가상 스크롤 (ResizeObserver + rAF, lastStart+lastEnd 추적) |
+| 목차 편집 목록 | 가상 스크롤 — 보이는 행(약 40개)만 DOM 생성, 2만 화도 즉시 렌더 |
+| 원문 미리보기 | 가상 스크롤 (ResizeObserver + rAF, lastStart+lastEnd 추적) |
 | 챕터 캐시 | `파일명:크기:lastModified§패턴§설정해시` 키 — 내용 변경 시 자동 무효화 |
 | 메모리 관리 | `StateManager.reset()` 시 null 참조 해제 → GC 유도 |
 | 정규식 | 루프 외부 사전 컴파일 (`RX_AUTO_PAGE`, `RX_CHAPTER_N` 등) |
@@ -396,7 +401,9 @@ side.jpg     → 외전 챕터에 자동 매핑
 - **서버 업로드 없음**: 모든 파일 처리가 브라우저 내에서 완료
 - **XSS 방지**: Toast confirm/prompt 모두 DOM API (`textContent`) 사용. Toast 메시지는 내부 생성 HTML(I9 delta 배지)에만 `innerHTML` 허용하며 외부 입력은 textContent로 처리
 - **입력 이스케이프**: `escHtml()`, `escAttr()`, `sanitizeLine()` 적용
-- **Content Security Policy** 호환: 인라인 스크립트 없음
+- **Content Security Policy**: 인라인 `<script>` 블록 없음 (단, 일부 버튼이 `onclick` 속성을 사용 — 엄격한 CSP를 걸려면 `unsafe-inline` 또는 해당 속성 정리 필요)
+- **JSZip SRI**: CDN 스크립트에 `integrity`(sha512) + `crossorigin` — 변조 시 실행 차단, SW는 같은 파일을 CORS로 캐시
+- **프록시 토큰 주의**: `X-NovelEPUB-Token`은 클라이언트 코드에 노출되는 값 — 실제 보호는 Cloudflare Worker 쪽 허용 호스트 목록·Origin 검사로 해야 함
 - **정규식 안전화**: `buildCombinedPat` `^`/`$`/`|` 포함 패턴 안전 그룹화, 백트래킹 최적화
 
 ---
@@ -434,6 +441,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | 단위 | `parseSeriesFromName` 7케이스, `buildTocTree` 7케이스, 제목 매칭·번호 목록·제목 공백 보존 5케이스 |
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
+| Phase 10 회귀 | 본문 렌더링 메인=Worker·이모지/NBSP/엔티티 혼재, 목차 줄 범위 모델(순서 변경·떨어진 병합·비활성·중복 줄·통계), 문단 정합, Worker `DETECT`, 무패턴 20만 줄 성능, 삽화 매핑(서문 제외 순번·화 번호·키워드), 이미지 STORE, xml:lang, StateManager·IDB·SRI·SW CORS·전역 정의 단일화 정적 검사 |
 | epubcheck (CI) | `tests/out/*.epub`을 W3C epubcheck 5.1.0으로 표준 검증 |
 
 GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검사를 실행합니다. 실패하면 Cloudflare Pages 배포 전에 머지하지 마세요.
@@ -525,6 +533,15 @@ settings.js 구문 오류 수정 (고아 코드 블록 제거)
 ├── 단축키: 중복 keydown 핸들러 제거 (Ctrl+Space 변환 2회·Ctrl+/ 무반응), 변환·일괄 변환 재진입 방지
 ├── 글자수 차트: 화수가 많으면 구간 묶음 + 폭 전체 사용, 툴팁 요소 1개 재사용
 └── 색상 토큰: --on-accent·--overlay·--red·--purple·스킨 견본 토큰, 강조색 글로우는 color-mix(var(--accent))로 스킨 연동
+↓
+[ Phase 10: 출력 정확성 · 목차 모델 · 알고리즘 최적화 ]
+├── 본문 렌더링 단일 소스: EPUB Worker 손 복사본 폐지 (sysmsg 오분류·이모지/확장 한자 삭제·NBSP 붙음·엔티티 혼재 XHTML 깨짐 해결)
+├── 목차 줄 범위 모델: 드래그 순서·떨어진 병합·분리·비활성이 EPUB 출력과 일치, 원문 메모리 1벌
+├── 목차 가상 스크롤 · 병합 후 제목 편집 영역 · 짧은 챕터 '전체 제거'가 짧은 항목 자신을 제거
+├── 변환 흐름: AbortController 중단(모든 단계), 히스토리 저장 비차단(IDB onabort), 실패는 오류 박스, 문단 정합 반영, 삽화 매핑 보정
+├── 성능: bestPat 9배·디코딩 캐시·파일 1회 읽기·이중 렌더 제거·이미지 STORE·미리보기 감지 Worker
+├── EPUB 편집: mimetype STORE 첫 항목, 직접 편집 spine id = manifest id, 챕터 시작 줄 표 기반 매핑
+└── 상태·배포: StateManager.set 배열 비우기 제거, window._autoSplitActive 정의 1곳, JSZip SRI + SW CORS 캐시
 ```
 
 ---

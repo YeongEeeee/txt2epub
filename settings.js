@@ -937,34 +937,58 @@ function openHistDB(){
     };
   });
 }
+// ★ Phase 10: return await — 이전엔 try 안에서 Promise를 그대로 반환해 reject가 catch되지 않았고,
+//   저장 공간 초과(QuotaExceededError)는 transaction 'abort'로만 통지되는데 onabort가 없어 Promise가 영원히 대기
+//   반환: 성공 true / 실패 false (예외를 던지지 않음)
 async function idbSet(key,val){
   try{
     const db=await openHistDB();
-    return new Promise((res,rej)=>{
+    await new Promise((res,rej)=>{
       const tx=db.transaction(HIST_STORE,'readwrite');
       tx.objectStore(HIST_STORE).put(val,key);
-      tx.oncomplete=res; tx.onerror=()=>rej(tx.error);
+      tx.oncomplete=()=>res();
+      tx.onerror=()=>rej(tx.error);
+      tx.onabort=()=>rej(tx.error||new Error('IndexedDB 트랜잭션 중단'));
     });
-  }catch(e){return null;}
+    return true;
+  }catch(e){
+    console.warn('[idbSet] 저장 실패:', e?.name||e);
+    return false;
+  }
 }
 async function idbGet(key){
   try{
     const db=await openHistDB();
-    return new Promise((res,rej)=>{
+    return await new Promise((res,rej)=>{
       const tx=db.transaction(HIST_STORE,'readonly');
       const req=tx.objectStore(HIST_STORE).get(key);
       req.onsuccess=()=>res((req.result!=null?req.result:null));
       req.onerror=()=>rej(req.error);
+      tx.onabort=()=>rej(tx.error||new Error('IndexedDB 트랜잭션 중단'));
     });
   }catch(e){return null;}
+}
+// 키 존재 여부만 확인 (Blob 본체를 꺼내지 않음 — 히스토리 목록 렌더링용)
+async function idbHas(key){
+  try{
+    const db=await openHistDB();
+    return await new Promise((res,rej)=>{
+      const tx=db.transaction(HIST_STORE,'readonly');
+      const req=tx.objectStore(HIST_STORE).count(key);
+      req.onsuccess=()=>res(req.result>0);
+      req.onerror=()=>rej(req.error);
+    });
+  }catch(e){return false;}
 }
 async function idbDel(key){
   try{
     const db=await openHistDB();
-    return new Promise((res,rej)=>{
+    await new Promise((res,rej)=>{
       const tx=db.transaction(HIST_STORE,'readwrite');
       tx.objectStore(HIST_STORE).delete(key);
-      tx.oncomplete=res; tx.onerror=()=>rej(tx.error);
+      tx.oncomplete=()=>res();
+      tx.onerror=()=>rej(tx.error);
+      tx.onabort=()=>rej(tx.error||new Error('IndexedDB 트랜잭션 중단'));
     });
   }catch(e){}
 }
@@ -980,8 +1004,10 @@ async function idbClear(){
 }
 
 async function saveHistory(entry){
-  const key='hist_'+(typeof crypto!=='undefined'&&crypto.randomUUID?crypto.randomUUID():Date.now());
-  await idbSet(key, entry.blob);
+  const key='hist_'+(typeof genUID==='function'?genUID():Date.now()+'_'+Math.random().toString(36).slice(2));
+  // ★ Phase 10: 파일 저장 실패(저장 공간 부족 등)는 안내만 — 기록 메타는 남기고 다운로드 버튼은 '파일 없음'으로 표시됨
+  const stored=await idbSet(key, entry.blob);
+  if(!stored&&typeof Toast!=='undefined') Toast.warn('변환 기록에 EPUB 파일을 저장하지 못했어요 (브라우저 저장 공간 부족). 변환 결과는 정상이에요.',5000);
   let metas=loadHistMetas();
   metas.unshift({key,title:entry.title,author:entry.author,chapterCount:entry.chapterCount,
     sizeMB:entry.sizeMB,elapsed:entry.elapsed,date:entry.date,name:entry.name});
@@ -1019,7 +1045,8 @@ async function renderHistory(){
   ];
 
   c.innerHTML='<div style="text-align:center;padding:12px 0;font-size:var(--fs-xs);color:var(--text2)">⏳ 로딩 중...</div>';
-  const blobExists=await Promise.all(metas.map(m=>idbGet(m.key).then(b=>!!b).catch(()=>false)));
+  // ★ Phase 10: 존재 여부만 count로 확인 (이전: 기록 20개의 EPUB Blob을 모두 꺼냄)
+  const blobExists=await Promise.all(metas.map(m=>idbHas(m.key)));
   c.innerHTML='';
 
   // ★ 이전 변환 대비 비교 배지 생성

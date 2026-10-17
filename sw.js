@@ -6,7 +6,7 @@
 //   SW-03: install 핵심 에셋 캐싱 실패 시 경고 로깅 추가
 // ════════════════════════════════════════════════
 // ★ 배포 시 CACHE_VERSION 값을 갱신하면 구버전 캐시가 자동으로 삭제됩니다.
-const CACHE_VERSION = '2026-10-17T10:00:00';
+const CACHE_VERSION = '2026-10-17T15:00:00';
 const CACHE_NAME = 'novelepub-' + CACHE_VERSION;
 
 const CORE_ASSETS = [
@@ -41,8 +41,10 @@ self.addEventListener('install', e => {
     caches.open(CACHE_NAME)
       .then(cache => Promise.allSettled(
         CORE_ASSETS.map(u => {
+          // ★ Phase 10: 외부 정적 자원(JSZip)은 CORS로 캐시 — index.html의 SRI(integrity) 스크립트는
+          //   CORS 응답이어야 검증 가능 (opaque 응답이면 차단됨). cdnjs는 Access-Control-Allow-Origin: * 제공
           const req = u.startsWith('http')
-            ? new Request(u, { mode: 'no-cors' })
+            ? new Request(u, { mode: 'cors', credentials: 'omit' })
             : u;
           return cache.add(req).catch(err => {
             // 개별 실패 시 SW 등록은 계속 — 하지만 로그는 남김
@@ -96,9 +98,12 @@ self.addEventListener('fetch', e => {
 // ── 외부 CDN Cache-first ──
 async function _cacheFirstExternal(request){
   const cached = await caches.match(request);
-  if (cached) return cached;
+  // ★ Phase 10: CORS 요청(SRI 스크립트·폰트)에 opaque 캐시를 돌려주면 브라우저가 차단 → 네트워크로 재요청
+  if (cached && !(cached.type === 'opaque' && request.mode === 'cors')) return cached;
   try{
-    const resp = await fetch(request);
+    // 버전 고정 CDN 파일(JSZip)은 항상 CORS로 받아 저장 — 이후 no-cors(importScripts)·cors(script SRI) 요청 모두에 사용 가능
+    const isCoreExternal = _STATIC_EXTERNAL.has(request.url);
+    const resp = await fetch(isCoreExternal ? new Request(request.url, { mode: 'cors', credentials: 'omit' }) : request);
     if(resp){
       // ★ opaque response(status=0, type='opaque'): JSZip 등 no-cors CDN 응답
       //   status로 성공/실패를 알 수 없으나, 캐시에 저장해야 오프라인에서 사용 가능

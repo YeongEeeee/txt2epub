@@ -13,6 +13,11 @@
 //          new Worker 예외 시 URL.revokeObjectURL 보장
 //   P2-04: Worker error 스택 트레이스 포함
 //
+// Phase 10:
+//   · Worker 본문 렌더링 = parser.js 함수 toString() 이식 (손 복사본 폐지 — sysmsg 오분류·이모지 삭제 해결)
+//   · 챕터 렌더링 1회 (삽화 키워드 검사를 위한 사전 렌더링 제거) · 삽화 매핑 Map 사전 계산
+//   · 이미지 STORE(재압축 생략) · XHTML xml:lang · AbortSignal 중단 · 오류를 RecoverableError로 감싸지 않음
+//
 // 의존성: JSZip (CDN), parser.js (escHtml, sanitizeLine, renderBodyHtml, buildTocTree)
 // 내보내는 심볼:
 //   buildCss, generateTextCover, buildEpub, launchEpubWorker
@@ -22,7 +27,10 @@
 
 /* global JSZip, escHtml, sanitizeLine, renderBodyHtml,
    convertImageFile, fileToAB,
-   document, crypto, extractChNum, customFontFace, Toast, genUID, buildTocTree */
+   document, crypto, extractChNum, customFontFace, Toast, genUID, buildTocTree,
+   _decodeHtmlEntities, _escHtmlViaDOM, _RX_AMP, _RX_LT, _RX_GT, _RX_QUOT, _RX_APOS, _RX_SANITIZE, _RX_ENTITY, _NAMED_ENTITY,
+   _RX_SYSMSG_OPEN, _RX_SYSMSG_CLOSE, _RX_FLASHBACK */
+/* global xhtmlPage, tocLabel, RX_AUTO_PAGE, RX_CHAPTER_N, RX_PARENS -- EPUB Worker 전역 (_buildWorkerSrc가 정의, 메인 스레드에서는 미사용) */
 
 'use strict';
 
@@ -151,8 +159,9 @@ async function resizeCoverIfNeeded(file){
   });
 }
 
-async function processImagesParallel(coverFile, illMap){
+async function processImagesParallel(coverFile, illMap, signal=null){
   const result = { cover: null, ills: [] };
+  const checkAbort=()=>{ if(signal?.aborted){ const err=new Error('사용자 중단'); err.name='AbortError'; throw err; } };
   if(coverFile){
     try{
       const target = await resizeCoverIfNeeded(coverFile);
@@ -175,6 +184,7 @@ async function processImagesParallel(coverFile, illMap){
   //   - 배치 단위 await → 이전 배치 ArrayBuffer가 result.ills에 push된 뒤
   //     다음 배치 진입 전 setTimeout(0)으로 이벤트 루프에 GC 기회를 부여
   for(let i=0;i<illFiles.length;i+=IMG_CONCURRENCY){
+    checkAbort();   // ★ Phase 10: 중단 시 남은 이미지 처리 생략
     const batch = illFiles.slice(i, i+IMG_CONCURRENCY);
     const batchRes = await Promise.all(
       batch.map(async ({il, file_idx})=>{
@@ -206,175 +216,101 @@ async function processImagesParallel(coverFile, illMap){
 // P2-01: Worker Blob 소스 빌더
 // renderBodyHtml / sanitizeLine / escHtml 을 Worker 내부로 이식
 // → launchEpubWorker에서 renderedBodies 사전 생성 불필요
+// ★ Phase 10: 손으로 복사한 문자열 사본 폐지 — parser.js 함수를 toString()으로 그대로 이식 (단일 소스)
+//   (이전 사본은 sysmsg 정규식 오타(\\u226a)로 '2층 [창고]' 같은 본문 줄을 시스템 메시지로 오분류,
+//    서로게이트 전체 삭제로 이모지·확장 한자가 사라지는 문제를 메인 스레드와 별개로 갖고 있었음)
 // ══════════════════════════════════════════
-function _buildWorkerSrc(jszipUrl){
 
-  // ── Worker 내부 escHtml / sanitizeLine / renderBodyHtml ──
-  // parser.js의 구현과 동일하게 유지 (단일 진실의 원천 원칙)
-  // ★ P2-01: 이 세 함수를 Worker에 이식하여 renderedBodies 이중화 제거
-  const renderFunctions = String.raw`
-// ── Worker 내 escHtml ── parser.js와 동기화 유지
-const _RX_AMP  = /&/g;
-const _RX_LT   = /</g;
-const _RX_GT   = />/g;
-const _RX_QUOT = /"/g;
-const _RX_APOS = /'/g;
-const _RX_ALREADY_ESC = /&(?:lt|gt|amp|quot|#\d+|#x[\da-fA-F]+);/;
-function escHtml(s){
-  if(typeof s !== 'string') return '';
-  try{
-    return s
-      .replace(_RX_AMP,  '&amp;')
-      .replace(_RX_LT,   '&lt;')
-      .replace(_RX_GT,   '&gt;')
-      .replace(_RX_QUOT, '&quot;')
-      .replace(_RX_APOS, '&#39;');
-  }catch(e){ return String(s); }
-}
-// ── Worker 내 sanitizeLine ── parser.js와 동기화 유지
-function sanitizeLine(s){
-  if(typeof s !== 'string') return '';
-  s=s.replace(/\u00ad/g,'\u2014');
-  s=s.replace(/[\u200B\u200C\u200D\uFEFF\u00A0]/g,'');
-  s=s.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g,'');
-  s=s.replace(/[\uFFFE\uFFFF\uD800-\uDFFF]/g,'');
-  return s.trimEnd();
-}
-// ── Worker 내 renderBodyHtml ── parser.js와 동기화 유지
-function renderBodyHtml(body, opts){
-  const useItalic = opts ? opts.useItalic !== false : true;
-  const maxBlank  = opts ? (opts.maxBlank || 2) : 2;
-  const removeBlankLines = opts ? !!opts.removeBlankLines : false;
-  try{
-    let html='', blankRun=0;
-    const rawLines=body.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
-
-    // ★ Part2: 본문 공백 최적화 전처리 (라인 배열 순회 방식 — Backtracking 없음)
-    let lines;
-    if(removeBlankLines){
-      lines=[];
-      let bc=0;
-      const blankLimit=Math.max(1,maxBlank-1);
-      for(const l of rawLines){
-        if(!l.trim()){ bc++; if(bc<=blankLimit) lines.push(l); }
-        else{ bc=0; lines.push(l); }
-      }
-      rawLines.length=0; // ★ GC: 원본 배열 참조 해제
-    } else {
-      lines=rawLines;
-    }
-
-    for(const line of lines){
-      const t=sanitizeLine(line).trim();
-      if(!t){
-        blankRun++;
-        if(blankRun < maxBlank) html+='<p>&#160;</p>\n';
-        continue;
-      }
-      blankRun=0;
-      const alreadyEscaped = _RX_ALREADY_ESC.test(t);
-      const escaped = alreadyEscaped ? t : escHtml(t);
-      if(useItalic && /^[-\u2014\u2012\u2013\u2500]/.test(t)){
-        html+='<p class="noindent"><em class="flashback">'+escaped+'</em></p>\n';
-      } else if(/^(?:[\u3010\u3014\[\\u226a\u2770])/.test(t) && /(?:[\u3011\u3015\]\u226b\u2771])\s*$/.test(t)){
-        html+='<p class="noindent sysmsg"><em>'+escaped+'</em></p>\n';
-      } else {
-        html+='<p>'+escaped+'</p>\n';
-      }
-    }
-    return html;
-  }catch(err){
-    try{ return '<p>'+escHtml(String(body||''))+'</p>\n'; }catch(e2){ return ''; }
-  }
-}`;
-
-  const utilFunctions = [
-    "'use strict';",
-    `importScripts(${JSON.stringify(jszipUrl)});`,
-    // ★ P2-04: 루프 외부 정규식 사전 컴파일
-    "const RX_AUTO_PAGE=/^\\(\\d+\\/\\d+\\)$/;",
-    "const RX_CHAPTER_N=/^Chapter\\s+(\\d+)$/;",
-    "const RX_PARENS=/\\((\\d+)\\/(\\d+)\\)/;",
-    "function extractChNum(h){const m=h.match(/[0-9]+/);return m?parseInt(m[0],10):null;}",
-    "function tocLabel(idx,h,c){if(c[idx])return h+' 삽화';if(RX_AUTO_PAGE.test(h)){const m=h.match(RX_PARENS);return m?m[1]+'페이지':h;}if(RX_CHAPTER_N.test(h)){const m=h.match(RX_CHAPTER_N);return m?m[1]+'화':h;}return h;}",
-    "function makeMatchIll(idx,cn,body){return function(il){if(typeof il.idx==='number')return il.idx===idx;if(typeof il.ch==='number')return il.ch===cn;if(il.kw)return body.includes(il.kw);return false;};}",
-  ].join('\n');
-
-  const xhtmlFn = function xhtmlPage(t,b){
-    return '<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml"><head>\n<title>'+escHtml(t)+'</title>\n<link rel="stylesheet" type="text/css" href="../style.css"/>\n</head><body>\n'+b+'\n</body></html>';
-  };
-
-  // ★ P2-01: mainHandler에서 renderedBodies 사전 배열 대신
-  //          챕터별 즉석 renderBodyHtml 호출 — 메모리 이중화 완전 제거
-  const mainHandler = `
-self.onmessage=async function(e){
+// ── EPUB Worker 본체 ──
+// ★ toString()으로 Worker에 이식 — 메인 스레드에서는 호출되지 않음
+//   Worker 전역 심볼만 참조: JSZip, renderBodyHtml, escHtml, buildTocTree, xhtmlPage, tocLabel, extractChNum, RX_*
+async function _epubWorkerMain(e){
   // ★ P2-04: Worker 내 onmessage 전체 try-catch — 고스트 에러 방지
+  let imgStore=null;
   try{
     const{params,imageData,cssText}=e.data;
     const{title,author,chapters,illMapMeta,useItalic,showChTitle,
           compressionLevel,lang,uid,today,modified,
           publisher='',series='',seriesIndex=0,
           removeBlankLines=false}=params;
-    // ★ P2-01: renderedBodies 파라미터 제거 — Worker가 직접 렌더링
-    function prog(pct,msg){self.postMessage({type:'progress',pct,msg});}
+    const prog=(pct,msg)=>self.postMessage({type:'progress',pct,msg});
     prog(5,'이미지 처리 중...');
     const zip=new JSZip();
-    zip.file('mimetype','application/epub+zip',{compression:'STORE',compressionOptions:{level:0}});
-    zip.folder('META-INF').file('container.xml','<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
+    zip.file('mimetype','application/epub+zip',{compression:'STORE'});
     // ★ container.xml 네임스페이스는 OCF 표준값(urn:oasis:names:tc:opendocument:xmlns:container) — 오타 시 epubcheck RSC-003
+    zip.folder('META-INF').file('container.xml','<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>');
     // ★ Images 폴더는 이미지가 있을 때만 생성 (빈 디렉터리 → epubcheck PKG-014 경고)
     const oebps=zip.folder('OEBPS'),textFolder=oebps.folder('Text');
     const imagesFolder=(imageData.cover||imageData.ills.length)?oebps.folder('Images'):null;
     oebps.file('style.css',cssText);
-    const imgStore=new Map();let imgIdx=0;
-    if(imageData.cover){const{ab,ext,mt}=imageData.cover;const dest='img_'+String(imgIdx++).padStart(4,'0')+'.'+ext;imagesFolder.file(dest,ab);imgStore.set('cover',{filename:dest,mt});}
-    for(const ill of imageData.ills){const{ab,ext,mt,file_idx}=ill;const dest='img_'+String(imgIdx++).padStart(4,'0')+'.'+ext;imagesFolder.file(dest,ab);imgStore.set(file_idx,{filename:dest,mt});}
+    // ★ Phase 10: 이미지는 이미 압축된 포맷(JPEG·PNG·WebP) → DEFLATE 재압축 없이 STORE (압축 시간 절감, 크기 차이 거의 없음)
+    const IMG_OPT={compression:'STORE'};
+    imgStore=new Map();let imgIdx=0;
+    if(imageData.cover){const{ab,ext,mt}=imageData.cover;const dest='img_'+String(imgIdx++).padStart(4,'0')+'.'+ext;imagesFolder.file(dest,ab,IMG_OPT);imgStore.set('cover',{filename:dest,mt});}
+    for(const ill of imageData.ills){const{ab,ext,mt,file_idx}=ill;const dest='img_'+String(imgIdx++).padStart(4,'0')+'.'+ext;imagesFolder.file(dest,ab,IMG_OPT);imgStore.set(file_idx,{filename:dest,mt});}
     prog(15,'챕터 생성 중...');
     const manifestItems=[],spineItems=[];
     // ★ 목차 항목은 챕터 루프에서 수집 — 루프 뒤 chapters.length=0으로 원문이 해제되므로
     //   (이전: 해제 후 chapters[origIdx]를 읽어 nav/ncx 제목이 전부 빈 문자열이던 버그)
     const tocEntries=[];
     const coverInfo=imgStore.get('cover')||null;
-    if(coverInfo){textFolder.file('cover.xhtml',xhtmlPage('표지','<div class="illust-page"><img src="../Images/'+coverInfo.filename+'" alt="표지"/></div>'));manifestItems.push({id:'cover_xhtml',href:'Text/cover.xhtml',mt:'application/xhtml+xml'});spineItems.push('cover_xhtml');}
-    const chHasIll={};
-    for(let idx=0;idx<chapters.length;idx++){
-      const[h,b]=chapters[idx];const cn=extractChNum(h);
-      // ★ P2-01: renderBodyHtml을 여기서 즉석 호출 (메인 스레드 사전 렌더링 없음)
-      const renderedBody=renderBodyHtml(b,{useItalic,maxBlank:2,removeBlankLines});
-      const mfn=makeMatchIll(idx,cn,renderedBody);
-      chHasIll[idx]=illMapMeta.some(mfn);
+    if(coverInfo){textFolder.file('cover.xhtml',xhtmlPage('표지','<div class="illust-page"><img src="../Images/'+coverInfo.filename+'" alt="표지"/></div>',lang));manifestItems.push({id:'cover_xhtml',href:'Text/cover.xhtml',mt:'application/xhtml+xml'});spineItems.push('cover_xhtml');}
+
+    // ★ Phase 10: 삽화 → 챕터 매핑을 루프 전에 1회 계산 (이전: 모든 챕터를 미리 한 번 더 렌더링해 키워드를 검사 → 렌더링 2회,
+    //   챕터마다 illMapMeta 전체 filter → O(챕터×삽화))
+    //   · idx(파일명 번호): '서문'(첫 제목 앞 내용)을 제외한 n번째 챕터 — 이전엔 서문이 0번이 되어 01.jpg가 서문에 붙음
+    //   · ch(화 번호): 감지된 화 번호(meta.num) 우선, 없으면 제목의 'N화' 번호 — 같은 번호가 여러 개(분할 연재)면 첫 챕터
+    //   · kw(키워드): 원문 기준 첫 번째 일치 챕터 (이전: 이스케이프된 HTML에서 검사 → '&'·'<' 포함 키워드 매칭 실패)
+    const tot=chapters.length;
+    const realToK=[];const firstKByNum=new Map();
+    for(let k=0;k<tot;k++){
+      const ch=chapters[k];const meta=ch[2]||null;
+      if(!(meta&&meta.pre)) realToK.push(k);
+      const n=(meta&&meta.num!=null)?meta.num:extractChNum(ch[0]);
+      if(n!=null&&!firstKByNum.has(n)) firstKByNum.set(n,k);
     }
-    const tot=chapters.length;let illPageIdx=0;
+    const illBefore=new Map(),illAfter=new Map();
+    for(const il of (illMapMeta||[])){
+      let k=null;
+      if(typeof il.idx==='number') k=realToK[il.idx];
+      else if(typeof il.ch==='number') k=firstKByNum.get(il.ch);
+      else if(il.kw){ for(let j=0;j<tot;j++){ if(String(chapters[j][1]||'').includes(il.kw)||String(chapters[j][0]||'').includes(il.kw)){k=j;break;} } }
+      if(k==null||k<0||k>=tot) continue;
+      const m=il.pos==='after'?illAfter:illBefore;
+      if(!m.has(k)) m.set(k,[]);
+      m.get(k).push(il.file_idx);
+    }
+    let illPageIdx=0;
+    const addIllPages=(heading,list)=>{
+      for(const fi_idx of (list||[])){
+        const fi=imgStore.get(fi_idx);if(!fi)continue;
+        const iid='ill_'+String(illPageIdx++).padStart(4,'0');const fn=iid+'.xhtml';
+        textFolder.file(fn,xhtmlPage(heading+' 삽화','<div class="illust-page"><img src="../Images/'+fi.filename+'" alt="삽화"/></div>',lang));
+        manifestItems.push({id:iid,href:'Text/'+fn,mt:'application/xhtml+xml'});spineItems.push(iid);
+      }
+    };
     for(let idx=0;idx<tot;idx++){
-      // ★ 4단계: 20개마다 진행률 갱신 + 이벤트 루프 양보
-      // Worker 내에서는 yieldToMain 불가 → setTimeout 대신 Promise.resolve()로 마이크로태스크 양보
-      // 대용량 파일에서 메인 핸들러가 블로킹되지 않도록 100개마다 한 번 양보
+      // ★ 4단계: 20개마다 진행률 갱신, 100화마다 이벤트 루프 양보
       if(idx%20===0){
         prog(15+Math.floor(idx/tot*67),'챕터 생성 중 ('+idx+'/'+tot+')...');
-        if(idx>0&&idx%100===0){
-          // ★ 4단계 GC 힌트: 100화마다 마이크로태스크 큐에 양보
-          await new Promise(r=>setTimeout(r,0));
-        }
+        if(idx>0&&idx%100===0) await new Promise(r=>setTimeout(r,0));
       }
-      const[heading,rawBody]=chapters[idx];const cn=extractChNum(heading);
-      // ★ P2-01: 챕터별 즉석 렌더링 — 배열로 미리 만들어두지 않음
+      const heading=chapters[idx][0],rawBody=chapters[idx][1];
+      // ★ P2-01: 챕터별 즉석 렌더링 — 배열로 미리 만들어두지 않음 (Phase 10: 챕터당 1회)
       const body=renderBodyHtml(rawBody,{useItalic,maxBlank:2,removeBlankLines});
-      const mfn=makeMatchIll(idx,cn,body);
-      const beforeIlls=illMapMeta.filter(il=>mfn(il)&&il.pos!=='after').map(il=>il.file_idx);
-      const afterIlls=illMapMeta.filter(il=>mfn(il)&&il.pos==='after').map(il=>il.file_idx);
+      const hasIll=illBefore.has(idx)||illAfter.has(idx);
+      addIllPages(heading,illBefore.get(idx));
       const isAutoPage=RX_AUTO_PAGE.test(heading)||heading==='본문'||RX_CHAPTER_N.test(heading);
       const showTitle=showChTitle&&!isAutoPage;
-      {for(const fi_idx of beforeIlls){const fi=imgStore.get(fi_idx);if(!fi)continue;const fn='ill_'+String(illPageIdx++).padStart(4,'0')+'.xhtml';const iid='ill_'+String(illPageIdx-1).padStart(4,'0');textFolder.file(fn,xhtmlPage(heading+' 삽화','<div class="illust-page"><img src="../Images/'+fi.filename+'" alt="삽화"/></div>'));manifestItems.push({id:iid,href:'Text/'+fn,mt:'application/xhtml+xml'});spineItems.push(iid);}}
-      const fname='chapter_'+String(idx).padStart(4,'0')+'.xhtml';const chid='ch_'+String(idx).padStart(4,'0');
-      textFolder.file(fname,xhtmlPage(heading,(showTitle?'<h1>'+escHtml(heading)+'</h1>\\n':'')+body));
+      const chid='ch_'+String(idx).padStart(4,'0');const fname='chapter_'+String(idx).padStart(4,'0')+'.xhtml';
+      textFolder.file(fname,xhtmlPage(heading,(showTitle?'<h1>'+escHtml(heading)+'</h1>\n':'')+body,lang));
       manifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
       // ★ Phase 8: '서문'(첫 제목 앞 내용)도 읽기 순서·목차에 포함 — 이전엔 spine에서 빠져 프롤로그 등이 사라졌음
-      spineItems.push(chid);tocEntries.push({label:tocLabel(idx,heading,chHasIll),heading,href:'Text/'+fname});
-      {for(const fi_idx of afterIlls){const fi=imgStore.get(fi_idx);if(!fi)continue;const fn='ill_'+String(illPageIdx++).padStart(4,'0')+'.xhtml';const iid='ill_'+String(illPageIdx-1).padStart(4,'0');textFolder.file(fn,xhtmlPage(heading+' 삽화','<div class="illust-page"><img src="../Images/'+fi.filename+'" alt="삽화"/></div>'));manifestItems.push({id:iid,href:'Text/'+fn,mt:'application/xhtml+xml'});spineItems.push(iid);}}
+      spineItems.push(chid);tocEntries.push({label:tocLabel(heading,hasIll),heading,href:'Text/'+fname});
+      addIllPages(heading,illAfter.get(idx));
     }
     // ★ 4단계 GC: 챕터 루프 완료 후 chapters 참조 해제
-    // postMessage로 전달된 chapters는 이제 Worker 내에서 불필요
-    chapters.length = 0;
+    chapters.length=0;
     prog(82,'목차 생성 중...');
     // ★ 계층 목차: '1권/2부' 그룹이 있으면 권 > 화 2단계, 없으면 기존 평면 목차 (parser.js buildTocTree)
     const tocTree=buildTocTree(tocEntries);
@@ -384,31 +320,28 @@ self.onmessage=async function(e){
     const poByHref={};
     const ncxPoints=nodes=>nodes.map(n=>{
       const po=poByHref[n.href]||(poByHref[n.href]=order++);
-      return '<navPoint id="np'+(npSeq++)+'" playOrder="'+po+'"><navLabel><text>'+escHtml(n.label)+'</text></navLabel><content src="'+n.href+'"/>\\n'+ncxPoints(n.children)+'</navPoint>\\n';
+      return '<navPoint id="np'+(npSeq++)+'" playOrder="'+po+'"><navLabel><text>'+escHtml(n.label)+'</text></navLabel><content src="'+n.href+'"/>\n'+ncxPoints(n.children)+'</navPoint>\n';
     }).join('');
-    let ncx='<?xml version="1.0" encoding="utf-8"?>\\n<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\\n<head><meta name="dtb:uid" content="'+uid+'"/><meta name="dtb:depth" content="'+tocDepth+'"/><meta name="dtb:totalPageCount" content="0"/><meta name="dtb:maxPageNumber" content="0"/></head>\\n<docTitle><text>'+escHtml(title)+'</text></docTitle>\\n<navMap>\\n'+ncxPoints(tocTree)+'</navMap></ncx>';
-    oebps.file('toc.ncx',ncx);
-    const navList=nodes=>'<ol>\\n'+nodes.map(n=>'<li><a href="'+n.href+'">'+escHtml(n.label)+'</a>'+(n.children.length?'\\n'+navList(n.children):'')+'</li>\\n').join('')+'</ol>\\n';
+    oebps.file('toc.ncx','<?xml version="1.0" encoding="utf-8"?>\n<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n<head><meta name="dtb:uid" content="'+uid+'"/><meta name="dtb:depth" content="'+tocDepth+'"/><meta name="dtb:totalPageCount" content="0"/><meta name="dtb:maxPageNumber" content="0"/></head>\n<docTitle><text>'+escHtml(title)+'</text></docTitle>\n<navMap>\n'+ncxPoints(tocTree)+'</navMap></ncx>');
+    const navList=nodes=>'<ol>\n'+nodes.map(n=>'<li><a href="'+n.href+'">'+escHtml(n.label)+'</a>'+(n.children.length?'\n'+navList(n.children):'')+'</li>\n').join('')+'</ol>\n';
     // nav <ol>은 비어 있으면 EPUB3 위반 → 목차 항목이 없으면 첫 스파인 문서로 대체 항목 생성
     const navNodes=tocTree.length?tocTree:[{label:title,href:(manifestItems.find(it=>it.id===spineItems[0])||{href:'Text/cover.xhtml'}).href,children:[]}];
-    let nav='<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops"><head><title>'+escHtml(title)+'</title></head><body><nav epub:type="toc">\\n'+navList(navNodes)+'</nav></body></html>';
-    oebps.file('nav.xhtml',nav);
-    const coverInfoX=imgStore.get('cover')||null;
+    const langAttr=escHtml(lang||'ko');
+    oebps.file('nav.xhtml','<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="'+langAttr+'" lang="'+langAttr+'"><head><title>'+escHtml(title)+'</title></head><body><nav epub:type="toc">\n'+navList(navNodes)+'</nav></body></html>');
     // ★ 시리즈 메타: EPUB3 표준(belongs-to-collection) + Calibre/리더기 호환(calibre:series)
     const seriesMeta=series
-      ? '<meta property="belongs-to-collection" id="series">'+escHtml(series)+'</meta>\\n'+
-        '<meta refines="#series" property="collection-type">series</meta>\\n'+
-        (seriesIndex>0?'<meta refines="#series" property="group-position">'+seriesIndex+'</meta>\\n':'')+
-        '<meta name="calibre:series" content="'+escHtml(series)+'"/>\\n'+
-        (seriesIndex>0?'<meta name="calibre:series_index" content="'+seriesIndex+'"/>\\n':'')
+      ? '<meta property="belongs-to-collection" id="series">'+escHtml(series)+'</meta>\n'+
+        '<meta refines="#series" property="collection-type">series</meta>\n'+
+        (seriesIndex>0?'<meta refines="#series" property="group-position">'+seriesIndex+'</meta>\n':'')+
+        '<meta name="calibre:series" content="'+escHtml(series)+'"/>\n'+
+        (seriesIndex>0?'<meta name="calibre:series_index" content="'+seriesIndex+'"/>\n':'')
       : '';
-    let opf='<?xml version="1.0" encoding="utf-8"?>\\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">\\n<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\\n<dc:title>'+escHtml(title)+'</dc:title>\\n<dc:creator>'+escHtml(author)+'</dc:creator>\\n<dc:language>'+escHtml(lang)+'</dc:language>\\n<dc:identifier id="uid">'+uid+'</dc:identifier>\\n<dc:date>'+today+'</dc:date>\\n<meta property="dcterms:modified">'+modified+'</meta>\\n'+(publisher?'<dc:publisher>'+escHtml(publisher)+'</dc:publisher>\\n':'')+seriesMeta+(coverInfoX?'<meta name="cover" content="cover_img"/>\\n':'')+'\\n</metadata>\\n<manifest>\\n<item id="css" href="style.css" media-type="text/css"/>\\n<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\\n<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\\n';
-    manifestItems.forEach(it=>opf+='<item id="'+it.id+'" href="'+it.href+'" media-type="'+it.mt+'"/>\\n');
-    if(coverInfoX)opf+='<item id="cover_img" href="Images/'+coverInfoX.filename+'" media-type="'+coverInfoX.mt+'" properties="cover-image"/>\\n';
-    for(const[key,info]of imgStore){if(key==='cover')continue;opf+='<item id="imgf_'+info.filename.replace(/\\W/g,'_')+'" href="Images/'+info.filename+'" media-type="'+info.mt+'"/>\\n';}
-    opf+='</manifest>\\n<spine toc="ncx">\\n';spineItems.forEach(s=>opf+='<itemref idref="'+s+'"/>\\n');opf+='</spine>\\n</package>';oebps.file('content.opf',opf);
-    // ★ 4단계 GC: OPF/NCX 문자열 완성 후 중간 변수 해제
-    ncx = null; nav = null; opf = null;
+    const opf=['<?xml version="1.0" encoding="utf-8"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">\n<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n<dc:title>'+escHtml(title)+'</dc:title>\n'+(String(author||'').trim()?'<dc:creator>'+escHtml(author)+'</dc:creator>\n':'')+'<dc:language>'+escHtml(lang)+'</dc:language>\n<dc:identifier id="uid">'+uid+'</dc:identifier>\n<dc:date>'+today+'</dc:date>\n<meta property="dcterms:modified">'+modified+'</meta>\n'+(publisher?'<dc:publisher>'+escHtml(publisher)+'</dc:publisher>\n':'')+seriesMeta+(coverInfo?'<meta name="cover" content="cover_img"/>\n':'')+'\n</metadata>\n<manifest>\n<item id="css" href="style.css" media-type="text/css"/>\n<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\n'];
+    manifestItems.forEach(it=>opf.push('<item id="'+it.id+'" href="'+it.href+'" media-type="'+it.mt+'"/>\n'));
+    if(coverInfo) opf.push('<item id="cover_img" href="Images/'+coverInfo.filename+'" media-type="'+coverInfo.mt+'" properties="cover-image"/>\n');
+    for(const[key,info]of imgStore){if(key==='cover')continue;opf.push('<item id="imgf_'+info.filename.replace(/\W/g,'_')+'" href="Images/'+info.filename+'" media-type="'+info.mt+'"/>\n');}
+    opf.push('</manifest>\n<spine toc="ncx">\n');spineItems.forEach(s=>opf.push('<itemref idref="'+s+'"/>\n'));opf.push('</spine>\n</package>');
+    oebps.file('content.opf',opf.join(''));
     prog(92,'압축 중...');
     let blob;
     try{
@@ -421,34 +354,90 @@ self.onmessage=async function(e){
           meta=>{self.postMessage({type:'progress',pct:94+Math.floor(meta.percent*0.05),msg:'무압축 패키징 '+Math.floor(meta.percent)+'%...'});});
       }catch(se){throw new Error('EPUB 압축 최종 실패: '+se.message);}
     }
-    // ★ 4단계 GC: zip 객체 참조 해제 — blob 전송 후 JSZip 내부 버퍼 GC 수거 유도
-    // imgStore의 ArrayBuffer들도 이미 Transferable로 이전됐으므로 참조 정리
+    // ★ 4단계 GC: imgStore의 ArrayBuffer 참조 정리
     imgStore.clear();
     self.postMessage({type:'done',blob});
-    blob = null; // ★ postMessage 직후 blob 참조 해제
   }catch(err){
     // ★ P2-04: 스택 트레이스 포함 에러 전송 — 디버깅 가능
-    // ★ 4단계: 에러 발생 시에도 메모리 정리 시도
-    try{ if(typeof imgStore!=='undefined'&&imgStore) imgStore.clear(); }catch(_){}
-    self.postMessage({type:'error',message:(err.stack||err.message||String(err))});
+    try{ if(imgStore) imgStore.clear(); }catch(_){}
+    self.postMessage({type:'error',message:(err&&(err.stack||err.message))||String(err)});
   }
-};`;
+}
 
-  // ★ 계층 목차 빌더는 parser.js 단일 소유 — toString()으로 Worker에 이식 (복사본 없음)
-  const tocTreeSrc = (typeof buildTocTree === 'function')
-    ? buildTocTree.toString()
-    : 'function buildTocTree(items){return (items||[]).map(function(it){return {label:it.label,href:it.href,children:[]};});}';
+// ── XHTML 페이지 템플릿 (Worker 전용, toString()으로 이식) ──
+// ★ Phase 10: xml:lang/lang 속성 추가 (리더기 하이픈·글꼴 언어 판단, 접근성)
+function _epubXhtmlPage(t,b,lang){
+  const L=escHtml(lang||'ko');
+  return '<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="'+L+'" lang="'+L+'"><head>\n<title>'+escHtml(t)+'</title>\n<link rel="stylesheet" type="text/css" href="../style.css"/>\n</head><body>\n'+b+'\n</body></html>';
+}
 
-  return [utilFunctions, renderFunctions, tocTreeSrc, 'const xhtmlPage='+xhtmlFn.toString()+';', mainHandler].join('\n');
+// ── 목차 표시명 (Worker 전용, toString()으로 이식) ──
+//   간격 분할 '(3/20)' → '3페이지' · 'Chapter 12' → '12화' · 삽화가 붙은 챕터 → '제목 삽화'
+function _epubTocLabel(h,hasIll){
+  if(hasIll) return h+' 삽화';
+  if(RX_AUTO_PAGE.test(h)){const m=h.match(RX_PARENS);return m?m[1]+'페이지':h;}
+  const m=h.match(RX_CHAPTER_N);
+  return m?m[1]+'화':h;
+}
+
+// ── 제목 → 화 번호 (Worker 전용 폴백 — 감지 단계 meta.num이 없을 때만 사용) ──
+// ★ Phase 10: 'N화/회/話/장' 앞 번호 우선 (이전: 첫 숫자 → '제2부 15화'가 2화로 매핑)
+function _epubChNum(h){
+  const s=String(h||'');
+  const m=s.match(/(\d+)\s*(?:화|회|話|장|章)/)||s.match(/\d+/);
+  return m?parseInt(m[1]!=null?m[1]:m[0],10):null;
+}
+
+function _buildWorkerSrc(jszipUrl){
+  // ★ Phase 10: 본문 렌더링 함수는 parser.js 단일 소스 (로드 순서상 항상 먼저 정의됨)
+  if(typeof renderBodyHtml!=='function'||typeof buildTocTree!=='function'||typeof _decodeHtmlEntities!=='function')
+    throw new Error('EPUB Worker 소스 생성 실패 — parser.js가 epub-gen.js보다 먼저 로드되어야 합니다');
+  const rx=r=>r.toString();
+  return [
+    "'use strict';",
+    'importScripts('+JSON.stringify(jszipUrl)+');',
+    // ★ P2-04: 루프 외부 정규식 사전 컴파일
+    'const RX_AUTO_PAGE=/^\\(\\d+\\/\\d+\\)$/;',
+    'const RX_CHAPTER_N=/^Chapter\\s+(\\d+)$/;',
+    'const RX_PARENS=/\\((\\d+)\\/(\\d+)\\)/;',
+    // parser.js 렌더링 상수·함수 (단일 소스)
+    'const _RX_AMP='+rx(_RX_AMP)+';',
+    'const _RX_LT='+rx(_RX_LT)+';',
+    'const _RX_GT='+rx(_RX_GT)+';',
+    'const _RX_QUOT='+rx(_RX_QUOT)+';',
+    'const _RX_APOS='+rx(_RX_APOS)+';',
+    'const _RX_SANITIZE='+rx(_RX_SANITIZE)+';',
+    'const _RX_ENTITY='+rx(_RX_ENTITY)+';',
+    'const _NAMED_ENTITY='+JSON.stringify(_NAMED_ENTITY)+';',
+    'const _RX_SYSMSG_OPEN='+rx(_RX_SYSMSG_OPEN)+';',
+    'const _RX_SYSMSG_CLOSE='+rx(_RX_SYSMSG_CLOSE)+';',
+    'const _RX_FLASHBACK='+rx(_RX_FLASHBACK)+';',
+    _escHtmlViaDOM.toString(),
+    escHtml.toString(),
+    sanitizeLine.toString(),
+    _decodeHtmlEntities.toString(),
+    renderBodyHtml.toString(),
+    // ★ 계층 목차 빌더는 parser.js 단일 소유 — toString()으로 Worker에 이식 (복사본 없음)
+    buildTocTree.toString(),
+    'const xhtmlPage='+_epubXhtmlPage.toString()+';',
+    'const tocLabel='+_epubTocLabel.toString()+';',
+    'const extractChNum='+_epubChNum.toString()+';',
+    'self.onmessage='+_epubWorkerMain.toString()+';',
+  ].join('\n');
 }
 
 // ══════════════════════════════════════════
 // P2-03: launchEpubWorker — Worker URL 누수 방지 + renderedBodies 제거
 // ══════════════════════════════════════════
-async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[], useItalic=true, series='', seriesIndex=0 }, onProgress){
+// ★ Phase 10: opts.signal(AbortSignal) — 중단 시 Worker 즉시 terminate + AbortError로 reject
+async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[], useItalic=true, series='', seriesIndex=0 }, onProgress, opts={}){
+  const signal = opts?.signal || null;
+  const abortErr = ()=>{ const err=new Error('사용자 중단'); err.name='AbortError'; return err; };
+  if(signal?.aborted) throw abortErr();
   // ① 메인 스레드 전처리 (DOM 필요 작업)
   onProgress&&onProgress(3, '이미지 전처리 중...');
-  const imageData = await processImagesParallel(coverFile, illMap);
+  const imageData = await processImagesParallel(coverFile, illMap, signal);
+  if(signal?.aborted) throw abortErr();
   const cssText   = buildCss();
 
   // ★ P2-01: renderedBodies 사전 생성 폐지
@@ -482,37 +471,35 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
 
   // ③ Worker 메시지 통신
   return new Promise((resolve, reject)=>{
+    let settled=false;
+    const finish=(fn, val)=>{
+      if(settled) return;
+      settled=true;
+      worker.terminate();
+      URL.revokeObjectURL(workerUrl);
+      signal?.removeEventListener('abort', onAbort);
+      fn(val);
+    };
+    // ★ Phase 10: 사용자 중단 → Worker 종료
+    const onAbort=()=>finish(reject, abortErr());
+    signal?.addEventListener('abort', onAbort, {once:true});
     worker.onmessage = function(e){
       const { type, pct, msg, blob, message } = e.data;
       if(type==='progress'){
-        onProgress&&onProgress(pct, msg);
+        if(!settled) onProgress&&onProgress(pct, msg);
         return;
       }
-      if(type==='done'){
-        worker.terminate();
-        URL.revokeObjectURL(workerUrl);
-        resolve(blob);
-        return;
-      }
+      if(type==='done'){ finish(resolve, blob); return; }
       if(type==='error'){
-        worker.terminate();
-        URL.revokeObjectURL(workerUrl);
         // ★ P2-04: message에 스택 트레이스 포함됨
-        // ★ 4단계: RecoverableError로 래핑 — 호출자(startConvert)가 분기 처리 가능
-        const err = (typeof RecoverableError !== 'undefined')
-          ? new RecoverableError('EPUB 생성 실패: ' + (message||'Worker 오류'), { context: 'launchEpubWorker' })
-          : new Error(message||'Worker 오류');
-        reject(err);
+        // ★ Phase 10: EPUB 생성 실패는 치명적 오류(일반 Error) — 호출자가 오류 박스로 표시
+        //   (이전: RecoverableError로 감싸 '계속 진행합니다' 경고만 표시)
+        finish(reject, new Error('EPUB 생성 실패: ' + (message||'Worker 오류')));
         return;
       }
     };
     worker.onerror = function(e){
-      worker.terminate();
-      URL.revokeObjectURL(workerUrl);
-      const err = (typeof RecoverableError !== 'undefined')
-        ? new RecoverableError('Worker 런타임 오류: ' + (e.message||'알 수 없는 오류'), { context: 'launchEpubWorker' })
-        : new Error('Worker 런타임 오류: '+(e.message||'알 수 없는 오류'));
-      reject(err);
+      finish(reject, new Error('Worker 런타임 오류: '+(e.message||'알 수 없는 오류')));
     };
 
     // ④ 파라미터 전송
@@ -570,21 +557,8 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
 // buildEpub — 하위 호환 래퍼
 // ★ 4단계: RecoverableError 분기 + UI 복구 안전망
 // ══════════════════════════════════════════
-async function buildEpub(params, onProgress){
-  try{
-    return await launchEpubWorker(params, onProgress);
-  }catch(e){
-    // ★ RecoverableError는 이미 사용자 메시지가 있으므로 그대로 전파
-    // 호출자(startConvert)의 catch 블록이 RecoverableError를 Toast.warn으로 처리
-    if(typeof RecoverableError !== 'undefined' && e instanceof RecoverableError){
-      throw e;
-    }
-    // ★ 일반 Error는 RecoverableError로 래핑하여 전파 — UI 복구 보장
-    // startConvert의 finally 블록이 progWrap 해제, abortBtn 숨김을 처리함
-    const msg = e.message || String(e);
-    const wrapped = (typeof RecoverableError !== 'undefined')
-      ? new RecoverableError('EPUB 생성 중 오류: ' + msg, { context: 'buildEpub' })
-      : e;
-    throw wrapped;
-  }
+// ★ Phase 10: 오류를 RecoverableError로 일괄 변환하지 않음 — 실패는 실패로 전파 (AbortError 포함)
+//   UI 복구(진행 바 해제·중단 버튼 숨김)는 호출자(startConvert 등)의 finally가 담당
+async function buildEpub(params, onProgress, opts={}){
+  return launchEpubWorker(params, onProgress, opts);
 }
