@@ -456,7 +456,12 @@ async function convertImageFile(file, forCover=false){
 
     if(supportedAsIs.includes(ext)) return {blob:file, ext:'jpg', mt:'image/jpeg'};
 
-    const shouldConvert=forCover || document.getElementById('optImgConvert')?.checked!==false;
+    // ★ Phase 14: EPUB 3 핵심 이미지 형식(JPEG·PNG·GIF·WebP)이 아니면 설정과 무관하게 항상 JPG로 변환
+    //   (이전: 'JPG 변환' OFF면 BMP·TIFF·AVIF·HEIC를 그대로 넣어 epubcheck RSC-032·리더기 표시 실패)
+    //   리더기 프로필이 forceJpg면(Kobo·Kindle) PNG·GIF·WebP도 변환
+    const nonCore=!['png','gif','webp','svg'].includes(ext);
+    const profileJpg=typeof getReaderProfile==='function'&&getReaderProfile().forceJpg;
+    const shouldConvert=forCover || nonCore || profileJpg || document.getElementById('optImgConvert')?.checked!==false;
 
     if(shouldConvert && convertable.includes(ext)){
       const quality=(parseInt(document.getElementById('optImgQuality')?.value||'92'))/100;
@@ -464,10 +469,13 @@ async function convertImageFile(file, forCover=false){
         const blob=await imgToJpgBlob(file, quality);
         return {blob, ext:'jpg', mt:'image/jpeg'};
       }catch(convErr){
+        // 핵심 형식이 아닌 이미지는 원본을 넣으면 EPUB이 깨지므로 건너뜀 (호출자가 경고 후 생략)
+        if(nonCore) throw new Error('지원하지 않는 이미지 형식이라 변환하지 못했어요: '+(file?.name||ext));
         // ★ 변환 실패 시 원본 사용 (전체 공정 중단 없음)
         Toast.warn&&Toast.warn(`이미지 변환 실패 (원본 사용): ${file?.name||'이미지'}`);
       }
     }
+    if(nonCore) throw new Error('지원하지 않는 이미지 형식: '+(file?.name||ext));
 
     const mimeMap={
       'png':'image/png','gif':'image/gif','webp':'image/webp',

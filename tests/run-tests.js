@@ -13,6 +13,7 @@
  *      생성된 EPUB은 tests/out/ 에 저장 → CI에서 epubcheck로 표준 검증
  *   7. Phase 12: 커스텀 폰트 base64·인코딩 감지(UTF-16 무BOM)·슬라이스 경계·URL 표지·Gemini·EPUB 편집 메타
  *   8. Phase 13: 본문 정리(잡음 줄·줄바꿈 병합·기호)·장면 구분선·검수 리포트·인코딩 직접 지정
+ *   9. Phase 14: 폰트 파일 분리·landmarks·접근성 메타·리더기 프로필·TXT 삽입 편집 EPUB(→ CI epubcheck)
  */
 'use strict';
 const fs   = require('fs');
@@ -344,7 +345,8 @@ async function main(){
     const ncxLabels = [...e.ncx.matchAll(/<text>([^<]*)<\/text>/g)].map(m => m[1]).slice(1); // [0]=docTitle
     check('[EPUB] nav 목차 제목이 비어있지 않음', navLabels.length > 0 && navLabels.every(Boolean), `빈 제목 ${navLabels.filter(l => !l).length}개`);
     check('[EPUB] ncx 목차 제목이 비어있지 않음', ncxLabels.length > 0 && ncxLabels.every(Boolean));
-    check('[EPUB] nav 2단계 중첩 ol', (e.nav.match(/<ol>/g) || []).length === 4, `ol ${(e.nav.match(/<ol>/g) || []).length}개 (기대 4 = 최상위 1 + 권 3)`);
+    const tocNav = e.nav.split('epub:type="landmarks"')[0];   // ★ Phase 14: landmarks nav의 ol 제외
+    check('[EPUB] nav 2단계 중첩 ol', (tocNav.match(/<ol>/g) || []).length === 4, `ol ${(tocNav.match(/<ol>/g) || []).length}개 (기대 4 = 최상위 1 + 권 3)`);
     check('[EPUB] ncx dtb:depth=2', e.ncx.includes('<meta name="dtb:depth" content="2"/>'));
     const orders = [...e.ncx.matchAll(/playOrder="(\d+)"/g)].map(m => +m[1]);
     check('[EPUB] ncx playOrder 1..N 연속', orders.every((o, i) => o === i + 1), orders.join(','));
@@ -355,7 +357,7 @@ async function main(){
     const e = await buildEpubFor('01_je_n_hwa.txt', { title: '평면 테스트' });
     check('[EPUB] 출판사 비우면 dc:publisher 생략', !e.opf.includes('<dc:publisher>'));
     check('[EPUB] 시리즈 비우면 컬렉션 메타 생략', !e.opf.includes('belongs-to-collection') && !e.opf.includes('calibre:series'));
-    check('[EPUB] 평면 목차 ol 1개', (e.nav.match(/<ol>/g) || []).length === 1);
+    check('[EPUB] 평면 목차 ol 1개', (e.nav.split('epub:type="landmarks"')[0].match(/<ol>/g) || []).length === 1);
     check('[EPUB] 평면 ncx dtb:depth=1', e.ncx.includes('<meta name="dtb:depth" content="1"/>'));
     check('[EPUB] 서문도 읽기 순서·목차에 포함', />서문</.test(e.nav) && /<itemref idref="ch_0000"\/>/.test(e.opf));
     // 앱 UI용 CSS 토큰(var(--…))이 EPUB 본문·스타일로 새어 나가지 않았는지 (리더기는 앱 변수를 모름)
@@ -523,7 +525,9 @@ async function main(){
     const body = start + m[1].length;
     // 한 줄짜리 const (객체·배열 리터럴이 아님) → 줄 끝까지
     if(m[1].startsWith('const') && !/^\s*[{[]/.test(src.slice(body, body + 8))) return src.slice(start, src.indexOf('\n', start));
-    let i = src.indexOf('{', body), depth = 0;
+    // 함수는 매개변수 기본값(opts={})의 중괄호를 건너뛰고 ') {' 뒤 본문부터
+    const pm = m[1].startsWith('const') ? null : /\)\s*\{/.exec(src.slice(body));
+    let i = pm ? body + pm.index + pm[0].length - 1 : src.indexOf('{', body), depth = 0;
     for(; i < src.length; i++){ if(src[i] === '{') depth++; else if(src[i] === '}' && --depth === 0) break; }
     return src.slice(start, i + 1) + (m[1].startsWith('const') ? ';' : '');
   };
@@ -709,6 +713,77 @@ async function main(){
     check('[인코딩] Worker 디코딩도 strict 전달', /decodeViaWorker\(ab, enc, _encOverride\.has\(key\)\)/.test(conv) && /decodeText\(payload\.buffer, enc2, payload\.strict===true\)/.test(read('worker.js')));
     check('[UI] 파일 목록 hidden 속성 해제 (이전: [hidden]{display:none!important}로 목록이 보이지 않음)', /listWrap\.hidden=false/.test(conv));
     check('[인코딩] 직접 지정이 자동 감지보다 우선', /let enc = _encOverride\.get\(key\) \|\| _encCacheGet\(file\);/.test(conv) && /function setTxtEncoding\(file, enc\)/.test(conv) && /const ov=_encOverride\.get\(_fileKey\(file\)\);\n  if\(ov\) return ov;/.test(conv));
+  }
+
+  // ── 9. Phase 14 — EPUB 호환 ──
+  {
+    const read = readRoot;
+    const eg = read('epub-gen.js'), conv = read('convert.js'), html = read('index.html'), st = read('settings.js'), ui = read('ui-state.js');
+    app.atob = atob;
+    // 9-1. 커스텀 폰트 → OEBPS/Fonts/ 파일 + manifest, CSS는 상대 경로
+    const fakeFont = Buffer.from(Array.from({ length: 3000 }, (_, i) => (i * 37 + 11) & 255));
+    const face = '@font-face{font-family:"테스트체";src:url("data:font/ttf;base64,' + fakeFont.toString('base64') + '") format("truetype");}\n';
+    const font = G('_extractCustomFont')(face);
+    check('[폰트] data URI → 바이트·이름·형식 추출', font && font.name === 'custom_font.ttf' && font.mt === 'font/ttf' && font.fmt === 'truetype' && Buffer.from(font.ab).equals(fakeFont));
+    check('[폰트] 손상·비지원 데이터는 추출하지 않음', G('_extractCustomFont')(face.replace('font/ttf', 'font/truetype')) === null && G('_extractCustomFont')('') === null);
+    const epubCss = G('buildCss')({ fontFace: G('_fontFaceForEpub')(font) });
+    check('[폰트] EPUB CSS는 Fonts/ 상대 경로 (data URI 없음)', epubCss.includes('url("Fonts/custom_font.ttf") format("truetype")') && !epubCss.includes('data:font'));
+    const buildWith = async (name, params, imageData, fontData) => {
+      const base = { title: '호환 테스트', author: '테스트', illMapMeta: [], useItalic: true, showChTitle: true, compressionLevel: 6, lang: 'ko',
+        uid: 'urn:uuid:00000000-0000-4000-8000-000000000014', today: '2026-11-03', modified: '2026-11-03T00:00:00Z' };
+      const w = await runWorker(epubSrc, { params: { ...base, ...params }, imageData, cssText: fontData ? epubCss : G('buildCss')({ fontFace: '' }), fontData },
+        wctx => ({ importScripts(){ vm.runInContext(jszipSrc, wctx); } }));
+      if(w.last.type !== 'done') throw new Error('EPUB Worker 실패: ' + w.last.message);
+      const buf = Buffer.from(await w.last.blob.arrayBuffer());
+      fs.writeFileSync(path.join(OUT_DIR, name), buf);
+      const zip = await JSZip.loadAsync(buf);
+      return { zip, buf, opf: await zip.file('OEBPS/content.opf').async('string'), nav: await zip.file('OEBPS/nav.xhtml').async('string') };
+    };
+    const chs = [['서문', '머리말'], ['1화', '본문 하나'], ['2화', '본문 둘']];
+    const fe = await buildWith('14_font_file.epub', { chapters: chs }, { cover: { ab: tinyPng(), ext: 'png', mt: 'image/png' }, ills: [] },
+      { name: font.name, mt: font.mt, ab: new Uint8Array(font.ab).slice().buffer });   // app 렐름 → 메인 렐름 ArrayBuffer (runWorker 복제용)
+    check('[폰트] EPUB에 Fonts/custom_font.ttf + manifest font/ttf (tests/out/14_font_file.epub)',
+      !!fe.zip.file('OEBPS/Fonts/custom_font.ttf') && fe.opf.includes('<item id="font_custom" href="Fonts/custom_font.ttf" media-type="font/ttf"/>'));
+    // 9-2. landmarks — 표지·본문 시작('서문' 제외), 목차 landmark 없음(nav는 spine 밖)
+    check('[landmarks] 표지·본문 시작', /epub:type="landmarks"/.test(fe.nav) && fe.nav.includes('epub:type="cover" href="Text/cover.xhtml"') && fe.nav.includes('epub:type="bodymatter" href="Text/chapter_0001.xhtml"'));
+    check('[landmarks] spine 밖 nav.xhtml을 가리키지 않음 (RSC-011)', !/landmarks[\s\S]*href="nav\.xhtml"/.test(fe.nav));
+    // 9-3. 접근성 메타
+    check('[접근성] accessMode·Feature·Hazard·Summary', ['schema:accessMode">textual', 'schema:accessMode">visual', 'schema:accessModeSufficient">textual', 'structuralNavigation', 'tableOfContents', 'schema:accessibilityHazard">none', 'schema:accessibilitySummary'].every(s => fe.opf.includes(s)));
+    const ne = await buildWith('14_no_images.epub', { chapters: chs.slice(1) }, { cover: null, ills: [] }, null);
+    check('[접근성] 이미지가 없으면 visual 없음, landmarks에 표지 없음', !ne.opf.includes('accessMode">visual') && !ne.nav.includes('epub:type="cover"') && !ne.opf.includes('font_custom'));
+    // 9-4. 리더기 프로필
+    const cssFor = profile => {
+      const c = makeAppContext();
+      c.document.getElementById = id => (id === 'optReaderProfile' ? { value: profile } : null);
+      vm.runInContext(eg, c, { filename: 'epub-gen.js' });
+      return { css: vm.runInContext('buildCss()', c), prof: vm.runInContext('getReaderProfile()', c) };
+    };
+    check('[프로필] 기본은 다크 모드 기본색 포함, 리더 앱 프로필은 제외', /prefers-color-scheme/.test(cssFor('default').css) && !/prefers-color-scheme/.test(cssFor('ridi').css) && !/prefers-color-scheme/.test(cssFor('kindle').css));
+    check('[프로필] Kindle 표지 2560px·JPG 강제, 알 수 없는 값은 기본', cssFor('kindle').prof.coverMaxH === 2560 && cssFor('kindle').prof.forceJpg === true && cssFor('xyz').prof.key === 'default' && cssFor('xyz').prof.coverMaxH === 1200);
+    check('[프로필] 표지 축소·삽화 변환이 프로필을 따름', /const MAX_H=getReaderProfile\(\)\.coverMaxH;/.test(eg) && /getReaderProfile\(\)\.forceJpg/.test(conv));
+    check('[프로필] 화면 요소·저장·복원·핸들러', html.includes('id="optReaderProfile"') && /readerProfile:document\.getElementById\('optReaderProfile'\)/.test(st) && /saveReaderProfile:/.test(ui));
+    check('[이미지] EPUB 핵심 형식이 아니면 항상 JPG 변환 (BMP·TIFF·AVIF·HEIC)', /const nonCore=!\['png','gif','webp','svg'\]\.includes\(ext\);/.test(conv) && /if\(nonCore\) throw new Error/.test(conv));
+    // 9-5. TXT 삽입 편집 (edit.js buildInsertedEpub — startEditEpub에서 분리한 순수 함수) → CI epubcheck
+    app.JSZip = JSZip;
+    const edSrc = read('edit.js');
+    vm.runInContext(['_epubOpfPath', '_touchOpfModified', '_cloneEpubZip', 'findMainNcx', 'findNavXhtml', 'buildInsertedEpub'].map(n => extract(edSrc, n)).join('\n'), app, { filename: 'edit.js:extract' });
+    const src = await JSZip.loadAsync(fs.readFileSync(path.join(OUT_DIR, '01_je_n_hwa.epub')));
+    const ins = [['삽입 1화', '삽입한 첫 본문.\n* * *\n장면 전환 뒤.'], ['삽입 2화', '삽입한 둘째 본문.']];
+    const res = await G('buildInsertedEpub')(src, ins, { selHref: 'OEBPS/Text/chapter_0005.xhtml', insPos: 'after', sceneBreak: true });
+    await G('_touchOpfModified')(res.newZip, res.opfPath);
+    const edBuf = Buffer.from(await res.newZip.generateAsync({ type: 'nodebuffer', mimeType: 'application/epub+zip', compression: 'DEFLATE' }));
+    fs.writeFileSync(path.join(OUT_DIR, '14_edited_insert.epub'), edBuf);
+    const ed = await JSZip.loadAsync(edBuf);
+    const edOpf = await ed.file('OEBPS/content.opf').async('string'), edNav = await ed.file('OEBPS/nav.xhtml').async('string');
+    const spine = [...edOpf.matchAll(/<itemref idref="([^"]+)"/g)].map(m => m[1]);
+    const at = spine.indexOf('ch_0005');
+    check('[편집] 선택 챕터 뒤에 삽입 (spine 순서)', at >= 0 && spine[at + 1] && /^ins_ch_/.test(spine[at + 1]) && /^ins_ch_/.test(spine[at + 2]) && spine[at + 3] === 'ch_0006');
+    check('[편집] nav·ncx에 삽입 챕터 (선택 위치 다음)', /chapter_0005\.xhtml[^]*?삽입 1화[^]*?삽입 2화[^]*?chapter_0006\.xhtml/.test(edNav) && (await ed.file('OEBPS/toc.ncx').async('string')).includes('삽입 2화'));
+    const insFile = Object.keys(ed.files).find(f => /Text\/chapter_\d+\.xhtml$/.test(f) && !src.file(f));
+    check('[편집] 삽입 본문에 장면 구분선·mimetype 첫 항목 (tests/out/14_edited_insert.epub)', insFile && (await ed.file(insFile).async('string')).includes('<hr class="scene"/>') && edBuf.slice(30, 38).toString() === 'mimetype');
+    const res2 = await G('buildInsertedEpub')(src, ins, { selHref: '' });
+    const nav2 = await res2.newZip.file('OEBPS/nav.xhtml').async('string');
+    check('[편집] 기준 챕터가 없으면 맨 끝에 추가 (이전: 첫 navPoint 기준으로 끼어듦)', nav2.indexOf('삽입 1화') > nav2.lastIndexOf('chapter_0025.xhtml') && nav2.indexOf('삽입 1화') < nav2.indexOf('epub:type="landmarks"'));
   }
 
   if(UPDATE){

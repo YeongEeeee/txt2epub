@@ -26,6 +26,12 @@
   - **기호 정리**: `...`·`. . .`·`‥` → `…`, 따옴표 스타일 통일(둥근 “ ” / 곧은 " · 「」『』 포함)
   - **장면 구분선**: `* * *`·`◇◇◇`·`----` 줄 → EPUB `<hr class="scene"/>` (⁂ 표시)
   - **잡음 줄 제외**: 작가의 말·후기(챕터 뒤쪽 절반부터 끝까지), 선작·추천 부탁, URL·출처, 공지·휴재 안내 + 사용자 정규식
+- **EPUB 호환 (Phase 14)**
+  - **커스텀 폰트 파일 분리**: `style.css`의 수 MB짜리 data URI 대신 `OEBPS/Fonts/custom_font.*` + manifest(`font/ttf` 등) 등록
+  - **landmarks**: 리더기의 '표지로'·'처음부터 읽기' 위치 (`epub:type="cover"`·`bodymatter`, '서문' 제외)
+  - **접근성 메타데이터**: `schema:accessMode`·`accessModeSufficient`·`accessibilityFeature`·`accessibilityHazard`·`accessibilitySummary`
+  - **리더기 프로필**: 기본·리디북스·Apple Books·Kobo·Kindle·Google Play 북 — 표지 최대 높이, 다크 모드 기본색 CSS 포함 여부, 삽화 JPG 강제
+  - BMP·TIFF·AVIF·HEIC 삽화는 'JPG 변환' 설정과 무관하게 항상 JPG로 변환 (EPUB 3 핵심 이미지 형식만 포함)
 - **변환 전 검수 리포트 (Phase 13)**: 목차 위에 누락 화수·중복 번호·빈/짧은/긴 챕터를 모아 표시, 항목을 누르면 해당 목차로 이동
 - **인코딩 직접 지정 (Phase 13)**: 파일 목록의 인코딩 선택 상자에서 자동 감지 결과를 UTF-8·EUC-KR·UTF-16LE/BE로 바꿔 다시 읽기 (직접 지정 시 자동 보정 생략)
 - 커스텀 정규식 직접 입력 및 복수 패턴 OR 결합
@@ -237,7 +243,7 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
     └── golden.json   — 기대 챕터 목록·감지 패턴·계층 형태
 ```
 
-> **총 코드량: 약 17,600줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 회귀 테스트 306개 통과 | epubcheck 0 오류
+> **총 코드량: 약 17,900줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 회귀 테스트 323개 통과 | epubcheck 0 오류
 
 ### 상태 관리 (StateManager + Proxy)
 
@@ -457,6 +463,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 14 (17) | 폰트 data URI → Fonts/ 파일·manifest·CSS 상대 경로, landmarks(표지·본문 시작, spine 밖 nav 미참조), 접근성 메타(이미지 유무별), 리더기 프로필(다크 CSS·표지 높이·JPG 강제), 비핵심 이미지 형식 변환, TXT 삽입 편집 EPUB(`buildInsertedEpub`) spine·nav·ncx 순서·끝에 추가 → `tests/out/14_*.epub` CI epubcheck |
 | Phase 13 (29) | 잡음 줄 프리셋·사용자 정규식·작가의 말 블록, 글자/단어 단위 줄바꿈 병합 = 원래 문단·말줄임표 경계·일반 원고 미감지, 기호 정리, 장면 구분선(메인=Worker·EPUB), 검수 리포트(누락·중복·분할 연재·짧은/빈/긴), 인코딩 직접 지정 strict, 파일 목록 표시 |
 | Phase 12 회귀 (29) | 커스텀 폰트 base64 = 표준 인코딩(0~100KB)·손상 데이터 감지·format 키워드, BOM 없는 UTF-16 LE/BE·EUC-KR 감지, 슬라이스 경계(EUC-KR 줄 단위·UTF-16 짝수·UTF-8), URL 표지 쿼리 보존·http(s) 검증·onclick 주입 제거, Gemini 종료 모델·헤더 키·AbortSignal, 다크 모드 CSS, 편집 OPF 경로·dcterms:modified·mimeType |
 | Phase 10 회귀 | 본문 렌더링 메인=Worker·이모지/NBSP/엔티티 혼재, 목차 줄 범위 모델(순서 변경·떨어진 병합·비활성·중복 줄·통계), 문단 정합, Worker `DETECT`, 무패턴 20만 줄 성능, 삽화 매핑(서문 제외 순번·화 번호·키워드), 이미지 STORE, xml:lang, StateManager·IDB·SRI·SW CORS·전역 정의 단일화 정적 검사 |
@@ -473,7 +480,7 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 | 항목 | 수치 |
 |------|------|
 | 총 줄수 | JS 13,522줄 (+ HTML/CSS 2,600줄) |
-| 회귀 테스트 | 306개 통과 + epubcheck 0 오류 |
+| 회귀 테스트 | 323개 통과 + epubcheck 0 오류 |
 | 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |
@@ -582,6 +589,13 @@ settings.js 구문 오류 수정 (고아 코드 블록 제거)
 ├── 변환 전 검수 리포트: 누락 화수·중복·빈/짧은/긴 챕터 → 클릭 시 목차 이동
 ├── 인코딩 직접 지정: 파일 목록 선택 상자, 직접 지정 시 UTF-8→EUC-KR 자동 보정 생략
 └── 버그: 변환 탭 파일 목록이 hidden 속성에 막혀 보이지 않던 문제, 일괄 변환에 문단 정합이 적용되지 않던 문제
+↓
+[ Phase 14: EPUB 호환 ]
+├── 커스텀 폰트 OEBPS/Fonts/ 파일 + manifest (data URI 제거)
+├── nav landmarks(cover·bodymatter) + 접근성 메타데이터(schema:access*)
+├── 리더기 프로필 6종: 표지 최대 높이·다크 모드 CSS·삽화 JPG 강제
+├── 비핵심 이미지(BMP·TIFF·AVIF·HEIC) 항상 JPG, 변환 실패 이미지는 건너뜀(이전: 편집 탭 전체 중단)
+└── TXT 삽입 편집을 순수 함수 buildInsertedEpub로 분리 → 편집 결과 EPUB도 CI epubcheck, 본문 정리·장면 구분선 적용
 ```
 
 ---

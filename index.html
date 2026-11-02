@@ -1079,6 +1079,21 @@
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">출력 설정</span><div class="sec-line"></div></div>
   <div class="card">
+    <!-- ★ Phase 14: 리더기 프로필 -->
+    <div class="reader-profile-row">
+      <div class="reader-profile-head">
+        <label class="txt-label-bold" for="optReaderProfile">리더기 프로필</label>
+        <select id="optReaderProfile" class="opt-select" data-input-action="saveReaderProfile">
+          <option value="default" selected>기본</option>
+          <option value="ridi">리디북스</option>
+          <option value="apple">Apple Books</option>
+          <option value="kobo">Kobo</option>
+          <option value="kindle">Kindle (Send to Kindle)</option>
+          <option value="play">Google Play 북</option>
+        </select>
+      </div>
+      <small id="optReaderProfileDesc" class="reader-profile-desc" aria-live="polite">표지 최대 높이 1200px · 다크 모드 기본색 포함 · 삽화 설정 따름</small>
+    </div>
     <div class="row" style="padding:4px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
       <label class="txt-label-bold" style="flex:1" for="optLang">EPUB 메타 언어</label>
       <select id="optLang" data-input-action="saveExtraSettings" style="font-size:var(--fs-sm);padding:4px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--panel);color:var(--text)">

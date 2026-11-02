@@ -758,6 +758,8 @@ function _spawnDropConfetti(container){
       if(val) val.textContent = el.value + '%';
       typeof saveExtraSettings==='function'&&saveExtraSettings();
     },
+    // ★ Phase 14: 리더기 프로필 — 저장 + 설명 갱신 + CSS 미리보기(다크 모드 CSS 포함 여부)
+    saveReaderProfile: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof _syncReaderProfileDesc==='function'&&_syncReaderProfileDesc(); typeof updateCssPreview==='function'&&updateCssPreview(); },
     // ★ Phase 13: 잡음 줄 제외 토글 — 저장 + 세부 항목 표시 전환
     saveCleanupNoise: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof _syncNoisePanel==='function'&&_syncNoisePanel(); },
     saveExtraSettingsRenderIll: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof renderIllTags==='function'&&renderIllTags(); },

@@ -404,6 +404,43 @@
 - 테스트 277 → 306개 전부 통과 (`tests/out/13_scene_break.epub` 추가 → CI epubcheck)
 - 브라우저 E2E(Chromium): 설정 저장·복원, 잡음 12줄 제외·32자 줄바꿈 55줄 병합·기호 42줄·장면 구분선이 들어간 EPUB(epubcheck 0 오류), 검수 리포트 '5~8화 없음' 클릭 이동, EUC-KR 파일 UTF-8 직접 지정(깨짐 확인) → 자동 복귀(25화), 콘솔 오류 0
 
+### Phase 14 — EPUB 호환 (폰트 파일 · landmarks · 접근성 · 리더기 프로필 · 편집 결과 검증)
+
+#### 1) 커스텀 폰트 파일 분리 (`epub-gen.js`)
+- `_extractCustomFont()`가 `customFontFace`(미리보기용 data URI)에서 바이트를 꺼내 `OEBPS/Fonts/custom_font.{ttf,otf,woff,woff2}`로 저장, manifest `font/ttf` 등 등록
+- EPUB의 `style.css`는 `buildCss({fontFace})`로 `url("Fonts/…")` 상대 경로만 — 이전에는 모든 챕터가 수 MB짜리 CSS를 파싱
+- WOFF/WOFF2는 STORE, TTF/OTF는 DEFLATE
+
+#### 2) landmarks · 접근성 메타 (`epub-gen.js` Worker)
+- `nav.xhtml`에 `epub:type="landmarks"` (hidden) — 표지(`cover`), 본문 시작(`bodymatter`, '서문' 제외)
+- 목차 landmark는 nav.xhtml이 spine 밖이라 epubcheck RSC-011 → 넣지 않음 (구현 중 epubcheck가 잡아냄)
+- OPF에 `schema:accessMode`(textual / 이미지가 있으면 visual), `accessModeSufficient`, `accessibilityFeature`(structuralNavigation·tableOfContents·readingOrder), `accessibilityHazard`, `accessibilitySummary`
+
+#### 3) 리더기 프로필 (`epub-gen.js` `READER_PROFILES`, 설정 탭 '출력 설정')
+| 프로필 | 표지 최대 높이 | 다크 모드 기본색 CSS | 삽화 |
+|------|------|------|------|
+| 기본 | 1200px | 포함 | 설정 따름 |
+| 리디북스 | 1600px | 제외 | 설정 따름 |
+| Apple Books | 2400px | 제외 | 설정 따름 |
+| Kobo | 1600px | 제외 | 항상 JPG |
+| Kindle (Send to Kindle) | 2560px | 제외 | 항상 JPG |
+| Google Play 북 | 1600px | 제외 | 설정 따름 |
+- 표지는 최대 높이보다 클 때만 축소(확대 없음), 선택 즉시 설명 문구 갱신·저장
+
+#### 4) 이미지 형식 (`convert.js` `convertImageFile`)
+- 'JPG 변환' OFF여도 EPUB 3 핵심 형식(JPEG·PNG·GIF·WebP·SVG)이 아니면 항상 JPG — 이전엔 BMP·TIFF·AVIF를 그대로 넣어 epubcheck 오류·리더기 표시 실패
+- 핵심 형식이 아닌데 변환에 실패하면 원본을 넣지 않고 건너뜀
+- 편집 탭 삽화 삽입이 변환 실패(null)에서 구조 분해 TypeError로 **편집 전체가 중단**되던 문제 → 해당 이미지만 건너뜀
+
+#### 5) 편집 결과 검증 (`edit.js` `buildInsertedEpub`)
+- `startEditEpub`의 EPUB 생성부를 DOM 비의존 순수 함수로 분리 → 테스트가 직접 실행해 `tests/out/14_edited_insert.epub` 생성 → CI epubcheck
+- 기준 챕터가 없으면 nav·ncx에서 맨 끝에 추가 (이전: 빈 파일명 정규식이 첫 navPoint에 매칭돼 앞쪽에 끼어듦)
+- 삽입 챕터에도 '본문 정리'·장면 구분선 적용
+
+#### 6) 검증
+- 테스트 306 → 323개 전부 통과, epubcheck: 테스트 EPUB 10종 0 오류
+- 브라우저 E2E(Chromium): Kindle 프로필 저장·복원, TTF 업로드 → EPUB `Fonts/custom_font.ttf`·manifest·CSS 상대 경로·다크 CSS 제외, BMP 삽화 → JPG(설정 OFF 상태), 그 EPUB에 TXT 8화 삽입(34챕터)·dcterms:modified 갱신 — 두 결과 모두 epubcheck 0 오류, 콘솔 오류 0
+
 ---
 
 ## 파일별 역할 요약

@@ -65,6 +65,8 @@ function saveExtraSettings(){
       imgQuality:document.getElementById('optImgQuality')?.value||'92',
       // ★ Phase 13: 본문 정리 옵션
       cleanup:_readCleanupSettings(),
+      // ★ Phase 14: 리더기 프로필
+      readerProfile:document.getElementById('optReaderProfile')?.value||'default',
     }));
   }catch(e){}
 }
@@ -87,6 +89,11 @@ function _applyCleanupSettings(o){
   const nc=document.getElementById('optNoiseCustom');
   if(nc&&typeof o.optNoiseCustom==='string') nc.value=o.optNoiseCustom;
   _syncNoisePanel();
+}
+// ★ Phase 14: 리더기 프로필 설명 (표지 최대 높이·다크 모드 CSS·삽화 형식)
+function _syncReaderProfileDesc(){
+  const el=document.getElementById('optReaderProfileDesc');
+  if(el&&typeof getReaderProfile==='function'&&typeof describeReaderProfile==='function') el.textContent=describeReaderProfile(getReaderProfile());
 }
 // 잡음 줄 필터를 켰을 때만 세부 항목 표시
 function _syncNoisePanel(){
@@ -146,6 +153,10 @@ function loadExtraSettings(){
     if(s.compression){ const _elCp=document.getElementById('optCompression'); if(_elCp) _elCp.value=s.compression; }
     if(s.defaultPat){ const _elPt2=document.getElementById('pattern'); if(_elPt2) _elPt2.value=s.defaultPat; }
     if(s.cleanup) _applyCleanupSettings(s.cleanup);
+    if(s.readerProfile&&typeof READER_PROFILES!=='undefined'&&READER_PROFILES[s.readerProfile]){
+      const rp=document.getElementById('optReaderProfile'); if(rp) rp.value=s.readerProfile;
+    }
+    _syncReaderProfileDesc();
   }catch(e){}
 }
 

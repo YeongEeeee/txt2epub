@@ -49,7 +49,28 @@ function getCssVar(name){
 }
 
 // ── buildCss ──
-function buildCss(){
+// ★ Phase 14: 리더기 프로필 — 대상 리더기에 맞춰 다크 모드 CSS·표지 최대 높이·이미지 형식을 조정
+//   darkCss  : prefers-color-scheme:dark 기본색 CSS 포함 여부 (자체 테마가 있는 리더 앱은 끄는 편이 충돌이 적음)
+//   coverMaxH: 표지가 이보다 크면 축소 (작으면 그대로 — 확대하지 않음)
+//   forceJpg : 삽화를 항상 JPG로 변환 (WebP 지원이 불확실한 기기)
+const READER_PROFILES={
+  default:{label:'기본',                    darkCss:true,  coverMaxH:1200, forceJpg:false},
+  ridi:   {label:'리디북스',                darkCss:false, coverMaxH:1600, forceJpg:false},
+  apple:  {label:'Apple Books',             darkCss:false, coverMaxH:2400, forceJpg:false},
+  kobo:   {label:'Kobo',                    darkCss:false, coverMaxH:1600, forceJpg:true},
+  kindle: {label:'Kindle (Send to Kindle)', darkCss:false, coverMaxH:2560, forceJpg:true},
+  play:   {label:'Google Play 북',          darkCss:false, coverMaxH:1600, forceJpg:false},
+};
+function getReaderProfile(){
+  const key=document.getElementById('optReaderProfile')?.value||'default';
+  return {key:READER_PROFILES[key]?key:'default', ...(READER_PROFILES[key]||READER_PROFILES.default)};
+}
+function describeReaderProfile(p){
+  return '표지 최대 높이 '+p.coverMaxH+'px · 다크 모드 기본색 '+(p.darkCss?'포함':'제외')+' · 삽화 '+(p.forceJpg?'항상 JPG 변환':'설정 따름');
+}
+
+// opts.fontFace: @font-face 블록 대체값 (EPUB 패키징 시 data URI 대신 Fonts/ 파일 경로) — 생략 시 미리보기용 data URI
+function buildCss(opts={}){
   const font=document.getElementById('cssFont')?.value||'"Noto Serif KR",serif';
   const line=document.getElementById('cssLine')?.value||'1.9';
   const size=document.getElementById('cssFontSize')?.value||'1em';
@@ -64,7 +85,7 @@ function buildCss(){
   const indentSlider=document.getElementById('cssIndentSlider');
   const indentEm=indentSlider?parseFloat(indentSlider.value)||1.0:1.0;
   const useIndent=document.getElementById('optIndent')?.checked;
-  const fontFaceBlock=typeof customFontFace!=='undefined'?customFontFace||'':'';
+  const fontFaceBlock=opts.fontFace!=null?opts.fontFace:(typeof customFontFace!=='undefined'?customFontFace||'':'');
   const extra=document.getElementById('cssExtra')?.value||'';
   let h1Extra=`text-align:${titleStyle==='left'?'left':'center'};`;
   if(titleStyle==='underline') h1Extra+='border-bottom:2px solid currentColor;padding-bottom:0.3em;text-align:center;';
@@ -72,7 +93,7 @@ function buildCss(){
   // ★ Phase 12: 다크 모드 기본색은 글자색·배경색을 둘 다 지정하지 않았을 때만 적용
   //   (이전: 글자색만 지정하면 다크 모드에서 배경만 어둡게 바뀌어 어두운 글자 + 어두운 배경 → 읽을 수 없음,
   //    배경색만 지정하면 밝은 배경 + 밝은 글자). 하나라도 지정했다면 사용자가 고른 색 조합을 그대로 유지
-  const darkBlock=(!textColor&&!bgColor)?'@media (prefers-color-scheme:dark){body{background-color:#1a1208;color:#e8d8c4;}}\n':'';
+  const darkBlock=(getReaderProfile().darkCss&&!textColor&&!bgColor)?'@media (prefers-color-scheme:dark){body{background-color:#1a1208;color:#e8d8c4;}}\n':'';
   return `@charset "UTF-8";\n${fontFaceBlock}\nbody{font-family:${font};line-height:${line};font-size:${size};margin:0;padding:${padTop} ${padRight} ${padBottom} ${padLeft};word-break:keep-all;overflow-wrap:break-word;text-align:${align};${textColor?'color:'+textColor+';':''}${bgColor?'background-color:'+bgColor+';':''}}\nh1{font-size:1.3em;${h1Extra}margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}\np{margin:0;padding:0.25em 0;text-indent:${useIndent?indentEm+'em':'0'}}\np.noindent{text-indent:0}\nem.flashback{font-style:italic;opacity:.85}\np.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}\nhr.scene{border:0;margin:1.6em auto;text-align:center;height:1.2em;overflow:visible}\nhr.scene::after{content:"\\2042";opacity:.6;letter-spacing:.3em}\n.illust-page{display:flex;align-items:center;justify-content:center;min-height:80vh;text-align:center;padding:0}\n.illust-page img{max-width:100%;max-height:100vh;object-fit:contain}\n${darkBlock}${extra}`;
 }
 
@@ -132,7 +153,7 @@ async function generateTextCover(title, author){
 const IMG_CONCURRENCY = 4; // 동시 처리 제한 (Canvas GPU 메모리 포화 방지)
 
 async function resizeCoverIfNeeded(file){
-  const MAX_H=1200;
+  const MAX_H=getReaderProfile().coverMaxH;   // ★ Phase 14: 리더기 프로필 (기본 1200)
   return new Promise(resolve=>{
     const url=URL.createObjectURL(file);
     const img=new Image();
@@ -169,9 +190,12 @@ async function processImagesParallel(coverFile, illMap, signal=null){
   if(coverFile){
     try{
       const target = await resizeCoverIfNeeded(coverFile);
-      const { blob, ext, mt } = await convertImageFile(target, true);
-      const ab = await fileToAB(blob);
-      result.cover = { ab, ext, mt };
+      const conv = await convertImageFile(target, true);
+      if(conv){   // ★ Phase 14: 변환 실패(null)는 convertImageFile이 이미 안내 — 중복 경고 없이 표지 생략
+        const { blob, ext, mt } = conv;
+        const ab = await fileToAB(blob);
+        result.cover = { ab, ext, mt };
+      }
       // ★ 4단계 GC: 표지 blob 참조 즉시 해제 — AB만 result에 보유
       // blob 객체는 여기서 더 이상 불필요
     }catch(e){
@@ -193,7 +217,9 @@ async function processImagesParallel(coverFile, illMap, signal=null){
     const batchRes = await Promise.all(
       batch.map(async ({il, file_idx})=>{
         try{
-          const { blob, ext, mt } = await convertImageFile(il.file, false);
+          const conv = await convertImageFile(il.file, false);
+          if(!conv) return null;   // ★ Phase 14: 이미 안내됨 — 중복 경고 없이 생략
+          const { blob, ext, mt } = conv;
           const ab = await fileToAB(blob);
           return { ab, ext, mt, file_idx };
         }catch(e){
@@ -232,7 +258,7 @@ async function _epubWorkerMain(e){
   // ★ P2-04: Worker 내 onmessage 전체 try-catch — 고스트 에러 방지
   let imgStore=null;
   try{
-    const{params,imageData,cssText}=e.data;
+    const{params,imageData,cssText,fontData=null}=e.data;
     const{title,author,chapters,illMapMeta,useItalic,showChTitle,
           compressionLevel,lang,uid,today,modified,
           publisher='',series='',seriesIndex=0,
@@ -247,6 +273,10 @@ async function _epubWorkerMain(e){
     const oebps=zip.folder('OEBPS'),textFolder=oebps.folder('Text');
     const imagesFolder=(imageData.cover||imageData.ills.length)?oebps.folder('Images'):null;
     oebps.file('style.css',cssText);
+    // ★ Phase 14: 커스텀 폰트 파일 (WOFF/WOFF2는 이미 압축 → STORE)
+    if(fontData&&fontData.ab&&fontData.name){
+      oebps.folder('Fonts').file(fontData.name, fontData.ab, {compression:/\.woff2?$/.test(fontData.name)?'STORE':'DEFLATE'});
+    }
     // ★ Phase 10: 이미지는 이미 압축된 포맷(JPEG·PNG·WebP) → DEFLATE 재압축 없이 STORE (압축 시간 절감, 크기 차이 거의 없음)
     const IMG_OPT={compression:'STORE'};
     imgStore=new Map();let imgIdx=0;
@@ -331,7 +361,15 @@ async function _epubWorkerMain(e){
     // nav <ol>은 비어 있으면 EPUB3 위반 → 목차 항목이 없으면 첫 스파인 문서로 대체 항목 생성
     const navNodes=tocTree.length?tocTree:[{label:title,href:(manifestItems.find(it=>it.id===spineItems[0])||{href:'Text/cover.xhtml'}).href,children:[]}];
     const langAttr=escHtml(lang||'ko');
-    oebps.file('nav.xhtml','<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="'+langAttr+'" lang="'+langAttr+'"><head><title>'+escHtml(title)+'</title></head><body><nav epub:type="toc">\n'+navList(navNodes)+'</nav></body></html>');
+    // ★ Phase 14: landmarks — 리더기의 '표지로'·'처음부터 읽기'(본문 시작) 위치
+    //   본문 시작 = '서문'(첫 제목 앞 내용)이 아닌 첫 챕터, 없으면 첫 챕터
+    const firstBody=tocEntries.find(t=>t.heading!=='서문')||tocEntries[0]||null;
+    const landmarks=[];
+    if(coverInfo) landmarks.push('<li><a epub:type="cover" href="Text/cover.xhtml">표지</a></li>');
+    // (목차 landmark는 nav.xhtml이 spine 밖이라 epubcheck RSC-011 — 넣지 않음, 리더기는 nav의 epub:type="toc"를 직접 사용)
+    if(firstBody) landmarks.push('<li><a epub:type="bodymatter" href="'+firstBody.href+'">본문 시작</a></li>');
+    const landmarksNav='<nav epub:type="landmarks" hidden="hidden"><h2>바로가기</h2><ol>\n'+landmarks.join('\n')+'\n</ol></nav>';
+    oebps.file('nav.xhtml','<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" xml:lang="'+langAttr+'" lang="'+langAttr+'"><head><title>'+escHtml(title)+'</title></head><body><nav epub:type="toc"><h1>목차</h1>\n'+navList(navNodes)+'</nav>\n'+landmarksNav+'</body></html>');
     // ★ 시리즈 메타: EPUB3 표준(belongs-to-collection) + Calibre/리더기 호환(calibre:series)
     const seriesMeta=series
       ? '<meta property="belongs-to-collection" id="series">'+escHtml(series)+'</meta>\n'+
@@ -340,9 +378,21 @@ async function _epubWorkerMain(e){
         '<meta name="calibre:series" content="'+escHtml(series)+'"/>\n'+
         (seriesIndex>0?'<meta name="calibre:series_index" content="'+seriesIndex+'"/>\n':'')
       : '';
-    const opf=['<?xml version="1.0" encoding="utf-8"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">\n<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n<dc:title>'+escHtml(title)+'</dc:title>\n'+(String(author||'').trim()?'<dc:creator>'+escHtml(author)+'</dc:creator>\n':'')+'<dc:language>'+escHtml(lang)+'</dc:language>\n<dc:identifier id="uid">'+uid+'</dc:identifier>\n<dc:date>'+today+'</dc:date>\n<meta property="dcterms:modified">'+modified+'</meta>\n'+(publisher?'<dc:publisher>'+escHtml(publisher)+'</dc:publisher>\n':'')+seriesMeta+(coverInfo?'<meta name="cover" content="cover_img"/>\n':'')+'\n</metadata>\n<manifest>\n<item id="css" href="style.css" media-type="text/css"/>\n<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\n'];
+    // ★ Phase 14: 접근성 메타데이터 (EPUB Accessibility 1.1 / schema.org) — 스토어·도서관 검색, 보조기기 안내용
+    const hasImages=imgStore.size>0;
+    const a11yMeta=
+      '<meta property="schema:accessMode">textual</meta>\n'+
+      (hasImages?'<meta property="schema:accessMode">visual</meta>\n':'')+
+      '<meta property="schema:accessModeSufficient">textual</meta>\n'+
+      '<meta property="schema:accessibilityFeature">structuralNavigation</meta>\n'+
+      '<meta property="schema:accessibilityFeature">tableOfContents</meta>\n'+
+      '<meta property="schema:accessibilityFeature">readingOrder</meta>\n'+
+      '<meta property="schema:accessibilityHazard">none</meta>\n'+
+      '<meta property="schema:accessibilitySummary">'+escHtml('챕터별 제목 구조와 목차(nav)를 갖춘 텍스트 중심 전자책입니다.'+(hasImages?' 표지·삽화 이미지는 장식용으로 본문 이해에 필요하지 않습니다.':''))+'</meta>\n';
+    const opf=['<?xml version="1.0" encoding="utf-8"?>\n<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="uid">\n<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">\n<dc:title>'+escHtml(title)+'</dc:title>\n'+(String(author||'').trim()?'<dc:creator>'+escHtml(author)+'</dc:creator>\n':'')+'<dc:language>'+escHtml(lang)+'</dc:language>\n<dc:identifier id="uid">'+uid+'</dc:identifier>\n<dc:date>'+today+'</dc:date>\n<meta property="dcterms:modified">'+modified+'</meta>\n'+(publisher?'<dc:publisher>'+escHtml(publisher)+'</dc:publisher>\n':'')+seriesMeta+a11yMeta+(coverInfo?'<meta name="cover" content="cover_img"/>\n':'')+'\n</metadata>\n<manifest>\n<item id="css" href="style.css" media-type="text/css"/>\n<item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>\n<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\n'];
     manifestItems.forEach(it=>opf.push('<item id="'+it.id+'" href="'+it.href+'" media-type="'+it.mt+'"/>\n'));
     if(coverInfo) opf.push('<item id="cover_img" href="Images/'+coverInfo.filename+'" media-type="'+coverInfo.mt+'" properties="cover-image"/>\n');
+    if(fontData&&fontData.ab&&fontData.name) opf.push('<item id="font_custom" href="Fonts/'+fontData.name+'" media-type="'+fontData.mt+'"/>\n');
     for(const[key,info]of imgStore){if(key==='cover')continue;opf.push('<item id="imgf_'+info.filename.replace(/\W/g,'_')+'" href="Images/'+info.filename+'" media-type="'+info.mt+'"/>\n');}
     opf.push('</manifest>\n<spine toc="ncx">\n');spineItems.forEach(s=>opf.push('<itemref idref="'+s+'"/>\n'));opf.push('</spine>\n</package>');
     oebps.file('content.opf',opf.join(''));
@@ -431,6 +481,27 @@ function _buildWorkerSrc(jszipUrl){
   ].join('\n');
 }
 
+// ★ Phase 14: 커스텀 폰트를 EPUB 안의 파일(OEBPS/Fonts/)로 분리
+//   이전: style.css에 수 MB짜리 base64 data URI로 박아 넣음 → 모든 챕터가 거대한 CSS를 다시 파싱,
+//         data URI 글꼴을 지원하지 않는 리더기에서 폰트 미적용. manifest에도 글꼴이 드러나지 않음
+const _FONT_EXT_BY_MIME={'font/ttf':'ttf','font/otf':'otf','font/woff':'woff','font/woff2':'woff2'};
+function _extractCustomFont(face){
+  if(typeof face!=='string'||!face) return null;
+  const m=face.match(/font-family:"([^"]+)";src:url\("data:([^;]+);base64,([A-Za-z0-9+/=]+)"\) format\("([a-z0-9]+)"\)/);
+  if(!m) return null;
+  const [,family,mime,b64,fmt]=m;
+  const ext=_FONT_EXT_BY_MIME[mime];
+  if(!ext||b64.length%4!==0) return null;
+  let bin;
+  try{ bin=atob(b64); }catch(e){ return null; }
+  const bytes=new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+  return {family, fmt, mt:mime, name:'custom_font.'+ext, ab:bytes.buffer};
+}
+function _fontFaceForEpub(font){
+  return font?'@font-face{font-family:"'+font.family+'";src:url("Fonts/'+font.name+'") format("'+font.fmt+'");}\n':'';
+}
+
 // ══════════════════════════════════════════
 // P2-03: launchEpubWorker — Worker URL 누수 방지 + renderedBodies 제거
 // ══════════════════════════════════════════
@@ -443,7 +514,9 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
   onProgress&&onProgress(3, '이미지 전처리 중...');
   const imageData = await processImagesParallel(coverFile, illMap, signal);
   if(signal?.aborted) throw abortErr();
-  const cssText   = buildCss();
+  // ★ Phase 14: 커스텀 폰트는 Fonts/ 파일로 (CSS에는 상대 경로만)
+  const fontData  = _extractCustomFont(typeof customFontFace!=='undefined'?customFontFace:'');
+  const cssText   = buildCss({fontFace:_fontFaceForEpub(fontData)});
 
   // ★ P2-01: renderedBodies 사전 생성 폐지
   // 이전: chapters.map(([,body])=>renderBodyHtml(body,...)) → 전체 HTML 배열 메모리 점유
@@ -524,6 +597,7 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
     const transferables = [
       ...(imageData.cover ? [imageData.cover.ab] : []),
       ...imageData.ills.map(ill=>ill.ab),
+      ...(fontData ? [fontData.ab] : []),
     ];
 
     worker.postMessage(
@@ -548,6 +622,7 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
           // renderedBodies: 폐지
         },
         imageData, cssText,
+        fontData: fontData ? {name:fontData.name, mt:fontData.mt, ab:fontData.ab} : null,
       },
       // Transferable: zero-copy ArrayBuffer 이전
       transferables

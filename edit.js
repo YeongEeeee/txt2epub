@@ -718,6 +718,133 @@ async function _cloneEpubZip(srcZip){
   return z;
 }
 
+// ★ Phase 14: TXT 챕터 삽입 EPUB 생성 — DOM 비의존 순수 함수 (startEditEpub에서 분리, tests/run-tests.js가 직접 실행해 epubcheck)
+//   opts: {selHref, insPos:'before'|'after', keepCss, cssText, perChapterNcx, useItalic, sceneBreak, onProgress}
+//   반환: {newZip, opfPath, opfBase} — 삽화 삽입·dcterms:modified·압축은 호출자 담당
+async function buildInsertedEpub(srcZip, newChapters, opts={}){
+  const ep=typeof opts.onProgress==='function'?opts.onProgress:()=>{};
+  ep(15,'EPUB 복제 중...');
+  const newZip=await _cloneEpubZip(srcZip);
+  const opfPath=await _epubOpfPath(srcZip);
+  const opfBase=opfPath.replace(/[^/]+$/,'');
+  let opfText=await srcZip.file(opfPath).async('text');
+  const keepCss=opts.keepCss!==false;
+  const cssMatch=opfText.match(/href="([^"]*style[^"]*\.css)"/i);
+  const cssHref=cssMatch?cssMatch[1]:'style.css';
+  // 원본 CSS 유지 OFF시 새 스타일 주입
+  if(!keepCss&&cssMatch){
+    const origCssPath=opfBase+cssHref;
+    if(newZip.file(origCssPath)) newZip.file(origCssPath,opts.cssText||buildCss());
+  }
+  ep(25,'챕터 파일 생성 중...');
+  const existingNums=Object.keys(srcZip.files).filter(f=>f.includes('chapter_'))
+    .map(f=>{const m=f.match(/chapter_(\d+)/);return m?parseInt(m[1]):-1;});
+  let nextNum=(existingNums.length?Math.max(...existingNums):0)+1;
+  const newManifestItems=[],newSpineIds=[],newNcxItems=[];
+  const useItalic=opts.useItalic!==false;
+  const sceneBreak=opts.sceneBreak===true;
+  // 챕터별 NCX 구조 감지 (bookN_toc.ncx 패턴)
+  const perChNcx=!!opts.perChapterNcx;
+  // 공통 renderBodyHtml 사용 (시스템창 처리·빈줄 제한 포함)
+  // ★ bToHtml 제거 — renderBodyHtml 직접 사용으로 표준화
+  function makeChNcx(id,title,contentSrc){
+    return '<?xml version="1.0" encoding="UTF-8"?>\n'+
+      '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n'+
+      '  <head><meta name="dtb:uid" content="urn:uuid:'+id+'"/><meta name="dtb:depth" content="1"/>'+
+      '<meta name="dtb:totalPageCount" content="0"/><meta name="dtb:maxPageNumber" content="0"/></head>\n'+
+      '  <docTitle><text>'+escHtml(title)+'</text></docTitle>\n'+
+      '  <navMap>\n    <navPoint id="navPoint-1" playOrder="1">\n'+
+      '      <navLabel><text>'+escHtml(title)+'</text></navLabel>\n'+
+      '      <content src="'+contentSrc+'"/>\n    </navPoint>\n  </navMap>\n</ncx>';
+  }
+  for(let i=0;i<newChapters.length;i++){
+    if(i%20===0) ep(25+Math.floor(i/newChapters.length*40),'챕터 생성 중 ('+i+'/'+newChapters.length+')...');
+    const[heading,body]=newChapters[i];
+    const fname='chapter_'+String(nextNum).padStart(4,'0')+'.xhtml';
+    const fullPath=opfBase+'Text/'+fname;
+    const chid='ins_ch_'+String(nextNum).padStart(4,'0');
+    // 원본 CSS의 커스텀 폰트(NF_Library 등)가 !important로 지정돼 새 챕터 한글이 깨지는 경우 방지
+    // → 아래 <style>에서 시스템 폰트를 !important로 항상 강제 (keepCss 여부 무관)
+newZip.file(fullPath,'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml"><head>\n<title>'+escHtml(heading)+'</title>\n<link rel="stylesheet" type="text/css" href="../'+cssHref+'"/>\n'+
+  '<style>/* 커스텀 폰트 폰트 오버라이드 */\np,h1,h2,h3,h4,h5,span,a{font-family:\'Noto Serif KR\',\'Malgun Gothic\',\'Apple SD Gothic Neo\',sans-serif!important}</style>\n'+
+  '</head><body>\n<h1>'+escHtml(heading)+'</h1>\n'+renderBodyHtml(body,{useItalic,maxBlank:2,sceneBreak})+'</body></html>');
+    newManifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
+    // 챕터별 NCX 구조이면 개별 ncx 파일도 생성
+    if(perChNcx){
+      const ncxFname='chapter_'+String(nextNum).padStart(4,'0')+'_toc.ncx';
+      const ncxPath=opfBase+'Text/'+ncxFname;
+      newZip.file(ncxPath, makeChNcx(chid, heading, fname));
+      newManifestItems.push({id:chid+'_ncx',href:'Text/'+ncxFname,mt:'application/x-dtbncx+xml'});
+    }
+    newSpineIds.push(chid);
+    newNcxItems.push({id:chid,title:heading,src:'Text/'+fname});
+    nextNum++;
+  }
+  ep(70,'OPF 업데이트 중...');
+  const manifestInsert=newManifestItems.map(it=>'<item id="'+it.id+'" href="'+it.href+'" media-type="'+it.mt+'"/>').join('\n');
+  opfText=opfText.replace('</manifest>',manifestInsert+'\n</manifest>');
+  const selHref=opts.selHref||'';
+  const selHrefRel=selHref.replace(opfBase,'');
+  const insPos=opts.insPos==='before'?'before':'after';
+  // manifest에서 선택 챕터의 id 찾기
+  const manifestIdMatch=opfText.match(new RegExp('<item[^>]+id="([^"]+)"[^>]+href="'+selHrefRel.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'"'));
+  const selId=manifestIdMatch?manifestIdMatch[1]:'';
+  const newSpineRefs=newSpineIds.map(id=>'<itemref idref="'+id+'"/>').join('\n');
+  if(selId&&insPos==='before'){
+    opfText=opfText.replace('<itemref idref="'+selId+'"/>',newSpineRefs+'\n<itemref idref="'+selId+'"/>');
+  }else if(selId&&insPos==='after'){
+    opfText=opfText.replace('<itemref idref="'+selId+'"/>','<itemref idref="'+selId+'"/>\n'+newSpineRefs);
+  }else{
+    opfText=opfText.replace('</spine>',newSpineRefs+'\n</spine>');
+  }
+  newZip.file(opfPath,opfText);
+  // NCX + nav.xhtml 목차 업데이트
+  ep(82,'목차 업데이트 중...');
+  const selFilename=selHrefRel.split('/').pop();
+  const escSelFn=selFilename.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+
+  // NCX 업데이트
+  const ncxFile=findMainNcx(srcZip.files,opfText,opfBase);
+  if(ncxFile){
+    let ncxText=await srcZip.file(ncxFile).async('text');
+    const maxOrder=Math.max(...[...ncxText.matchAll(/playOrder="(\d+)"/g)].map(m=>parseInt(m[1])),0);
+    const newNavPoints=newNcxItems.map((it,i)=>
+      '<navPoint id="'+it.id+'" playOrder="'+(maxOrder+i+1)+'">'+
+      '<navLabel><text>'+escHtml(it.title)+'</text></navLabel>'+
+      '<content src="'+it.src+'"/></navPoint>'
+    ).join('\n');
+    // ✅ 핵심 수정: (?:(?!</navPoint>)[\s\S])*? 로 navPoint 경계를 절대 넘지 않음
+    const ncxSafeRx=new RegExp(
+      '<navPoint[^>]*>(?:(?!</navPoint>)[\\s\\S])*?<content src="[^"]*'
+      +escSelFn+'[^"]*"/>(?:(?!</navPoint>)[\\s\\S])*?</navPoint>'
+    );
+    const ncxM=selFilename?ncxText.match(ncxSafeRx):null;   // ★ Phase 14: 기준 챕터가 없으면 끝에 추가
+    if(ncxM){
+      if(insPos==='before') ncxText=ncxText.replace(ncxM[0],newNavPoints+'\n'+ncxM[0]);
+      else ncxText=ncxText.replace(ncxM[0],ncxM[0]+'\n'+newNavPoints);
+    }else{
+      ncxText=ncxText.replace('</navMap>',newNavPoints+'\n</navMap>');
+    }
+    newZip.file(ncxFile,ncxText);
+  }
+
+  // nav.xhtml 업데이트 (EPUB3 리더 우선 사용)
+  const navFile=findNavXhtml(srcZip.files,opfText,opfBase);
+  if(navFile){
+    let navText=await srcZip.file(navFile).async('text');
+    const newNavLis=newNcxItems.map(it=>'<li><a href="'+it.src+'">'+escHtml(it.title)+'</a></li>').join('\n');
+    const navM=selFilename&&navText.match(new RegExp('<li><a href="[^"]*'+escSelFn+'[^"]*">[^<]*</a></li>'));
+    if(navM){
+      if(insPos==='before') navText=navText.replace(navM[0],newNavLis+'\n'+navM[0]);
+      else navText=navText.replace(navM[0],navM[0]+'\n'+newNavLis);
+    }else{
+      navText=navText.replace('</ol>',newNavLis+'\n</ol>');
+    }
+    newZip.file(navFile,navText);
+  }
+  return {newZip, opfPath, opfBase};
+}
+
 async function startEditEpub(){
   if(!E.epubZip){Toast.warn('EPUB 파일을 먼저 불러와주세요.');return;}
   if(!E.insTxtFiles.length){Toast.warn('삽입할 TXT 파일을 선택해주세요.');return;}
@@ -738,124 +865,17 @@ async function startEditEpub(){
     }
     newChapters=newChapters.filter(([h])=>h!=='서문'||newChapters.length===1);
     if(!newChapters.length)throw new Error('삽입할 챕터가 없습니다.');
-    ep(15,'EPUB 복제 중...');
-    const newZip=await _cloneEpubZip(E.epubZip);
-    const opfPath=await _epubOpfPath(E.epubZip);
-    const opfBase=opfPath.replace(/[^/]+$/,'');
-    let opfText=await E.epubZip.file(opfPath).async('text');
-    const keepCss=document.getElementById('keepOrigCss')?.checked!==false;
-    const cssMatch=opfText.match(/href="([^"]*style[^"]*\.css)"/i);
-    const cssHref=cssMatch?cssMatch[1]:'style.css';
-    // 원본 CSS 유지 OFF시 새 스타일 주입
-    if(!keepCss&&cssMatch){
-      const origCssPath=opfBase+cssHref;
-      if(newZip.file(origCssPath)) newZip.file(origCssPath,buildCss());
-    }
-    ep(25,'챕터 파일 생성 중...');
-    const existingNums=Object.keys(E.epubZip.files).filter(f=>f.includes('chapter_'))
-      .map(f=>{const m=f.match(/chapter_(\d+)/);return m?parseInt(m[1]):-1;});
-    let nextNum=(existingNums.length?Math.max(...existingNums):0)+1;
-    const newManifestItems=[],newSpineIds=[],newNcxItems=[];
-    const useItalic=true;
-    // 챕터별 NCX 구조 감지 (bookN_toc.ncx 패턴)
-    const perChNcx=E.perChapterNcx;
-    // 공통 renderBodyHtml 사용 (시스템창 처리·빈줄 제한 포함)
-    // ★ bToHtml 제거 — renderBodyHtml 직접 사용으로 표준화
-    function makeChNcx(id,title,contentSrc){
-      return '<?xml version="1.0" encoding="UTF-8"?>\n'+
-        '<ncx xmlns="http://www.daisy.org/z3986/2005/ncx/" version="2005-1">\n'+
-        '  <head><meta name="dtb:uid" content="urn:uuid:'+id+'"/><meta name="dtb:depth" content="1"/>'+
-        '<meta name="dtb:totalPageCount" content="0"/><meta name="dtb:maxPageNumber" content="0"/></head>\n'+
-        '  <docTitle><text>'+escHtml(title)+'</text></docTitle>\n'+
-        '  <navMap>\n    <navPoint id="navPoint-1" playOrder="1">\n'+
-        '      <navLabel><text>'+escHtml(title)+'</text></navLabel>\n'+
-        '      <content src="'+contentSrc+'"/>\n    </navPoint>\n  </navMap>\n</ncx>';
-    }
-    for(let i=0;i<newChapters.length;i++){
-      if(i%20===0) ep(25+Math.floor(i/newChapters.length*40),'챕터 생성 중 ('+i+'/'+newChapters.length+')...');
-      const[heading,body]=newChapters[i];
-      const fname='chapter_'+String(nextNum).padStart(4,'0')+'.xhtml';
-      const fullPath=opfBase+'Text/'+fname;
-      const chid='ins_ch_'+String(nextNum).padStart(4,'0');
-      // 원본 CSS의 커스텀 폰트(NF_Library 등)가 !important로 지정돼 새 챕터 한글이 깨지는 경우 방지
-      // → 아래 <style>에서 시스템 폰트를 !important로 항상 강제 (keepCss 여부 무관)
-newZip.file(fullPath,'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<html xmlns="http://www.w3.org/1999/xhtml"><head>\n<title>'+escHtml(heading)+'</title>\n<link rel="stylesheet" type="text/css" href="../'+cssHref+'"/>\n'+
-  '<style>/* 커스텀 폰트 폰트 오버라이드 */\np,h1,h2,h3,h4,h5,span,a{font-family:\'Noto Serif KR\',\'Malgun Gothic\',\'Apple SD Gothic Neo\',sans-serif!important}</style>\n'+
-  '</head><body>\n<h1>'+escHtml(heading)+'</h1>\n'+renderBodyHtml(body,{useItalic,maxBlank:2})+'</body></html>');
-      newManifestItems.push({id:chid,href:'Text/'+fname,mt:'application/xhtml+xml'});
-      // 챕터별 NCX 구조이면 개별 ncx 파일도 생성
-      if(perChNcx){
-        const ncxFname='chapter_'+String(nextNum).padStart(4,'0')+'_toc.ncx';
-        const ncxPath=opfBase+'Text/'+ncxFname;
-        newZip.file(ncxPath, makeChNcx(chid, heading, fname));
-        newManifestItems.push({id:chid+'_ncx',href:'Text/'+ncxFname,mt:'application/x-dtbncx+xml'});
-      }
-      newSpineIds.push(chid);
-      newNcxItems.push({id:chid,title:heading,src:'Text/'+fname});
-      nextNum++;
-    }
-    ep(70,'OPF 업데이트 중...');
-    const manifestInsert=newManifestItems.map(it=>'<item id="'+it.id+'" href="'+it.href+'" media-type="'+it.mt+'"/>').join('\n');
-    opfText=opfText.replace('</manifest>',manifestInsert+'\n</manifest>');
-    const selHref=E.chapters[E.selectedChIdx].href;
-    const selHrefRel=selHref.replace(opfBase,'');
-    const insPos=document.querySelector('input[name="insPos"]:checked').value;
-    // manifest에서 선택 챕터의 id 찾기
-    const manifestIdMatch=opfText.match(new RegExp('<item[^>]+id="([^"]+)"[^>]+href="'+selHrefRel.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'"'));
-    const selId=manifestIdMatch?manifestIdMatch[1]:'';
-    const newSpineRefs=newSpineIds.map(id=>'<itemref idref="'+id+'"/>').join('\n');
-    if(selId&&insPos==='before'){
-      opfText=opfText.replace('<itemref idref="'+selId+'"/>',newSpineRefs+'\n<itemref idref="'+selId+'"/>');
-    }else if(selId&&insPos==='after'){
-      opfText=opfText.replace('<itemref idref="'+selId+'"/>','<itemref idref="'+selId+'"/>\n'+newSpineRefs);
-    }else{
-      opfText=opfText.replace('</spine>',newSpineRefs+'\n</spine>');
-    }
-    newZip.file(opfPath,opfText);
-    // NCX + nav.xhtml 목차 업데이트
-    ep(82,'목차 업데이트 중...');
-    const selFilename=selHrefRel.split('/').pop();
-    const escSelFn=selFilename.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-
-    // NCX 업데이트
-    const ncxFile=findMainNcx(E.epubZip.files,opfText,opfBase);
-    if(ncxFile){
-      let ncxText=await E.epubZip.file(ncxFile).async('text');
-      const maxOrder=Math.max(...[...ncxText.matchAll(/playOrder="(\d+)"/g)].map(m=>parseInt(m[1])),0);
-      const newNavPoints=newNcxItems.map((it,i)=>
-        '<navPoint id="'+it.id+'" playOrder="'+(maxOrder+i+1)+'">'+
-        '<navLabel><text>'+escHtml(it.title)+'</text></navLabel>'+
-        '<content src="'+it.src+'"/></navPoint>'
-      ).join('\n');
-      // ✅ 핵심 수정: (?:(?!</navPoint>)[\s\S])*? 로 navPoint 경계를 절대 넘지 않음
-      const ncxSafeRx=new RegExp(
-        '<navPoint[^>]*>(?:(?!</navPoint>)[\\s\\S])*?<content src="[^"]*'
-        +escSelFn+'[^"]*"/>(?:(?!</navPoint>)[\\s\\S])*?</navPoint>'
-      );
-      const ncxM=ncxText.match(ncxSafeRx);
-      if(ncxM){
-        if(insPos==='before') ncxText=ncxText.replace(ncxM[0],newNavPoints+'\n'+ncxM[0]);
-        else ncxText=ncxText.replace(ncxM[0],ncxM[0]+'\n'+newNavPoints);
-      }else{
-        ncxText=ncxText.replace('</navMap>',newNavPoints+'\n</navMap>');
-      }
-      newZip.file(ncxFile,ncxText);
-    }
-
-    // nav.xhtml 업데이트 (EPUB3 리더 우선 사용)
-    const navFile=findNavXhtml(E.epubZip.files,opfText,opfBase);
-    if(navFile){
-      let navText=await E.epubZip.file(navFile).async('text');
-      const newNavLis=newNcxItems.map(it=>'<li><a href="'+it.src+'">'+escHtml(it.title)+'</a></li>').join('\n');
-      const navM=navText.match(new RegExp('<li><a href="[^"]*'+escSelFn+'[^"]*">[^<]*</a></li>'));
-      if(navM){
-        if(insPos==='before') navText=navText.replace(navM[0],newNavLis+'\n'+navM[0]);
-        else navText=navText.replace(navM[0],navM[0]+'\n'+newNavLis);
-      }else{
-        navText=navText.replace('</ol>',newNavLis+'\n</ol>');
-      }
-      newZip.file(navFile,navText);
-    }
+    // ★ Phase 13·14: 설정 탭 '본문 정리'·장면 구분선을 삽입 챕터에도 적용, EPUB 생성은 순수 함수로
+    newChapters=applyTextCleanup(newChapters, getTextCleanupOpts()).chapters;
+    const {newZip, opfPath, opfBase}=await buildInsertedEpub(E.epubZip, newChapters, {
+      selHref: E.chapters[E.selectedChIdx]?.href||'',
+      insPos: document.querySelector('input[name="insPos"]:checked')?.value||'after',
+      keepCss: document.getElementById('keepOrigCss')?.checked!==false,
+      perChapterNcx: E.perChapterNcx,
+      useItalic: true,
+      sceneBreak: document.getElementById('optSceneBreak')?.checked===true,
+      onProgress: ep,
+    });
     // 삽화 삽입
     if(EI.files.length>0){
       ep(88,'삽화 삽입 중...');
@@ -971,7 +991,10 @@ async function insertIllsToEpub(newZip, opfPath, opfBase, illEntries){
     if(!file||!targetHref) continue;
 
     // 이미지 저장 (convertImageFile로 통일 — 설정에 따라 JPG 변환 or 원본 유지)
-    const {blob:imgBlob, ext:dext, mt}=await convertImageFile(file);
+    // ★ Phase 14: 변환 실패(null) 이미지는 건너뜀 — 이전: null 구조 분해 TypeError로 편집 전체가 중단
+    const conv=await convertImageFile(file);
+    if(!conv) continue;
+    const {blob:imgBlob, ext:dext, mt}=conv;
     const imgDest=opfBase+'Images/ill_img_'+String(imgIdx).padStart(4,'0')+'.'+dext;
     const imgRelHref='Images/ill_img_'+String(imgIdx).padStart(4,'0')+'.'+dext;
     newZip.file(imgDest,await fileToAB(imgBlob));
