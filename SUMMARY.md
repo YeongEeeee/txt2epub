@@ -329,6 +329,49 @@
 - 정적 검사(ESLint no-undef, 로드 순서 결합): HEAD의 미정의 참조 27종 → 0 (typeof 가드·Worker 전용 심볼 제외)
 - 브라우저 E2E(Chromium): `[N] 제목` 30화 변환(nav 30), 변환 탭 간격 분할 25화 EPUB, 일괄 변환 3파일(30·20·간격 12화) ZIP 결과·nav 수 일치, 전역 토글 배지, 100% 일치 프리셋 탐색, 콘솔 오류 0
 
+### Phase 12 — 테스트 밖 경로 버그 수정 (폰트 · AI 패턴 · URL 표지 · 인코딩 · 편집)
+
+#### 1) 커스텀 폰트 (`settings.js`, `ui-state.js`)
+| 문제 | 수정 |
+|------|------|
+| 8192바이트(3의 배수 아님) 청크마다 `btoa` → 청크 끝 `=` 패딩이 중간에 끼어 base64 전체 손상, 8KB 넘는 모든 폰트 로드 실패 | `_bytesToBase64()` — 8190바이트(3의 배수) 청크, 표준 base64와 바이트 단위 일치 테스트 |
+| `format("ttf")`·`format("otf")` — 표준 키워드가 아니라 src 전체 무시, MIME도 비표준 `font/truetype` | `_FONT_FORMATS` — `truetype`/`opentype`/`woff`/`woff2`, MIME `font/ttf` 등 RFC 8081 |
+| 이전 버전이 IndexedDB에 저장한 손상 폰트가 계속 복원됨 | `_isValidFontFace()`로 복원 시 검사 → 지우고 재업로드 안내 |
+| 폰트 파일명에 `"`가 있으면 CSS 깨짐 | `_safeFontName()` |
+
+#### 2) Gemini 스마트 패턴 (`settings.js`)
+- `gemini-2.0-flash`(2026-06-01 종료)·`1.5-flash`·`1.5-flash-8b` 전부 404 → 루프 끝에서 `quota_exceeded`를 던져 '할당량 초과'로 잘못 안내. `gemini-3.8-flash`·`gemini-3.5-flash-lite`·`gemini-3.6-flash`로 교체, 모두 404면 `models.list`로 사용 가능한 Flash 모델 탐색, 실패 사유별 메시지(`model_unavailable`)
+- API 키를 URL `?key=` 대신 `x-goog-api-key` 헤더로 전송, 잘못된 키의 400 `API_KEY_INVALID`도 키 오류로 분류
+- `AbortController`를 만들기만 하고 fetch에 넘기지 않던 문제 → signal 연결, 백오프 대기도 중단 가능, 오래된 응답은 화면에 쓰지 않음, 입력을 지울 때도 취소
+
+#### 3) URL 표지 (`convert.js`, `ui-state.js`)
+- `url+'?'+Date.now()` → 기존 쿼리가 있는 CDN 썸네일 URL이 깨짐. 원본 먼저 시도 후 `searchParams`로 캐시 우회
+- 투명 PNG → JPEG 변환 시 배경이 검게 됨 → 흰 배경
+- canvas가 막히면 바로 CORS 안내 → `_fetchImgBlob` 프록시 체인(weserv → Workers → 직접)을 거친 뒤 안내
+- 안내창이 URL을 inline `onclick` 문자열에 이어붙임(따옴표로 스크립트 주입) → 정적 마크업 + `addEventListener`, `_parseHttpUrl()`로 http(s)만 허용, `noopener`
+- 암묵 전역 `event.target` 의존 → 이벤트 위임이 버튼 요소를 인자로 전달
+
+#### 4) 인코딩 (`convert.js`, `worker.js`)
+- 감지 로직이 `worker.js`와 `convert.js`에 두 벌 → `worker.js` 복사본 제거(메인 스레드가 감지한 인코딩을 항상 전달)
+- BOM 없는 UTF-16 미감지 → NUL 바이트 위치 분포(LE 홀수·BE 짝수) + U+FFFD 비율 검증 `_detectUtf16NoBom()`
+- 파일 목록이 다시 그려질 때마다 파일 **전체**를 읽어 감지, `.catch` 없음, 캐시 미사용 → 앞 64KB만 읽고 `_encCache` 공유
+- `readFileSlice`가 항상 UTF-8 → 5MB 넘는 EUC-KR·UTF-16 파일 샘플이 전부 깨짐. 인코딩별 경계 보정 `_sliceBounds()`(EUC-KR 줄 단위·UTF-16 짝수 오프셋)
+
+#### 5) EPUB 출력·편집 (`epub-gen.js`, `edit.js`)
+- 글자색만 지정 시 다크 모드에서 어두운 배경 + 어두운 글자 → 두 색 모두 미지정일 때만 다크 기본색
+- OPF 경로를 `container.xml`의 rootfile로 통일(`_epubOpfPath`), container 없음·손상 EPUB은 원인 안내
+- 편집 결과의 `dcterms:modified` 갱신(EPUB3만), 직접 편집 결과 Blob `mimeType` 지정
+- CSS '덮어쓰기'는 EPUB 안의 모든 CSS를 지우므로 실행 전 확인
+- `.EPUB` 대문자 확장자 허용
+
+#### 6) 프록시 Worker (저장소 밖)
+- 클라이언트의 `X-NovelEPUB-Token`은 공개 값이라 누구나 열린 프록시로 사용 가능 → Worker에 Origin 허용 목록, HTML은 검색 대상 호스트만, 이미지는 `image/*`·15MB 이하, 내부 주소·IP 리터럴 차단, 선택적 Rate Limiting 적용한 코드 제공 (Cloudflare 대시보드에 배포)
+
+#### 7) 검증
+- 테스트 248 → 277개 (Phase 12 29개) 전부 통과, 전 파일 `node --check` 통과
+- 브라우저 E2E(Chromium): DejaVu TTF 업로드 → `FontFace.load()` 성공·EPUB `style.css`에 `format("truetype")` 포함, TXT → EPUB 변환, 편집 탭 CSS 추가·덮어쓰기 확인창, UTF-8·EUC-KR·BOM 없는 UTF-16LE 각각 26화 동일 감지, 콘솔 오류 0
+- epubcheck 5.1.0: 테스트 EPUB 6종 + 폰트 임베딩 변환 결과 + 편집 결과 모두 0 오류
+
 ---
 
 ## 파일별 역할 요약

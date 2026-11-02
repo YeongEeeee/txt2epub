@@ -58,7 +58,8 @@
 - **Cloudflare Workers 프록시 허브**: 단일 전역 상수를 통해 전용 엣지 워커(`icy-frog-a6c0`) 인프라와 결합.
 - **Failover 자동 재시도**: 프록시 통신 실패(5xx) 및 시간 초과 시, 클라이언트 단에서 원본 서버로 즉시 직접(Direct) 재시도하는 안전 백업망 가동.
 - **8초 독립 타임아웃 가드**: `AbortController`와 인라인 인터벌 타이머를 연동하여 타깃 서버의 응답 지연으로 인한 메인 스레드 락 전면 차단.
-- **보안 쉴드 토큰**: 무단 트래픽 프리라이딩을 방지하기 위해 프록시 중계 요청 헤더에 `X-NovelEPUB-Token` 가드 캡슐화 주입.
+- **식별 토큰**: 프록시 요청 헤더에 `X-NovelEPUB-Token`을 넣습니다. 클라이언트 코드에 공개된 값이라 인증 수단은 아니며, 실제 접근 제어는 Worker 쪽이 담당합니다.
+- **Worker 접근 제어 (Phase 12)**: Origin 허용 목록(배포 도메인·Pages 미리보기·localhost), HTML은 표지 검색 대상 호스트만, 이미지는 `image/*`·15MB 이하만 중계, IP 리터럴·내부 호스트·비표준 포트 거부, 선택적 Rate Limiting 바인딩. Worker 코드는 저장소 밖(Cloudflare 대시보드)에서 관리합니다.
 - **이진 데이터 무결성 보장**: `response.arrayBuffer()` 청크 버퍼 조합 구조를 통해 다량의 레이아웃 처리 중 이미지 데이터 유실 및 화질 열화 원천 차단.
 - **MIME-Type 화이트리스트 검증**: `image/*`, `application/json`, `text/*` 접두사 가드를 신설하여 무결하지 않은 스크림 패킷 필터링.
 - **주소 정규화 유틸**: `_safeEncodeUrl` 매커니즘을 적용하여 기 인코딩된 특수기호의 이중 인코딩 버그 전면 해결.
@@ -229,7 +230,7 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
     └── golden.json   — 기대 챕터 목록·감지 패턴·계층 형태
 ```
 
-> **총 코드량: 약 16,750줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 회귀 테스트 232개 통과 | 브라우저 E2E 75개 통과
+> **총 코드량: 약 17,100줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 회귀 테스트 277개 통과 | epubcheck 0 오류
 
 ### 상태 관리 (StateManager + Proxy)
 
@@ -333,7 +334,8 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
 | 모드 | 설명 |
 |------|------|
 | **로컬 로직** | `guessPatternFromExample()` — API 키 없이 즉시 변환 |
-| **Gemini API** | `_askGeminiForPattern()` — 지수 백오프 포함, 정밀 변환 |
+| **Gemini API** | `_askGeminiForPattern()` — `gemini-3.8-flash` → `gemini-3.5-flash-lite` → `gemini-3.6-flash` 순서, 모두 404면 `models.list`에서 사용 가능한 Flash 모델 자동 탐색. 키는 `x-goog-api-key` 헤더로 전송, 지수 백오프 |
+| **요청 취소** | 입력이 바뀌면 진행 중인 요청을 `AbortSignal`로 즉시 취소 — 늦게 온 옛 응답이 새 결과를 덮어쓰지 않음 |
 | **디바운스** | 입력 후 600ms 대기 → 자동 실행 |
 | **적용 버튼** | 변환 결과를 패턴 입력창에 즉시 반영 |
 
@@ -448,6 +450,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 12 회귀 (29) | 커스텀 폰트 base64 = 표준 인코딩(0~100KB)·손상 데이터 감지·format 키워드, BOM 없는 UTF-16 LE/BE·EUC-KR 감지, 슬라이스 경계(EUC-KR 줄 단위·UTF-16 짝수·UTF-8), URL 표지 쿼리 보존·http(s) 검증·onclick 주입 제거, Gemini 종료 모델·헤더 키·AbortSignal, 다크 모드 CSS, 편집 OPF 경로·dcterms:modified·mimeType |
 | Phase 10 회귀 | 본문 렌더링 메인=Worker·이모지/NBSP/엔티티 혼재, 목차 줄 범위 모델(순서 변경·떨어진 병합·비활성·중복 줄·통계), 문단 정합, Worker `DETECT`, 무패턴 20만 줄 성능, 삽화 매핑(서문 제외 순번·화 번호·키워드), 이미지 STORE, xml:lang, StateManager·IDB·SRI·SW CORS·전역 정의 단일화 정적 검사 |
 | epubcheck (CI) | `tests/out/*.epub`을 W3C epubcheck 5.1.0으로 표준 검증 |
 
@@ -462,7 +465,7 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 | 항목 | 수치 |
 |------|------|
 | 총 줄수 | JS 13,522줄 (+ HTML/CSS 2,600줄) |
-| 회귀 테스트 | 200개 통과 + epubcheck 0 오류 |
+| 회귀 테스트 | 277개 통과 + epubcheck 0 오류 |
 | 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |
@@ -556,6 +559,14 @@ settings.js 구문 오류 수정 (고아 코드 블록 제거)
 ├── TocEngine 형식 계열: [N] 제목 · N - 제목/N: 제목 · 제N막, 전각 공백 제목 정규화
 ├── 간격 분할 엔진 computeIntervalSplit 분리 (변환 탭·일괄 변환 공용): 첫 화 1줄 고정·제목 줄 앵커/가산점·단조 증가
 └── 일괄 변환 간격 분할(N화) UI · 100% 일치 프리셋 자동 채택 · '[ 파일명.txt ]' 프리셋 정규식 수정
+↓
+[ Phase 12: 테스트 밖 경로 버그 수정 ]
+├── 커스텀 폰트: base64 청크(8192 → 3의 배수) 손상·format("ttf") 무시로 폰트가 한 번도 적용되지 않던 문제, 저장된 손상 폰트 감지·재업로드 안내
+├── Gemini: 종료 모델(2.0/1.5) 교체 + models.list 자동 탐색, '할당량 초과' 오안내 제거, 키 헤더 전송, AbortSignal 연결
+├── URL 표지: 캐시 우회 쿼리가 기존 쿼리를 깨던 문제, 투명 PNG 검은 배경, 프록시 체인 경유, onclick URL 주입 제거, 암묵 전역 event 제거
+├── 인코딩: 감지 단일 소스(worker.js 복사본 제거), BOM 없는 UTF-16, 앞 64KB만 읽기·캐시, EUC-KR·UTF-16 대용량 샘플 슬라이스
+├── EPUB CSS: 글자색·배경색 중 하나만 지정 시 다크 모드에서 읽을 수 없던 문제
+└── EPUB 편집: OPF 경로 container.xml 기준, dcterms:modified 갱신, 결과 mimeType, CSS 덮어쓰기 확인, 손상 EPUB 안내
 ```
 
 ---

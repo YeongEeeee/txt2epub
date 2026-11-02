@@ -137,12 +137,38 @@ const TextWorker = (() => {
   return { decodeViaWorker, LARGE_FILE_THRESHOLD };
 })();
 
+// ★ Phase 12: BOM 없는 UTF-16 감지
+//   UTF-8·EUC-KR 텍스트에는 NUL(0x00)이 사실상 없고, UTF-16은 ASCII(공백·줄바꿈·숫자)마다 NUL이
+//   한쪽 위치(LE=홀수, BE=짝수)에 몰림 — 한글 음절(U+AC00~D7A3)의 상위 바이트는 0이 아니고,
+//   반대쪽 NUL은 하위 바이트가 0인 음절(가·대 등 U+xx00)에서만 생기므로 ASCII 쪽이 2배 이상 많음.
+//   디코딩 결과의 U+FFFD 비율로 한 번 더 검증
+function _detectUtf16NoBom(bytes){
+  const n=bytes.length&~1;
+  if(n<64) return null;
+  let zEven=0, zOdd=0;
+  for(let i=0;i<n;i+=2){
+    if(bytes[i]===0) zEven++;
+    if(bytes[i+1]===0) zOdd++;
+  }
+  const pairs=n/2;
+  let cand=null;
+  if(zEven+zOdd<pairs*0.02) return null;   // NUL이 거의 없음 → 8비트 인코딩(UTF-8·EUC-KR)
+  if(zOdd>=zEven*2) cand='utf-16le';
+  else if(zEven>=zOdd*2) cand='utf-16be';
+  if(!cand) return null;
+  const text=new TextDecoder(cand,{fatal:false}).decode(bytes.subarray(0,n));
+  return _countChar(text,'�')<=text.length*0.01?cand:null;
+}
+
 // ★ U-12: detectEncodingFromAB — ArrayBuffer를 직접 받아 처리 (이중 FileReader 제거용)
+// ★ Phase 12: 인코딩 감지 단일 소스 — worker.js의 복사본은 제거 (메인 스레드가 감지한 인코딩을 항상 전달)
 function _detectEncodingFromAB(ab){
   const bytes=new Uint8Array(ab.slice(0,65536));
   if(bytes[0]===0xEF&&bytes[1]===0xBB&&bytes[2]===0xBF) return 'utf-8';
   if(bytes[0]===0xFF&&bytes[1]===0xFE) return 'utf-16le';
   if(bytes[0]===0xFE&&bytes[1]===0xFF) return 'utf-16be';
+  const u16=_detectUtf16NoBom(bytes);
+  if(u16) return u16;
   let utf8Errors=0, totalMultibyte=0;
   let i=0;
   const limit=bytes.length-3;
@@ -202,9 +228,15 @@ function _textCacheSet(file, text){
 function clearTextCache(){ _textCache.clear(); _textCacheChars=0; }
 
 async function detectEncoding(file){
-  const ab=await fileToAB(file);
-  // 샘플 크기 64KB (8KB → 64KB: 경계 잘림 문제 해소)
-  return _detectEncodingFromAB(ab);
+  // ★ Phase 12: 앞 64KB만 읽음 + 감지 결과 캐시 공유
+  //   (이전: 감지에 쓰는 건 64KB인데 파일 전체를 ArrayBuffer로 읽음 — 목록을 다시 그릴 때마다 모든 파일을
+  //    통째로 읽어 대용량 일괄 변환에서 메모리 급증, 결과도 _encCache에 저장하지 않아 변환 때 다시 감지)
+  const hit=_encCacheGet(file);
+  if(hit) return hit;
+  const ab=await fileToAB(file.slice(0,65536));
+  const enc=_detectEncodingFromAB(ab);
+  _encCacheSet(file, enc);
+  return enc;
 }
 
 async function fileToText(file){
@@ -276,7 +308,27 @@ function _decodeFromAB(ab, enc){
 // UTF-8 경계 안전 슬라이스 읽기
 // 고정 바이트 오프셋 슬라이스 시 멀티바이트 문자(한글 3바이트)가 잘릴 수 있음
 // → ArrayBuffer로 읽어서 경계 바이트를 직접 보정 후 TextDecoder 사용
-async function readFileSlice(file, start, end){
+// ★ Phase 12: 바이트 경계 보정 (순수 함수 — 테스트 대상)
+//   UTF-8   : 연속 바이트(10xxxxxx)를 건너뛰어 문자 시작에 맞춤
+//   UTF-16  : 파일 절대 오프셋 기준 짝수 바이트에 맞춤
+//   EUC-KR  : 2바이트 문자의 둘째 바이트는 0x41 이상이라 줄바꿈(0x0A)과 겹치지 않음 → 줄 단위로 동기화
+function _sliceBounds(bytes, start, end, safeStart, fileSize, enc, MARGIN){
+  let s=start-safeStart, e2=Math.min(bytes.length, end-safeStart);
+  if(enc==='utf-8'){
+    while(s<bytes.length&&s<MARGIN&&(bytes[s]&0xC0)===0x80) s++;
+    while(e2<bytes.length&&(bytes[e2]&0xC0)===0x80) e2++;
+  }else if(enc==='utf-16le'||enc==='utf-16be'){
+    if((safeStart+s)%2) s++;
+    if((safeStart+e2)%2) e2--;
+  }else{
+    if(start>0){ const nl=bytes.indexOf(0x0A, s); if(nl!==-1&&nl<e2) s=nl+1; }
+    if(end<fileSize){ const nl=bytes.lastIndexOf(0x0A, e2-1); if(nl>=s) e2=nl+1; }
+  }
+  return [s, Math.max(s, e2)];
+}
+
+// ★ Phase 12: enc 인자 — 이전엔 항상 UTF-8로 디코딩해 5MB 넘는 EUC-KR 파일의 샘플이 전부 깨짐
+async function readFileSlice(file, start, end, enc='utf-8'){
   // 앞 경계 보정: start가 멀티바이트 중간이면 다음 유효 바이트로 이동
   const MARGIN=4; // UTF-8 최대 4바이트
   const safeStart=Math.max(0, start-MARGIN);
@@ -287,21 +339,16 @@ async function readFileSlice(file, start, end){
     const r=new FileReader();
     r.onload=e=>{
       const bytes=new Uint8Array(e.target.result);
-      // 앞 경계: start-safeStart 오프셋부터 첫 유효 UTF-8 시작 바이트 찾기
-      let s=start-safeStart;
-      while(s<bytes.length&&s<MARGIN&&(bytes[s]&0xC0)===0x80) s++;
-      // 뒤 경계: end-safeStart 오프셋 이후 멀티바이트 완성 보장
-      let e2=end-safeStart;
-      while(e2<bytes.length&&(bytes[e2]&0xC0)===0x80) e2++;
+      const [s,e2]=_sliceBounds(bytes, start, end, safeStart, file.size, enc, MARGIN);
       try{
-        const text=new TextDecoder('utf-8',{fatal:false}).decode(bytes.subarray(s,e2));
+        const text=new TextDecoder(enc,{fatal:false}).decode(bytes.subarray(s,e2));
         res(text);
       }catch(err){
         // fallback: FileReader readAsText
         const fr=new FileReader();
         fr.onload=ev=>res(ev.target.result);
         fr.onerror=()=>res('');
-        fr.readAsText(new Blob([bytes.subarray(s,e2)]),'utf-8');
+        fr.readAsText(new Blob([bytes.subarray(s,e2)]),enc);
       }
     };
     r.onerror=rej;
@@ -320,12 +367,14 @@ async function sampleLines(file){
 
   // 대용량(5MB 초과): 앞/1/4/중/3/4/뒤 슬라이스 + 짧은줄 전용 패스
   const CHUNK=384*1024; // 384KB씩
+  // ★ Phase 12: 파일 인코딩으로 슬라이스 디코딩 (EUC-KR·UTF-16 대용량 파일 샘플 깨짐 수정)
+  const enc=await detectEncoding(file).catch(()=>'utf-8');
   const chunks=[];
-  chunks.push(await readFileSlice(file, 0, CHUNK));
-  chunks.push(await readFileSlice(file, Math.floor(size*0.25), Math.floor(size*0.25)+CHUNK));
-  chunks.push(await readFileSlice(file, Math.floor(size*0.5),  Math.floor(size*0.5)+CHUNK));
-  chunks.push(await readFileSlice(file, Math.floor(size*0.75), Math.floor(size*0.75)+CHUNK));
-  chunks.push(await readFileSlice(file, Math.max(0,size-CHUNK), size));
+  chunks.push(await readFileSlice(file, 0, CHUNK, enc));
+  chunks.push(await readFileSlice(file, Math.floor(size*0.25), Math.floor(size*0.25)+CHUNK, enc));
+  chunks.push(await readFileSlice(file, Math.floor(size*0.5),  Math.floor(size*0.5)+CHUNK, enc));
+  chunks.push(await readFileSlice(file, Math.floor(size*0.75), Math.floor(size*0.75)+CHUNK, enc));
+  chunks.push(await readFileSlice(file, Math.max(0,size-CHUNK), size, enc));
 
   // 각 청크에서 헤더 후보 줄 추출
   // [ 파일명.txt ] 형태는 최대 ~60자이므로 기준 확장 (1~80자)
@@ -632,14 +681,15 @@ function renderTxtFileList(){
       '<span class="txt-file-name" title="'+escHtml(f.name)+'">'+escHtml(f.name)+'</span>'+
       '<span class="txt-file-rm" data-idx="'+i+'" title="제거">✕</span>';
 
-    // 인코딩 비동기 감지
+    // 인코딩 비동기 감지 (★ Phase 12: 앞 64KB만 읽고 캐시 — 실패해도 배지만 생략)
     detectEncoding(f).then(enc=>{
+      if(!row.isConnected) return;   // 그 사이 목록이 다시 그려졌으면 버려진 행에 붙이지 않음
       const encBadge=document.createElement('span');
       encBadge.className='txt-file-enc';
-      encBadge.textContent=enc.toUpperCase().replace('-','');
+      encBadge.textContent=String(enc||'').toUpperCase().replace(/-/g,'');
       const rmBtn=row.querySelector('.txt-file-rm');
       if(rmBtn) row.insertBefore(encBadge,rmBtn);
-    });
+    }).catch(()=>{});
 
     // ✕ 클릭으로 개별 파일 제거
     row.querySelector('.txt-file-rm').onclick=e=>{
@@ -695,11 +745,19 @@ function renderTxtFileList(){
 // 🖼  Module: Cover (표지 URL·크롤링)
 // ══════════════════════════════════════════
 
+// ★ Phase 12: http(s) URL만 허용 — startsWith('http')는 'httpx:'·'http:javascript…' 같은 값도 통과시켰음
+function _parseHttpUrl(raw){
+  try{
+    const u=new URL(String(raw||'').trim());
+    return (u.protocol==='http:'||u.protocol==='https:')?u:null;
+  }catch(e){ return null; }
+}
+
 // 구글 이미지 검색창 열기 (제목 자동 완성)
 // URL 입력 시 실시간 미리보기
 function previewCoverUrl(inpId, thumbId, nameId, mode){
   const url=document.getElementById(inpId)?.value.trim();
-  if(!url||!url.startsWith('http')) return;
+  if(!url||!_parseHttpUrl(url)) return;
   if(thumbId){
     const thumb=document.getElementById(thumbId);
     const img=new Image();
@@ -717,43 +775,54 @@ function previewCoverUrl(inpId, thumbId, nameId, mode){
 }
 
 // URL 적용 — canvas로 blob 변환 (CORS 통과 시) 또는 직접 fetch
-async function applyCoverUrl(inpId, thumbId, nameId, mode){
+// ★ Phase 12: btnEl — 이벤트 위임(ui-state.js)이 클릭된 버튼을 직접 넘김
+//   (이전: 암묵 전역 window.event에 의존 → 호출 경로·브라우저에 따라 버튼을 못 찾거나 내부 요소를 잡음)
+async function applyCoverUrl(inpId, thumbId, nameId, mode, btnEl){
   const url=document.getElementById(inpId)?.value.trim();
   if(!url){Toast.warn('이미지 URL을 입력해주세요.');return;}
-  if(!url.startsWith('http')){Toast.warn('http:// 또는 https:// 로 시작하는 URL을 입력해주세요.');return;}
+  if(!_parseHttpUrl(url)){Toast.warn('http:// 또는 https:// 로 시작하는 URL을 입력해주세요.');return;}
 
-  const btn=event.target;
-  const origText=btn.textContent;
-  btn.textContent='로딩 중...';btn.disabled=true;
+  const btn=btnEl||(typeof event!=='undefined'?event?.target?.closest?.('button'):null)||null;
+  const origText=btn?.textContent||'';
+  if(btn){btn.textContent='로딩 중...';btn.disabled=true;}
 
   try{
-    // 방법 1: canvas crossOrigin으로 blob 변환
+    // 방법 1: canvas crossOrigin → 방법 2: 이미지 프록시 체인 (urlToBlob 내부)
     const blob=await urlToBlob(url);
-    const ext=url.split('?')[0].split('.').pop().toLowerCase().replace(/[^a-z]/g,'') || 'jpg';
+    // ★ Phase 12: 확장자는 실제 이미지 MIME 우선 (프록시가 WebP·PNG로 돌려줘도 이름과 형식이 일치)
+    const extByType={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif'}[blob.type];
+    const ext=extByType||url.split('?')[0].split('.').pop().toLowerCase().replace(/[^a-z]/g,'')||'jpg';
     const validExt=['jpg','jpeg','png','webp','gif'].includes(ext)?ext:'jpg';
     const fname='cover_url.'+validExt;
     const file=new File([blob],fname,{type:blob.type||'image/jpeg'});
 
     if(mode==='convert'){
       S.coverFile=file;
-      if(nameId) document.getElementById(nameId).textContent='✅ URL 표지 적용';
+      const nameEl=nameId?document.getElementById(nameId):null;
+      if(nameEl) nameEl.textContent='✅ URL 표지 적용';
       document.getElementById('coverDz')?.classList.add('ok');
-      if(thumbId){
+      const thumbEl=thumbId?document.getElementById(thumbId):null;
+      if(thumbEl){
         const dataUrl=await blobToDataUrl(blob);
-        document.getElementById(thumbId).innerHTML='<img src="'+dataUrl+'">';
+        const img=document.createElement('img');
+        img.src=dataUrl;
+        thumbEl.replaceChildren(img);
       }
-      document.getElementById(inpId).value='';
+      const inpEl=document.getElementById(inpId); if(inpEl) inpEl.value='';
     } else {
       // 일괄변환: 공통 표지 File 저장
       B.urlCoverFile=file;
-      document.getElementById('batchCoverDrop')?.classList.add('ok');
-      document.getElementById('batchCoverDrop').querySelector('div').textContent='✅ URL 표지 적용';
-      document.getElementById(inpId).value='';
+      const drop=document.getElementById('batchCoverDrop');
+      drop?.classList.add('ok');
+      const label=drop?.querySelector('div'); if(label) label.textContent='✅ URL 표지 적용';
+      const inpEl=document.getElementById(inpId); if(inpEl) inpEl.value='';
     }
-    btn.textContent='✅ 적용됨';
-    setTimeout(()=>{btn.textContent=origText;btn.disabled=false;},1500);
+    if(btn){
+      btn.textContent='✅ 적용됨';
+      setTimeout(()=>{btn.textContent=origText;btn.disabled=false;},1500);
+    }
   }catch(e){
-    btn.textContent=origText;btn.disabled=false;
+    if(btn){btn.textContent=origText;btn.disabled=false;}
     // CORS 차단 안내
     showCorsHelp(inpId, url, thumbId, nameId, mode);
   }
@@ -761,6 +830,9 @@ async function applyCoverUrl(inpId, thumbId, nameId, mode){
 
 function showCorsHelp(inpId, url, thumbId, nameId, mode){
   // CORS 차단 시 대안 안내 모달
+  // ★ Phase 12: URL을 inline onclick 문자열에 이어붙이지 않음 — 따옴표가 든 URL로 스크립트가 주입되던 문제
+  //   버튼은 정적 마크업 + addEventListener, 이미지 페이지 열기는 http(s) 검증 후 noopener로만 연다
+  const safeUrl=_parseHttpUrl(url)?.href||'';
   const overlay=document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;background:var(--overlay-strong);z-index:600;display:flex;align-items:center;justify-content:center';
   overlay.innerHTML=`
@@ -785,32 +857,73 @@ function showCorsHelp(inpId, url, thumbId, nameId, mode){
         </div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
-        <button class="btn btn-ghost btn-sm" onclick="this.closest('div[style*=fixed]').remove()">닫기</button>
-        <button class="btn btn-blue btn-sm" onclick="window.open('${url}','_blank');this.closest('div[style*=fixed]').remove()">🔗 이미지 페이지 열기</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-cors-close>닫기</button>
+        <button type="button" class="btn btn-blue btn-sm" data-cors-open>🔗 이미지 페이지 열기</button>
       </div>
     </div>`;
   document.body.appendChild(overlay);
   overlay.onclick=e=>{if(e.target===overlay)overlay.remove();};
+  overlay.querySelector('[data-cors-close]')?.addEventListener('click',()=>overlay.remove());
+  const openBtn=overlay.querySelector('[data-cors-open]');
+  if(openBtn){
+    if(!safeUrl) openBtn.style.display='none';
+    openBtn.addEventListener('click',()=>{
+      if(safeUrl) window.open(safeUrl,'_blank','noopener,noreferrer');
+      overlay.remove();
+    });
+  }
 }
 
-async function urlToBlob(url){
-  // canvas crossOrigin 방식
+// ★ Phase 12: 캐시 우회 쿼리 — 기존 쿼리스트링이 있으면 '&'로 연결
+//   (이전: url+'?'+Date.now() → '?type=w500?1730…'처럼 기존 쿼리 값이 깨져 썸네일 CDN 이미지가 404)
+function _withCacheBust(url){
+  try{
+    const u=new URL(url);
+    u.searchParams.set('_nvt', String(Date.now()));
+    return u.href;
+  }catch(e){
+    return url+(url.includes('?')?'&':'?')+'_nvt='+Date.now();
+  }
+}
+
+// canvas crossOrigin 방식 — 투명 영역은 흰색으로 채운 뒤 JPEG 인코딩
+function _imgUrlToCanvasBlob(src){
   return new Promise((resolve,reject)=>{
     const img=new Image();
     img.crossOrigin='anonymous';
     img.onload=()=>{
-      const canvas=document.createElement('canvas');
-      canvas.width=img.naturalWidth||img.width;
-      canvas.height=img.naturalHeight||img.height;
-      canvas.getContext('2d').drawImage(img,0,0);
-      canvas.toBlob(b=>{
-        if(b) resolve(b);
-        else reject(new Error('canvas toBlob 실패'));
-      },'image/jpeg',0.92);
+      try{
+        const canvas=document.createElement('canvas');
+        canvas.width=img.naturalWidth||img.width;
+        canvas.height=img.naturalHeight||img.height;
+        const ctx=canvas.getContext('2d');
+        // ★ Phase 12: 투명 PNG가 JPEG로 바뀌며 배경이 검게 되던 문제 — resizeCoverIfNeeded와 동일하게 흰 배경
+        ctx.fillStyle='#ffffff';
+        ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(img,0,0);
+        canvas.toBlob(b=>{
+          if(b) resolve(b);
+          else reject(new Error('canvas toBlob 실패'));
+        },'image/jpeg',0.92);
+      }catch(err){ reject(err); }   // tainted canvas(SecurityError)
     };
     img.onerror=()=>reject(new Error('CORS 차단'));
-    img.src=url+'?'+(Date.now()); // 캐시 우회 시도
+    img.src=src;
   });
+}
+
+async function urlToBlob(url){
+  // ① 원본 URL 그대로 → ② 캐시 우회 쿼리 (이전에 비-CORS로 캐시된 응답 회피)
+  //   서명된 URL(쿼리 변경 시 403)을 위해 원본을 먼저 시도
+  try{ return await _imgUrlToCanvasBlob(url); }catch(e){}
+  try{ return await _imgUrlToCanvasBlob(_withCacheBust(url)); }catch(e){}
+  // ③ ★ Phase 12: 이미지 프록시 체인 (cover-search.js — weserv → Workers → 직접)
+  //   이전: canvas가 막히면 프록시를 거치지 않고 바로 CORS 안내창을 띄움
+  if(typeof _fetchImgBlob==='function'){
+    const blob=await _fetchImgBlob(url);
+    if(blob&&/^image\//.test(blob.type||'')) return blob;
+  }
+  throw new Error('CORS 차단');
 }
 
 function blobToDataUrl(blob){

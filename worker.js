@@ -2,8 +2,9 @@
  * worker.js — NovelEPUB 텍스트 처리 전담 Web Worker
  *
  * 담당 작업:
- *   FILE_TO_TEXT : ArrayBuffer → 인코딩 추론(UTF-8 / EUC-KR / UTF-16) + 디코딩 → 문자열
+ *   FILE_TO_TEXT : ArrayBuffer + 인코딩(payload.enc, 메인 스레드가 감지) → 디코딩 → 문자열
  *                  (convert.js TextWorker가 5MB 이상 파일에서 사용)
+ *                  ★ Phase 12: 인코딩 감지는 convert.js 단일 소스 — 이 파일의 복사본 제거
  *
  * ★ 챕터 파싱은 이 파일에서 하지 않음 — parser.js가 단일 소유하며,
  *   대용량 파싱 Worker는 parser.js buildParserWorkerSource()로 생성됨
@@ -20,47 +21,11 @@
 'use strict';
 
 // ══════════════════════════════════════════
-// 1. 인코딩 감지 (detectEncoding 이식)
+// 1. 인코딩 감지 — ★ Phase 12: 제거 (단일 소스 = convert.js _detectEncodingFromAB)
+//   메인 스레드(fileToText)가 항상 감지한 인코딩(payload.enc)을 함께 보냄.
+//   이전에는 같은 감지 로직이 여기와 convert.js에 두 벌 있어 한쪽만 고치면 결과가 달라질 위험이 있었음.
+//   enc가 없는 예외 상황은 UTF-8로 디코딩 후 decodeText()의 EUC-KR 재시도가 보정.
 // ══════════════════════════════════════════
-function detectEncoding(buffer){
-  const bytes = new Uint8Array(buffer.slice(0, 65536));
-
-  // BOM 체크
-  if(bytes[0]===0xEF && bytes[1]===0xBB && bytes[2]===0xBF) return 'utf-8';
-  if(bytes[0]===0xFF && bytes[1]===0xFE) return 'utf-16le';
-  if(bytes[0]===0xFE && bytes[1]===0xFF) return 'utf-16be';
-
-  // UTF-8 유효성 검사 (오류율 기반)
-  let utf8Errors=0, totalMultibyte=0;
-  let i=0;
-  const limit=bytes.length-3;
-  while(i<limit){
-    const b=bytes[i];
-    if(b<0x80){i++;continue;}
-    if(b>=0xC2 && b<=0xDF){
-      if((bytes[i+1]&0xC0)===0x80){totalMultibyte++;i+=2;continue;}
-    } else if(b>=0xE0 && b<=0xEF){
-      if((bytes[i+1]&0xC0)===0x80 && (bytes[i+2]&0xC0)===0x80){totalMultibyte++;i+=3;continue;}
-    } else if(b>=0xF0 && b<=0xF4){
-      if(i+3<limit&&(bytes[i+1]&0xC0)===0x80&&(bytes[i+2]&0xC0)===0x80&&(bytes[i+3]&0xC0)===0x80){
-        totalMultibyte++;i+=4;continue;
-      }
-    }
-    utf8Errors++;i++;
-  }
-
-  const errorRate=utf8Errors/Math.max(totalMultibyte,1);
-  if(errorRate<0.001) return 'utf-8';
-
-  // EUC-KR vs UTF-8 비교
-  const utf8Text=new TextDecoder('utf-8',{fatal:false}).decode(bytes);
-  const eucText =new TextDecoder('euc-kr',{fatal:false}).decode(bytes);
-  const utf8Bad =countChar(utf8Text,'\ufffd');
-  const eucBad  =countChar(eucText,'\ufffd');
-
-  if(utf8Bad===0) return 'utf-8';
-  return utf8Bad<=eucBad ? 'utf-8' : 'euc-kr';
-}
 
 // ★ Phase 10: 개수만 필요 — match(/x/g)처럼 일치 배열을 만들지 않음
 function countChar(text, ch){
@@ -103,8 +68,8 @@ self.onmessage = async function(e){
 
       // ── 인코딩 감지 + 디코딩 통합 ──
       case 'FILE_TO_TEXT': {
-        // ★ Phase 10: 메인 스레드가 이미 감지한 인코딩이 있으면 재감지하지 않음
-        const enc2 = payload.enc || detectEncoding(payload.buffer);
+        // ★ Phase 12: 인코딩은 메인 스레드가 감지해 전달 (없으면 UTF-8 → decodeText가 EUC-KR 재시도)
+        const enc2 = payload.enc || 'utf-8';
         const text2 = decodeText(payload.buffer, enc2);
         // ★ W-02: 처리 완료 후 buffer 참조 해제
         payload.buffer = null;

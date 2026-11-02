@@ -69,7 +69,11 @@ function buildCss(){
   let h1Extra=`text-align:${titleStyle==='left'?'left':'center'};`;
   if(titleStyle==='underline') h1Extra+='border-bottom:2px solid currentColor;padding-bottom:0.3em;text-align:center;';
   if(titleStyle==='box') h1Extra+='border:1.5px solid currentColor;padding:0.25em 1em;border-radius:6px;display:inline-block;';
-  return `@charset "UTF-8";\n${fontFaceBlock}\nbody{font-family:${font};line-height:${line};font-size:${size};margin:0;padding:${padTop} ${padRight} ${padBottom} ${padLeft};word-break:keep-all;overflow-wrap:break-word;text-align:${align};${textColor?'color:'+textColor+';':''}${bgColor?'background-color:'+bgColor+';':''}}\nh1{font-size:1.3em;${h1Extra}margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}\np{margin:0;padding:0.25em 0;text-indent:${useIndent?indentEm+'em':'0'}}\np.noindent{text-indent:0}\nem.flashback{font-style:italic;opacity:.85}\np.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}\n.illust-page{display:flex;align-items:center;justify-content:center;min-height:80vh;text-align:center;padding:0}\n.illust-page img{max-width:100%;max-height:100vh;object-fit:contain}\n@media (prefers-color-scheme:dark){body{${bgColor?'':"background-color:#1a1208;"}${textColor?'':"color:#e8d8c4;"}}}\n${extra}`;
+  // ★ Phase 12: 다크 모드 기본색은 글자색·배경색을 둘 다 지정하지 않았을 때만 적용
+  //   (이전: 글자색만 지정하면 다크 모드에서 배경만 어둡게 바뀌어 어두운 글자 + 어두운 배경 → 읽을 수 없음,
+  //    배경색만 지정하면 밝은 배경 + 밝은 글자). 하나라도 지정했다면 사용자가 고른 색 조합을 그대로 유지
+  const darkBlock=(!textColor&&!bgColor)?'@media (prefers-color-scheme:dark){body{background-color:#1a1208;color:#e8d8c4;}}\n':'';
+  return `@charset "UTF-8";\n${fontFaceBlock}\nbody{font-family:${font};line-height:${line};font-size:${size};margin:0;padding:${padTop} ${padRight} ${padBottom} ${padLeft};word-break:keep-all;overflow-wrap:break-word;text-align:${align};${textColor?'color:'+textColor+';':''}${bgColor?'background-color:'+bgColor+';':''}}\nh1{font-size:1.3em;${h1Extra}margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}\np{margin:0;padding:0.25em 0;text-indent:${useIndent?indentEm+'em':'0'}}\np.noindent{text-indent:0}\nem.flashback{font-style:italic;opacity:.85}\np.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}\n.illust-page{display:flex;align-items:center;justify-content:center;min-height:80vh;text-align:center;padding:0}\n.illust-page img{max-width:100%;max-height:100vh;object-fit:contain}\n${darkBlock}${extra}`;
 }
 
 // ── UI 진행률 ──

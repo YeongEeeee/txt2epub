@@ -74,17 +74,55 @@ function detectPerChapterNcx(zipFiles, opfText, opfBase){
   return {type:'per-chapter', opfBase};
 }
 
+// ★ Phase 12: OPF 경로는 META-INF/container.xml의 rootfile에서 읽음 (없거나 깨졌으면 .opf 탐색 폴백)
+//   이전: 경로마다 container.match(...)[1]을 직접 호출 → container.xml이 없으면 TypeError,
+//         메타 읽기는 container 대신 '.opf로 끝나는 첫 파일'을 써서 OPF가 여러 개면 엉뚱한 파일을 읽음
+async function _epubOpfPath(zip){
+  const cf=zip?.file('META-INF/container.xml');
+  if(cf){
+    const xml=await cf.async('text');
+    const m=xml.match(/full-path="([^"]+)"/);
+    if(m&&zip.file(m[1])) return m[1];
+  }
+  const found=Object.keys(zip?.files||{}).find(f=>/\.opf$/i.test(f));
+  if(found) return found;
+  throw new Error('EPUB 구조를 읽을 수 없어요 (container.xml / OPF 없음).');
+}
+
+// ★ Phase 12: 편집 결과 EPUB의 dcterms:modified 갱신 — 리더기·서재 앱이 '새 버전'으로 인식
+//   EPUB3 패키지만 처리 (EPUB2 OPF에는 property 메타가 허용되지 않음)
+async function _touchOpfModified(zip, opfPath){
+  const f=zip?.file(opfPath); if(!f) return;
+  let opf=await f.async('text');
+  if(!/<(?:\w+:)?package\b[^>]*\bversion="3/.test(opf)) return;
+  const now=new Date().toISOString().replace(/\.\d{3}Z$/,'Z');
+  const rx=/(<(?:\w+:)?meta\b[^>]*\bproperty="dcterms:modified"[^>]*>)[^<]*(<\/(?:\w+:)?meta>)/;
+  if(rx.test(opf)) opf=opf.replace(rx,(m,a,b)=>a+now+b);
+  else opf=opf.replace(/<\/((?:\w+:)?)metadata>/,(m,p)=>'<'+p+'meta property="dcterms:modified">'+now+'</'+p+'meta>\n'+m);
+  zip.file(opfPath,opf);
+}
+
 async function loadEpub(file){
-  if(!file||!file.name.endsWith('.epub'))return;
+  // ★ Phase 12: 확장자 대소문자 무시 (.EPUB도 허용)
+  if(!file||!/\.epub$/i.test(file.name))return;
   E.epubFile=file;
   document.getElementById('epubDrop')?.classList.add('ok');
-  document.getElementById('epubInfo').style.display='block';
-  document.getElementById('epubInfo').textContent='로딩 중...';
-  document.getElementById('editResetBar').style.display='flex';
+  const infoEl=document.getElementById('epubInfo');
+  if(infoEl){ infoEl.style.display='block'; infoEl.textContent='로딩 중...'; }
+  const resetBar=document.getElementById('editResetBar'); if(resetBar) resetBar.style.display='flex';
   const ab=await fileToAB(file);
-  E.epubZip=await JSZip.loadAsync(ab);
-  const container=await E.epubZip.file('META-INF/container.xml').async('text');
-  const opfPath=container.match(/full-path="([^"]+)"/)[1];
+  // ★ Phase 12: 손상·비EPUB 파일은 전역 '예기치 않은 오류' 대신 원인을 안내
+  let opfPath;
+  try{
+    E.epubZip=await JSZip.loadAsync(ab);
+    opfPath=await _epubOpfPath(E.epubZip);
+  }catch(err){
+    E.epubZip=null; E.epubFile=null;
+    document.getElementById('epubDrop')?.classList.remove('ok');
+    if(infoEl) infoEl.textContent='❌ EPUB 파일을 열 수 없어요';
+    Toast.error('EPUB 파일을 열 수 없어요: '+(err?.message||'알 수 없는 오류'));
+    return;
+  }
   const opfBase=opfPath.replace(/[^/]+$/,'');
   const opfText=await E.epubZip.file(opfPath).async('text');
   const manifestMap={};
@@ -141,7 +179,7 @@ async function loadEpub(file){
   // 메타데이터 초기화 (기존 값 가져오기)
   try{
     const opfXml=await E.epubZip.file(
-      Object.keys(E.epubZip.files).find(f=>f.endsWith('.opf'))
+      await _epubOpfPath(E.epubZip)
     ).async('text');
     const doc=new DOMParser().parseFromString(opfXml,'text/xml');
     const existTitle=doc.querySelector('title,dc\\:title')?.textContent||'';
@@ -178,8 +216,7 @@ async function extractEpubImages(){
 
   try{
     // ── 1. OPF에서 이미지 파일 목록 수집 ──
-    const container=await E.epubZip.file('META-INF/container.xml').async('text');
-    const opfPath=container.match(/full-path="([^"]+)"/)[1];
+    const opfPath=await _epubOpfPath(E.epubZip);
     const opfBase=opfPath.replace(/[^/]+$/,'');
     const opfText=await E.epubZip.file(opfPath).async('text');
 
@@ -703,8 +740,7 @@ async function startEditEpub(){
     if(!newChapters.length)throw new Error('삽입할 챕터가 없습니다.');
     ep(15,'EPUB 복제 중...');
     const newZip=await _cloneEpubZip(E.epubZip);
-    const containerXml=await E.epubZip.file('META-INF/container.xml').async('text');
-    const opfPath=containerXml.match(/full-path="([^"]+)"/)[1];
+    const opfPath=await _epubOpfPath(E.epubZip);
     const opfBase=opfPath.replace(/[^/]+$/,'');
     let opfText=await E.epubZip.file(opfPath).async('text');
     const keepCss=document.getElementById('keepOrigCss')?.checked!==false;
@@ -826,6 +862,7 @@ newZip.file(fullPath,'<?xml version="1.0" encoding="utf-8"?><!DOCTYPE html>\n<ht
       const illEntries=buildIllEntries(E.chapters,opfBase);
       if(illEntries.length>0) await insertIllsToEpub(newZip,opfPath,opfBase,illEntries);
     }
+    await _touchOpfModified(newZip,opfPath);
     ep(92,'압축 중...');
     const blob=await newZip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:parseInt(document.getElementById('optCompression')?.value||'6')}},
       meta=>ep(92+Math.floor(meta.percent*0.07),'압축 중 '+Math.floor(meta.percent)+'%...'));
@@ -1415,8 +1452,7 @@ async function applyDirectEdit(){
     ep(5,'EPUB 복제 중...');
     const newZip=await _cloneEpubZip(E.epubZip);
 
-    const containerXml=await E.epubZip.file('META-INF/container.xml').async('text');
-    const opfPath=containerXml.match(/full-path="([^"]+)"/)[1];
+    const opfPath=await _epubOpfPath(E.epubZip);
     const opfBase=opfPath.replace(/[^/]+$/,'');
 
     // ── 목차 재생성 ──
@@ -1538,6 +1574,12 @@ async function applyDirectEdit(){
       // EPUB 내 CSS 파일 찾기
       const cssFiles=Object.keys(E.epubZip.files).filter(f=>f.endsWith('.css'));
       if(!cssFiles.length) throw new Error('EPUB 내 CSS 파일을 찾지 못했어요.');
+      // ★ Phase 12: 덮어쓰기는 EPUB 안의 모든 CSS(폰트 정의 포함)를 지우므로 실행 전 확인
+      if(!append){
+        const names=cssFiles.map(p=>p.split('/').pop()).slice(0,5).join(', ')+(cssFiles.length>5?' 외':'');
+        const ok=await Toast.confirm('덮어쓰기는 EPUB 안의 CSS 파일 '+cssFiles.length+'개('+names+')의 기존 내용을 모두 지우고 입력한 CSS로 바꿔요. 계속할까요?');
+        if(!ok) throw new Error('CSS 덮어쓰기를 취소했어요. 기존 CSS를 지키려면 "기존 CSS 유지 후 추가"를 켜세요.');
+      }
 
       ep(40,'CSS 수정 중...');
       for(const cssFile of cssFiles){
@@ -1547,8 +1589,10 @@ async function applyDirectEdit(){
       ep(80,'완료 중...');
     }
 
+    await _touchOpfModified(newZip,opfPath);
     ep(90,'EPUB 생성 중...');
-    const blob=await newZip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
+    // ★ Phase 12: mimeType 지정 — 이전엔 application/zip Blob으로 저장돼 공유·열기 시 ZIP으로 인식될 수 있었음
+    const blob=await newZip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:6}});
     const origName=(E.epubFile?.name||'edited').replace(/\.epub$/i,'');
     const suffix=activeTab==='toc'?'_목차수정':activeTab==='ill'?'_삽화추가':'_CSS추가';
     _directEditResult={blob, name:origName+suffix+'.epub'};

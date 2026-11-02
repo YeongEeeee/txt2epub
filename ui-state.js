@@ -950,7 +950,7 @@ function setupEventDelegate(){
     closeCoverModal: () => typeof closeCoverModal==='function'&&closeCoverModal(),
     runCoverSearch: () => typeof runCoverSearch==='function'&&runCoverSearch(),
     abortCoverSearch: () => typeof abortCoverSearch==='function'&&abortCoverSearch(),
-    applyCoverUrl: (el) => typeof applyCoverUrl==='function'&&applyCoverUrl(el.dataset.inp,el.dataset.thumb,el.dataset.name,el.dataset.mode),
+    applyCoverUrl: (el) => typeof applyCoverUrl==='function'&&applyCoverUrl(el.dataset.inp,el.dataset.thumb,el.dataset.name,el.dataset.mode,el),
     clearCssImport: () => typeof clearCssImport==='function'&&clearCssImport(),
     applyCssImport: () => typeof applyCssImport==='function'&&applyCssImport(),
     addManualIll:  () => typeof addManualIll==='function'&&addManualIll(),
@@ -1208,7 +1208,15 @@ window.initUiState = function initUiState(){
 
   // 커스텀 폰트 복원
   SettingsDB.get('customFontFace').then(face=>{
-    if(face){
+    if(!face) return;
+    // ★ Phase 12: 이전 버전이 저장한 손상 폰트(base64 중간 패딩·format("ttf"))는 적용하지 않고 재업로드 안내
+    if(typeof _isValidFontFace==='function'&&!_isValidFontFace(face)){
+      SettingsDB.set('customFontFace','').catch(()=>{});
+      SettingsDB.set('customFontName','').catch(()=>{});
+      Toast?.warn?.('저장된 커스텀 폰트가 이전 버전 오류로 손상돼 있어요. 설정 탭에서 폰트 파일을 다시 올려주세요.', 8000);
+      return;
+    }
+    {
       SettingsDB.get('customFontName').then(name=>{
         customFontFace = face;
         customFontName = name||'커스텀폰트';

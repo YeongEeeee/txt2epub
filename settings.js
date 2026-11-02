@@ -588,12 +588,14 @@ function smartPatConvert(){
   clearTimeout(_smartPatTimer);
   const include=document.getElementById('smartPatInput')?.value.trim()||'';
   const exclude=document.getElementById('smartPatExclude')?.value.trim()||'';
+  // 이전 진행 중인 요청 취소 (병렬 중복 요청 방지)
+  // ★ Phase 12: 입력을 모두 지운 경우에도 취소 — 이전엔 진행 중 응답이 숨긴 결과 상자를 다시 채움
+  if(_smartPatAbort) _smartPatAbort.abort();
   if(!include){
-    document.getElementById('smartPatResultBox').style.display='none';
+    const box=document.getElementById('smartPatResultBox');
+    if(box) box.style.display='none';
     return;
   }
-  // 이전 진행 중인 요청 취소 (병렬 중복 요청 방지)
-  if(_smartPatAbort) _smartPatAbort.abort();
   _smartPatTimer=setTimeout(()=>_runSmartPat(include,exclude), 600);
 }
 
@@ -618,8 +620,12 @@ async function _runSmartPat(include, exclude){
     applyBtn.style.display='none';
     if(aiLabel) aiLabel.style.display='none';
 
+    // ★ Phase 12: 이 요청이 취소됐거나 더 새 요청으로 대체됐으면 결과를 화면에 쓰지 않음
+    //   (이전: AbortController를 만들기만 하고 fetch에 넘기지 않아 늦게 도착한 옛 응답이 새 결과를 덮어씀)
+    const isStale=()=>abortCtrl.signal.aborted||_smartPatAbort!==abortCtrl;
     try{
-      const rx=await _askGeminiForPattern(apiKey, include, exclude);
+      const rx=await _askGeminiForPattern(apiKey, include, exclude, abortCtrl.signal);
+      if(isStale()) return;
       if(rx){
         resultEl.textContent=rx;
         resultBox.style.borderColor='var(--accent)';
@@ -631,8 +637,13 @@ async function _runSmartPat(include, exclude){
         applyBtn.style.display='none';
       }
     }catch(e){
+      if(e?.name==='AbortError'||isStale()) return;
       const msg=e.message||'';
-      if(msg==='quota_exceeded'){
+      if(msg==='model_unavailable'){
+        // ★ Phase 12: 모든 모델 404 — 이전에는 'quota_exceeded'로 뭉뚱그려 '할당량 초과'로 잘못 안내
+        Toast.warn('사용 가능한 Gemini 모델을 찾지 못했어요 — 내장 변환 로직을 사용해요.');
+        _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
+      } else if(msg==='quota_exceeded'){
         Toast.warn(
           'Gemini API 할당량 초과 — 내장 변환 로직을 사용해요.<br>'+
           '<small style="opacity:.8">💡 Free Tier 일일 한도(1,500회/day) 초과 시 내일 초기화돼요.<br>'+
@@ -672,19 +683,52 @@ function _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel){
 }
 
 // Gemini API 모델 우선순위 목록 (앞부터 시도)
-// Gemini 모델 목록 — 순서대로 fallback
-// Free Tier RPM: gemini-2.0-flash 15/min, gemini-1.5-flash 15/min, gemini-1.5-flash-8b 15/min
-// Free Tier RPD: gemini-2.0-flash 1500/day, gemini-1.5-flash 1500/day, gemini-1.5-flash-8b 1500/day
+// ★ Phase 12: 서비스 종료 모델 교체 — gemini-2.0-flash(2026-06-01 종료)·gemini-1.5-flash·1.5-flash-8b는
+//   모두 404를 반환해 AI 패턴 생성이 항상 실패하고 '할당량 초과'로 잘못 안내되던 문제
+//   목록의 모델이 전부 404면 _discoverGeminiModels()가 models.list에서 사용 가능한 Flash 모델을 찾아 이어서 시도
+//   (모델 수명 주기: https://ai.google.dev/gemini-api/docs/deprecations)
 const GEMINI_MODELS = [
-  { id: 'gemini-2.0-flash',    maxTokens: 200, tier: 'primary'   },
-  { id: 'gemini-1.5-flash',    maxTokens: 200, tier: 'fallback1' },
-  { id: 'gemini-1.5-flash-8b', maxTokens: 200, tier: 'fallback2' },
+  { id: 'gemini-3.8-flash',      tier: 'primary'   },
+  { id: 'gemini-3.5-flash-lite', tier: 'fallback1' },
+  { id: 'gemini-3.6-flash',      tier: 'fallback2' },
 ];
+const GEMINI_API_BASE='https://generativelanguage.googleapis.com/v1beta/';
 
-// 모델별 마지막 429 발생 시각 추적 (분당 RPM 관리)
-const _geminiModelCooldown = {};;
+// 모델별 차단 상태 (Infinity = 이 세션에서 사용 안 함: 404·하드 쿼터)
+const _geminiModelCooldown = {};
+let _geminiDiscovered = null;   // models.list 결과 캐시 (세션 1회)
 
-async function _askGeminiForPattern(apiKey, include, exclude){
+// ★ Phase 12: 중단 가능한 대기 (재시도 백오프 중 사용자가 입력을 바꾸면 즉시 종료)
+function _abortableSleep(ms, signal){
+  return new Promise((resolve, reject)=>{
+    if(signal?.aborted){ reject(new DOMException('aborted','AbortError')); return; }
+    const t=setTimeout(()=>{ signal?.removeEventListener?.('abort', onAbort); resolve(); }, ms);
+    const onAbort=()=>{ clearTimeout(t); reject(new DOMException('aborted','AbortError')); };
+    signal?.addEventListener?.('abort', onAbort, {once:true});
+  });
+}
+
+// ★ Phase 12: models.list에서 generateContent를 지원하는 Flash 계열 모델을 최신 버전 순으로 조회
+async function _discoverGeminiModels(apiKey, signal){
+  if(_geminiDiscovered) return _geminiDiscovered;
+  try{
+    const res=await fetch(GEMINI_API_BASE+'models?pageSize=200',{headers:{'x-goog-api-key':apiKey},signal});
+    if(!res.ok) return [];
+    const data=await res.json();
+    const ver=id=>{ const m=id.match(/gemini-(\d+(?:\.\d+)?)/); return m?parseFloat(m[1]):0; };
+    _geminiDiscovered=(data?.models||[])
+      .filter(m=>(m?.supportedGenerationMethods||[]).includes('generateContent'))
+      .map(m=>String(m.name||'').replace(/^models\//,''))
+      .filter(id=>/^gemini-[\d.]+-flash(?:-lite)?$/.test(id))
+      .sort((a,b)=>ver(b)-ver(a)||a.length-b.length);
+    return _geminiDiscovered;
+  }catch(e){
+    if(e?.name==='AbortError') throw e;
+    return [];
+  }
+}
+
+async function _askGeminiForPattern(apiKey, include, exclude, signal=null){
   // ── 프롬프트 압축 (토큰 절약) ──
   // 조건 설명을 최소화, 한국어 대신 짧은 영문 지시어 사용
   // 기존 ~220자(~55토큰) → ~120자(~30토큰) 절약
@@ -708,29 +752,45 @@ async function _askGeminiForPattern(apiKey, include, exclude){
   });
 
   // 모델 순서대로 시도 — cooldown 중인 모델 스킵
-  for(const m of GEMINI_MODELS){
-    const modelId=m.id||m; // 문자열/객체 모두 지원
-    // 세션 내 영구 차단된 모델 스킵
-    if(_geminiModelCooldown[modelId]===Infinity){
-      continue;
+  // ★ Phase 12: 실패 사유를 모아 최종 오류를 정확히 분류 (모델 없음 / 할당량 / 기타)
+  const reasons=[];
+  const tryModels=async ids=>{
+    for(const modelId of ids){
+      if(_geminiModelCooldown[modelId]===Infinity) continue;   // 세션 내 영구 차단된 모델 스킵
+      // ★ Phase 12: API 키는 URL(?key=) 대신 헤더로 전송 — 주소창·프록시·로그에 키가 남지 않음
+      const url=GEMINI_API_BASE+'models/'+modelId+':generateContent';
+      const result=await _geminiRequest(url, body, modelId, 2, apiKey, signal);
+      if(result.ok) return result.rx;
+      if(result.fatal) throw new Error(result.msg);
+      reasons.push(result.msg);
+      // quota/error → 다음 모델
     }
-    const url='https://generativelanguage.googleapis.com/v1beta/models/'+modelId
-      +':generateContent?key='+apiKey;
-    const result=await _geminiRequest(url, body, modelId);
-    if(result.ok) return result.rx;
-    if(result.fatal) throw new Error(result.msg);
-    // quota/error → 다음 모델
+    return null;
+  };
+  let rx=await tryModels(GEMINI_MODELS.map(m=>m.id||m));
+  if(rx) return rx;
+  // 목록의 모델이 모두 사라졌으면 사용 가능한 모델을 조회해 이어서 시도
+  if(reasons.length&&reasons.every(r=>r==='model_not_found')){
+    const known=new Set(GEMINI_MODELS.map(m=>m.id||m));
+    const found=(await _discoverGeminiModels(apiKey, signal)).filter(id=>!known.has(id)).slice(0,3);
+    rx=await tryModels(found);
+    if(rx) return rx;
   }
-  throw new Error('quota_exceeded');
+  if(reasons.some(r=>r==='quota_exceeded'||r==='hard_quota')) throw new Error('quota_exceeded');
+  if(reasons.length&&reasons.every(r=>r==='model_not_found')) throw new Error('model_unavailable');
+  throw new Error(reasons[reasons.length-1]||'gemini_failed');
 }
 
 // ── Gemini 단일 요청 (지수 백오프 포함) ──
 // maxRetries: 같은 모델을 재시도할 최대 횟수 (429 일시적 RPM 초과 시)
-async function _geminiRequest(url, body, modelId, maxRetries=2){
+async function _geminiRequest(url, body, modelId, maxRetries=2, apiKey='', signal=null){
   for(let attempt=0; attempt<=maxRetries; attempt++){
     let res;
-    try{ res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body}); }
-    catch(e){ return {ok:false,fatal:false,msg:e.message}; }
+    try{ res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':apiKey},body,signal}); }
+    catch(e){
+      if(e?.name==='AbortError') throw e;   // ★ Phase 12: 사용자 취소는 상위로 전파 (다음 모델 시도 안 함)
+      return {ok:false,fatal:false,msg:e.message};
+    }
 
     if(res.ok){
       const data=await res.json();
@@ -751,7 +811,10 @@ async function _geminiRequest(url, body, modelId, maxRetries=2){
       ?.find(d=>d['@type']?.includes('QuotaFailure'))?.violations||[];
 
     // 401 / 403: 키 오류 — 즉시 중단 (재시도 불필요)
-    if(status===401||status===403){
+    // ★ Phase 12: 잘못된 키는 400 INVALID_ARGUMENT(reason API_KEY_INVALID)로도 반환됨
+    const isKeyInvalid=status===400&&(/API key/i.test(errMsg)||
+      (errBody?.error?.details||[]).some(d=>d?.reason==='API_KEY_INVALID'));
+    if(status===401||status===403||isKeyInvalid){
       const hint=errMsg.includes('free_tier')||violations.some(v=>v.quotaId?.includes('FreeTier'))
         ? '\n\n💡 hint: limit:0 오류는 Google AI Studio 키(AIza...)가 아닌\n   Google Cloud API 키를 사용하면 발생해요.\n   https://aistudio.google.com/app/apikey 에서 발급한 키를 사용해주세요.'
         : '';
@@ -793,17 +856,20 @@ async function _geminiRequest(url, body, modelId, maxRetries=2){
       }
 
       const waitMs=Math.min(baseWait, 30000); // 최대 30초 대기
-      await new Promise(r=>setTimeout(r,waitMs));
+      await _abortableSleep(waitMs, signal);
       continue; // 같은 모델 재시도
     }
 
-    // 404: 모델 없음 → 다음 모델
-    if(status===404) return {ok:false,fatal:false,msg:'model_not_found'};
+    // 404: 모델 없음 → 이 세션에서 다시 시도하지 않고 다음 모델
+    if(status===404){
+      _geminiModelCooldown[modelId]=Infinity;
+      return {ok:false,fatal:false,msg:'model_not_found'};
+    }
 
     // 500/503: 서버 오류 → 짧게 대기 후 재시도
     if(status>=500&&attempt<maxRetries){
       const waitMs=1000*(attempt+1);
-      await new Promise(r=>setTimeout(r,waitMs));
+      await _abortableSleep(waitMs, signal);
       continue;
     }
 
@@ -1318,18 +1384,59 @@ function _sendConvertNotif(title, chapterCount){
 // ══════════════════════════════════════════
 let customFontName='', customFontFace='';
 
+// ★ Phase 12: 폰트 확장자 → 표준 MIME(RFC 8081) + CSS @font-face format() 키워드
+//   (이전: format("ttf")/format("otf") — 브라우저·리더기가 모르는 값이라 src 전체가 무시됨,
+//    MIME도 비표준 font/truetype·font/opentype)
+const _FONT_FORMATS={
+  ttf:  {mime:'font/ttf',   fmt:'truetype'},
+  otf:  {mime:'font/otf',   fmt:'opentype'},
+  woff: {mime:'font/woff',  fmt:'woff'},
+  woff2:{mime:'font/woff2', fmt:'woff2'},
+};
+
+// ★ Phase 12: 바이트 → base64 — 청크 크기를 3의 배수로 고정
+//   (이전: 8192바이트 청크마다 btoa → 8192는 3의 배수가 아니라 청크 끝마다 '=' 패딩이 문자열 중간에 끼어
+//    base64 전체가 손상 → 8KB 넘는 모든 폰트가 EPUB·미리보기에서 로드 실패)
+const _B64_CHUNK=3*2730;   // 8190바이트 — fromCharCode 인자 수 한도(스택) 안쪽 + 3의 배수
+function _bytesToBase64(bytes){
+  const parts=[];
+  for(let i=0;i<bytes.length;i+=_B64_CHUNK){
+    parts.push(btoa(String.fromCharCode.apply(null, bytes.subarray(i,i+_B64_CHUNK))));
+  }
+  return parts.join('');
+}
+
+// ★ Phase 12: 저장된 @font-face 검증 — 이전 버전이 만든 손상 데이터(중간 '=' 패딩·잘못된 format) 감지
+function _isValidFontFace(face){
+  if(typeof face!=='string'||!face) return false;
+  const m=face.match(/base64,([A-Za-z0-9+/=]+)"\) format\("([a-z0-9]+)"\)/);
+  if(!m) return false;
+  const b64=m[1], fmt=m[2];
+  if(!Object.values(_FONT_FORMATS).some(v=>v.fmt===fmt)) return false;
+  if(b64.length%4!==0) return false;
+  const pad=b64.indexOf('=');
+  return pad===-1||pad>=b64.length-2;
+}
+
+// ★ Phase 12: CSS 문자열("...")·font-family 값에 안전한 폰트 이름 (따옴표·역슬래시·제어문자 제거)
+function _safeFontName(name){
+  return String(name||'').replace(/["\\\u0000-\u001f<>]/g,'').trim().slice(0,80)||'CustomFont';
+}
+
 async function handleCustomFont(files){
-  const f=files[0];if(!f)return;
+  const f=files?.[0];if(!f)return;
   const ext=f.name.split('.').pop().toLowerCase();
-  const fontName=f.name.replace(/\.[^.]+$/,'');
+  const fontInfo=_FONT_FORMATS[ext];
+  if(!fontInfo){
+    Toast.warn('지원하지 않는 폰트 형식이에요. (TTF · OTF · WOFF · WOFF2)');
+    return;
+  }
+  const fontName=_safeFontName(f.name.replace(/\.[^.]+$/,''));
   customFontName=fontName;
-  // ★ BUG-10 수정: 청크 단위 base64 인코딩 (스택오버플로우 방지)
   const ab=await fileToAB(f);
   const bytes=new Uint8Array(ab);
-  let b64=''; const CHUNK=8192;
-  for(let i=0;i<bytes.length;i+=CHUNK) b64+=btoa(String.fromCharCode(...bytes.subarray(i,i+CHUNK)));
-  const mimeMap={'ttf':'font/truetype','otf':'font/opentype','woff':'font/woff','woff2':'font/woff2'};
-  const mime=mimeMap[ext]||'font/truetype';
+  let b64=_bytesToBase64(bytes);
+  const mime=fontInfo.mime;
   // ★ S-02: 이전 customFontFace(data-URL)가 있으면 새 값으로 덮어쓰기 전 명시적 초기화
   // data-URL은 ObjectURL이 아니므로 revokeObjectURL 불필요
   // 단, 대형 문자열이 메모리에 중복으로 잠기지 않도록 이전 참조를 null 처리 후 교체
@@ -1337,7 +1444,7 @@ async function handleCustomFont(files){
   // ★ S-03: base64 인코딩 후 Uint8Array/ArrayBuffer 참조 즉시 해제 → GC 수거 유도
   // 커스텀 폰트 파일은 수 MB가 될 수 있음 — b64 변환 후 원본 버퍼 불필요
   bytes.fill(0); // 메모리 내용 초기화 (보안 + GC 힌트)
-  customFontFace='@font-face{font-family:"'+fontName+'";src:url("data:'+mime+';base64,'+b64+'") format("'+ext+'");}\n';
+  customFontFace='@font-face{font-family:"'+fontName+'";src:url("data:'+mime+';base64,'+b64+'") format("'+fontInfo.fmt+'");}\n';
   b64 = null; // ★ 이제 b64 문자열도 customFontFace에 이미 포함됨 — 중복 참조 해제
   SettingsDB.set('customFontFace', customFontFace).catch(()=>{});
   SettingsDB.set('customFontName', customFontName).catch(()=>{});

@@ -11,6 +11,7 @@
  *   3. parseSeriesFromName / buildTocTree 단위 케이스
  *   4. EPUB 빌드: epub-gen.js Worker 소스를 실제 실행 → OPF 필수 메타·시리즈·nav/ncx 계층·빈 목차 제목 검사
  *      생성된 EPUB은 tests/out/ 에 저장 → CI에서 epubcheck로 표준 검증
+ *   7. Phase 12: 커스텀 폰트 base64·인코딩 감지(UTF-16 무BOM)·슬라이스 경계·URL 표지·Gemini·EPUB 편집 메타
  */
 'use strict';
 const fs   = require('fs');
@@ -510,6 +511,116 @@ async function main(){
     check('[배포] SW 외부 자원 CORS 프리캐시', /mode: 'cors'/.test(sw));
     const defs = ['parser.js', 'convert.js', 'main.js'].map(f => (read(f).match(/defineProperty\(window,\s*'_autoSplitActive'/g) || []).length);
     check('[구조] window._autoSplitActive 정의 1곳', defs.reduce((a, b) => a + b, 0) === 1, defs.join('/'));
+  }
+
+  // ── 7. Phase 12 회귀 (테스트 밖 경로에서 발견된 버그: 폰트·인코딩·URL 표지·Gemini·편집) ──
+  {
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    // 앱 파일에서 최상위 function/const 선언 하나를 원문 그대로 잘라냄 (DOM 의존 파일을 통째로 로드하지 않기 위함)
+    const extract = (src, name) => {
+      const m = new RegExp('(?:^|\\n)((?:async\\s+)?function\\s+' + name + '\\s*\\(|const\\s+' + name + '\\s*=)').exec(src);
+      if(!m) throw new Error('선언을 찾지 못함: ' + name);
+      const start = m.index + (m[0].startsWith('\n') ? 1 : 0);
+      const body = start + m[1].length;
+      // 한 줄짜리 const (객체·배열 리터럴이 아님) → 줄 끝까지
+      if(m[1].startsWith('const') && !/^\s*[{[]/.test(src.slice(body, body + 8))) return src.slice(start, src.indexOf('\n', start));
+      let i = src.indexOf('{', body), depth = 0;
+      for(; i < src.length; i++){ if(src[i] === '{') depth++; else if(src[i] === '}' && --depth === 0) break; }
+      return src.slice(start, i + 1) + (m[1].startsWith('const') ? ';' : '');
+    };
+    const sandbox = (file, names, extra = {}) => {
+      const c = Object.assign({ console, TextDecoder, URL, btoa, Buffer }, extra);
+      vm.createContext(c);
+      const src = read(file);
+      vm.runInContext(names.map(n => extract(src, n)).join('\n'), c, { filename: file + ':extract' });
+      return c;
+    };
+
+    // 7-1. 커스텀 폰트 — base64가 표준 인코딩과 바이트 단위로 일치 (이전: 8192바이트 청크마다 중간 '=' 패딩)
+    const S1 = sandbox('settings.js', ['_FONT_FORMATS', '_B64_CHUNK', '_bytesToBase64', '_isValidFontFace', '_safeFontName']);
+    const lens = [0, 1, 2, 3, 8189, 8190, 8191, 8192, 20000, 100003];
+    const b64ok = lens.every(n => { const b = new Uint8Array(n).map((_, i) => (i * 131 + 7) & 255);
+      return vm.runInContext('_bytesToBase64', S1)(b) === Buffer.from(b).toString('base64'); });
+    check('[폰트] base64 청크 인코딩 = 표준 base64 (0~100KB)', b64ok);
+    const face = fmt => '@font-face{font-family:"X";src:url("data:font/ttf;base64,' + Buffer.from(new Uint8Array(30000).fill(9)).toString('base64') + '") format("' + fmt + '");}\n';
+    const isValid = vm.runInContext('_isValidFontFace', S1);
+    let broken = ''; for(let i = 0; i < 30000; i += 8192) broken += Buffer.from(new Uint8Array(Math.min(8192, 30000 - i)).fill(9)).toString('base64');
+    check('[폰트] 정상 @font-face 검증 통과', isValid(face('truetype')) && isValid(face('woff2')));
+    check('[폰트] 이전 버전 손상 데이터·format("ttf") 감지', !isValid(face('ttf')) &&
+      !isValid('@font-face{font-family:"X";src:url("data:font/truetype;base64,' + broken + '") format("truetype");}'));
+    check('[폰트] 폰트 이름의 따옴표·역슬래시 제거', vm.runInContext('_safeFontName', S1)('나눔"명조\\체') === '나눔명조체');
+    check('[폰트] format()은 표준 키워드 사용', !/format\("'\+ext\+'"\)/.test(read('settings.js')) && /format\("'\+fontInfo\.fmt\+'"\)/.test(read('settings.js')));
+
+    // 7-2. 인코딩 감지 (단일 소스) — UTF-16 무BOM·UTF-8·EUC-KR
+    const C1 = sandbox('convert.js', ['_countChar', '_detectUtf16NoBom', '_detectEncodingFromAB', '_sliceBounds', '_withCacheBust', '_parseHttpUrl']);
+    const det = buf => vm.runInContext('_detectEncodingFromAB', C1)(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
+    const ko = ('제1화 시작\n그는 문을 열었다. "누구세요?" 대답이 없었다.\n' ).repeat(80);
+    const le = Buffer.from(ko, 'utf16le');
+    const be = Buffer.from(le); be.swap16();
+    // EUC-KR 바이트: 가(B0A1) 나(B3AA) 다(B4D9) + 공백·줄바꿈
+    const euc = Buffer.from(Array.from({ length: 600 }, (_, i) => i % 7 === 6 ? [0x0A] : i % 4 === 3 ? [0x20] : [[0xB0,0xA1],[0xB3,0xAA],[0xB4,0xD9]][i % 3]).flat());
+    check('[인코딩] BOM 없는 UTF-16LE 감지', det(le) === 'utf-16le');
+    check('[인코딩] BOM 없는 UTF-16BE 감지', det(be) === 'utf-16be');
+    check('[인코딩] UTF-8 한글은 UTF-8', det(Buffer.from(ko, 'utf8')) === 'utf-8');
+    check('[인코딩] EUC-KR 바이트는 euc-kr', det(euc) === 'euc-kr');
+    check('[인코딩] worker.js 감지 복사본 제거', !/function detectEncoding/.test(read('worker.js')));
+    check('[인코딩] 파일 목록 감지는 앞 64KB만 읽음', /fileToAB\(file\.slice\(0,65536\)\)/.test(read('convert.js')));
+
+    // 7-3. 슬라이스 경계 — EUC-KR은 줄 단위, UTF-16은 짝수 오프셋, UTF-8은 문자 시작
+    const bounds = vm.runInContext('_sliceBounds', C1);
+    const [es, ee] = bounds(euc, 5, 200, 0, 10000, 'euc-kr', 4);
+    const eucTxt = new TextDecoder('euc-kr').decode(euc.subarray(es, ee));
+    check('[슬라이스] EUC-KR 중간 시작도 깨진 글자 없음', es > 0 && euc[es - 1] === 0x0A && !eucTxt.includes('\ufffd'));
+    const [us] = bounds(le, 3, 101, 0, 10000, 'utf-16le', 4);
+    check('[슬라이스] UTF-16 짝수 오프셋 정렬', us % 2 === 0);
+    const u8 = Buffer.from('가나다라마바사', 'utf8');
+    const [s8, e8] = bounds(u8, 1, 8, 0, u8.length, 'utf-8', 4);
+    check('[슬라이스] UTF-8 연속 바이트 건너뜀', !new TextDecoder().decode(u8.subarray(s8, e8)).includes('\ufffd'));
+
+    // 7-4. URL 표지 — 기존 쿼리 보존·http(s)만 허용·inline onclick 주입 제거
+    const bust = vm.runInContext('_withCacheBust', C1)('https://img.cdn.com/a.jpg?type=w500');
+    check('[URL표지] 캐시 우회 쿼리가 기존 쿼리를 깨지 않음', bust.split('?').length === 2 && bust.includes('type=w500') && /[&]_nvt=\d+/.test(bust));
+    const P = vm.runInContext('_parseHttpUrl', C1);
+    check('[URL표지] http(s)만 허용', !P('javascript:alert(1)') && !P('httpx://a.com') && !!P("https://a.com/x'y.jpg"));
+    const conv = read('convert.js');
+    check('[URL표지] URL을 inline onclick에 넣지 않음', !/window\.open\('\$\{url\}'/.test(conv) && !/url\+'\?'\+\(Date\.now\(\)\)/.test(conv));
+    check('[URL표지] 암묵 전역 event 미사용 + 버튼 전달', !/const btn=event\.target;/.test(conv) && /applyCoverUrl\(el\.dataset\.inp,el\.dataset\.thumb,el\.dataset\.name,el\.dataset\.mode,el\)/.test(read('ui-state.js')));
+    check('[URL표지] canvas 실패 시 이미지 프록시 체인 경유', /typeof _fetchImgBlob==='function'/.test(conv));
+
+    // 7-5. Gemini — 종료 모델 제거·키는 헤더로·요청 취소 연결
+    const st = read('settings.js');
+    const models = (st.match(/const GEMINI_MODELS = \[([\s\S]*?)\];/) || [])[1] || '';
+    check('[Gemini] 서비스 종료 모델 미사용', models && !/gemini-(2\.0|1\.5)-/.test(models));
+    check('[Gemini] API 키는 URL이 아닌 헤더', !/generateContent\?key=/.test(st) && /'x-goog-api-key':apiKey/.test(st));
+    check('[Gemini] fetch에 AbortSignal 연결', /body,signal\}\)/.test(st) && /_askGeminiForPattern\(apiKey, include, exclude, abortCtrl\.signal\)/.test(st));
+    check('[Gemini] 모델 없음은 할당량 초과와 구분', /'model_unavailable'/.test(st));
+
+    // 7-6. EPUB CSS 다크 모드 — 글자색만 지정하면 다크 배경을 강제하지 않음
+    const cssWith = vals => {
+      const c = makeAppContext();
+      c.document.getElementById = id => (id in vals ? { value: vals[id], checked: false } : null);
+      vm.runInContext(read('epub-gen.js'), c, { filename: 'epub-gen.js' });
+      return vm.runInContext('buildCss()', c);
+    };
+    check('[CSS] 색 미지정 시 다크 모드 기본색 유지', /prefers-color-scheme:dark\)\{body\{background-color:#1a1208;color:#e8d8c4;\}\}/.test(cssWith({})));
+    check('[CSS] 글자색만 지정하면 다크 모드 배경 강제 안 함', !/prefers-color-scheme/.test(cssWith({ cssTextColor: '#333333' })));
+
+    // 7-7. EPUB 편집 — OPF 경로(container.xml)·dcterms:modified 갱신·mimeType
+    const ed = read('edit.js');
+    const EC = sandbox('edit.js', ['_epubOpfPath', '_touchOpfModified']);
+    const opf3 = '<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="u"><metadata><meta property="dcterms:modified">2020-01-01T00:00:00Z</meta></metadata></package>';
+    const opf3n = opf3.replace(/<meta property[^/]+\/meta>/, '');
+    const opf2 = '<package version="2.0"><metadata></metadata></package>';
+    const z = new JSZip();
+    z.file('META-INF/container.xml', '<container><rootfiles><rootfile full-path="OPS/book.opf"/></rootfiles></container>');
+    z.file('OPS/book.opf', opf3); z.file('OPS/x.opf', opf2); z.file('OPS/n.opf', opf3n);
+    check('[편집] OPF 경로는 container.xml rootfile', await vm.runInContext('_epubOpfPath', EC)(z) === 'OPS/book.opf');
+    const touch = vm.runInContext('_touchOpfModified', EC);
+    await touch(z, 'OPS/book.opf'); await touch(z, 'OPS/x.opf'); await touch(z, 'OPS/n.opf');
+    const t3 = await z.file('OPS/book.opf').async('string'), t2 = await z.file('OPS/x.opf').async('string'), tn = await z.file('OPS/n.opf').async('string');
+    check('[편집] dcterms:modified 갱신 (EPUB3)', !t3.includes('2020-01-01') && /dcterms:modified">\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ</.test(t3));
+    check('[편집] dcterms:modified 없으면 추가, EPUB2는 그대로', /dcterms:modified">\d{4}-/.test(tn) && t2 === opf2);
+    check('[편집] EPUB 결과 Blob mimeType 지정', (ed.match(/newZip\.generateAsync\(\{type:'blob',(?!mimeType)/g) || []).length === 0);
   }
 
   if(UPDATE){
