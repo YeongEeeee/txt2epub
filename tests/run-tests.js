@@ -249,6 +249,40 @@ async function main(){
     check('[형식] 파일 경계 → 파일명 제목', eq(fb.items.map(i => i.title), ['001_시작', '002_전개', '003_결말']), fb.items.map(i => i.title).join(' / '));
   }
 
+  // ═══ 3-4. v3 이식 (917b27b → Phase 10 엔진) — 형식 3종 · 간격 분할 엔진 · 일괄 프리셋 ═══
+  {
+    const para = n => Array.from({ length: 6 }, (_, j) => `그는 ${n}번째 장면 ${j}에서 천천히 걸어갔다.`).join('\n');
+    const noise = ['3장이 남았다', '10화를 봤다', '5회째 실패', '2막이 올랐다', '1: 0으로 끝났다', '12 - 3 = 9', '7장의 카드'];
+    const mkN = (head, blank) => { let s = ''; for(let i = 1; i <= 30; i++){ const g = blank ? '\n\n' : '\n'; s += head(i) + g + para(i) + g + noise[i % noise.length] + g + para(i) + g; } return s; };
+    const H = raw => splitChapters(raw, '').map(c => c[0]).filter(h => h !== '서문');
+    for(const [label, head] of [['[N] 제목', i => `[${i}] 그날`], ['N - 제목', i => `${i} - 그날`], ['N: 제목', i => `${i}: 그날`], ['제N막', i => `제${i}막`]]){
+      for(const blank of [true, false]){
+        const h = H(mkN(head, blank));
+        check(`[v3] ${label}${blank ? '' : ' (빈 줄 없음)'} 30화 · 본문 오탐 0`, h.length === 30 && !h.some(t => noise.includes(t)), h.length + '개: ' + h.filter(t => noise.includes(t)).join(', '));
+      }
+    }
+    const ideo = H(Array.from({ length: 5 }, (_, i) => `제　${i + 1}　화\n\n${para(i)}`).join('\n\n'));
+    check('[v3] 전각 공백 제목 → 일반 공백', ideo[0] === '제 1 화' && ideo.length === 5, ideo.join(' / '));
+
+    // 간격 분할 엔진
+    const computeIntervalSplit = G('computeIntervalSplit'), toCh = G('intervalItemsToChapters'), est = G('estimateIntervalTotal');
+    const L = [], heads = [];
+    for(let i = 1; i <= 40; i++){ heads.push(L.length); L.push(`${i}화`, ''); for(let k = 0; k < 20 + (i * 37) % 180; k++) L.push(`문장 ${i}-${k}이다.`); L.push(''); }
+    const items = computeIntervalSplit(L, 40, { titleMode: 'number', titleTemplate: '제{N}화' });
+    const starts = items.map(t => t.line - 1);
+    check('[간격] 화수 = 제목 줄 수면 모든 경계가 제목 줄', items.length === 40 && starts.every((s, k) => s === heads[k]), starts.filter((s, k) => s !== heads[k]).length + '개 어긋남');
+    check('[간격] 제목 템플릿', items[0].title === '제1화' && items[39].title === '제40화');
+    const outCh = toCh(L, items);
+    const nb = a => a.filter(l => String(l).trim()).length;
+    check('[간격] Zero-Loss (원문 비공백 줄 = 출력)', nb(L) === outCh.reduce((s, c) => s + nb(c[1].split('\n')), 0) && outCh[0][0] === '제1화');
+    const P = []; for(let i = 0; i < 3000; i++){ P.push(`문장 ${i}입니다.`); if(i % 7 === 6) P.push(''); }
+    const pit = computeIntervalSplit(P, 25, { titleMode: 'number' });
+    check('[간격] 제목 없는 원고 — 첫 화 1줄·단조 증가·화수', pit.length === 25 && pit[0].line === 1 && pit.every((t, k) => !k || t.line > pit[k - 1].line));
+    check('[간격] 줄 수보다 큰 화수·빈 원문', computeIntervalSplit(['a', 'b', 'c'], 10).length === 3 && computeIntervalSplit([], 5).length === 0);
+    check('[간격] 화수 추정: 파일명 범위 우선', est(P, '소설_1-277.txt') === 277);
+    check('[간격] 화수 추정: 감지된 목차 수', est(L, '') === 40);
+  }
+
   // ═══ 4. EPUB 빌드 ═══
   const JSZip = require('jszip');
   const jszipSrc = fs.readFileSync(require.resolve('jszip/dist/jszip.min.js'), 'utf8');

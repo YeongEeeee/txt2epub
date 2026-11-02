@@ -301,6 +301,34 @@
 - 정적 연결 검사(ESLint no-undef·data-action/data-input-action 등록·inline 핸들러·getElementById 대상·미사용 최상위 선언): 미정의 참조 0, 등록 누락 0, 죽은 코드 0
 - 브라우저 E2E(Chromium): 변환 탭 49 · 편집/일괄/히스토리/설정 19 · Service Worker 오프라인 7 — 전부 통과
 
+### Phase 11 — 회귀 복구 · v3 기능 이식
+
+#### 1) 회귀 원인
+- 커밋 `917b27b`(목차 감지 v3 · 일괄 간격 분할)의 `convert.js`·`parser.js`가 **Phase 10 이전 계열**(0617 무렵 기반)에서 작업된 파일이었음
+- Phase 8~10의 `detectToc`·`buildTocTree`·`parseChapterRange`·`assembleTocChapters`·`buildParserWorkerSource`·AbortController 중단·차트 툴팁 XSS 수정 등이 소실
+- 다른 파일은 그대로 호출 → `epub-gen.js` `buildTocTree` / `edit.js` `detectToc` ReferenceError, `npm test`가 로드 단계에서 중단 (Phase 10 코드는 232/232 통과)
+
+#### 2) 복구 방식
+- 두 파일을 `1919194`(Phase 10)로 되돌린 뒤, v3 변경을 기능 단위로 대조해 **Phase 10 엔진 위에 재구현**
+- v3의 BOM·조사 차단·키워드 경계·제N회·第N回·Episode·【第N章】·조밀 원고 처리는 TocEngine이 이미 동일하게 처리함을 확인 (탐침 21종)
+
+#### 3) 이식한 기능
+| 항목 | 내용 |
+|------|------|
+| 형식 계열 3종 | `[N] 제목`, `N - 제목`/`N: 제목`(구분 기호 뒤 숫자는 제외), `제N막` — 이전엔 bestPat 폴백이 본문 'N화를 봤다' 등 12줄 오탐 / 빈 줄 없는 원고는 감지 실패 → 30/30·오탐 0 (v3도 오탐 1~2) |
+| 제목 표시 | 전각 공백(U+3000) → 일반 공백 (`제　1　화` → `제 1 화`) |
+| 간격 분할 엔진 | `computeIntervalSplit`(DOM 비의존)로 분리 — 변환 탭 `autoSplitByInterval`·일괄 변환 공용. 첫 화 1줄 고정, TocEngine 제목 줄 앵커(수가 정확히 맞으면 전부 사용)·스냅 가산점, 단조 증가 보정, 결과는 TocModel 줄 범위 항목 |
+| 화수 추정 | `estimateIntervalTotal`: 파일명 범위 → 감지 수(화당 1,500줄 이하) → 빈 줄 군집 → 300줄당 1화 |
+| 일괄 간격 분할 | 전역 토글 + 제목 형식, 파일별 화수 지정·해제, 모드 배지, 미리보기(균등도·평균·첫 줄), 변환 분기 (`B.batchSplit`·`B.splitModes`, core.js 초기값) |
+| 100% 일치 프리셋 | 자동 감지가 파일명 화수와 5% 넘게 어긋나면 화수가 정확히 같은 프리셋을 `detectToc` 기준으로 찾아 파일 패턴으로 채택, 배지·프리셋 목록 표시 |
+| 프리셋 수정 | `[ 파일명.txt ]` 정규식이 `^\.`로 시작해 매칭 0 → `^\[` |
+| 배포 | `sw.js` `CACHE_VERSION` 갱신 |
+
+#### 4) 검증
+- 테스트 232 → 248개 (v3 이식 16개) 전부 통과
+- 정적 검사(ESLint no-undef, 로드 순서 결합): HEAD의 미정의 참조 27종 → 0 (typeof 가드·Worker 전용 심볼 제외)
+- 브라우저 E2E(Chromium): `[N] 제목` 30화 변환(nav 30), 변환 탭 간격 분할 25화 EPUB, 일괄 변환 3파일(30·20·간격 12화) ZIP 결과·nav 수 일치, 전역 토글 배지, 100% 일치 프리셋 탐색, 콘솔 오류 0
+
 ---
 
 ## 파일별 역할 요약

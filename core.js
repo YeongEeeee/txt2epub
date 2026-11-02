@@ -573,7 +573,8 @@ const _sStore  = StateManager.create('convert', {
 });
 const _bStore  = StateManager.create('batch', {
   txtFiles:[], coverMap:{}, results:[], urlCoverFile:null,
-  patterns:{}, sampleTexts:{}, totalChs:{}
+  patterns:{}, sampleTexts:{}, totalChs:{},
+  splitModes:{}, batchSplit:{enabled:false, template:'{N}화'}   // ★ v3: 일괄 변환 간격 분할 (convert.js _resolveBatchSplit)
 });
 const _eStore  = StateManager.create('edit', {
   epubFile:null, epubZip:null, chapters:[], spineOrder:[],
