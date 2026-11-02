@@ -13,7 +13,10 @@
    updateTocStat, updateTocEditBanner, _saveTocSnapshot,
    _chaptersCache, _chaptersCacheKey, _fullRawLines, _autoSplitLines, _autoSplitActive,
    saveHistory, generateTextCover, _sendConvertNotif,
-   saveCssSettings, saveExtraSettings, loadCssSettings */
+   saveCssSettings, saveExtraSettings, loadCssSettings,
+   _headingCandidates, computeIntervalSplit, intervalItemsToChapters, estimateIntervalTotal,
+   _estimateTotalByBlankClusters, _calcSplitQuality, buildParserWorkerPrelude,
+   _parserWorker, _workerCallbacks, _workerIdCounter */
 
 'use strict';
 
@@ -125,16 +128,26 @@ const TextWorker = (() => {
   // ★ 파일 크기 기반 자동 라우팅
   // 소형 파일: 메인 스레드 직접 처리 (Worker 오버헤드 없음)
   // 대형 파일: Worker에 ArrayBuffer 전송 (Transferable → 복사 비용 없음)
-  // ★ Phase 10: 이미 읽은 버퍼와 감지된 인코딩을 그대로 전달 (이전: 메인에서 읽은 뒤 Worker용으로 파일을 한 번 더 읽고,
-  //   Worker는 인코딩을 다시 감지 → 대용량 파일 I/O·메모리 2배)
-  //   반환 null = Worker 미사용(메인 스레드 처리) / 전송 후 버퍼는 detached → 실패 시 호출자가 다시 읽음
-  async function decodeViaWorker(ab, enc){
-    if(!ab || ab.byteLength < LARGE_FILE_THRESHOLD || !_getWorker()) return null;
-    const result = await post('FILE_TO_TEXT', { buffer: ab, enc }, [ab]);
+  async function fileToTextViaWorker(file, enc){
+    if(file.size < LARGE_FILE_THRESHOLD || !_getWorker()){
+      return null; // 메인 스레드 폴백 신호
+    }
+    const ab = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = e => res(e.target.result);
+      r.onerror = rej;
+      r.readAsArrayBuffer(file);
+    });
+    // ★ Transferable: ArrayBuffer 소유권을 Worker로 이전 (zero-copy)
+    const result = await post(
+      'FILE_TO_TEXT',
+      { buffer: ab },
+      [ab] // transferables
+    );
     return result.text;
   }
 
-  return { decodeViaWorker, LARGE_FILE_THRESHOLD };
+  return { fileToTextViaWorker };
 })();
 
 // ★ U-12: detectEncodingFromAB — ArrayBuffer를 직접 받아 처리 (이중 FileReader 제거용)
@@ -158,48 +171,11 @@ function _detectEncodingFromAB(ab){
   if(errorRate<0.001) return 'utf-8';
   const utf8Text=new TextDecoder('utf-8',{fatal:false}).decode(bytes);
   const eucText=new TextDecoder('euc-kr',{fatal:false}).decode(bytes);
-  const utf8Bad=_countChar(utf8Text,'\ufffd');
-  const eucBad=_countChar(eucText,'\ufffd');
+  const utf8Bad=(utf8Text.match(/�/g)||[]).length;
+  const eucBad=(eucText.match(/�/g)||[]).length;
   if(utf8Bad===0) return 'utf-8';
   return utf8Bad<=eucBad ? 'utf-8' : 'euc-kr';
 }
-
-// ★ Phase 10: 개수 세기용 — match(/x/g)는 일치 수만큼 배열을 만듦 (대용량 텍스트에서 수십만 개)
-function _countChar(text, ch){
-  let n=0, i=-1;
-  while((i=text.indexOf(ch,i+1))!==-1) n++;
-  return n;
-}
-function _countLines(text){ return text?_countChar(text,'\n'):0; }
-
-// ══════════════════════════════════════════
-// ★ Phase 10: 디코딩 결과 캐시 (LRU · 총 글자 수 상한)
-//   미리보기·목차 재확인·간격 분할·변환·삽화 범위 검색이 같은 파일을 매번 다시 읽고 디코딩하던 문제
-//   키: 파일명|크기|수정시간 (_encCache와 동일) · 동시 요청은 진행 중 Promise 공유
-// ══════════════════════════════════════════
-const _TEXT_CACHE_MAX_CHARS=48*1024*1024;   // 약 96MB(UTF-16) — 이보다 큰 단일 파일은 캐시하지 않음
-const _textCache=new Map();
-const _textInflight=new Map();
-let _textCacheChars=0;
-function _fileKey(file){ return `${file?.name}|${file?.size}|${file?.lastModified||0}`; }
-function _textCacheGet(file){
-  const k=_fileKey(file);
-  if(!_textCache.has(k)) return null;
-  const v=_textCache.get(k);
-  _textCache.delete(k); _textCache.set(k,v);   // LRU 갱신
-  return v;
-}
-function _textCacheSet(file, text){
-  if(typeof text!=='string'||text.length>_TEXT_CACHE_MAX_CHARS) return;
-  const k=_fileKey(file);
-  if(_textCache.has(k)){ _textCacheChars-=_textCache.get(k).length; _textCache.delete(k); }
-  while(_textCache.size&&_textCacheChars+text.length>_TEXT_CACHE_MAX_CHARS){
-    const [ok,ov]=_textCache.entries().next().value;
-    _textCache.delete(ok); _textCacheChars-=ov.length;
-  }
-  _textCache.set(k,text); _textCacheChars+=text.length;
-}
-function clearTextCache(){ _textCache.clear(); _textCacheChars=0; }
 
 async function detectEncoding(file){
   const ab=await fileToAB(file);
@@ -208,32 +184,40 @@ async function detectEncoding(file){
 }
 
 async function fileToText(file){
-  // ★ Phase 10: 디코딩 결과 캐시 → 같은 파일은 다시 읽지 않음
-  const hit=_textCacheGet(file);
-  if(hit!=null) return hit;
-  const key=_fileKey(file);
-  if(_textInflight.has(key)) return _textInflight.get(key);
-  const job=(async()=>{
-    // ★ U-12 FIX: ArrayBuffer를 한 번만 읽고 인코딩 감지 + 디코딩 모두 재사용
-    let ab = await fileToAB(file);
-    // ★ B-FIX-01: LRU 캐시에서 인코딩 조회 (파일명+크기+수정시간 기반 키)
-    let enc = _encCacheGet(file);
-    if(!enc){ enc = _detectEncodingFromAB(ab); _encCacheSet(file, enc); }
-    let text = null;
-    // ★ 대용량 파일(5MB+)은 Worker에 위임 → 메인 스레드 UI 비블로킹 (읽은 버퍼를 그대로 전송)
-    if(file.size >= TextWorker.LARGE_FILE_THRESHOLD){
-      try{ text = await TextWorker.decodeViaWorker(ab, enc); }
-      catch(e){ text = null; }
-      // 전송된 버퍼는 detached — Worker 실패 시 다시 읽어 메인 스레드에서 디코딩
-      if(text === null && ab.byteLength === 0) ab = await fileToAB(file);
+  // ★ U-12 FIX: ArrayBuffer를 한 번만 읽고 detectEncoding + 디코딩 모두 재사용
+  // 기존: detectEncoding(fileToAB) → fileToText(readAsArrayBuffer) = 2회 I/O
+  // 개선: fileToAB 1회 → _detectEncodingFromAB + 직접 디코딩
+
+  // ★ B-FIX-01: LRU 캐시에서 인코딩 조회 (파일명+크기+수정시간 기반 키)
+  let enc = _encCacheGet(file);
+  if(!enc){
+    const ab = await fileToAB(file);
+    enc = _detectEncodingFromAB(ab);
+    _encCacheSet(file, enc);
+    // 이미 읽은 ab를 직접 디코딩
+    if(file.size >= 5 * 1024 * 1024){
+      try{
+        const workerResult = await TextWorker.fileToTextViaWorker(file, enc);
+        if(workerResult !== null) return workerResult;
+      }catch(e){}
     }
-    if(text === null) text = await _decodeFromAB(ab, enc);
-    _textCacheSet(file, text);
-    return text;
-  })();
-  _textInflight.set(key, job);
-  try{ return await job; }
-  finally{ _textInflight.delete(key); }
+    return _decodeFromAB(ab, enc);
+  }
+
+  // 캐시 히트: ab 재독 필요 (인코딩만 캐시됨)
+  const ab2 = await fileToAB(file);
+
+  // ★ 대용량 파일(5MB+)은 Worker에 위임 → 메인 스레드 UI 비블로킹
+  if(file.size >= 5 * 1024 * 1024){
+    try{
+      const workerResult = await TextWorker.fileToTextViaWorker(file, enc);
+      if(workerResult !== null) return workerResult;
+    }catch(e){
+      // Worker 실패 시 메인 스레드 폴백 (아래 계속)
+    }
+  }
+
+  return _decodeFromAB(ab2, enc);
 }
 
 // ★ B-FIX-02: ab 디코딩 로직 분리 — fileToText 재사용성 및 가독성 향상
@@ -248,11 +232,11 @@ function _decodeFromAB(ab, enc){
       const decoder=new TextDecoder(enc,{fatal:false});
       const text=decoder.decode(new Uint8Array(ab));
       // U+FFFD(대체문자) 포함 여부 — EUC-KR 오판 감지
-      const badCount=enc==='utf-8'?_countChar(text,'\ufffd'):0;
+      const badCount=(text.match(/�/g)||[]).length;
       if(badCount>10&&enc==='utf-8'){
         try{
           const text2=new TextDecoder('euc-kr',{fatal:false}).decode(new Uint8Array(ab));
-          const bad2=_countChar(text2,'\ufffd');
+          const bad2=(text2.match(/�/g)||[]).length;
           done(bad2<badCount?text2:text);
         }catch(err2){ done(text); }
       }else{
@@ -265,9 +249,9 @@ function _decodeFromAB(ab, enc){
         const fr2=new FileReader();
         fr2.onload=ev2=>done(ev2.target.result||'');
         fr2.onerror=e2=>fail(e2);
-        fr2.readAsText(new Blob([ab]),enc); // ★ 이전: 스코프에 없는 file 참조 → ReferenceError
+        fr2.readAsText(file,enc);
       };
-      fr.readAsText(new Blob([ab]),enc);
+      fr.readAsText(file,enc);
     }
   });
 }
@@ -356,11 +340,7 @@ async function fileToAB(file){
 // forCover=true 이면 항상 JPG 변환 (표지는 뷰어 호환성 최우선)
 async function convertImageFile(file, forCover=false){
   try{
-    // ★ 이름 없는 Blob(자동 생성 텍스트 표지 등)은 MIME으로 확장자 판별
-    //   이전: file.name.split() TypeError → null 반환 → 텍스트 표지가 EPUB에서 누락
-    const _name=String(file?.name||'');
-    const _MIME_EXT={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','image/bmp':'bmp','image/avif':'avif','image/tiff':'tiff'};
-    const ext=(_name.includes('.')?_name.split('.').pop():(_MIME_EXT[file?.type]||'')).toLowerCase();
+    const ext=(file.name.split('.').pop()||'').toLowerCase();
     const supportedAsIs=['jpg','jpeg'];
     const convertable=['png','gif','webp','bmp','tiff','tif','avif','heic','heif'];
 
@@ -375,7 +355,7 @@ async function convertImageFile(file, forCover=false){
         return {blob, ext:'jpg', mt:'image/jpeg'};
       }catch(convErr){
         // ★ 변환 실패 시 원본 사용 (전체 공정 중단 없음)
-        Toast.warn&&Toast.warn(`이미지 변환 실패 (원본 사용): ${file?.name||'이미지'}`);
+        Toast.warn&&Toast.warn(`이미지 변환 실패 (원본 사용): ${file.name}`);
       }
     }
 
@@ -388,7 +368,7 @@ async function convertImageFile(file, forCover=false){
     return {blob:file, ext, mt};
   }catch(e){
     // ★ 이미지 처리 자체가 실패해도 null 반환으로 건너뜀 (전체 공정 유지)
-    Toast.warn&&Toast.warn(`이미지 처리 건너뜀: ${file?.name||'이미지'}`);
+    Toast.warn&&Toast.warn(`이미지 처리 건너뜀: ${file.name}`);
     return null;
   }
 }
@@ -415,7 +395,7 @@ async function imgToJpgBlob(file, quality=0.92){
         },'image/jpeg',quality);
       }catch(e){URL.revokeObjectURL(url);rej(e);}
     };
-    img.onerror=(e)=>{URL.revokeObjectURL(url);rej(new Error('이미지 로드 실패: '+(file?.name||'이미지')));};
+    img.onerror=(e)=>{URL.revokeObjectURL(url);rej(new Error('이미지 로드 실패: '+file.name));};
     img.src=url;
   });
 }
@@ -423,15 +403,8 @@ async function imgToJpgBlob(file, quality=0.92){
 // 📂 Module: FileHandlers (드롭·파일 입력 처리)
 // ══════════════════════════════════════════
 function handleTxt(files, append=false){
-  const _all=Array.from(files||[]);
-  const txts=_all.filter(f=>/\.txt$/i.test(f?.name||''));
-  // ★ TXT와 함께 선택·드롭된 이미지 — 파일명 유사도로 표지 자동 매칭
-  const imgs=_all.filter(f=>_IMG_EXT_RX.test(f?.name||''));
-  if(!txts.length){
-    // 이미지만 들어온 경우: 이미 로드된 TXT 기준으로 표지 매칭만 수행
-    if(imgs.length&&S.txtFiles.length) autoMatchCoverImage(imgs, S.txtFiles);
-    return;
-  }
+  const txts=Array.from(files).filter(f=>f.name.endsWith('.txt'));
+  if(!txts.length)return;
 
   // append 모드: 기존 파일에 추가 (중복 제거)
   if(append&&S.txtFiles.length){
@@ -441,11 +414,6 @@ function handleTxt(files, append=false){
     S.txtFiles=[...S.txtFiles,...newFiles];
   }else{
     S.txtFiles=smartSortFiles(txts); // 스마트 정렬 적용
-    S.tocItems=[]; _tocDropLines=[];   // ★ 새 파일 세트 → 이전 목차 폐기 (미리보기 전 변환 시 잘못된 목차 사용 방지)
-    // ★ Phase 10: 이전 파일의 EPUB 결과·간격 분할 상태도 폐기 — 하단에 옛 EPUB 다운로드 바가 남아 변환 버튼이 가려지던 문제
-    _resetConvertResultUi();
-    window._autoSplitActive=false; window._autoSplitLines=null;
-    _tocSelectedIdxs.clear(); _tocPendingTitleIdx=null; _tocFilterQ=''; _tocUndoStack.length=0;
   }
 
   const txtDz=document.getElementById('txtDz');
@@ -460,7 +428,8 @@ function handleTxt(files, append=false){
   const resetBar=document.getElementById('convertResetBar');
   if(resetBar) resetBar.style.display='flex';
   // ★ UX-PD: Progressive Disclosure — 패턴 영역을 파일 로드 후 선명하게 전환
-  document.getElementById('patSection')?.classList.remove('is-idle');
+  const patSection=document.getElementById('patSection');
+  if(patSection) patSection.style.opacity='1';
   _chaptersCache=null; // 캐시 무효화
 
   renderTxtFileList();
@@ -490,18 +459,7 @@ function handleTxt(files, append=false){
     const authorEl=document.getElementById('author');
     if(titleEl&&!titleEl.value) titleEl.value=title;
     if(authorEl&&!authorEl.value) authorEl.value=author;
-    // ★ 시리즈 메타 자동 채우기 ('작품 3권.txt' → 시리즈 '작품', 권 3)
-    const sm=parseSeriesFromName(S.txtFiles[0].name);
-    const seriesEl=document.getElementById('series');
-    const seriesIdxEl=document.getElementById('seriesIdx');
-    if(sm){
-      if(seriesEl&&!seriesEl.value) seriesEl.value=sm.series;
-      if(seriesIdxEl&&!seriesIdxEl.value) seriesIdxEl.value=String(sm.index);
-    }
   }
-
-  // ★ 이름이 유사한 이미지가 함께 들어왔으면 표지로 자동 연결
-  if(imgs.length) autoMatchCoverImage(imgs, S.txtFiles);
 }
 handleTxt._timer=null; // 디바운스 타이머 초기화
 
@@ -529,7 +487,7 @@ function _attachTouchSort(row, listEl, idx){
       'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;'+
       'width:'+rect.width+'px;opacity:.85;z-index:9999;'+
       'pointer-events:none;border:1.5px solid var(--accent);'+
-      'border-radius:var(--radius-xs);background:var(--accent-bg);box-shadow:var(--shadow-md)';
+      'border-radius:6px;background:var(--accent-bg);box-shadow:0 4px 16px rgba(0,0,0,.2)';
     document.body.appendChild(clone);
 
     row.style.opacity='0.3';
@@ -705,11 +663,7 @@ function previewCoverUrl(inpId, thumbId, nameId, mode){
     const img=new Image();
     img.crossOrigin='anonymous';
     img.onload=()=>{
-      // ★ Phase 9: URL을 HTML 문자열에 이어붙이지 않고 DOM으로 생성 (따옴표 포함 URL의 속성 주입 방지)
-      if(!thumb) return;
-      const shown=document.createElement('img');
-      shown.src=url; shown.style.opacity='.6';
-      thumb.replaceChildren(shown);
+      thumb.innerHTML='<img src="'+url+'" style="opacity:.6">';
     };
     img.onerror=()=>{}; // CORS 차단 시 조용히 실패
     img.src=url;
@@ -762,24 +716,24 @@ async function applyCoverUrl(inpId, thumbId, nameId, mode){
 function showCorsHelp(inpId, url, thumbId, nameId, mode){
   // CORS 차단 시 대안 안내 모달
   const overlay=document.createElement('div');
-  overlay.style.cssText='position:fixed;inset:0;background:var(--overlay-strong);z-index:600;display:flex;align-items:center;justify-content:center';
+  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:600;display:flex;align-items:center;justify-content:center';
   overlay.innerHTML=`
-    <div style="background:var(--panel);border-radius:var(--radius-sm);padding:24px;max-width:440px;width:90vw;box-shadow:var(--shadow-xl)">
-      <h3 style="font-size:var(--fs-base);font-weight:700;margin-bottom:10px">⚠️ 이미지를 직접 가져올 수 없어요</h3>
-      <p style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:14px;line-height:1.7">
+    <div style="background:var(--panel);border-radius:12px;padding:24px;max-width:440px;width:90vw;box-shadow:0 8px 40px rgba(0,0,0,.3)">
+      <h3 style="font-size:14px;font-weight:700;margin-bottom:10px">⚠️ 이미지를 직접 가져올 수 없어요</h3>
+      <p style="font-size:12px;color:var(--text2);margin-bottom:14px;line-height:1.7">
         이 이미지는 외부 사이트 보안(CORS) 정책으로 직접 가져올 수 없어요.<br>
         아래 방법 중 하나를 사용해주세요.
       </p>
       <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
-        <div style="background:var(--bg2);border-radius:var(--radius-sm);padding:10px;font-size:var(--fs-sm)">
+        <div style="background:var(--bg2);border-radius:8px;padding:10px;font-size:12px">
           <b>방법 1 (권장)</b> — 구글 이미지에서 이미지를 <b>다운로드</b>한 뒤<br>
           드래그앤드롭으로 표지에 넣기
         </div>
-        <div style="background:var(--bg2);border-radius:var(--radius-sm);padding:10px;font-size:var(--fs-sm)">
+        <div style="background:var(--bg2);border-radius:8px;padding:10px;font-size:12px">
           <b>방법 2</b> — 이미지 페이지를 열어서<br>
           이미지를 <b>다른 이름으로 저장</b> 후 드래그앤드롭
         </div>
-        <div style="background:var(--bg2);border-radius:var(--radius-sm);padding:10px;font-size:var(--fs-sm)">
+        <div style="background:var(--bg2);border-radius:8px;padding:10px;font-size:12px">
           <b>방법 3</b> — 아래 버튼으로 이미지 페이지 열기 →<br>
           이미지 우클릭 → 다른 이름으로 저장
         </div>
@@ -821,14 +775,8 @@ function blobToDataUrl(blob){
   });
 }
 
-// 표지 미지정 상태 썸네일 (index.html #coverThumb 초기 마크업과 동일)
-const COVER_THUMB_EMPTY_HTML='<span class="cover-thumb-empty"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>표지</span></span>';
-
 function handleCover(files){
-  const f=files?.[0];if(!f)return;
-  // ★ 수동 지정 표지 — 이후 TXT+이미지 자동 매칭이 덮어쓰지 않도록 플래그 해제
-  // (autoMatchCoverImage는 이 함수 호출 직후 _coverAuto=true로 재설정)
-  S._coverAuto=false;
+  const f=files[0];if(!f)return;
   // ★ BUG-3 수정: coverThumb의 이전 blob URL 해제 (메모리 누수 방지)
   const thumb=document.getElementById('coverThumb');
   if(thumb){
@@ -840,109 +788,6 @@ function handleCover(files){
   document.getElementById('coverDz')?.classList.add('ok');
   const objUrl=URL.createObjectURL(f);
   if(thumb){ thumb.innerHTML=''; const img=document.createElement('img'); img.src=objUrl; img.dataset.blobUrl=objUrl; thumb.appendChild(img); }
-}
-
-// ══════════════════════════════════════════
-// 🖼 Module: CoverAutoMatch (TXT ↔ 이미지 파일명 유사도 매칭)
-// ══════════════════════════════════════════
-// 동작 원리:
-//   1. 파일명 stem 정규화 (normStem + 'cover/표지' 꼬리표 제거)
-//   2. 유사도 = max(문자 바이그램 Dice 계수, 포함 관계 점수)
-//      - 포함 관계: 짧은 쪽이 긴 쪽에 통째로 들어있으면 0.75~1.0
-//   3. TXT 파일명 전체 / [작가] 제목 · 제목@작가 에서 추출한 제목 둘 다 비교해 최고점 사용
-//   4. 임계값(0.5) 이상 최고점 이미지를 표지로 지정 — 이미지가 1개뿐이면 임계값 미달이어도 사용
-const _IMG_EXT_RX=/\.(jpg|jpeg|png|webp|bmp|tiff|tif|avif)$/i;
-const COVER_MATCH_MIN=0.5;
-
-function _fileStem(name){ return String(name||'').replace(/\.[^.]+$/,''); }
-
-// 파일명 stem에서 제목만 추출 ([작가] 제목 / 제목 @ 작가 규칙 — handleTxt 메타 자동 채우기와 동일)
-function _titleFromStem(stem){
-  const s=String(stem||'');
-  let m=s.match(/^\[(.+?)\]\s*(.+)$/);
-  if(m) return m[2].trim();
-  m=s.match(/^(.+?)\s*@\s*(.+)$/);
-  if(m) return m[1].trim();
-  return s;
-}
-
-// 매칭 전용 키: 표지 꼬리표 제거 후 normStem 정규화
-function _coverMatchKey(stem){
-  const cleaned=String(stem||'').replace(/(?:cover|front|thumbnail|thumb|표지|커버)/gi,'');
-  return normStem(cleaned);
-}
-
-// 두 파일명의 유사도 (0.0 ~ 1.0)
-function nameSimilarity(a, b){
-  const x=_coverMatchKey(a), y=_coverMatchKey(b);
-  if(!x||!y) return 0;
-  if(x===y) return 1;
-  const shortK=x.length<=y.length?x:y;
-  const longK =x.length<=y.length?y:x;
-  let contain=0;
-  if(shortK.length>=2&&longK.includes(shortK)) contain=0.75+0.25*(shortK.length/longK.length);
-  if(x.length<2||y.length<2) return contain;
-  // 문자 바이그램 Dice 계수 — O(n) Map 카운팅
-  const bigrams=t=>{
-    const m=new Map();
-    for(let i=0;i<t.length-1;i++){ const k=t.slice(i,i+2); m.set(k,(m.get(k)||0)+1); }
-    return m;
-  };
-  const A=bigrams(x), Bm=bigrams(y);
-  let inter=0;
-  A.forEach((c,k)=>{ inter+=Math.min(c, Bm.get(k)||0); });
-  const dice=(2*inter)/((x.length-1)+(y.length-1));
-  return Math.max(dice, contain);
-}
-
-// TXT 목록과 이미지 목록 중 가장 이름이 비슷한 이미지 1개 반환 → {file, score, txtName} | null
-function findSimilarImage(txtFiles, imgs, minScore=COVER_MATCH_MIN){
-  let best=null;
-  (imgs||[]).forEach(img=>{
-    if(!img?.name) return;
-    const iStem=_fileStem(img.name);
-    (txtFiles||[]).forEach(t=>{
-      if(!t?.name) return;
-      const tStem=_fileStem(t.name);
-      [tStem, _titleFromStem(tStem)].forEach(k=>{
-        const sc=nameSimilarity(k, iStem);
-        if(!best||sc>best.score) best={file:img, score:sc, txtName:t.name};
-      });
-    });
-  });
-  return best&&best.score>=minScore?best:null;
-}
-
-// 표지 자동 매칭 실행 — 성공 시 true
-function autoMatchCoverImage(imgs, txtFiles){
-  const list=Array.from(imgs||[]).filter(f=>_IMG_EXT_RX.test(f?.name||''));
-  if(!list.length) return false;
-  // ★ 사용자가 직접 지정한 표지(수동·검색·URL)는 보호 — 자동 매칭 표지만 교체 허용
-  if(S.coverFile&&!S._coverAuto){
-    Toast.info('🖼 이미 지정한 표지가 있어서 이미지 자동 매칭을 건너뛰었어요.');
-    return false;
-  }
-  let hit=findSimilarImage(txtFiles, list);
-  let fallback=false;
-  if(!hit&&list.length===1){
-    // 이미지가 하나뿐이면 이름이 달라도 표지로 사용 (함께 선택한 의도 존중)
-    hit={file:list[0], score:findSimilarImage(txtFiles, list, 0)?.score||0, txtName:''};
-    fallback=true;
-  }
-  if(!hit){
-    Toast.info(`🖼 TXT와 이름이 비슷한 이미지를 찾지 못했어요 (${list.length}개 검사)`);
-    return false;
-  }
-  handleCover([hit.file]);
-  S._coverAuto=true;
-  const pct=Math.round(hit.score*100);
-  const nameEl=document.getElementById('coverName');
-  if(nameEl) nameEl.textContent=fallback
-    ? '✅ '+hit.file.name+' · 함께 선택한 이미지'
-    : '✅ '+hit.file.name+' · 이름 유사도 '+pct+'%';
-  if(fallback) Toast.info(`🖼 이름 유사도는 낮지만(${pct}%) 함께 선택한 이미지라 표지로 지정했어요.`);
-  else Toast.success(`🖼 표지 자동 매칭: ${hit.file.name} (유사도 ${pct}%)`);
-  return true;
 }
 
 // ── 공통 삽화 파일 처리 함수 ──
@@ -970,10 +815,10 @@ function renderIllTags(){
     const isJpg=['jpg','jpeg'].includes(ext);
     const needsConvert=!isJpg&&willConvert;
     const fmtBadge=isJpg
-      ? `<span style="font-size:var(--fs-xs);background:var(--green-bg);color:var(--green);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">JPG</span>`
+      ? `<span style="font-size:9px;background:var(--green-bg);color:var(--green);border-radius:3px;padding:1px 4px;font-weight:700">JPG</span>`
       : needsConvert
-        ? `<span style="font-size:var(--fs-xs);background:var(--yellow-bg);color:var(--yellow);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">${ext.toUpperCase()}→JPG</span>`
-        : `<span style="font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">${ext.toUpperCase()}</span>`;
+        ? `<span style="font-size:9px;background:var(--yellow-bg);color:var(--yellow);border-radius:3px;padding:1px 4px;font-weight:700">${ext.toUpperCase()}→JPG</span>`
+        : `<span style="font-size:9px;background:var(--blue-bg);color:var(--blue);border-radius:3px;padding:1px 4px;font-weight:700">${ext.toUpperCase()}</span>`;
 
     const t=document.createElement('div');
     t.className='tag';
@@ -983,7 +828,7 @@ function renderIllTags(){
 
     // 썸네일
     const thumb=document.createElement('img');
-    thumb.style.cssText='width:22px;height:22px;object-fit:cover;border-radius:var(--radius-xs);flex-shrink:0;border:1px solid var(--border)';
+    thumb.style.cssText='width:22px;height:22px;object-fit:cover;border-radius:3px;flex-shrink:0;border:1px solid var(--border)';
     thumb.alt=f.name;
     const url=URL.createObjectURL(f);
     thumb.src=url;
@@ -991,7 +836,7 @@ function renderIllTags(){
     thumb.onerror=()=>{thumb.style.display='none';};
 
     const label=document.createElement('span');
-    label.style.cssText='max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:var(--fs-xs)';
+    label.style.cssText='max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px';
     label.textContent=f.name;
 
     // 챕터 인덱스 배지 — 파일명에서 파싱해서 어느 챕터에 삽입될지 표시
@@ -1001,7 +846,7 @@ function renderIllTags(){
       const chIdx=parseInt(mi[1]);      // 1-based 표시용
       const sub=mi[2]?('-'+parseInt(mi[2])):'';
       const b=document.createElement('span');
-      b.style.cssText='font-size:var(--fs-xs);background:var(--accent-bg);color:var(--accent);border-radius:var(--radius-xs);padding:1px 5px;font-weight:700;flex-shrink:0;white-space:nowrap';
+      b.style.cssText='font-size:9px;background:var(--accent-bg);color:var(--accent);border-radius:3px;padding:1px 5px;font-weight:700;flex-shrink:0;white-space:nowrap';
       b.textContent=chIdx+'번째'+sub;
       b.title=chIdx+'번째 챕터 앞에 삽입 (파일명 기준 인덱스)';
       return b;
@@ -1051,7 +896,7 @@ function addManualIllRow(containerId){
       '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" data-action="removeManualIllRow" data-row-id="mr'+id+'">✕</button>'+
     '</div>'+
     '<div class="mill-preview" id="mpv'+id+'">'+
-      '<div style="font-size:var(--fs-xs);color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>'+
+      '<div style="font-size:11px;color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>'+
     '</div>';
   c.appendChild(r);
 }
@@ -1086,7 +931,7 @@ async function loadIllRange(id){
   const chNum=parseInt(document.getElementById('mc'+id).value);
   const pv=document.getElementById('mpv'+id);
   if(!chNum||!S.txtFiles.length){
-    pv.innerHTML='<div style="font-size:var(--fs-xs);color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>';
+    pv.innerHTML='<div style="font-size:11px;color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>';
     pv.classList.remove('show');
     return;
   }
@@ -1094,8 +939,8 @@ async function loadIllRange(id){
   const chapters=await getCachedChapters();
   if(!chapters.length){pv.classList.remove('show');return;}
 
-  // 중심 챕터 인덱스 — ★ Phase 10: 감지 단계 화 번호(meta.num) 우선, 없으면 제목에서 추출 (EPUB 삽입 기준과 동일)
-  const centerCi=chapters.findIndex(c=>((c[2]&&c[2].num!=null)?c[2].num:extractChNum(c[0]))===chNum);
+  // extractChNum으로 중심 챕터 인덱스 찾기
+  const centerCi=chapters.findIndex(([h])=>extractChNum(h)===chNum);
 
   if(centerCi<0){
     pv.innerHTML='<div class="mill-ch-match"><div class="mill-ch-title" style="color:var(--accent)">⚠️ '+chNum+'화를 찾지 못했어요</div>'+
@@ -1111,8 +956,7 @@ async function loadIllRange(id){
   if(centerCi<chapters.length-1)   range.push({ci:centerCi+1, role:'next'});
 
   // 범위 캐시 저장 (키워드 검색에 사용)
-  _illRangeCache[id]={chNum, range:range.map(({ci,role})=>({ci,role,heading:chapters[ci][0],body:chapters[ci][1]||'',
-    num:(chapters[ci][2]&&chapters[ci][2].num!=null)?chapters[ci][2].num:null}))};
+  _illRangeCache[id]={chNum, range:range.map(({ci,role})=>({ci,role,...{heading:chapters[ci][0],body:chapters[ci][1]||''}}))} ;
 
   renderIllRangePanel(id, '', null);
 }
@@ -1163,7 +1007,7 @@ function renderIllRangePanel(id, kw, selectedCi){
   // 키워드 검색바
   const kwBar=
     '<div class="mill-kw-bar">'+
-      '<span style="font-size:var(--fs-xs);color:var(--text2);white-space:nowrap">🔍 범위 내 검색:</span>'+
+      '<span style="font-size:11px;color:var(--text2);white-space:nowrap">🔍 범위 내 검색:</span>'+
       '<input id="mkw'+id+'" placeholder="키워드로 정확한 위치 찾기" value="'+escHtml(kw)+'" '+
              'oninput="debounceIllKwSearch('+id+')">'+
     '</div>'+
@@ -1187,9 +1031,8 @@ function selectIllRangeCard(id, ci){
   if(!ch) return;
 
   // 화 번호 입력란에 선택된 화 번호 반영
-  const chNum=ch.num!=null?ch.num:extractChNum(ch.heading);
-  const mcEl=document.getElementById('mc'+id);
-  if(chNum&&mcEl) mcEl.value=chNum;
+  const chNum=extractChNum(ch.heading);
+  if(chNum) document.getElementById('mc'+id).value=chNum;
 
   // 미리보기 재렌더 (선택 표시)
   const kw=document.getElementById('mkw'+id)?.value||'';
@@ -1198,6 +1041,7 @@ function selectIllRangeCard(id, ci){
 
 // 키워드 검색 (디바운스 · 범위 내에서만)
 let _kwTimer={};
+function debounceKwSearch(id){ clearTimeout(_kwTimer[id]); _kwTimer[id]=setTimeout(()=>kwSearch(id),350); }
 function debounceIllKwSearch(id){ clearTimeout(_kwTimer['r'+id]); _kwTimer['r'+id]=setTimeout(()=>illKwSearch(id),250); }
 
 function illKwSearch(id){
@@ -1214,14 +1058,170 @@ function illKwSearch(id){
   renderIllRangePanel(id, kw, autoSel);
 }
 
+// startConvert에서 수동삽화 읽는 로직도 수정 필요 — _illRangeCache에서 선택된 ci 기반으로
+function getManualIllTarget(id){
+  // 현재 선택된 카드의 챕터 인덱스 반환 (선택 안된 경우 중심 화 번호 사용)
+  const chNum=parseInt(document.getElementById('mc'+id)?.value);
+  return {ch:chNum||null, pos:document.getElementById('mpos'+id)?.value||'before'};
+}
+
+
+async function kwSearch(id){
+  const kw=document.getElementById('mk'+id)?.value.trim();
+  const pv=document.getElementById('mpv'+id);
+  if(!kw||kw.length<1){pv.classList.remove('show');return;}
+
+  const chapters=await getCachedChapters();
+  if(!chapters.length){pv.classList.remove('show');return;}
+
+  const kwEsc=kw.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  const kwRx=new RegExp(kwEsc,'g');
+
+  // 1단계: 키워드가 있는 챕터 인덱스 전체 탐색 (제목 + 본문 전체)
+  let centerIdx=-1;
+  let totalMatches=0;
+  for(let ci=0;ci<chapters.length;ci++){
+    const [heading,body]=chapters[ci];
+    if(heading.includes(kw)||(body||'').includes(kw)){
+      if(centerIdx<0) centerIdx=ci; // 첫 번째 발견 챕터
+      totalMatches++;
+    }
+  }
+
+  if(centerIdx<0){
+    pv.innerHTML=
+      '<div class="mill-ch-match">'+
+        '<div class="mill-ch-title" style="color:var(--text2)">검색 결과 없음</div>'+
+        '<div class="mill-ch-body">&#39;'+escHtml(kw)+'&#39; 를 포함한 챕터가 없어요.<br>'+
+        '<span style="font-size:10px">다른 키워드를 시도하거나 화 번호 모드를 사용해보세요.</span></div>'+
+      '</div>';
+    pv.classList.add('show');
+    return;
+  }
+
+  // 2단계: 발견 챕터 ±1화 (총 최대 3화) 표시
+  const range=[];
+  if(centerIdx>0)                    range.push({ci:centerIdx-1, role:'prev'});
+                                     range.push({ci:centerIdx,   role:'match'});
+  if(centerIdx<chapters.length-1)    range.push({ci:centerIdx+1, role:'next'});
+
+  const moreCount=totalMatches-1;
+
+  let html=
+    '<div class="mill-ch-match">'+
+      '<div class="mill-ch-title" style="display:flex;justify-content:space-between;align-items:center">'+
+        '<span>🔍 <b>'+escHtml(kw)+'</b> 발견 · 전후 3화</span>'+
+        (moreCount>0?'<span style="font-size:10px;color:var(--text2)">외 '+moreCount+'곳 더</span>':'')+
+      '</div>'+
+      '<div class="mill-kw-list">';
+
+  range.forEach(({ci,role})=>{
+    const [heading,body]=chapters[ci];
+    const isMatch=role==='match';
+
+    // 키워드 주변 컨텍스트: 발견 화는 본문에서 키워드 앞뒤 40자, 나머지는 본문 첫 줄
+    let snippet='';
+    if(isMatch){
+      const fullText=heading+' '+(body||'');
+      const idx=fullText.indexOf(kw);
+      if(idx>=0){
+        const s=Math.max(0,idx-30);
+        const e=Math.min(fullText.length,idx+kw.length+40);
+        snippet=fullText.slice(s,e).replace(/\n/g,' ');
+      }
+    } else {
+      snippet=(body||'').split('\n').filter(l=>l.trim())[0]||'';
+    }
+
+    // 키워드 하이라이트 (발견 화만)
+    const hiSnippet=isMatch
+      ? snippet.replace(new RegExp(kwEsc,'g'),'<span class="mill-kw-highlight">'+escHtml(kw)+'</span>')
+      : escHtml(snippet);
+    const hiTitle=isMatch
+      ? escHtml(heading).replace(new RegExp(kwEsc,'g'),'<span class="mill-kw-highlight">'+escHtml(kw)+'</span>')
+      : escHtml(heading);
+
+    const roleIcon  = role==='prev'?'⬆':'next'===role?'⬇':'🎯';
+    const roleLabel = role==='prev'?'이전화':role==='next'?'다음화':'발견';
+    const rowStyle  = isMatch
+      ? 'border:1.5px solid var(--accent);background:var(--accent-bg);border-radius:6px;'
+      : '';
+
+    html+=
+      '<div class="mill-kw-item" id="mkwi_'+id+'_'+ci+'" style="'+rowStyle+'" '+
+           'onclick="selectKwResult('+id+',\''+escAttr(heading)+'\','+ci+')">'+
+        '<div style="display:flex;flex-direction:column;min-width:34px;align-items:center;gap:1px">'+
+          '<span style="font-size:12px">'+roleIcon+'</span>'+
+          '<span style="font-size:9px;color:var(--text2)">'+roleLabel+'</span>'+
+        '</div>'+
+        '<div style="flex:1;min-width:0">'+
+          '<div style="font-weight:'+(isMatch?'700':'500')+';font-size:11px">'+hiTitle+'</div>'+
+          '<div style="color:var(--text2);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">&#183;&#183;&#183;'+hiSnippet+'&#183;&#183;&#183;</div>'+
+        '</div>'+
+      '</div>';
+  });
+
+  html+='</div></div>';
+  pv.innerHTML=html;
+  pv.classList.add('show');
+}
+
+function selectKwResult(id, heading, ci){
+  // 선택 표시 갱신
+  document.querySelectorAll('[id^="mkwi_'+id+'_"]').forEach(el=>el.classList.remove('selected'));
+  event.currentTarget.classList.add('selected');
+  // ★ 실제 화 번호 인풋에 반영 (ci = 챕터 인덱스)
+  const mcEl=document.getElementById('mc'+id);
+  if(mcEl&&ci!=null){
+    // 챕터 인덱스 → 서문 제외 실제 순번 계산
+    mcEl.value=ci+1;
+    // _illRangeCache 갱신을 위해 loadIllRange 재호출
+    loadIllRange(id);
+  }
+}
 
 // ════════════════════════════════════════════════════════
 // ★ 간격 분할 전역 상태 — window 단일 소유권
 // parser.js / convert.js 양쪽에서 동일한 객체를 참조
 // ════════════════════════════════════════════════════════
-// ★ Phase 10: window._autoSplitActive 정의는 parser.js 한 곳 (값은 StateManager 'convert' 스토어 보관)
-//   (이전: parser.js 접근자·convert.js·main.js 세 곳에 서로 다른 저장소로 중복 정의)
+// ★ B-FIX-04 (치명): 재정의 레이스 가드
+// 동일 프로퍼티를 두 번 defineProperty 하면 configurable:true여도
+// 두 번째 호출에서 getter/setter 충돌 → silent fail 또는 TypeError
+// 해결: 이미 정의된 경우 defineProperty를 건너뜀
+if(!Object.getOwnPropertyDescriptor(window,'_autoSplitActive')){
+  Object.defineProperty(window,'_autoSplitActive',{
+    get(){ return window.__autoSplitActiveVal||false; },
+    set(v){ window.__autoSplitActiveVal=!!v; },
+    configurable:true,
+  });
+}
+// 초기화 (아직 true로 세팅된 적 없을 때만)
+if(window.__autoSplitActiveVal === undefined) window._autoSplitActive=false;
 
+// 파일명에서 총 화수 추출 (예: "소설_1-277" → 277, "소설_1234화" → 1234)
+function extractTotalFromFilename(filename){
+  const stem=filename.replace(/\.[^.]+$/,'');
+  // "N-M" 형태: 마지막 숫자 M이 총 화수
+  let m=stem.match(/-(\d+)[^\d]*(?:완|完|edit|_|$)/i);
+  if(m) return parseInt(m[1]);
+  m=stem.match(/[_-](\d+)[_-]\d+/);
+  if(m) return null; // 범위 불명확
+  m=stem.match(/(\d{2,4})화/);
+  if(m) return parseInt(m[1]);
+  m=stem.match(/[_-](\d{2,4})[^\d]*$/);
+  if(m) return parseInt(m[1]);
+  return null;
+}
+
+// ★ v3: 파일 목록 → 기대 화수 (단일 파일일 때만 파일명에서 추출 — 다중 병합은 신뢰 불가)
+// parser.js previewToc / getCachedChapters / autoSplitByInterval 와 startConvert가 공용 사용
+function _expectedCountFromFiles(files){
+  try{
+    if(!files||files.length!==1) return 0;
+    const t=extractTotalFromFilename(files[0]?.name||'');
+    return t&&t>0 ? t : 0;
+  }catch(e){ return 0; }
+}
 
 // tocItems(간격분할 결과)를 [heading, body] 쌍으로 조립
 // ══════════════════════════════════════════
@@ -1296,16 +1296,14 @@ function setProgress(pct, msg){
 
 // ✨ Module: Convert (변환 실행 플로우)
 // ══════════════════════════════════════════
-// ★ Phase 9: 변환 재진입 방지 — 버튼 연타·단축키 반복으로 변환이 동시에 2개 이상 돌던 문제
-let _convertRunning=false;
-let _batchRunning=false;
-
 async function startConvert(){
   if(!S.txtFiles.length){Toast.warn('TXT 파일을 선택해주세요.');return;}
-  if(_convertRunning){Toast.info('변환이 이미 진행 중이에요.');return;}
   const convertStart=Date.now();
   // ★ U-01: 타임라인 초기화
   _progressTimeline.length = 0;
+  document.getElementById('progressSparkline') &&
+    (document.getElementById('progressSparkline').innerHTML='') &&
+    (document.getElementById('progressSparkline').style.display='none');
   const sparkEl = document.getElementById('progressSparkline');
   if(sparkEl){ sparkEl.innerHTML=''; sparkEl.style.display='none'; }
   // ★ PERF-01: 캐싱 변수 우선 사용 (없으면 직접 쿼리 fallback)
@@ -1319,111 +1317,118 @@ async function startConvert(){
   // ── 단계별 진행 표시 ──
   setProgress(0,'① 파일 읽는 중...');
 
-  // ★ Phase 10: 중단은 AbortController 하나로 — 파일 읽기·파싱·EPUB 빌드(Worker) 어느 단계에서든 즉시 멈춤
-  //   (이전: 파싱 Worker만 종료 → 그 밖의 단계에서 누르면 변환이 끝까지 진행되고 결과까지 표시됨)
-  const ac=new AbortController();
-  const checkAbort=()=>{ if(ac.signal.aborted){ const err=new Error('사용자 중단'); err.name='AbortError'; throw err; } };
+  // ★ 파싱 중단 버튼 표시
+  let _convertAborted=false;
   const progWrapEl=document.getElementById('progWrap');
   let abortBtn=document.getElementById('convertAbortBtn');
   if(!abortBtn){
     abortBtn=document.createElement('button');
     abortBtn.id='convertAbortBtn';
     abortBtn.className='btn';
-    abortBtn.style.cssText='font-size:var(--fs-xs);padding:4px 12px;background:var(--accent-bg);color:var(--accent);border:1.5px solid var(--accent);border-radius:var(--radius-xs);margin-top:6px;display:block';
+    abortBtn.style.cssText='font-size:11px;padding:4px 12px;background:var(--accent-bg);color:var(--accent);border:1.5px solid var(--accent);border-radius:6px;margin-top:6px;display:block';
     abortBtn.textContent='⛔ 변환 중단';
     progWrapEl?.appendChild(abortBtn);
   }
   abortBtn.style.display='block';
   abortBtn.onclick=()=>{
-    ac.abort();
-    // ★ 파싱 Worker 즉시 종료 (동기 루프 중이라 메시지로는 중단 불가) — EPUB Worker는 signal로 종료
-    terminateParserWorker('사용자 중단');
+    _convertAborted=true;
+    // Worker에도 Abort 신호
+    if(_parserWorker) _parserWorker.postMessage({type:'ABORT',id:-1});
     abortBtn.style.display='none';
     setProgress(0,'⛔ 중단됨');
     document.getElementById('progWrap')?.classList.remove('show');
   };
 
-  _convertRunning=true;
-  const _convertBtnEl=document.getElementById('convertBtn');
-  _convertBtnEl?.setAttribute('aria-busy','true');
-  if(_convertBtnEl) _convertBtnEl.disabled=true;
   try{
     const sorted=[...S.txtFiles];
-    const customPat=document.getElementById('pattern')?.value.trim();
-    const optMergeLines=document.getElementById('optMergeShortLines')?.checked===true;
-    const tocMode=S.tocItems.length>0;
-    // ★ Phase 10: 목차가 이미 있고 원문 줄이 메모리에 있으면 파일을 다시 읽지 않음
-    //   (이전: 목차 기반 조립에서도 모든 파일을 매번 다시 읽고 디코딩)
-    let srcLines=tocMode?_tocSourceLines():null;
-    let raw=null, fileBreaks=[];
-    if(!srcLines){
-      const raws=[];
-      for(let fi=0;fi<sorted.length;fi++){
-        setProgress(Math.round(fi/sorted.length*12)+1,
-          `① 파일 읽는 중... (${fi+1}/${sorted.length}) ${sorted[fi].name}`);
-        await yieldToMain();
-        checkAbort();
-        raws.push(await fileToText(sorted[fi]));
-      }
-      // ★ 파일 경계(여러 TXT)·파일명 화수 범위를 목차 감지에 전달
-      ({text:raw, fileBreaks}=joinTextsWithBreaks(raws, sorted.map(f=>f.name)));
+    const totalFiles=sorted.length;
+    // 파일별 진행률 표시
+    const raws=[];
+    for(let fi=0;fi<totalFiles;fi++){
+      setProgress(Math.round(fi/totalFiles*12)+1,
+        `① 파일 읽는 중... (${fi+1}/${totalFiles}) ${sorted[fi].name}`);
+      await yieldToMain();
+      raws.push(await fileToText(sorted[fi]));
     }
+    const raw=raws.join('\n\n');
     setProgress(14,'① 파일 읽기 완료');
     await yieldToMain();
-    checkAbort();
 
     setProgress(15,'② 챕터 패턴 분석 중...');
     await yieldToMain();
+    const customPat=document.getElementById('pattern')?.value.trim();
+    // ★ v3: 파일명 기대 화수 — 100% 일치 패턴 우선
+    const expectedCount=_expectedCountFromFiles(S.txtFiles);
 
     let chapters;
-    if(tocMode){
-      // ★ tocItems가 있으면 항상 tocItems 기반 조립 (간격 분할 결과 포함 — 원문은 _tocSourceLines 단일 기준)
-      // ★ L-16 FIX: 원문 줄이 해제된 경우(대용량 변환 후) 같은 결합 규칙으로 다시 만든 줄 배열 사용
-      if(!srcLines){
-        srcLines=raw.split('\n');
-        if(window._autoSplitActive) window._autoSplitLines=srcLines.length<=200000?srcLines:null;
-        window._fullRawLines=srcLines;
-      }
-      setProgress(20, window._autoSplitActive?'② 간격 분할 모드 — 목차 기반 챕터 조립 중...':'② 목차 기반 챕터 조립 중...');
+    // ════════════════════════════════════════════════════════
+    // ★ 간격 분할 최우선 분기 — window._autoSplitActive 기반
+    // parser.js와 동일한 window 프로퍼티를 읽으므로 유실 없음
+    // ════════════════════════════════════════════════════════
+    if(window._autoSplitActive && S.tocItems.length>0){
+      setProgress(20,'② 간격 분할 모드 — tocItems 기반 챕터 조립 중...');
       await yieldToMain();
-      chapters=buildChaptersFromTocItems(srcLines, S.tocItems);
+      // ★ window._autoSplitLines: parser.js에서 window 미러로 노출한 값
+      const sourceForSplit=(window._autoSplitLines&&window._autoSplitLines.length>0)
+        ? window._autoSplitLines
+        : raw.split('\n');
+      chapters=buildChaptersFromTocItems(sourceForSplit, S.tocItems);
+      setProgress(28,`② 간격 분할 조립 완료 (${chapters.length}개)`);
+    } else if(S.tocItems.length>0){
+      // ★ tocItems가 있으면 항상 tocItems 기반 조립
+      // ★ L-16 FIX: _fullRawLines null 가드 — startConvert 완료 후 메모리 해제된 경우 대비
+      const sourceLines=(_fullRawLines && _fullRawLines.length>0)
+        ? _fullRawLines
+        : raw.split('\n');
+      setProgress(20,'② 목차 기반 챕터 조립 중...');
+      await yieldToMain();
+      chapters=buildChaptersFromTocItems(sourceLines, S.tocItems);
       setProgress(28,`② 챕터 조립 완료 (활성 ${S.tocItems.filter(t=>t.enabled).length}개 → ${chapters.length}개)`);
     } else {
       // tocItems 없음 → 원본 텍스트 직접 파싱
-      const detectOpts={
-        fileBreaks,
-        range:rangeForFiles(sorted.map(f=>f.name)),
-        mergeParts:document.getElementById('optMergeParts')?.checked===true,
-      };
       setProgress(18,'② 목차 패턴 감지 중...');
       await yieldToMain();
-      chapters=_countLines(raw)>=100000
-        ? await splitChaptersAsync(raw,customPat,(pct,msg)=>setProgress(pct,msg),detectOpts)
-        : splitChapters(raw,customPat,detectOpts);
+      const lineCount=(raw.match(/\n/g)||[]).length;
+      if(lineCount>=100000){
+        chapters=await splitChaptersAsync(raw,customPat,(pct,msg)=>setProgress(pct,msg),{expectedCount});
+      } else {
+        chapters=splitChapters(raw,customPat,{expectedCount});
+      }
       setProgress(24,`② 챕터 분리 완료 (${chapters.length}개)`);
-    }
-    raw=null;
-    checkAbort();
-    // ★ Phase 10: '문단 정합' 옵션 — 조립된 본문에 적용 (이전: 실제 변환에는 전달되지 않아 무시됨)
-    if(optMergeLines){
-      setProgress(28,'② 문단 정합 중...');
-      await yieldToMain();
-      chapters=applyParagraphMerge(chapters);
+      // tocItems 없는 경우 disabledTitles 폴백
+      const disabledTitles=new Set(S.tocItems.filter(t=>!t.enabled).map(t=>t.title));
+      if(disabledTitles.size>0){
+        setProgress(28,'② 비활성 챕터 병합 중...');
+        await yieldToMain();
+        const merged=[];let pb='';
+        for(const[h,b]of chapters){
+          if(disabledTitles.has(h)){
+            pb+=(pb?'\n\n':'')+h+'\n'+b;
+          } else {
+            if(pb&&merged.length>0){merged[merged.length-1][1]+='\n\n'+pb;pb='';}
+            else if(pb){merged.push([h,pb+'\n\n'+b]);pb='';continue;}
+            merged.push([h,b]);
+          }
+        }
+        if(pb&&merged.length>0) merged[merged.length-1][1]+='\n\n'+pb;
+        chapters=merged;
+      }
     }
     await yieldToMain();
     setProgress(30,'③ 삽화 파싱 중...');
     await yieldToMain();
-    checkAbort();
-    // 삽화 파싱 — 파일명 숫자 = 챕터 순번(1-based, '서문' 제외 — Worker에서 매핑)
-    // 01.jpg → 첫 번째 챕터 / 100.jpg → 100번째 챕터
-    // 01_01.jpg → 첫 번째 챕터의 첫 번째 삽화 / 01_02.jpg → 두 번째 삽화
+    // 삽화 파싱 — 파일명 숫자 = 챕터 인덱스(1-based)
+    // 01.jpg → chapters[0] (첫 번째 챕터)
+    // 100.jpg → chapters[99] (100번째 챕터)
+    // 01_01.jpg → chapters[0]의 첫 번째 삽화
+    // 01_02.jpg → chapters[0]의 두 번째 삽화
     const autoIlls=[];
     for(const f of S.illFiles){
       const stem=f.name.replace(/\.[^.]+$/,'');
       const m=stem.match(/^(\d+)(?:_(\d+))?/);
       if(m){
-        const chIdx=parseInt(m[1],10)-1;   // 1-based → 0-based 순번
-        const order=parseInt(m[2]||'1',10); // 서브넘버 (01_01 → 1, 01_02 → 2)
+        const chIdx=parseInt(m[1])-1;   // 1-based → 0-based 인덱스
+        const order=parseInt(m[2]||'1'); // 서브넘버 (01_01 → 1, 01_02 → 2)
         autoIlls.push({file:f, idx:chIdx, order, pos:'before'});
       }
     }
@@ -1435,7 +1440,7 @@ async function startConvert(){
       const file=S.illFiles.find(f=>f.name===name);if(!file)return;
       const pos=document.getElementById('mpos'+id)?.value||'before';
       // 새 UI: 화 번호 기준 (키워드는 범위 내 검색용, 최종 삽입은 화 번호 기준)
-      const ch=parseInt(document.getElementById('mc'+id)?.value,10);
+      const ch=parseInt(document.getElementById('mc'+id)?.value);
       if(ch) manualIlls.push({file,ch,order:999,pos});
       // 키워드도 병행 저장 (buildEpub에서 kw 매칭도 지원)
       const kw=document.getElementById('mkw'+id)?.value.trim();
@@ -1453,23 +1458,15 @@ async function startConvert(){
       await yieldToMain();
       effectiveCover=await generateTextCover(title, author);
     }
-    checkAbort();
 
     setProgress(40,'④ EPUB 빌드 중...');
     await yieldToMain();
     // ★ U-17: warnings 배열 수집 — buildEpub이 {blob, warnings} 형태로 반환 시 처리
     let epubWarnings = [];
     const epubResult = await buildEpub(
-      {
-        title,author,chapters,coverFile:effectiveCover,illMap,useItalic,
-        // ★ 시리즈 메타 (EPUB3 belongs-to-collection + calibre:series)
-        series:(document.getElementById('series')?.value||'').trim(),
-        seriesIndex:parseInt(document.getElementById('seriesIdx')?.value||'0',10)||0,
-      },
-      (pct,msg)=>setProgress(40+Math.round(pct*0.52), msg),
-      {signal:ac.signal}
+      {title,author,chapters,coverFile:effectiveCover,illMap,useItalic},
+      (pct,msg)=>setProgress(40+Math.round(pct*0.52), msg)
     );
-    checkAbort();
     let blob;
     if(epubResult && epubResult.blob){
       blob = epubResult.blob;
@@ -1477,28 +1474,26 @@ async function startConvert(){
     } else {
       blob = epubResult; // 기존 Blob 직접 반환 방식 하위 호환
     }
-    // ★ 변환 리포트: 챕터 구성에서 확인 가능한 경고 수집 (화수 도약·짧은 챕터·패턴 미감지·삽화 매핑 실패)
-    epubWarnings = epubWarnings.concat(_collectConvertWarnings(chapters, illMap));
     S.epubBlob=blob;
     S.epubName=title.replace(/[\\/:*?"<>|]/g,'_')+'.epub';
     const elapsed=((Date.now()-convertStart)/1000).toFixed(1);
     setProgress(100,'✅ 변환 완료! ('+elapsed+'초)');
-    const _abDone=document.getElementById('convertAbortBtn'); if(_abDone) _abDone.style.display='none';
+    document.getElementById('convertAbortBtn').style&&(document.getElementById('convertAbortBtn').style.display='none');
 
     // ★ 메모리 정리: 200,000줄 이하는 유지 (대용량 장편에서 간격 분할 재접근 가능하도록)
-    // window 프로퍼티를 통해 parser.js의 실제 변수를 갱신 (원문 문자열은 텍스트 캐시에 남아 재조립 시 디코딩 없이 복원)
+    // window 프로퍼티를 통해 parser.js의 실제 변수를 갱신
     if(window._fullRawLines&&window._fullRawLines.length>200000){
       window._fullRawLines=null;
     }
     if(window._autoSplitLines&&window._autoSplitLines.length>200000){
       window._autoSplitLines=null;
     }
-    const realChapters=chapters.filter(c=>!(c[2]&&c[2].pre)&&c[0]!=='서문');
+    // 챕터 캐시는 미리보기/분리에서 필요하므로 유지 (단, 대용량은 제한)
     document.getElementById('resultMsg').textContent=S.epubName;
     showResultStats('resultStats',[
       {
-        label: /^\(\d+\/\d+\)$/.test(realChapters[0]?.[0]||'') ? '페이지' : '챕터',
-        value: realChapters.length+'개'
+        label: /^\(\d+\/\d+\)$/.test(chapters.filter(([h])=>h!=='서문')[0]?.[0]||'') ? '페이지' : '챕터',
+        value: chapters.filter(([h])=>h!=='서문').length+'개'
       },
       {label:'파일 크기',value:(blob.size/1024/1024).toFixed(1)+'MB'},
       {label:'소요 시간',value:elapsed+'초'},
@@ -1506,18 +1501,16 @@ async function startConvert(){
     // 미리보기/분리용 챕터 저장
     _previewChapters=chapters;
     // ── 히스토리 저장 (IndexedDB 비동기) ──
-    // ★ Phase 10: 기록 저장은 변환 결과 표시를 막지 않음 (이전: await — 저장 공간 부족 시 변환 실패로 표시되거나
-    //   트랜잭션 abort 미처리로 Promise가 끝나지 않아 변환 버튼이 계속 비활성 상태로 남음)
-    saveHistory({
+    await saveHistory({
       title,author,
-      chapterCount:realChapters.length,
+      chapterCount:chapters.filter(([h])=>h!=='서문').length,
       sizeMB:(blob.size/1024/1024).toFixed(1),
       elapsed,
       date:new Date().toLocaleString('ko-KR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
       name:S.epubName,
       blob
-    }).catch(err=>console.warn('[history] 저장 실패:', err));
-    const _splitSec=document.getElementById('splitSec'); if(_splitSec) _splitSec.style.display='block';
+    });
+    document.getElementById('splitSec').style.display='block';
     const _resBox = _progResultEl || document.getElementById('resultBox');
     if(_resBox){
       _resBox.classList.add('show');
@@ -1535,17 +1528,12 @@ async function startConvert(){
     // ★ U-17: 변환 경고 리포트 렌더링
     _renderConvertReport(epubWarnings);
     // ★ ADD-10: 변환 완료 브라우저 알림 (탭 백그라운드 시)
-    _sendConvertNotif(title || S.epubName, realChapters.length);
+    _sendConvertNotif(title || S.epubName, chapters.filter(([h])=>h!=='서문').length);
   }catch(e){
-    // ★ Phase 10: 사용자 중단은 오류로 표시하지 않음
-    if(ac.signal.aborted||e?.name==='AbortError'){
-      Toast.info('변환을 중단했어요.',2000);
-      return;
-    }
-    // ★ U-20: 복구 가능 오류와 치명적 오류 분류 — EPUB 생성 실패는 치명적 오류(오류 박스)로 표시
-    //   (이전: buildEpub이 모든 오류를 RecoverableError로 감싸 '계속 진행합니다' 경고만 뜨고 결과도 오류 안내도 없었음)
+    if(_convertAborted) return;
+    // ★ U-20: 복구 가능 오류와 치명적 오류 분류
     if(e instanceof RecoverableError){
-      Toast.warn('⚠ ' + e.message + (e.context ? ` (${e.context})` : ''));
+      Toast.warn('⚠ ' + e.message + (e.context ? ` (${e.context})` : '') + ' — 계속 진행합니다.');
     } else {
       // ★ UX-ANIM: 에러 박스 scrollIntoView + err-shake 애니메이션 트리거
       const errEl = _progErrEl || document.getElementById('errBox');
@@ -1556,7 +1544,6 @@ async function startConvert(){
         errEl.classList.add('show', 'err-shake');
         errEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
-      console.error('[startConvert]', e);
     }
   }finally{
     // ★ Side-Effect 가드: 예외·정상 종료 모두 UI 스피너·중단 버튼 반드시 해제
@@ -1564,39 +1551,7 @@ async function startConvert(){
     (_progWrapEl || document.getElementById('progWrap'))?.classList.remove('show');
     const _ab = document.getElementById('convertAbortBtn');
     if(_ab) _ab.style.display = 'none';
-    _convertRunning=false;
-    _convertBtnEl?.removeAttribute('aria-busy');
-    if(_convertBtnEl) _convertBtnEl.disabled=false;
   }
-}
-
-// ★ U-17: 변환 경고 수집 — 결과 카드의 #convertReport에 표시
-function _collectConvertWarnings(chapters, illMap){
-  const out=[];
-  const list=Array.isArray(chapters)?chapters:[];
-  const real=list.filter(c=>!(c[2]&&c[2].pre)&&c[0]!=='서문');
-  if(!real.length) return out;
-  // 패턴 미감지 → 페이지/본문 단위 분할
-  if(real.every(([h])=>h==='본문'||/^\(\d+\/\d+\)$/.test(h))){
-    out.push('챕터 패턴을 찾지 못해 '+(real.length>1?real.length+'개 페이지로 나눠':'본문 하나로')+' 저장했어요. 목차가 필요하면 패턴을 직접 입력하거나 간격 분할을 사용하세요.');
-  }
-  // 화수 도약 (누락 의심)
-  if(typeof _checkIndexJump==='function'&&real.length>2){
-    const {jumps}=_checkIndexJump(real);
-    jumps.slice(0,5).forEach(j=>out.push(`화수 도약 ${j.from}화 → ${j.to}화 (+${j.gap}) — 중간 화가 빠졌을 수 있어요.`));
-    if(jumps.length>5) out.push(`화수 도약 외 ${jumps.length-5}건`);
-  }
-  // 본문이 매우 짧은 챕터 (마지막 챕터 제외)
-  const th=typeof getSuspThreshold==='function'?getSuspThreshold():50;
-  const short=real.slice(0,-1).filter(([,b])=>String(b||'').replace(/\s/g,'').length<th);
-  if(short.length) out.push(`본문이 ${th}자 미만인 챕터 ${short.length}개: ${short.slice(0,3).map(([h])=>h).join(', ')}${short.length>3?' …':''}`);
-  // 삽화 매핑 실패 (해당 화가 없음) — 순번은 '서문' 제외 기준 (EPUB Worker 매핑과 동일)
-  const nums=new Set(list.map(c=>(c[2]&&c[2].num!=null)?c[2].num:extractChNum(String(c[0]||''))).filter(n=>n!=null));
-  (illMap||[]).forEach(il=>{
-    if(typeof il.idx==='number'&&(il.idx<0||il.idx>=real.length)) out.push(`삽화 ${il.file?.name||''}: ${il.idx+1}번째 챕터가 없어 삽입되지 않았어요.`);
-    else if(typeof il.ch==='number'&&!nums.has(il.ch)) out.push(`삽화 ${il.file?.name||''}: ${il.ch}화를 찾지 못해 삽입되지 않았어요.`);
-  });
-  return out;
 }
 
 // ★ U-17: 변환 오류 리포트 — 챕터별 경고 항목 요약 렌더링
@@ -1604,12 +1559,11 @@ function _renderConvertReport(warnings){
   const el = document.getElementById('convertReport');
   if(!el) return;
   if(!warnings || !warnings.length){ el.style.display='none'; return; }
-  // ★ style.css의 #convertReport{display:none} 기본값 때문에 ''가 아닌 'block'으로 명시
-  el.style.display = 'block';
+  el.style.display = '';
   el.innerHTML =
-    `<div style="font-size:var(--fs-xs);font-weight:700;color:var(--accent);margin-bottom:6px">⚠ 변환 경고 ${warnings.length}건</div>` +
+    `<div style="font-size:11px;font-weight:700;color:var(--accent);margin-bottom:6px">⚠ 변환 경고 ${warnings.length}건</div>` +
     `<div style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto">` +
-    warnings.map(w=>`<div style="font-size:var(--fs-xs);color:var(--text2);padding:3px 6px;background:var(--accent-bg);border-radius:var(--radius-xs);border-left:2px solid var(--accent)">⚠ ${escHtml(String(w))}</div>`).join('') +
+    warnings.map(w=>`<div style="font-size:11px;color:var(--text2);padding:3px 6px;background:var(--accent-bg);border-radius:4px;border-left:2px solid var(--accent)">⚠ ${escHtml(String(w))}</div>`).join('') +
     `</div>`;
 }
 
@@ -1635,11 +1589,11 @@ function _renderProgressSparkline(){
     svgBars += `<rect x="${x}" y="${H-bh}" width="${barW}" height="${bh}" fill="${col}" rx="1" opacity="0.85"><title>${label} (${(dur/1000).toFixed(1)}s)</title></rect>`;
   }
   container.innerHTML =
-    `<svg width="${W}" height="${H}" style="display:block;margin:6px auto 0" aria-label="단계별 소요시간 스파크라인">
+    `<svg width="${W}" height="${H}" style="display:block;margin:6px 0 0" aria-label="단계별 소요시간 스파크라인">
       <title>변환 단계별 소요시간</title>${svgBars}
     </svg>
-    <div style="font-size:var(--fs-xs);color:var(--text2);margin-top:2px">단계별 소요시간 (총 ${(totalMs/1000).toFixed(1)}초)</div>`;
-  container.style.display = 'block'; // ★ #progressSparkline{display:none} 기본값 대응
+    <div style="font-size:10px;color:var(--text2);margin-top:2px">단계별 소요시간 (총 ${(totalMs/1000).toFixed(1)}초)</div>`;
+  container.style.display = '';
 }
 
 // ★ 07: 결과 카드 count-up + shimmer 애니메이션
@@ -1804,10 +1758,10 @@ function renderPreview(){
     for(const line of lines){
       const t=line.trim();
       if(!t) continue;
-      if(/^[-\u2014]/.test(t)) html+='<p><em>'+escHtml(t)+'</em></p>';
+      if(/^[-—]/.test(t)) html+='<p><em>'+escHtml(t)+'</em></p>';
       else html+='<p>'+escHtml(t)+'</p>';
     }
-    if(b.split('\n').length>30) html+='<p style="color:var(--text2);font-size:var(--fs-xs);margin-top:8px">... (이하 생략)</p>';
+    if(b.split('\n').length>30) html+='<p style="color:var(--text2);font-size:11px;margin-top:8px">... (이하 생략)</p>';
     html+='</div>';
   }
   body.innerHTML=html;
@@ -1839,17 +1793,14 @@ async function startSplit(){
   const useItalic=document.getElementById('optItalic')?.checked!==false;
   const coverFile=S.coverFile;
   const listEl=document.getElementById('splitList');
-  listEl.innerHTML='<div style="font-size:var(--fs-sm);color:var(--text2);grid-column:1/-1">분리 중...</div>';
+  listEl.innerHTML='<div style="font-size:12px;color:var(--text2);grid-column:1/-1">분리 중...</div>';
   document.getElementById('splitSec').style.display='block';
 
-  // N화 단위 분리 — '서문'은 화수에 세지 않되 첫 파트 앞에 붙여 보존 (★ 이전: 서문 내용이 분리본에서 사라짐)
-  const preface=_previewChapters.filter(([h])=>h==='서문');
   const chapters=_previewChapters.filter(([h])=>h!=='서문');
   const parts=[];
   for(let i=0;i<chapters.length;i+=n){
     parts.push(chapters.slice(i,i+n));
   }
-  if(parts.length&&preface.length) parts[0]=[...preface,...parts[0]];
 
   listEl.innerHTML='';
   const blobs=[];
@@ -1862,14 +1813,12 @@ async function startSplit(){
     div.className='split-item';
     div.id='spi_'+pi;
     div.innerHTML='<div style="font-weight:600;margin-bottom:4px">'+escHtml(partTitle)+'</div>'+
-      '<div style="font-size:var(--fs-xs);color:var(--text2)">'+escHtml(firstCh)+' ~ '+escHtml(lastCh)+'</div>'+
-      '<div id="sps_'+pi+'" style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px">생성 중...</div>';
+      '<div style="font-size:11px;color:var(--text2)">'+escHtml(firstCh)+' ~ '+escHtml(lastCh)+'</div>'+
+      '<div id="sps_'+pi+'" style="font-size:11px;color:var(--text2);margin-top:4px">생성 중...</div>';
     listEl.appendChild(div);
 
     try{
-      // ★ 분할 EPUB은 원제목을 시리즈로, 파트 순번을 권 번호로 기록 → 리더기 서재에서 묶여 보임
-      const blob=await buildEpub({title:partTitle,author,chapters:part,coverFile:pi===0?coverFile:null,illMap:[],useItalic,
-        series:title,seriesIndex:pi+1},null);
+      const blob=await buildEpub({title:partTitle,author,chapters:part,coverFile:pi===0?coverFile:null,illMap:[],useItalic},null);
       blobs.push({name:partTitle+'.epub',blob});
       div.className='split-item done';
       document.getElementById('sps_'+pi).textContent='✅ '+(blob.size/1024/1024).toFixed(1)+'MB';
@@ -1896,7 +1845,7 @@ async function downloadSplitZip(){
   if(!window._splitBlobs) return;
   const zip=new JSZip();
   window._splitBlobs.forEach(r=>zip.file(r.name,r.blob));
-  const blob=await zip.generateAsync({type:'blob',compression:'STORE'});   // ★ Phase 10: EPUB 재압축 생략
+  const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
   const url=URL.createObjectURL(blob);
   const a=document.createElement('a');a.href=url;a.download='epub_분리.zip';a.click();
   setTimeout(()=>URL.revokeObjectURL(url),1000);
@@ -1915,16 +1864,6 @@ function downloadEpub(){
 }
 
 // ★ EPUB 다운로드 완료 플로팅 바 — 변환 완료 시 하단에 상시 표시
-// ★ Phase 10: 변환 결과 상태 해제 + 하단 바를 '변환' 상태로 복귀 (새 파일 로드·초기화 공용)
-function _resetConvertResultUi(){
-  S.epubBlob=null; S.epubName='';
-  _previewChapters=[];
-  const dl=document.getElementById('btmDownload'); if(dl) dl.style.display='none';
-  const cv=document.getElementById('btmConvert'); if(cv&&document.getElementById('page-convert')?.offsetParent!==null) cv.style.display='flex';
-  document.getElementById('resultBox')?.classList.remove('show');
-  const sp=document.getElementById('splitSec'); if(sp) sp.style.display='none';
-}
-
 function _showEpubDownloadBar(epubName){
   const bar=document.getElementById('btmDownload');
   const nameEl=document.getElementById('btmDlName');
@@ -1956,99 +1895,80 @@ function _showEpubDownloadBar(epubName){
 }
 
 // ★ I7: 챕터별 글자수 분포 미니 SVG 차트
-// ★ Phase 9:
-//   · 화수가 막대 수용량(폭/2)보다 많으면 연속 화를 구간으로 묶어 그림
-//     (이전: 막대 폭 1px+간격 1px 고정 → 300px에 868화면 앞 ~150화만 보이고 나머지 잘림)
-//   · 툴팁은 textContent로 채움 (이전: data-title을 innerHTML로 넣어 '<img onerror>' 제목이 실행됨)
-//   · 툴팁 요소는 전역 1개를 재사용하고, 다시 그릴 때 숨김 (이전: 렌더마다 body에 새 div 누적)
-//   · 막대 색은 CSS 변수 (이전: #e8764a / #4472a8 하드코딩)
-let _tocChartTipEl=null;
-function _getTocChartTip(){
-  if(!_tocChartTipEl||!_tocChartTipEl.isConnected){
-    _tocChartTipEl=document.createElement('div');
-    _tocChartTipEl.className='toc-chart-tooltip';
-    _tocChartTipEl.style.display='none';
-    const strong=document.createElement('strong');
-    const sub=document.createElement('div');
-    _tocChartTipEl.append(strong,sub);
-    document.body.appendChild(_tocChartTipEl);
-  }
-  return _tocChartTipEl;
-}
-function _fmtChars(n){
-  return n>=10000?(n/10000).toFixed(1)+'만자':n>=1000?(n/1000).toFixed(1)+'k':n+'자';
-}
 function renderTocMiniChart(){
   const el=document.getElementById('tocMiniChart');
-  if(_tocChartTipEl) _tocChartTipEl.style.display='none';
   if(!el||!S.tocItems.length) return;
   const items=S.tocItems.filter(t=>t.enabled&&(t.bodyLen||0)>0);
   if(!items.length){el.innerHTML='';return;}
   // ★ FIX-07 연동: getSuspThreshold 사용
   const _suspThr = typeof getSuspThreshold==='function' ? getSuspThreshold() : 50;
-  const W=el.clientWidth||300, H=36;
-  // 막대 하나 최소 2px(폭 1 + 간격 1) — 넘치면 연속 화를 구간으로 묶음
-  const slots=Math.max(1,Math.floor((W-4)/2));
-  const per=Math.ceil(items.length/slots);
-  const groups=[];
-  for(let g=0;g<items.length;g+=per) groups.push(items.slice(g,g+per));
-  // 막대 간격을 소수로 계산해 폭 전체를 채움 (정수 내림 시 오른쪽이 비는 문제 방지)
-  const step=(W-4)/groups.length, bw=Math.max(1,step-1);
-  // ★ Phase 10: 수만 항목 spread(Math.max(...arr))는 인자 수 한도(RangeError) 위험 → reduce
-  const maxLen=items.reduce((m,t)=>Math.max(m,t.bodyLen||0),1);
+  const maxLen=Math.max(...items.map(t=>t.bodyLen||0),1);
+  const W=el.clientWidth||300, H=36, bw=Math.max(1,Math.floor((W-4)/items.length)-1);
 
-  const bars=groups.map((grp,i)=>{
-    const lens=grp.map(t=>t.bodyLen||0);
-    const top=Math.max(...lens);
-    const h=Math.max(2,Math.floor(top/maxLen*(H-4)));
-    const x=(2+i*step).toFixed(2);
-    // ★ ADD-03: 짧은 챕터(경고), 긴 챕터(파랑), 정상(accent) — 구간에 짧은 화가 하나라도 있으면 경고색
-    const col = Math.min(...lens) < _suspThr ? 'var(--yellow)' : top > 50000 ? 'var(--blue)' : 'var(--accent)';
+  const bars=items.map((t,i)=>{
+    const bl = t.bodyLen || 0;
+    const h=Math.max(2,Math.floor(bl/maxLen*(H-4)));
+    const x=2+i*(bw+1);
+    // ★ ADD-03: 짧은챕터(주황), 긴챕터(파랑), 정상(accent)
+    const col = bl < _suspThr ? '#e8764a' : bl > 50000 ? '#4472a8' : 'var(--accent)';
+    const titleSafe = (t.title||'').replace(/"/g,'&quot;').slice(0,30);
+    const blStr = bl>=10000?(bl/10000).toFixed(1)+'만자':bl>=1000?(bl/1000).toFixed(1)+'k':bl+'자';
     // ★ BUG-FIX: data-real-idx에 실제 S.tocItems 인덱스 저장 (enabled 필터 인덱스 ≠ 실제 인덱스)
-    const realIdx = S.tocItems.indexOf(grp[0]);
-    return `<rect x="${x}" y="${H-h}" width="${bw.toFixed(2)}" height="${h}" rx="1" data-idx="${i}" data-real-idx="${realIdx}"
-      style="fill:${col};cursor:pointer;opacity:.75;transition:opacity .1s"/>`;
+    const realIdx = S.tocItems.indexOf(t);
+    return `<rect x="${x}" y="${H-h}" width="${bw}" height="${h}" fill="${col}" rx="1"
+      data-idx="${i}" data-real-idx="${realIdx}" data-title="${titleSafe}" data-chars="${bl}" data-str="${blStr}"
+      style="cursor:pointer;opacity:.75;transition:opacity .1s"/>`;
   }).join('');
 
-  // viewBox + preserveAspectRatio=none: 실제 표시 폭(width:100%)에 막대 전체를 맞춤
-  el.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block;width:100%">${bars}</svg>`;
+  el.innerHTML=`<svg width="${W}" height="${H}" style="display:block;width:100%">${bars}</svg>`;
 
   // ★ ADD-03: SVG hover 툴팁
   const svg = el.querySelector('svg');
   if(!svg) return;
+  let _tipEl = null;
   svg.addEventListener('mousemove', e=>{
     const rect_svg = e.target;
-    if(rect_svg?.tagName !== 'rect') return;
-    const grp = groups[parseInt(rect_svg.dataset.idx)];
-    if(!grp) return;
-    const tip=_getTocChartTip();
-    const first=grp[0], last=grp[grp.length-1];
-    const total=grp.reduce((a,t)=>a+(t.bodyLen||0),0);
-    if(tip.firstChild) tip.firstChild.textContent = grp.length>1
-      ? `${first.title||''} ~ ${last.title||''}`.slice(0,60)
-      : (first.title||'챕터 '+(S.tocItems.indexOf(first)+1)).slice(0,40);
-    if(tip.lastChild) tip.lastChild.textContent = grp.length>1
-      ? `${grp.length}개 · 평균 ${_fmtChars(Math.round(total/grp.length))}`
-      : _fmtChars(total);
-    tip.style.left = Math.min(e.clientX+12, window.innerWidth-220)+'px';
-    tip.style.top  = (e.clientY-38)+'px';
-    tip.style.display='';
+    if(rect_svg.tagName !== 'rect') return;
+    const idx  = parseInt(rect_svg.dataset.idx);
+    const chars= rect_svg.dataset.str || '';
+    const title= rect_svg.dataset.title || '';
+    // 툴팁 생성/재사용
+    if(!_tipEl){
+      _tipEl = document.createElement('div');
+      _tipEl.className = 'toc-chart-tooltip';
+      document.body.appendChild(_tipEl);
+    }
+    _tipEl.innerHTML = `<strong>${title||'챕터 '+(idx+1)}</strong><br>${chars}`;
+    _tipEl.style.left = Math.min(e.clientX+12, window.innerWidth-220)+'px';
+    _tipEl.style.top  = (e.clientY-38)+'px';
+    _tipEl.style.display='';
     // 해당 rect hover 강조
     svg.querySelectorAll('rect').forEach(r=>r.style.opacity='.45');
     rect_svg.style.opacity='1';
   });
   svg.addEventListener('mouseleave', ()=>{
-    if(_tocChartTipEl) _tocChartTipEl.style.display='none';
+    if(_tipEl){ _tipEl.style.display='none'; }
     svg.querySelectorAll('rect').forEach(r=>r.style.opacity='.75');
   });
-  // 클릭: 해당 챕터(구간의 첫 화)로 스크롤 (★ BUG-FIX: data-real-idx로 실제 tocItems 인덱스 사용)
+  // 클릭: 해당 챕터로 스크롤 (★ BUG-FIX: data-real-idx로 실제 tocItems 인덱스 사용)
   svg.addEventListener('click', e=>{
     const rect_svg = e.target;
-    if(rect_svg?.tagName !== 'rect') return;
-    const realIdx = parseInt(rect_svg.dataset.realIdx ?? rect_svg.dataset.idx, 10);
-    // ★ Phase 10: 가상 스크롤 목록 — 화면 밖 행도 tocScrollToIndex로 이동 + 강조
-    if(typeof tocTab==='function') tocTab(0);
-    if(typeof tocScrollToIndex==='function') tocScrollToIndex(realIdx);
+    if(rect_svg.tagName !== 'rect') return;
+    const realIdx = parseInt(rect_svg.dataset.realIdx ?? rect_svg.dataset.idx);
+    // 접힌 상태라면 먼저 펼치기
+    const collapseBtn=document.getElementById('toc-collapse-btn');
+    if(collapseBtn) collapseBtn.click();
+    // 펼친 뒤 DOM이 갱신되도록 rAF 후 스크롤
+    requestAnimationFrame(()=>{
+      const tocEl = document.querySelector(`#tb0 .toc-item[data-idx="${realIdx}"]`);
+      if(tocEl){
+        tocEl.scrollIntoView({block:'center',behavior:'smooth'});
+        // 잠깐 하이라이트
+        tocEl.style.transition='background .15s';
+        tocEl.style.background='var(--blue-bg)';
+        setTimeout(()=>{ tocEl.style.background=''; },900);
+      }
+    });
   });
 }
 
@@ -2058,7 +1978,7 @@ function exportTocWithStats(){
   const lines=S.tocItems
     .filter(t=>t.enabled)
     .map((t,i)=>{
-      const bl=t.bodyLen||0;
+      const bl=typeof t.bodyLen==='number'?t.bodyLen:(t.body||'').replace(/\s/g,'').length;
       const blStr=bl>=10000?(bl/10000).toFixed(1)+'만자':bl>=1000?(bl/1000).toFixed(1)+'k자':bl+'자';
       return String(i+1).padStart(3,'0')+'. '+t.title+' ('+blStr+')';
     }).join('\n');
@@ -2135,6 +2055,7 @@ function filterHistory(){
   const onlyHasFile=document.getElementById('histFilterHasFile')?.classList.contains('on');
   document.querySelectorAll('#histList .hist-item').forEach(el=>{
     const title=(el.querySelector('.hist-title')?.textContent||'').toLowerCase();
+    const hasFile=!el.querySelector('.hist-del')?.closest('.hist-item')?.querySelector('[data-action="histDownload"]')?.disabled;
     const matchQ=!q||title.includes(q);
     const matchFile=!onlyHasFile||el.querySelector('[data-action="histDownload"]');
     el.style.display=(matchQ&&matchFile)?'':'none';
@@ -2145,30 +2066,234 @@ function toggleHistFilter(btn){
   filterHistory();
 }
 
+// ════ 배치 변환 파일별 상태 렌더링 (추천 6) ════
+function renderBatchFileStatus(itemEl, files, statuses){
+  let container=itemEl.querySelector('.batch-file-status');
+  if(!container){
+    container=document.createElement('div');
+    container.className='batch-file-status';
+    itemEl.appendChild(container);
+  }
+  container.innerHTML=files.map((f,i)=>{
+    const st=statuses[i]||'pending';
+    const icon=st==='done'?'✅':st==='running'?'⏳':st==='error'?'❌':'⬜';
+    const detail=st==='done'?f.detail||'':'';
+    return `<div class="batch-file-row">
+      <span class="batch-file-icon">${icon}</span>
+      <span class="batch-file-name">${escHtml(f.name||'')}</span>
+      ${detail?`<span class="batch-file-detail">${escHtml(detail)}</span>`:''}
+    </div>`;
+  }).join('');
+}
+
 // ══════════════════════════════════════════
 // 📦 Module: Batch (일괄 변환 플로우)
 // ══════════════════════════════════════════
-function handleBatchTxt(files){
-  const _all=Array.from(files||[]);
-  const txts=_all.filter(f=>/\.txt$/i.test(f?.name||''));
-  // ★ TXT 드롭존에 이미지가 섞여 오면 표지 맵으로 전달 (파일명 유사도 자동 매핑)
-  const imgs=_all.filter(f=>_IMG_EXT_RX.test(f?.name||''));
-  if(!txts.length){
-    if(imgs.length) handleBatchCover(imgs);
+
+// ★ v3: 일괄 변환 패턴 프리셋 — 모듈 상수로 분리 (100% 일치 프리셋 탐색에 재사용)
+// ★ v3 FIX: '[ 파일명.txt ] 형식' 정규식이 '^\.'(점)으로 시작해 한 줄도 매칭되지 않던 오타 수정 → '^\['
+const _BATCH_PRESETS = [
+  ['[ 파일명.txt ] 형식','^\\[\\s*.+\\.txt\\s*\\]\\s*$',            '[ 0001_제목.txt ] 분리 파일 합본 형식'],
+  ['화 번호',        '^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$',       '숫자+화 형식 (#N화, 제N화, N화 제목)'],
+  ['숫자만',         '^\\d+$',                                      '줄에 숫자만 단독으로 있는 경우'],
+  ['소설(숫자)',     '^.{1,60}\\s*\\(\\d+\\)\\s*$',                 '제목 끝에 (N) 형식'],
+  ['소설명+N화',    '^.{2,15}\\s+\\d+화$',                          '소설 제목+N화 형식 (이고깽 이후 천 년 1화 등)'],
+  ['#N. 제목',      '^#\\d+\\.\\s+.{1,60}$',                       '#숫자+점 형식 (#1. 시작)'],
+  ['N. 제목',       '^\\d+\\.\\s+.{1,60}$',                        '숫자+점 형식 (1. 프롤로그)'],
+  ['장 번호',       '^(?:제\\s*\\d+\\s*장|第\\s*\\d+\\s*章)',        '제N장 형식 (주만 변연물어 등)'],
+  ['N부 M화',       '^[1-9]부\\s+(?:\\d+화|프롤로그)',              'N부 M화 복합 형식'],
+  ['=== [제N화] ===','^={2,}\\s*\\[제\\s*\\d+\\s*화\\]',           '이중등호+대괄호 형식'],
+  ['Chapter N',     '^(?:chapter|part|ch)\\s*\\d+',                '영어 Chapter/Part 형식'],
+  ['프롤로그/외전',  '^(?:프롤로그|에필로그|외전|후일담)',           '외전·에필로그 등 특수 챕터'],
+  ['# 제목',        '^#{1,3}\\s*.+$',                               '마크다운 헤딩 형식'],
+];
+
+// ★ v3: 줄 배열에서 정규식 매칭 수 — parser.js _headingCandidates 기준으로 통일
+// (BOM·전각숫자·괄호 전처리 포함 — 목차 확인 / 프리셋 개수 / 실제 변환 결과가 일치)
+function _countHeadingMatches(lines, rx){
+  if(!rx||!lines) return 0;
+  let cnt=0;
+  for(const l of lines){
+    const c=typeof _headingCandidates==='function' ? _headingCandidates(l) : ((l||'').trim()?[(l||'').trim()]:null);
+    if(c&&c.some(s=>rx.test(s))) cnt++;
+  }
+  return cnt;
+}
+
+// ★ v3: 기대 화수와 정확히 일치하는 프리셋 탐색 (bestPat이 100% 일치를 못 찾았을 때의 보정)
+function _findExactPreset(lines, totalCh){
+  if(!totalCh||totalCh<=0) return null;
+  for(const [label,val] of _BATCH_PRESETS){
+    try{
+      const rx=new RegExp(val,'i');
+      if(_countHeadingMatches(lines,rx)===totalCh) return {label,rx};
+    }catch(e){}
+  }
+  return null;
+}
+
+// ════════════════════════════════════════════════════════
+// ⚡ 일괄 변환 간격 분할 (N화) — 상태: _bStore
+//   B.batchSplit = { enabled:boolean, template:string }   ← 전역 토글 (모든 파일)
+//   B.splitModes = { [idx]: {mode:'interval', total:N} | {mode:'pattern'} }  ← 파일별 우선
+// 우선순위: 파일별 interval > 파일별 pattern(전역 해제) > 전역 토글 > 패턴 감지
+// ════════════════════════════════════════════════════════
+function _resolveBatchSplit(i){
+  const g=B.batchSplit||{};
+  const tpl=((g.template||'').trim())||'{N}화';
+  const m=(B.splitModes||{})[i];
+  if(m&&m.mode==='interval') return {total:m.total||0, template:tpl, source:'file'};
+  if(m&&m.mode==='pattern') return null;
+  if(g.enabled) return {total:0, template:tpl, source:'global'};
+  return null;
+}
+
+// 전역 간격 분할 토글 + 제목 형식 입력 — batchPattern 행 아래에 1회 삽입 (index.html 무변경)
+function _ensureBatchSplitControls(){
+  if(document.getElementById('batchSplitRow')){ _syncBatchSplitControls(); return; }
+  const patInp=document.getElementById('batchPattern');
+  const anchor=patInp?.closest('.row');
+  if(!anchor?.parentNode) return;
+
+  const row=document.createElement('div');
+  row.className='toggle-row';
+  row.id='batchSplitRow';
+  row.style.padding='6px 0';
+  row.innerHTML=
+    '<div style="display:flex;flex-direction:column;gap:2px;min-width:0">'+
+      '<label for="batchIntervalMode">⚡ 간격 분할 일괄 적용 (N화)</label>'+
+      '<span style="font-size:10px;color:var(--text2)">패턴 대신 균등 간격으로 분할 · 화수는 파일명/목차 줄/자동 추정 순으로 결정</span>'+
+    '</div>'+
+    '<label class="sw"><input type="checkbox" id="batchIntervalMode"><span class="sw-slider" aria-hidden="true"></span></label>';
+
+  const tplRow=document.createElement('div');
+  tplRow.className='row';
+  tplRow.id='batchSplitTplRow';
+  tplRow.style.padding='3px 0';
+  tplRow.innerHTML=
+    '<span class="lbl" style="width:80px">제목 형식</span>'+
+    '<input class="inp" id="batchIntervalTpl" placeholder="{N}화  ({N}=화 번호)">';
+
+  anchor.insertAdjacentElement('afterend', row);
+  row.insertAdjacentElement('afterend', tplRow);
+
+  row.querySelector('#batchIntervalMode')?.addEventListener('change',e=>{
+    const g={...(B.batchSplit||{})};
+    g.enabled=!!e.target?.checked;
+    _bStore.set({batchSplit:g});
+    _syncBatchSplitControls();
+    (B.txtFiles||[]).forEach((_,i)=>_syncBatchModeBadge(i));
+    if(g.enabled) Toast.info('⚡ 모든 파일을 간격 분할(N화)로 변환해요. 파일별 설정이 있으면 그 값이 우선이에요.',3500);
+  });
+  tplRow.querySelector('#batchIntervalTpl')?.addEventListener('input',e=>{
+    const g={...(B.batchSplit||{})};
+    g.template=e.target?.value||'';
+    _bStore.set({batchSplit:g});
+  });
+  _syncBatchSplitControls();
+}
+
+function _syncBatchSplitControls(){
+  const g=B.batchSplit||{};
+  const chk=document.getElementById('batchIntervalMode');
+  if(chk) chk.checked=!!g.enabled;
+  const tplInp=document.getElementById('batchIntervalTpl');
+  if(tplInp&&document.activeElement!==tplInp) tplInp.value=g.template||'{N}화';
+  const tplRow=document.getElementById('batchSplitTplRow');
+  const anyFile=Object.values(B.splitModes||{}).some(m=>m&&m.mode==='interval');
+  if(tplRow) tplRow.style.display=(g.enabled||anyFile)?'':'none';
+}
+
+// 배치 목록 항목의 모드 배지 + 파일별 패널의 '패턴 모드' 버튼 표시 동기화
+function _syncBatchModeBadge(i){
+  const badge=document.getElementById('bmode_'+i);
+  const split=_resolveBatchSplit(i);
+  if(badge){
+    if(split){
+      badge.textContent=split.source==='file' ? ('⚡ '+split.total+'화 간격') : '⚡ 간격 분할(자동)';
+      badge.style.display='';
+    } else {
+      badge.textContent='';
+      badge.style.display='none';
+    }
+  }
+  const clearBtn=document.getElementById('bint_clear_'+i);
+  if(clearBtn) clearBtn.style.display=split?'':'none';
+  _syncBatchSplitControls();
+}
+
+// 파일별 간격 분할 적용
+function applyBatchInterval(idx){
+  const inp=document.getElementById('bint_total_'+idx);
+  const n=Number(String(inp?.value||'').trim());
+  if(!Number.isInteger(n)||n<1||n>9999){Toast.warn('1~9999 사이의 정수를 입력해주세요.');return;}
+  const modes={...(B.splitModes||{})};
+  modes[idx]={mode:'interval', total:n};
+  _bStore.set({splitModes:modes});
+  _renderBatchIntervalPreview(idx);
+  _syncBatchModeBadge(idx);
+  Toast.success(`⚡ ${n}화 간격 분할을 적용했어요.`,2500);
+}
+
+// 파일별 간격 분할 해제 → 패턴 모드 (전역 토글이 켜져 있으면 이 파일만 패턴 모드로 고정)
+function clearBatchInterval(idx){
+  const modes={...(B.splitModes||{})};
+  if((B.batchSplit||{}).enabled) modes[idx]={mode:'pattern'};
+  else delete modes[idx];
+  _bStore.set({splitModes:modes});
+  const pv=document.getElementById('bint_preview_'+idx);
+  if(pv) pv.textContent='패턴 감지 모드로 변환해요.';
+  _syncBatchModeBadge(idx);
+  Toast.info('↩ 패턴 감지 모드로 되돌렸어요.',2000);
+}
+
+// 파일별 간격 분할 미리보기 (샘플 텍스트가 로드된 경우 — 목차 확인 후)
+function _renderBatchIntervalPreview(idx){
+  const pv=document.getElementById('bint_preview_'+idx);
+  if(!pv) return;
+  const split=_resolveBatchSplit(idx);
+  const text=B.sampleTexts?.[idx];
+  if(!split){ pv.textContent='패턴 감지 모드로 변환해요.'; return; }
+  if(!text||typeof computeIntervalSplit!=='function'){
+    pv.textContent='⚡ 간격 분할 '+(split.total?split.total+'화':'(자동 화수)')+' — 변환 시 적용돼요.';
     return;
   }
+  try{
+    const lines=text.split('\n');
+    const total=split.total>0 ? split.total
+      : (B.totalChs?.[idx] || estimateIntervalTotal(text, lines, B.txtFiles?.[idx]?.name||''));
+    const items=computeIntervalSplit(lines, total, {titleMode:'number', titleTemplate:split.template});
+    const q=typeof _calcSplitQuality==='function' ? _calcSplitQuality(items) : {score:0,avgLen:0};
+    const avg=q.avgLen>=10000?(q.avgLen/10000).toFixed(1)+'만자':q.avgLen.toLocaleString()+'자';
+    const sample=[...items.slice(0,3),...(items.length>5?items.slice(-2):[])].map(t=>{
+      const first=(t.body||'').split('\n').find(l=>l.trim())||'';
+      return '<div style="display:flex;gap:6px;align-items:baseline;min-width:0">'+
+        '<b style="color:var(--blue);flex-shrink:0">'+escHtml(t.title)+'</b>'+
+        '<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">← '+escHtml(first.trim().slice(0,40))+'</span>'+
+      '</div>';
+    }).join('');
+    pv.innerHTML=
+      '<div style="margin-bottom:3px">⚡ <b>'+items.length+'화</b> · 균등도 '+q.score+'% · 평균 '+avg+'/화</div>'+
+      '<div style="display:flex;flex-direction:column;gap:1px;padding:4px 6px;background:var(--bg2);border-radius:5px;border:1px solid var(--border)">'+sample+'</div>';
+  }catch(e){
+    pv.textContent='⚠️ 미리보기 생성 실패: '+(e.message||e);
+  }
+}
+
+function handleBatchTxt(files){
+  const txts=Array.from(files).filter(f=>f.name.endsWith('.txt'));
+  if(!txts.length)return;
   B.txtFiles=txts.sort((a,b)=>sortKey(a.name)<sortKey(b.name)?-1:1);
   B.patterns={};
   B.sampleTexts={};
   B.totalChs={};
+  B.splitModes={};
   const dz=document.getElementById('batchTxtDrop');
   dz.classList.add('ok');
   dz.querySelector('.dz-text').textContent='✅ '+txts.length+'개 파일 선택됨';
   document.getElementById('batchResetBar').style.display='flex';
   renderBatchList();
-  const _listSec=document.getElementById('batchListSec');
-  if(_listSec) _listSec.style.display='block';
-  if(imgs.length) handleBatchCover(imgs);
+  document.getElementById('batchListSec').style.display='block';
 }
 
 function handleBatchCover(files){
@@ -2210,19 +2335,15 @@ function findFuzzyCover(txtStem){
   },{k:null,score:1}); // 최소 2개 이상 (score>1)
   if(best.k) return B.coverMap[best.k];
 
-  // 4순위: 바이그램 유사도 — 오타·띄어쓰기·부제 차이 흡수 (nameSimilarity ≥ 0.6)
-  let simBest=null;
-  keys.forEach(k=>{
-    const sc=Math.max(nameSimilarity(txtStem,k), nameSimilarity(_titleFromStem(txtStem),k));
-    if(sc>=0.6&&(!simBest||sc>simBest.score)) simBest={k,score:sc};
-  });
-  if(simBest) return B.coverMap[simBest.k];
-
   return null;
 }
 
 function renderBatchList(){
-  const c=document.getElementById('batchList');c.innerHTML='';
+  const c=document.getElementById('batchList');
+  if(!c) return;
+  c.innerHTML='';
+  // ★ v3: 전역 간격 분할 토글 1회 삽입
+  _ensureBatchSplitControls();
   B.txtFiles.forEach((f,i)=>{
     const stem=f.name.replace(/\.txt$/i,'');
     let title=stem,author='';
@@ -2236,18 +2357,22 @@ function renderBatchList(){
       :'<div class="batch-thumb" onclick="batchPickCover('+i+')" title="표지 지정">+</div>';
     d.innerHTML='<div class="batch-header">'+thumbHtml+
       '<div style="flex:1;min-width:0"><div class="batch-title">'+escHtml(title)+'</div>'+
-      '<div style="display:flex;align-items:center;gap:6px"><div class="batch-status" id="bst_'+i+'">'+(author?'✒️ '+escHtml(author):'')+'</div>'+
+      '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><div class="batch-status" id="bst_'+i+'">'+(author?'✒️ '+escHtml(author):'')+'</div>'+
+      // ★ v3: 간격 분할 모드 배지
+      '<span id="bmode_'+i+'" style="display:none;font-size:10px;padding:1px 7px;border-radius:99px;white-space:nowrap;background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue)"></span>'+
       '<button class="batch-toc-btn" onclick="showBatchToc('+i+',this)" title="목차 미리보기">📋 목차 확인</button></div>'+
       '</div></div>'+
       '<div class="batch-toc-panel" id="btp_'+i+'"></div>'+
       '<div class="batch-prog"><div class="batch-prog-bar" id="bpb_'+i+'" style="width:0"></div></div>';
     c.appendChild(d);
+    _syncBatchModeBadge(i);
     if(cover){const r=new FileReader();r.onload=e=>{const img=document.getElementById('bthumb_'+i);if(img)img.src=e.target.result;};r.readAsDataURL(cover);}
   });
 }
 
 async function showBatchToc(idx, btn){
   const panel=document.getElementById('btp_'+idx);
+  if(!panel||!btn) return;
   if(panel.classList.contains('show')){
     panel.classList.remove('show');
     btn.textContent='📋 목차 확인';
@@ -2264,26 +2389,56 @@ async function showBatchToc(idx, btn){
     const allLines=text.split('\n');
 
     // 파일명에서 총 화수 추출 (80% 기준)
-    const totalCh=parseChapterRange(file.name)?.total||0;   // 파일명 화수 ('1-201 완결' → 201, '0-853' → 854)
+    const totalCh=extractTotalFromFilename(file.name)||0;
 
     // sampleText와 totalCh 캐시 저장
     B.sampleTexts[idx]=text;
     B.totalChs[idx]=totalCh;
+    // ★ v3: 후보 문자열 기준 매칭 (BOM·전각·괄호 전처리 포함)
+    const collect=(rx)=>{
+      const out=[];
+      allLines.forEach((l,i)=>{
+        const c=_headingCandidates(l);
+        if(c&&c.some(s=>rx.test(s))) out.push({line:i+1,title:c[0]});
+      });
+      return out;
+    };
     // 파일별 개별 패턴 우선, 없으면 공통 패턴
     const pat=(B.patterns[idx]||document.getElementById('batchPattern')?.value||'').trim();
-    // ★ Phase 8: 실제 일괄 변환(splitChapters)과 같은 detectToc 사용 — 확인 패널 = 변환 결과
-    //   이전: bestPat 단일 패턴 + 자동 감지 정규식을 파일별 '지정 패턴'으로 저장 → 변환 때 새 엔진을 우회
-    const det=detectToc(allLines,{
-      customPat:pat, range:parseChapterRange(file.name),
-      mergeParts:document.getElementById('optMergeParts')?.checked===true,
-    });
-    const chapters=det.items.map(it=>({line:it.line,title:it.title}));
-    const detectedName=det.name;
-    const mainCnt=det.stats.main;
-    const detectedPct=totalCh>0?mainCnt/totalCh*100:100;
+    let chapters=[], detectedName='', detectedPct=0, exactMatch=false;
+    if(pat){
+      try{
+        const rx=new RegExp(pat,'i');
+        chapters=collect(rx);
+        detectedName='지정 패턴';
+        detectedPct=totalCh>0?chapters.length/totalCh*100:100;
+        exactMatch=totalCh>0&&chapters.length===totalCh;
+      }catch(e){}
+    }
+    if(!chapters.length){
+      // ★ v3: 기대 화수(파일명) 100% 일치 패턴 최우선 — 혼합 목차보다 우선
+      const r=bestPat(text,{expectedCount:totalCh});
+      let rx=r.rx;
+      detectedName=r.name||'';
+      exactMatch=!!r.exactMatch;
+      if(totalCh>0&&!exactMatch){
+        const ex=_findExactPreset(allLines,totalCh);
+        if(ex){ rx=ex.rx; detectedName=ex.label+'[100% 일치·프리셋]'; exactMatch=true; }
+      }
+      if(rx){
+        chapters=collect(rx);
+        detectedPct=totalCh>0?chapters.length/totalCh*100:100;
+        // 80% 이상이면 패턴 저장
+        if(detectedPct>=80||totalCh===0||exactMatch) B.patterns[idx]=rx.source;
+      }
+    }
 
-    // 파일명 화수와 5% 이내면 성공 (화수 정보가 없으면 3개 이상 감지로 판단)
-    const isGood=chapters.length>=3&&(totalCh===0||Math.abs(mainCnt-totalCh)/totalCh<=0.05);
+    // 중복 제거
+    const seen=new Set();
+    chapters=chapters.filter(c=>{if(seen.has(c.title))return false;seen.add(c.title);return true;});
+
+    // 80% 미만이면 실패 처리
+    const isGood=(exactMatch||detectedPct>=80||totalCh===0)&&chapters.length>=3;
 
     panel.innerHTML='';
     const HEAD=5, TAIL=5;
@@ -2292,27 +2447,30 @@ async function showBatchToc(idx, btn){
       // 실패: 패턴 패널 표시 + 현황
       let failMsg='';
       if(chapters.length<3) failMsg='챕터를 감지하지 못했어요.';
-      else failMsg=`본편 ${mainCnt}화 감지 (파일명 ${totalCh}화 기준 ${detectedPct.toFixed(1)}% — 오차 5% 초과)`;
+      else failMsg=`${chapters.length}개 감지 (파일 ${totalCh}화 기준 ${detectedPct.toFixed(0)}% - 80% 미달)`;
 
       panel.innerHTML=
-        '<div style="font-size:var(--fs-xs);color:var(--accent);padding:4px;margin-bottom:6px">'+
-          '⚠️ '+failMsg+' 아래에서 패턴을 선택해주세요.'+
+        '<div style="font-size:11px;color:var(--accent);padding:4px;margin-bottom:6px">'+
+          '⚠️ '+failMsg+' 아래에서 패턴을 선택하거나 ⚡ 간격 분할을 적용해주세요.'+
         '</div>'+
-        buildPatPresetPanel(idx,text,totalCh);
+        buildPatPresetPanel(idx,text,totalCh,chapters.length);
     } else {
       // 성공: 챕터 목록 + 패턴 변경 버튼
-      const pctStr=totalCh>0?` · 본편 ${mainCnt}/${totalCh}화 (${(detectedPct-100>=0?'+':'')+(detectedPct-100).toFixed(1)}%)`:'';
+      const pctStr=totalCh>0?` · ${detectedPct.toFixed(0)}% (${totalCh}화 기준)`:'';
+      const exactBadge=exactMatch
+        ? ' <span style="font-size:10px;padding:0 6px;border-radius:99px;background:var(--green-bg);color:var(--green);border:1px solid var(--green)">🎯 100% 일치</span>'
+        : '';
       const info=document.createElement('div');
-      info.style.cssText='font-size:var(--fs-xs);color:var(--text2);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center';
+      info.style.cssText='font-size:11px;color:var(--text2);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;gap:6px;flex-wrap:wrap';
       info.innerHTML=
-        `<span>총 <b style="color:var(--accent)">${chapters.length}</b>개 챕터${pctStr}${detectedName?' · '+detectedName:''}</span>`+
-        '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="toggleBatchPreset('+idx+')">✏️ 패턴 변경</button>';
+        `<span>총 <b style="color:var(--accent)">${chapters.length}</b><span>개 챕터${pctStr}</span>${detectedName?' · '+escHtml(detectedName):''}${exactBadge}</span>`+
+        '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="toggleBatchPreset('+idx+')">✏️ 패턴 변경 · ⚡ 간격 분할</button>';
       panel.appendChild(info);
 
       const presetDiv=document.createElement('div');
       presetDiv.id='bpreset_'+idx;
-      presetDiv.style.display='none';
-      presetDiv.innerHTML=buildPatPresetPanel(idx,text,totalCh);
+      presetDiv.style.display=_resolveBatchSplit(idx)?'block':'none';
+      presetDiv.innerHTML=buildPatPresetPanel(idx,text,totalCh,chapters.length);
       panel.appendChild(presetDiv);
 
       const list=document.createElement('div');
@@ -2323,7 +2481,7 @@ async function showBatchToc(idx, btn){
       show.forEach(ch=>{
         const row=document.createElement('div');
         if(!ch){
-          row.style.cssText='text-align:center;color:var(--text3);font-size:var(--fs-xs);padding:3px 0';
+          row.style.cssText='text-align:center;color:var(--text3);font-size:10px;padding:3px 0';
           row.textContent='··· '+(chapters.length-HEAD-TAIL)+'개 더 ···';
         } else {
           row.className='batch-toc-row';
@@ -2335,8 +2493,10 @@ async function showBatchToc(idx, btn){
     }
     panel.classList.add('show');
     btn.textContent='📋 목차 닫기';
+    _renderBatchIntervalPreview(idx);
+    _syncBatchModeBadge(idx);
   }catch(e){
-    panel.innerHTML='<div style="font-size:var(--fs-xs);color:var(--accent)">오류: '+escHtml(e?.message||String(e))+'</div>';
+    panel.innerHTML='<div style="font-size:11px;color:var(--accent)">오류: '+escHtml(String(e.message||e))+'</div>';
     panel.classList.add('show');
     btn.textContent='📋 목차 확인';
   }
@@ -2351,40 +2511,27 @@ function toggleBatchPreset(idx){
     // 열 때 항상 최신 개수로 재렌더
     d.innerHTML=buildPatPresetPanel(idx, B.sampleTexts[idx]||'', B.totalChs[idx]||0);
     d.style.display='block';
+    _renderBatchIntervalPreview(idx);
+    _syncBatchModeBadge(idx);
   } else {
     d.style.display='none';
   }
 }
 
-function buildPatPresetPanel(idx, sampleText, totalCh){
+function buildPatPresetPanel(idx, sampleText, totalCh, detectedCnt){
   const curPat = B.patterns[idx] || '';
   const lines = sampleText ? sampleText.split('\n') : [];
   const tc = totalCh || 0;
 
-  // 각 패턴별 매칭 개수 계산
+  // 각 패턴별 매칭 개수 계산 (★ v3: 후보 문자열 기준 — 실제 변환과 동일)
   function countPat(val){
     try{
       const rx=new RegExp(val,'i');
-      const cnt=lines.filter(l=>l.trim()&&rx.test(l.trim())).length;
-      return cnt;
+      return _countHeadingMatches(lines, rx);
     }catch(e){return 0;}
   }
 
-  const PRESETS = [
-    ['[ 파일명.txt ] 형식','^\\.\\s*.+\\.txt\\s*\\]\\s*$',            '[ 0001_제목.txt ] 분리 파일 합본 형식'],
-    ['화 번호',        '^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$',       '숫자+화 형식 (#N화, 제N화, N화 제목)'],
-    ['숫자만',         '^\\d+$',                                      '줄에 숫자만 단독으로 있는 경우'],
-    ['소설(숫자)',     '^.{1,60}\\s*\\(\\d+\\)\\s*$',                 '제목 끝에 (N) 형식'],
-    ['소설명+N화',    '^.{2,15}\\s+\\d+화$',                          '소설 제목+N화 형식 (이고깽 이후 천 년 1화 등)'],
-    ['#N. 제목',      '^#\\d+\\.\\s+.{1,60}$',                       '#숫자+점 형식 (#1. 시작)'],
-    ['N. 제목',       '^\\d+\\.\\s+.{1,60}$',                        '숫자+점 형식 (1. 프롤로그)'],
-    ['장 번호',       '^(?:제\\s*\\d+\\s*장|第\\s*\\d+\\s*章)',        '제N장 형식 (주만 변연물어 등)'],
-    ['N부 M화',       '^[1-9]부\\s+(?:\\d+화|프롤로그)',              'N부 M화 복합 형식'],
-    ['=== [제N화] ===','^={2,}\\s*\\[제\\s*\\d+\\s*화\\]',           '이중등호+대괄호 형식'],
-    ['Chapter N',     '^(?:chapter|part|ch)\\s*\\d+',                '영어 Chapter/Part 형식'],
-    ['프롤로그/외전',  '^(?:프롤로그|에필로그|외전|후일담)',           '외전·에필로그 등 특수 챕터'],
-    ['# 제목',        '^#{1,3}\\s*.+$',                               '마크다운 헤딩 형식'],
-  ];
+  const PRESETS = _BATCH_PRESETS;
 
   // 현재 패턴에서 체크 상태 계산
   const checkedVals = new Set();
@@ -2402,12 +2549,12 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
   }
 
   let html =
-    '<div style="margin-top:6px;padding:8px;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border)">' +
-    '<div style="font-size:var(--fs-sm);font-weight:700;color:var(--text);margin-bottom:8px">📐 챕터 패턴 선택</div>' +
+    '<div style="margin-top:6px;padding:8px;background:var(--bg);border-radius:8px;border:1px solid var(--border)">' +
+    '<div style="font-size:12px;font-weight:700;color:var(--text);margin-bottom:8px">📐 챕터 패턴 선택</div>' +
     '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="batchPresetCheckAll('+idx+',true)">전체 선택</button>' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="batchPresetCheckAll('+idx+',false)">전체 해제</button>' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="batchPresetAuto('+idx+')">🔍 자동 감지</button>' +
+      '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="batchPresetCheckAll('+idx+',true)">전체 선택</button>' +
+      '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="batchPresetCheckAll('+idx+',false)">전체 해제</button>' +
+      '<button class="btn btn-ghost btn-sm" style="font-size:10px" onclick="batchPresetAuto('+idx+')">🔍 자동 감지</button>' +
     '</div>' +
     '<div id="bpck_list_'+idx+'" style="display:flex;flex-direction:column;gap:4px">';
 
@@ -2415,34 +2562,59 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
     const checked = checkedVals.has(val) ? 'checked' : '';
     const cnt = countPat(val);
     const pct = tc>0 ? (cnt/tc*100).toFixed(0) : null;
-    const pctStr = pct!==null ? ` (${cnt}개 / ${pct}%${parseFloat(pct)>=80?' ⭐':''})` : (cnt>0?` (${cnt}개)`:'');
-    const goodBg = pct!==null&&parseFloat(pct)>=80 ? 'background:var(--green-bg);border-color:var(--green)' : '';
+    const isExact = tc>0 && cnt===tc;
+    const pctStr = pct!==null ? ` (${cnt}개 / ${pct}%${isExact?' 🎯':parseFloat(pct)>=80?' ⭐':''})` : (cnt>0?` (${cnt}개)`:'');
+    const goodBg = pct!==null&&(isExact||parseFloat(pct)>=80) ? 'background:var(--green-bg);border-color:var(--green)' : '';
 
     html +=
-      `<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 6px;border-radius:var(--radius-xs);cursor:pointer;border:1px solid var(--border);background:var(--bg2);${goodBg}">` +
+      `<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 6px;border-radius:5px;cursor:pointer;border:1px solid var(--border);background:var(--bg2);${goodBg}">` +
         `<input type="checkbox" class="bpck_${idx}" data-val="${escHtml(val)}" ${checked}` +
                ` onchange="applyBatchPreset(${idx})" style="margin-top:2px;flex-shrink:0">` +
         '<div style="min-width:0;flex:1">' +
-          '<div style="font-size:var(--fs-sm);font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+          '<div style="font-size:12px;font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
             escHtml(label) +
-            `<span style="font-size:var(--fs-xs);color:${parseFloat(pct)>=80?'var(--green)':'var(--accent)'};font-weight:700">${pctStr}</span>` +
-            `<span style="font-size:var(--fs-xs);color:var(--text2);font-weight:400">${escHtml(desc)}</span>` +
+            `<span style="font-size:11px;color:${(isExact||parseFloat(pct)>=80)?'var(--green)':'var(--accent)'};font-weight:700">${pctStr}</span>` +
+            `<span style="font-size:10px;color:var(--text2);font-weight:400">${escHtml(desc)}</span>` +
           '</div>' +
         '</div>' +
       '</label>';
   });
 
+  // ★ v3: 간격 분할 (N화) 섹션 — 기본 화수: 저장값 → 파일명 → 감지 수 → 빈 줄 군집 → 300줄당 1화
+  const sm=(B.splitModes||{})[idx];
+  let est=(sm&&sm.mode==='interval'&&sm.total)||tc||detectedCnt||0;
+  if(!est&&lines.length){
+    try{
+      const cr=typeof _estimateTotalByBlankClusters==='function' ? _estimateTotalByBlankClusters(lines) : null;
+      est=(cr&&cr.estimated)||Math.max(1,Math.round(lines.length/300));
+    }catch(e){ est=Math.max(1,Math.round(lines.length/300)); }
+  }
+  est=Math.max(1,Math.min(9999,est||1));
+  const activeSplit=!!_resolveBatchSplit(idx);
+
   html +=
     '</div>' +
     '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">' +
-      '<div style="font-size:var(--fs-xs);font-weight:600;color:var(--text2);margin-bottom:4px">직접 입력 (정규식)</div>' +
+      '<div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px">직접 입력 (정규식)</div>' +
       '<div style="display:flex;gap:6px">' +
         `<input class="inp" id="bpat_direct_${idx}" placeholder="직접 입력하거나 위에서 선택" ` +
-               `value="${escHtml(curPat)}" style="flex:1;font-size:var(--fs-xs)" oninput="applyBatchPreset(${idx})">` +
+               `value="${escHtml(curPat)}" style="flex:1;font-size:11px" oninput="applyBatchPreset(${idx})">` +
         `<button class="btn btn-blue btn-sm" onclick="confirmBatchPreset(${idx})">✅ 적용</button>` +
       '</div>' +
-      `<div id="bpat_preview_${idx}" style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px">` +
+      `<div id="bpat_preview_${idx}" style="font-size:10px;color:var(--text2);margin-top:4px">` +
         (curPat?'현재: '+escHtml(curPat):'(자동 감지)') +
+      '</div>' +
+    '</div>' +
+    '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">' +
+      '<div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px">⚡ 간격 분할 (N화)</div>' +
+      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+        `<input class="inp" type="number" min="1" max="9999" id="bint_total_${idx}" value="${est}" style="width:90px;font-size:11px">` +
+        '<span style="font-size:11px;color:var(--text2)">화로 균등 분할 (목차 줄이 있으면 그 줄에서 분할)</span>' +
+        `<button class="btn btn-blue btn-sm" onclick="applyBatchInterval(${idx})">⚡ 간격 분할 적용</button>` +
+        `<button class="btn btn-ghost btn-sm" id="bint_clear_${idx}" onclick="clearBatchInterval(${idx})" style="display:${activeSplit?'':'none'}">↩ 패턴 모드</button>` +
+      '</div>' +
+      `<div id="bint_preview_${idx}" style="font-size:10px;color:var(--text2);margin-top:4px">` +
+        (activeSplit?'⚡ 간격 분할 적용됨':'패턴 감지 모드로 변환해요.') +
       '</div>' +
     '</div>' +
     '</div>';
@@ -2461,7 +2633,7 @@ async function batchPresetAuto(idx){
   delete B.sampleTexts[idx];
   const btn = document.querySelector('#bi_'+idx+' .batch-toc-btn');
   const panel = document.getElementById('btp_'+idx);
-  panel.classList.remove('show');
+  panel?.classList.remove('show');
   if(btn){
     btn.textContent='📋 목차 확인';
     await showBatchToc(idx, btn);
@@ -2499,19 +2671,19 @@ function applyBatchPreset(idx){
   const prev=document.getElementById('bpat_preview_'+idx);
   if(prev) prev.textContent=combined?'현재: '+combined:'(자동 감지)';
 
-  // 총 챕터 수 실시간 업데이트
+  // 총 챕터 수 실시간 업데이트 (★ v3: 후보 문자열 기준)
   if(combined&&B.sampleTexts[idx]){
     try{
       const rx=new RegExp(combined,'i');
       const lines=B.sampleTexts[idx].split('\n');
-      const cnt=lines.filter(l=>l.trim()&&rx.test(l.trim())).length;
+      const cnt=_countHeadingMatches(lines, rx);
       const totalCh=B.totalChs[idx]||0;
       const pct=totalCh>0?(cnt/totalCh*100).toFixed(0)+'%':null;
       const infoEl=document.querySelector('#btp_'+idx+' b[style*="accent"]');
       if(infoEl){
         infoEl.textContent=cnt;
         const pctSpan=infoEl.nextSibling;
-        if(pctSpan&&pct) pctSpan.textContent=' ('+pct+(parseFloat(pct)>=80?' ⭐':'')+')';
+        if(pctSpan&&pct) pctSpan.textContent='개 챕터 ('+pct+(cnt===totalCh?' 🎯':parseFloat(pct)>=80?' ⭐':'')+')';
       }
     }catch(e){}
   }
@@ -2532,10 +2704,18 @@ async function confirmBatchPreset(idx){
   if(!pat){Toast.warn('패턴을 선택하거나 직접 입력해주세요.');return;}
 
   B.patterns[idx]=pat;
+  // ★ v3: 패턴을 명시 확정하면 이 파일의 간격 분할은 해제
+  const modes={...(B.splitModes||{})};
+  if(modes[idx]?.mode==='interval'||(B.batchSplit||{}).enabled){
+    if((B.batchSplit||{}).enabled) modes[idx]={mode:'pattern'};
+    else delete modes[idx];
+    _bStore.set({splitModes:modes});
+  }
   const btn=document.querySelector('#bi_'+idx+' .batch-toc-btn');
   const panel=document.getElementById('btp_'+idx);
-  panel.classList.remove('show');
+  panel?.classList.remove('show');
   if(btn){btn.textContent='📋 목차 확인';await showBatchToc(idx,btn);}
+  _syncBatchModeBadge(idx);
 }
 
 function batchPickCover(idx){
@@ -2550,8 +2730,6 @@ function batchPickCover(idx){
 
 async function startBatch(){
   if(!B.txtFiles.length){Toast.warn('TXT 파일을 선택해주세요.');return;}
-  if(_batchRunning){Toast.info('일괄 변환이 이미 진행 중이에요.');return;}
-  _batchRunning=true;
   B.results=[];
   const _batchStartTime = Date.now();
   document.getElementById('batchProgWrap')?.classList.add('show');
@@ -2559,6 +2737,7 @@ async function startBatch(){
   const total=B.txtFiles.length;
   const globalPat=document.getElementById('batchPattern')?.value.trim();
   const useItalicBatch=document.getElementById('batchItalic')?.checked;
+  let intervalCount=0;
 
   try{
     for(let i=0;i<total;i++){
@@ -2570,37 +2749,52 @@ async function startBatch(){
       else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
       const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
       const item=document.getElementById('bi_'+i);
+      const stEl=document.getElementById('bst_'+i);
+      const pbEl=document.getElementById('bpb_'+i);
       if(item)item.className='batch-item running';
-      document.getElementById('bst_'+i).textContent='변환 중...';
-      document.getElementById('batchProgMsg').textContent='('+(i+1)+'/'+total+') '+title+' 변환 중...';
-      document.getElementById('batchProgBar').style.width=Math.floor(i/total*100)+'%';
+      if(stEl) stEl.textContent='변환 중...';
+      const pm=document.getElementById('batchProgMsg');
+      if(pm) pm.textContent='('+(i+1)+'/'+total+') '+title+' 변환 중...';
+      const pbar=document.getElementById('batchProgBar');
+      if(pbar) pbar.style.width=Math.floor(i/total*100)+'%';
       try{
         await new Promise(r=>setTimeout(r,0));
         const raw=await fileToText(f);
-        const pattern=(B.patterns[i]||globalPat);
-        // ★ 파일명 화수 범위('1-201 완결')로 목차 감지 보정
-        const chapters=splitChapters(raw,pattern,{
-          range:parseChapterRange(f.name),
-          mergeParts:document.getElementById('optMergeParts')?.checked===true,
-        });
-        // ★ 파일명에서 시리즈명·권 번호 자동 추출 ('작품 3권.txt' → 작품 / 3)
-        const sm=parseSeriesFromName(f.name);
-        const blob=await buildEpub({title,author,chapters,coverFile:cover,illMap:[],useItalic:useItalicBatch,
-          series:sm?.series||'',seriesIndex:sm?.index||0},
-          pct=>{document.getElementById('bpb_'+i).style.width=(30+pct*0.7)+'%';});
+        let chapters;
+        // ★ v3: 간격 분할(N화) 분기 — 파일별 설정 > 전역 토글
+        const split=_resolveBatchSplit(i);
+        if(split&&typeof computeIntervalSplit==='function'){
+          const lines=raw.replace(/\r\n/g,'\n').replace(/\r/g,'\n').split('\n');
+          const n=split.total>0 ? split.total
+            : (B.totalChs?.[i] || extractTotalFromFilename(f.name) || estimateIntervalTotal(raw, lines, f.name));
+          const items=computeIntervalSplit(lines, n, {titleMode:'number', titleTemplate:split.template});
+          chapters=intervalItemsToChapters(items);
+          intervalCount++;
+          if(stEl) stEl.textContent=`변환 중... (⚡ ${chapters.length}화 간격 분할)`;
+        } else {
+          const pattern=(B.patterns[i]||globalPat);
+          // ★ v3: 파일명 기대 화수 전달 — 100% 일치 패턴 우선
+          const expectedCount=B.totalChs?.[i]||extractTotalFromFilename(f.name)||0;
+          chapters=splitChapters(raw,pattern,{expectedCount});
+        }
+        const blob=await buildEpub({title,author,chapters,coverFile:cover,illMap:[],useItalic:useItalicBatch},
+          pct=>{ if(pbEl) pbEl.style.width=(30+pct*0.7)+'%'; });
         B.results.push({name:title+'.epub',blob});
         if(item)item.className='batch-item done';
-        document.getElementById('bst_'+i).textContent='✅ 완료';
-        document.getElementById('bpb_'+i).style.width='100%';
+        if(stEl) stEl.textContent='✅ 완료 · '+chapters.filter(([h])=>h!=='서문').length+'화'+(split?' (⚡ 간격 분할)':'');
+        if(pbEl) pbEl.style.width='100%';
       }catch(e){
         // ★ 개별 파일 오류: 해당 항목만 실패 표시 후 루프 계속 (전체 중단 없음)
         if(item)item.className='batch-item error';
-        document.getElementById('bst_'+i).textContent='❌ '+e.message;
+        if(stEl) stEl.textContent='❌ '+e.message;
       }
     }
-    document.getElementById('batchProgBar').style.width='100%';
-    document.getElementById('batchProgMsg').textContent='완료! '+B.results.length+'/'+total+'개 성공';
-    document.getElementById('batchResultMsg').textContent=B.results.length+'개 epub 생성 완료';
+    const pbar=document.getElementById('batchProgBar');
+    if(pbar) pbar.style.width='100%';
+    const pm=document.getElementById('batchProgMsg');
+    if(pm) pm.textContent='완료! '+B.results.length+'/'+total+'개 성공';
+    const rm=document.getElementById('batchResultMsg');
+    if(rm) rm.textContent=B.results.length+'개 epub 생성 완료'+(intervalCount?` (⚡ 간격 분할 ${intervalCount}개)`:'');
     document.getElementById('batchResultBox')?.classList.add('show');
     const batchElapsed=((Date.now()-_batchStartTime)/1000).toFixed(1);
     const totalMB=B.results.reduce((s,r)=>s+(r.blob?.size||0),0)/1024/1024;
@@ -2609,40 +2803,114 @@ async function startBatch(){
     // ★ Side-Effect 가드: 예기치 않은 예외에도 반드시 batchProgWrap 해제
     // (outer catch 없이 finally만으로 무한 스피너 방지)
     document.getElementById('batchProgWrap')?.classList.remove('show');
-    _batchRunning=false;
   }
 }
 
 async function downloadBatchZip(){
   if(!B.results.length)return;
-  // ★ Phase 10: 단일 파일 다운로드도 Object URL 해제 (이전: 누수)
-  if(B.results.length===1){const a=document.createElement('a');a.href=URL.createObjectURL(B.results[0].blob);a.download=B.results[0].name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);return;}
+  if(B.results.length===1){const a=document.createElement('a');a.href=URL.createObjectURL(B.results[0].blob);a.download=B.results[0].name;a.click();return;}
   const zip=new JSZip();
   B.results.forEach(r=>zip.file(r.name,r.blob));
-  // ★ Phase 10: EPUB은 이미 ZIP 압축 파일 → STORE (DEFLATE 재압축은 CPU만 쓰고 크기는 거의 그대로)
-  const blob=await zip.generateAsync({type:'blob',compression:'STORE'});
+  const blob=await zip.generateAsync({type:'blob',compression:'DEFLATE'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='epub_일괄변환.zip';a.click();
   setTimeout(()=>URL.revokeObjectURL(a.href),1000);
 }
 
 // ════════════════════════════════════════════════
-// ⚡ Module: ParserWorker — 대용량(10만 줄+) 파싱 전용 Blob Worker
-// ★ Worker 소스는 parser.js buildParserWorkerSource()가 생성 (패턴·파싱 로직 단일 소유)
-//   → 이전의 인라인 복사본(PATS·bestPat·splitChaptersWorkerDetailed) 제거
-// ★ new Blob([코드]) → URL.createObjectURL → new Worker(url) → 즉시 revoke
+// ⚡ Module: Worker — Blob 기반 인라인 Web Worker
+// ★ 외부 파일(parser.js) 의존성 없음
+// ★ 로컬 파일 실행, 하위 경로, CORS 환경 모두 안전
+// ★ new Blob([코드]) → URL.createObjectURL → new Worker(url)
+// ★ Worker 생성 직후 URL.revokeObjectURL로 메모리 해제
+// ★ v3: PATS/bestPat 수동 복제 제거 — parser.js buildParserWorkerPrelude()로 직렬화해
+//        단일 소스 공유 (parser.js 패턴 수정이 대용량 Worker 경로에도 즉시 반영)
 // ════════════════════════════════════════════════
-let _parserWorker=null;               // 지연 생성되는 파싱 Worker 인스턴스
-const _workerCallbacks=new Map();     // 요청 id → {resolve, reject}
-let _workerIdCounter=0;               // 요청 id 시퀀스
 
-function createParserWorker(){
-  const blob=new Blob([buildParserWorkerSource()],{type:'application/javascript'});
-  const url=URL.createObjectURL(blob);
-  try{
-    return new Worker(url);
-  }finally{
-    URL.revokeObjectURL(url);
+// Worker 본체 — Function.toString()으로 직렬화되어 Worker 안에서 실행됨
+// (프렐류드가 제공하는 PATS / KEYWORD_PATS / bestPat / _headingCandidates 를 사용)
+/* eslint-disable no-undef */
+function _parserWorkerMain(){
+  self._aborted=false;
+  self.onmessage=function(e){
+    const{type,payload,id}=e.data;
+    try{
+      if(type==='SPLIT'){
+        const{raw,customPat,expectedCount}=payload;
+        self._aborted=false;
+        self.postMessage({type:'PROGRESS',id,pct:5,msg:'② 텍스트 정규화 중...'});
+        const result=splitChaptersWorkerDetailed(raw,customPat,expectedCount||0,function(pct,msg){
+          self.postMessage({type:'PROGRESS',id,pct,msg});
+        });
+        self.postMessage({type:'DONE',id,result});
+      } else if(type==='ABORT'){
+        self._aborted=true;
+      }
+    }catch(err){
+      self.postMessage({type:'ERROR',id,error:err.message||String(err)});
+    }
+  };
+  function splitChaptersWorkerDetailed(raw,customPat,expectedCount,onProgress){
+    self._aborted=false;
+    raw=raw.replace(/\r\n/g,'\n').replace(/\r/g,'\n')
+           .replace(/\xad/g,'—').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g,'')
+           .replace(/[￾￿]/g,'');
+    onProgress(8,'② 패턴 분석 중...');
+    let rx=null;
+    if(customPat&&customPat.trim()){try{rx=new RegExp(customPat.trim(),'i');}catch(e){}}
+    if(!rx){const r=bestPat(raw,{expectedCount});rx=r.rx;}
+    const kw=KEYWORD_PATS.map(k=>k.source).join('|');
+    rx=rx?new RegExp('(?:'+rx.source+'|'+kw+')','i'):new RegExp(kw,'i');
+    onProgress(12,'② 챕터 분리 시작...');
+    const lines=raw.split('\n');
+    const total=lines.length;
+    const chs=[],seen=new Map();
+    const sep=/^[-=*─━~·.‒—]{3,}\s*$|^[─━═]{2,}$/;
+    let cur=null,body=[],lastPct=12;
+    for(let li=0;li<total;li++){
+      if(self._aborted)break;
+      const line=lines[li];
+      const c=_headingCandidates(line);
+      let hit=false;
+      if(c){ for(let k=0;k<c.length;k++){ if(rx.test(c[k])){hit=true;break;} } }
+      // 대사로 시작하는 줄은 목차 제외
+      if(hit&&/^["'“‘]/.test(c[0])) hit=false;
+      if(hit){
+        const t=c[0];
+        const pc=seen.get(t)||0;seen.set(t,pc+1);
+        const ut=pc===0?t:t+' ('+(pc+1)+')';
+        while(body.length&&(sep.test(body[body.length-1].trim())||!body[body.length-1].trim()))body.pop();
+        if(cur===null&&body.length>0)chs.push(['서문',body.join('\n').trim()]);
+        else if(cur!==null)chs.push([cur,body.join('\n').trim()]);
+        cur=ut;body=[];
+        let ni=li+1;while(ni<total&&sep.test(lines[ni].trim()))ni++;
+        if(ni>li+1)li=ni-1;
+      }else{body.push(line);}
+      const pct=12+Math.round((li/total)*80);
+      if(pct>lastPct){lastPct=pct;onProgress(pct,'② 챕터 파싱 중... '+(chs.length+1)+'화 / '+(li+1).toLocaleString()+'줄');}
+    }
+    if(cur!==null)chs.push([cur,body.join('\n').trim()]);
+    else if(body.length)chs.push(['본문',body.join('\n').trim()]);
+    raw=null;
+    return chs.length?chs:[['본문','']];
   }
+}
+/* eslint-enable no-undef */
+
+/**
+ * createParserWorker — Blob URL 인라인 Worker 생성
+ *
+ * 경로 독립적: file://, http://, https:// 어디서든 동작
+ * Worker 소스 = parser.js 직렬화 프렐류드(PATS·KEYWORD_PATS·bestPat 등) + _parserWorkerMain
+ */
+function createParserWorker(){
+  const prelude=typeof buildParserWorkerPrelude==='function' ? buildParserWorkerPrelude() : '';
+  if(!prelude) throw new Error('Worker 파서 프렐류드 생성 실패');
+  const workerSrc="'use strict';\n"+prelude+'\n('+_parserWorkerMain.toString()+')();\n';
+  const blob=new Blob([workerSrc],{type:'application/javascript'});
+  const url=URL.createObjectURL(blob);
+  const worker=new Worker(url);
+  URL.revokeObjectURL(url);
+  return worker;
 }
 
 
@@ -2673,29 +2941,28 @@ function getParserWorker(){
   return _parserWorker;
 }
 
-// ★ 파싱 Worker 강제 종료 — splitChapters는 동기 루프라 메시지(ABORT)로는 멈출 수 없으므로 terminate
-//   대기 중인 요청은 모두 reject (startConvert는 _convertAborted 플래그로 조용히 종료)
-function terminateParserWorker(reason){
+// ★ Worker 교체: 기존 Worker terminate 후 새 생성
+function resetParserWorker(){
   if(_parserWorker){
     _parserWorker.terminate();
     _parserWorker=null;
+    _workerCallbacks.clear();
   }
-  for(const[,cb]of _workerCallbacks){
-    cb.reject(new Error(reason||'파싱 중단'));
-  }
-  _workerCallbacks.clear();
+  return getParserWorker();
 }
 
 /**
  * Worker 기반 splitChapters (비동기)
  * 10만 줄 이상 파일에서 메인 스레드 블로킹 없음
+ * opts.expectedCount — 기대 화수 (100% 일치 패턴 우선)
  */
 async function splitChaptersAsync(raw, customPat, onProgress, opts={}){
-  const lineCount=_countLines(raw);
+  const lineCount=(raw.match(/\n/g)||[]).length;
+  const expectedCount=(opts&&opts.expectedCount)||0;
 
   if(lineCount<100000){
     // 소형 파일: 동기 처리 (Worker 오버헤드 없음)
-    return splitChapters(raw, customPat, opts);
+    return splitChapters(raw, customPat, {expectedCount});
   }
 
   onProgress&&onProgress(8,'② 대용량 파일 — Worker 파싱 시작...');
@@ -2708,10 +2975,8 @@ async function splitChaptersAsync(raw, customPat, onProgress, opts={}){
     const timer=setTimeout(()=>{
       if(_workerCallbacks.has(id)){
         _workerCallbacks.delete(id);
-        // ★ Phase 10: 응답 없는 Worker는 종료한 뒤 동기 폴백 (이전: Worker가 계속 CPU를 쓰는 채로 메인 스레드도 파싱)
-        //   terminateParserWorker는 남은 콜백을 모두 reject — 이 요청은 위에서 이미 제거됨
-        terminateParserWorker('파싱 타임아웃');
-        try{resolve(splitChapters(raw,customPat,opts));}
+        // Worker 타임아웃 → 동기 폴백
+        try{resolve(splitChapters(raw,customPat,{expectedCount}));}
         catch(e){reject(new Error('파싱 타임아웃: '+e.message));}
       }
     }, 120000);
@@ -2721,41 +2986,15 @@ async function splitChaptersAsync(raw, customPat, onProgress, opts={}){
       // ★ 원본 콜백을 타이머 정리 포함 버전으로 래핑
       const orig=_workerCallbacks.get(id);
       _workerCallbacks.set(id,{
-        // ★ Worker 안에는 Toast가 없으므로 화수 도약 경고는 결과 수신 후 메인 스레드에서 표시
-        resolve:(r)=>{ clearTimeout(timer); _warnIndexJump(r); orig.resolve(r); },
+        resolve:(r)=>{ clearTimeout(timer); orig.resolve(r); },
         reject: (e)=>{ clearTimeout(timer); orig.reject(e); }
       });
-      worker.postMessage({type:'SPLIT',payload:{raw,customPat,opts},id});
+      worker.postMessage({type:'SPLIT',payload:{raw,customPat,expectedCount},id});
     }catch(e){
       clearTimeout(timer);
       _workerCallbacks.delete(id);
       // Worker 실패 시 동기 폴백
-      try{resolve(splitChapters(raw,customPat,opts));}catch(e2){reject(e2);}
-    }
-  });
-}
-
-/**
- * ★ Phase 10: 미리보기용 목차 감지 — 10만 줄 이상은 파싱 Worker에서 (메인 스레드 멈춤 방지)
- * @returns {Promise<object|null>} detectToc 결과 · 사용자 중단 시 null
- */
-async function detectTocAsync(lines, text, opts={}){
-  if(!Array.isArray(lines)||lines.length<100000||typeof Worker==='undefined') return detectToc(lines, opts);
-  return new Promise(resolve=>{
-    const id=++_workerIdCounter;
-    const fallback=()=>{ try{ resolve(detectToc(lines, opts)); }catch(e){ resolve(null); } };
-    const timer=setTimeout(()=>{
-      if(_workerCallbacks.has(id)){ _workerCallbacks.delete(id); terminateParserWorker('감지 타임아웃'); fallback(); }
-    },120000);
-    _workerCallbacks.set(id,{
-      resolve:r=>{ clearTimeout(timer); resolve(r); },
-      // 사용자 중단(변환 중단 버튼)은 조용히 종료, 그 밖의 Worker 오류는 메인 스레드로 다시 감지
-      reject:e=>{ clearTimeout(timer); if(/중단/.test(String(e?.message||''))) resolve(null); else fallback(); },
-    });
-    try{
-      getParserWorker().postMessage({type:'DETECT', payload:{raw:text, opts}, id});
-    }catch(e){
-      clearTimeout(timer); _workerCallbacks.delete(id); fallback();
+      try{resolve(splitChapters(raw,customPat,{expectedCount}));}catch(e2){reject(e2);}
     }
   });
 }
@@ -2763,40 +3002,42 @@ async function detectTocAsync(lines, text, opts={}){
 // ── DOMContentLoaded에 폰트 패널 초기화 추가 ──
 async function resetAll(){
   if(!await Toast.confirm('모든 설정을 초기화할까요?')) return;
-  _sStore.set({txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0,_coverAuto:false});
+  _sStore.set({txtFiles:[],coverFile:null,illFiles:[],tocItems:[],epubBlob:null,epubName:'',manualCnt:0});
   _chaptersCache=null;_chaptersCacheKey='';
-  clearTextCache();   // ★ Phase 10
   document.getElementById('txtDz').className='dz';
   document.getElementById('illDz').className='dz';
-  document.getElementById('coverDz')?.classList.remove('ok'); // className 덮어쓰기 금지 — dz-compact 유지
-  const _ct=document.getElementById('coverThumb'); if(_ct) _ct.innerHTML=COVER_THUMB_EMPTY_HTML;
+  document.getElementById('coverDz').className='dz';
+  document.getElementById('coverThumb').innerHTML='표지';
   document.getElementById('coverName').textContent='';
   document.getElementById('txtInfo').style.display='none';
   document.getElementById('illTags').innerHTML='';
   document.getElementById('manualIlls').innerHTML='';
-  ['title','author','series','seriesIdx','pattern'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
+  ['title','author','pattern'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
   ['tocPanel','progWrap','resultBox','errBox'].forEach(id=>document.getElementById(id)?.classList.remove('show'));
 }
 
 // ★ 탭별 렌더링 지연 플래그 (최초 1회만 렌더링)
 function resetBatchTxt(){
-  _bStore.set({txtFiles:[],patterns:{},sampleTexts:{},totalChs:{}});
+  _bStore.set({txtFiles:[],patterns:{},sampleTexts:{},totalChs:{},splitModes:{}});
   const dz=document.getElementById('batchTxtDrop');
   dz.className='dz';dz.querySelector('.dz-text').textContent='TXT 파일 여러 개 드래그하거나 클릭';
   document.getElementById('batchList').innerHTML='';
   document.getElementById('batchListSec').style.display='none';
+  _syncBatchSplitControls();
   if(!Object.keys(B.coverMap).length&&!B.urlCoverFile) document.getElementById('batchResetBar').style.display='none';
 }
 function resetBatchCover(){
   _bStore.set({coverMap:{},urlCoverFile:null});
   const dz=document.getElementById('batchCoverDrop');
-  dz.className='dz';dz.querySelector('div').textContent='표지 이미지들 한꺼번에 드래그';
+  dz.className='dz';dz.querySelector('div').textContent='🖼 표지 이미지들 한꺼번에 드래그';
   document.getElementById('batchCoverUrlInp').value='';
   renderBatchList();
 }
 async function resetBatchAll(){
   if(!await Toast.confirm('일괄 변환 탭의 모든 파일을 초기화할까요?')) return;
   resetBatchTxt();resetBatchCover();
+  _bStore.set({batchSplit:{enabled:false,template:'{N}화'}});
+  _syncBatchSplitControls();
   document.getElementById('batchResetBar').style.display='none';
   ['batchProgWrap','batchResultBox','batchErrBox'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.classList.remove('show');
@@ -2815,7 +3056,6 @@ function resetEditEpub(){
   ['editSec','insertSec','editIllSec','insTocSec','insIllSec'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
   document.getElementById('editResetBar').style.display='none';
   renderEditIllTags();
-  typeof resetDirectEditToc==='function'&&resetDirectEditToc();
 }
 async function resetEditAll(){
   if(!await Toast.confirm('EPUB 편집 탭을 전부 초기화할까요?')) return;
@@ -2824,12 +3064,7 @@ async function resetEditAll(){
 
 // ════ 결과 stat 카드 렌더링 (최적화 5) ════
 function resetConvertTxt(){
-  // ★ 목차·감지 상태도 함께 초기화 (이전: tocItems가 남아 자동 미리보기 OFF일 때 새 파일을 이전 목차로 자름)
-  S.txtFiles=[];S._rawTextFull=[];S.tocItems=[];_tocDropLines=[];_chaptersCache=null;_chaptersCacheKey='';
-  // ★ Phase 10: 목차 편집 UI 상태·디코딩 캐시·이전 변환 결과도 함께 정리
-  _tocSelectedIdxs.clear(); _tocPendingTitleIdx=null; _tocFilterQ=''; _tocUndoStack.length=0;
-  clearTextCache();
-  _resetConvertResultUi();
+  S.txtFiles=[];S._rawTextFull=[];_chaptersCache=null;_chaptersCacheKey='';
   // ★ window 단일 소유권: 전역 분할 상태 완전 초기화
   window._autoSplitActive=false;
   window._autoSplitLines=null;
@@ -2837,26 +3072,31 @@ function resetConvertTxt(){
   // DOM 잔재 정리
   document.getElementById('hybrid-suggest-btn')?.remove();
   document.getElementById('title-template-bar')?.remove();
-  // ★ splitBtn 원상 복구 — _syncSplitBtn(parser.js)으로 단일 관리 (항상 정의돼 있어 폴백 분기 제거)
-  _syncSplitBtn('reset');
+  // ★ splitBtn 원상 복구 — _syncSplitBtn으로 단일 관리
+  typeof _syncSplitBtn==='function'
+    ? _syncSplitBtn('reset')
+    : (()=>{
+        const btn=document.querySelector('button[data-action="autoSplitByInterval"]');
+        if(btn){ btn.disabled=false; btn.style.opacity='1'; btn.style.pointerEvents=''; btn.style.color=''; btn.textContent='⚡ 간격 분할'; btn.title=''; }
+      })();
   document.getElementById('txtDz').className='dz';
-  // ★ UX-PD: 파일 리셋 → 목차 확인·간격 분할 버튼 비활성 표시 (.is-idle)
-  document.getElementById('patSection')?.classList.add('is-idle');
+  // ★ UX-PD: Progressive Disclosure — 파일 리셋 시 패턴 영역 다시 흐리게
+  const patSec=document.getElementById('patSection');
+  if(patSec) patSec.style.opacity='0.45';
   document.getElementById('txtInfo').style.display='none';
   const fl=document.getElementById('txtFileList'); if(fl) fl.style.display='none';
   const sl=document.getElementById('txtSortList'); if(sl) sl.innerHTML='';
   document.getElementById('tocPanel')?.classList.remove('show');
-  ['title','author','series','seriesIdx','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['title','author','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('convertResetBar').style.display='none';
   const regexFeed=document.getElementById('regexFeed');if(regexFeed)regexFeed.style.display='none';
   updateBtmBar&&updateBtmBar([]);
 }
 function resetConvertCover(){
   S.coverFile=null;
-  S._coverAuto=false;
-  document.getElementById('coverDz')?.classList.remove('ok'); // className 덮어쓰기 금지 — dz-compact 유지
+  document.getElementById('coverDz').className='dz';
   const t=document.getElementById('coverThumb');
-  if(t)t.innerHTML=COVER_THUMB_EMPTY_HTML;
+  if(t)t.innerHTML='<span style="display:flex;flex-direction:column;align-items:center;gap:4px"><span style="font-size:22px">🖼</span><span>표지</span></span>';
   document.getElementById('coverName').textContent='';
   const inp=document.getElementById('coverUrlInp');if(inp)inp.value='';
 }
@@ -2870,9 +3110,8 @@ async function resetConvertAll(){
   }
   _sStore.set({illFiles:[],tocItems:[],epubBlob:null,manualCnt:0});
 
-  // ★ B-FIX-01: 초기화 시 _encCache도 정리 (+ Phase 10 디코딩 캐시)
+  // ★ B-FIX-01: 초기화 시 _encCache도 정리
   _encCache.clear();
-  clearTextCache();
 
   // ★ PERF-GC: illTags 내 Blob URL 전체 해제 후 replaceChildren() — innerHTML 대비 GC 친화적
   const illTagsEl = document.getElementById('illTags');
