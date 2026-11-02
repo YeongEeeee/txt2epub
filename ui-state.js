@@ -758,6 +758,8 @@ function _spawnDropConfetti(container){
       if(val) val.textContent = el.value + '%';
       typeof saveExtraSettings==='function'&&saveExtraSettings();
     },
+    // ★ Phase 13: 잡음 줄 제외 토글 — 저장 + 세부 항목 표시 전환
+    saveCleanupNoise: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof _syncNoisePanel==='function'&&_syncNoisePanel(); },
     saveExtraSettingsRenderIll: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof renderIllTags==='function'&&renderIllTags(); },
     updateCssSave: () => { updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); updateMiniReader&&updateMiniReader(); updateSettingsSummary&&updateSettingsSummary(); },
     cssExtraAutoResize: (el) => {
@@ -969,6 +971,12 @@ function setupEventDelegate(){
     autoSplitByInterval: () => typeof autoSplitByInterval==='function'&&autoSplitByInterval(),
     applyPat:      () => typeof applyPat==='function'&&applyPat(),
     tocTab:        (el) => typeof tocTab==='function'&&tocTab(parseInt(el.dataset.idx)),
+    // ★ Phase 13: 검수 리포트 항목 → '감지된 목차' 탭에서 해당 항목으로 이동
+    tocReviewJump: (el) => {
+      typeof tocTab==='function'&&tocTab(0);
+      const i=parseInt(el.dataset.idx,10);
+      if(Number.isFinite(i)) requestAnimationFrame(()=>typeof tocScrollToIndex==='function'&&tocScrollToIndex(i));
+    },
     saveCurrentAsPreset: () => saveCurrentAsPreset(),
     exportSettings: () => exportSettings(),
     importSettingsBtn: () => importSettingsBtn(),

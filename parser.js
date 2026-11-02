@@ -158,8 +158,11 @@ function _decodeHtmlEntities(s){
 const _RX_SYSMSG_OPEN  = /^(?:【|〔|\[|≪|❰)/;
 const _RX_SYSMSG_CLOSE = /(?:】|〕|\]|≫|❱)\s*$/;
 const _RX_FLASHBACK    = /^[-\u2014\u2012\u2013─]/;
+// ★ Phase 13: 장면 구분선 — '* * *', '***', '◇◇◇', '----', '═══', '~~~' 같은 줄 (기호만으로 된 줄)
+//   이전: '----'·'───'은 _RX_FLASHBACK에 걸려 회상 이탤릭 문단이 됨
+const _RX_SCENE        = /^(?:(?:[*＊◇◆○●☆★◈※♤♧♡♢]\s*){1,7}|(?:[-=─━═~_·•]\s*){3,})$/;
 
-function renderBodyHtml(body, {useItalic=true, maxBlank=2, removeBlankLines=false}={}){
+function renderBodyHtml(body, {useItalic=true, maxBlank=2, removeBlankLines=false, sceneBreak=false}={}){
   // #10: 예외 격리 — 이 함수가 실패해도 원본 텍스트로 폴백
   try{
     // ★ Phase 10: 문자열 += 대신 배열 join (긴 챕터에서 중간 문자열 생성 감소)
@@ -204,6 +207,12 @@ function renderBodyHtml(body, {useItalic=true, maxBlank=2, removeBlankLines=fals
         continue;
       }
       blankRun=0;
+
+      // ★ Phase 13: 장면 구분선 → <hr class="scene"/> (리더기에서 여백·기호로 표시, CSS는 buildCss)
+      if(sceneBreak&&_RX_SCENE.test(t)){
+        out.push('<hr class="scene"/>\n');
+        continue;
+      }
 
       const escaped = escHtml(t);
 
@@ -1456,6 +1465,279 @@ function applyParagraphMerge(chapters){
   });
 }
 
+// ════════════════════════════════════════════════════════════
+// ★ Phase 13: 본문 정리 파이프라인 (설정 탭 '본문 정리' — 변환·일괄 변환·챕터 미리보기 공용)
+//   순서: 잡음 줄 제거 → 줄바꿈 병합 → 문단 정합(기존 옵션) → 기호 정리
+//   챕터 본문(c[1])만 바꾸고 제목(c[0])·메타(c[2])는 그대로 — 목차 줄 번호·삽화 매핑에 영향 없음
+//   DOM 비의존 순수 함수 (getTextCleanupOpts만 DOM을 읽음) → tests/run-tests.js에서 직접 검사
+// ════════════════════════════════════════════════════════════
+
+// 잡음 줄 프리셋 — line: 한 줄 단위 제거 / block: 챕터 뒤쪽 절반에서 머리줄부터 챕터 끝까지 제거
+const NOISE_PRESETS={
+  author:{label:'작가의 말·후기', block:true,
+    rx:/^[\[\(【<〈《「『\-=*\s]*(?:작가의\s*말|작가\s*후기|작가\s*코멘트|작가의\s*한\s*마디|후기|author'?s?\s*note)[\]\)】>〉》」』\-=*\s]*[:：]?\s*$/i},
+  promo:{label:'선작·추천 부탁', maxLen:120,
+    rx:/(?:선작|선호작|추천|댓글|코멘트|좋아요|구독|후원|쿠폰|별점)[^\n]{0,20}?(?:부탁|해\s*주세요|해\s*주시면|눌러\s*주|감사합니다|감사해요)/},
+  url:{label:'URL·출처 표기', maxLen:160,
+    rx:/(?:https?:\/\/|www\.)\S+|^.{0,20}(?:텍본|txt\s*파일|다운로드|출처)\s*[:：]/i},
+  notice:{label:'공지·연재 안내', maxLen:120,
+    rx:/^[\[\(【<〈《]\s*(?:공지|안내|알림|휴재|연재\s*공지|연재\s*안내|연재\s*주기)\s*[\]\)】>〉》]/},
+};
+
+// 사용자 정규식(한 줄에 하나) → RegExp 배열 (150자 상한·잘못된 식은 건너뜀)
+function _compileNoiseCustom(text){
+  const out=[];
+  String(text||'').split('\n').map(s=>s.trim()).filter(Boolean).slice(0,30).forEach(p=>{
+    if(p.length>150) return;
+    try{ out.push(new RegExp(p)); }catch(e){}
+  });
+  return out;
+}
+
+function _isNoiseLine(t, presets, customRxs){
+  for(const k of presets){
+    const p=NOISE_PRESETS[k];
+    if(!p||p.block) continue;
+    if(p.maxLen&&t.length>p.maxLen) continue;
+    if(p.rx.test(t)){
+      // URL은 줄의 대부분이 주소일 때만 (본문 속 주소 언급은 유지)
+      if(k==='url'){
+        const urls=t.match(/(?:https?:\/\/|www\.)\S+/g)||[];
+        const urlLen=urls.reduce((s,u)=>s+u.length,0);
+        if(urls.length&&urlLen<t.length*0.4&&t.length>60) continue;
+      }
+      return true;
+    }
+  }
+  for(const rx of customRxs){ if(rx.test(t)) return true; }
+  return false;
+}
+
+// 잡음 줄 제거 — 반환 [줄 배열, 제거한 줄 수]
+function _filterNoiseLines(lines, presets, customRxs){
+  let end=lines.length;
+  if(presets.includes('author')){
+    const rx=NOISE_PRESETS.author.rx;
+    for(let i=Math.floor(lines.length/2);i<lines.length;i++){
+      const t=lines[i].trim();
+      if(t&&t.length<=40&&rx.test(t)){ end=i; break; }
+    }
+  }
+  const out=[];
+  let removed=lines.length-end;
+  for(let i=0;i<end;i++){
+    const t=lines[i].trim();
+    if(t&&_isNoiseLine(t, presets, customRxs)){ removed++; continue; }
+    out.push(lines[i]);
+  }
+  return [out, removed];
+}
+
+// 고정 폭 줄바꿈 감지 — 대부분의 줄이 비슷한 최대 길이에서 끊겨 있으면 {width, charWrap}
+//   일반 원고는 문단 길이가 제각각이라 최대 길이 부근에 몰리는 줄 비율이 낮음
+function detectHardWrap(lineArrays){
+  const lens=[];
+  for(const lines of lineArrays){
+    for(const l of lines){ const n=l.trim().length; if(n>=8) lens.push(n); }
+  }
+  if(lens.length<30) return null;
+  lens.sort((a,b)=>a-b);
+  const W=lens[Math.floor(lens.length*0.95)];
+  if(W<20||W>200) return null;
+  let band=0, exact=0, over=0, open=0;
+  for(const lines of lineArrays){
+    for(const l of lines){
+      const t=l.trim(), n=t.length;
+      if(n<8) continue;
+      if(n>W*1.1) over++;
+      else if(n>=W*0.85){
+        band++;
+        if(n===W||n===W-1) exact++;
+        if(!_RX_SENT_END.test(t)) open++;
+      }
+    }
+  }
+  // 한 줄에 한 문장씩 쓰는 웹소설도 길이가 비슷하게 몰릴 수 있음 → 최대 길이 부근 줄의 절반 이상이
+  // 문장 부호 없이 끝나야(문장 중간에서 잘림) 고정 폭 줄바꿈으로 판단
+  if(band/lens.length<0.35||over/lens.length>0.02||open/band<0.5) return null;
+  // 글자 단위 줄바꿈은 마지막 줄을 뺀 거의 모든 줄이 정확히 W자 — 단어 경계 줄바꿈은 길이가 W-몇 자로 흩어짐
+  return {width:W, charWrap:exact/band>=0.85};
+}
+
+const _RX_SENT_END=/[.!?…。！？~♡♥★☆)\]」』"”'’>》〉:;]$/;
+const _RX_LINE_OPEN=/^["“'‘「『(\[<《〈【\-—―*#]/;
+
+// 줄바꿈 병합 — 거의 꽉 찬 줄이 문장 부호 없이 끝나고 다음 줄이 이어지면 한 문단으로 합침
+//   반환 [줄 배열, 합친 줄 수]
+function _mergeHardWrapLines(lines, wrap, fams){
+  const out=[];
+  let cur=null, lastLen=0, lastEndsSpace=false, merged=0;
+  const flush=()=>{ if(cur!==null){ out.push(cur); cur=null; } };
+  for(const raw of lines){
+    const t=raw.trim();
+    if(!t){ flush(); out.push(raw); lastLen=0; continue; }
+    // 문장 부호로 시작하는 줄('.. 그랬다', ', 그리고')은 앞 줄의 연속 — 줄 길이와 무관하게 이어 붙임
+    const contPunct=cur!==null&&/^[.,!?…‥)\]」』’”~:;]/.test(t);
+    // 말줄임표로 끝난 줄은 문장 끝으로 보지 않음 ('...' 뒤에서 잘린 문단이 흔함)
+    const endsSentence=cur!==null&&_RX_SENT_END.test(cur)&&!/(?:\.\.|…|‥)$/.test(cur);
+    const canJoin=contPunct||(cur!==null&&lastLen>=wrap.width*0.85&&!endsSentence&&
+      !_RX_LINE_OPEN.test(t)&&!_tocLineInfo(t, fams));
+    if(canJoin){
+      // 글자 단위로 잘린 원고는 그대로 붙이되, 잘린 자리가 공백이었으면(앞 줄 끝·이 줄 앞 공백) 공백 복원
+      const sp=!contPunct&&(!wrap.charWrap||lastEndsSpace||/^\s/.test(raw));
+      cur+=(sp?' ':'')+t;
+      merged++;
+    }else{
+      flush();
+      cur=t;
+    }
+    lastLen=t.length;
+    lastEndsSpace=/\s$/.test(raw);
+  }
+  flush();
+  return [out, merged];
+}
+
+// 기호 정리 (한 줄) — 말줄임표 통일 + 따옴표 스타일
+function normalizeSymbolsLine(s, quoteStyle='keep'){
+  let t=s
+    .replace(/\.(?:\s?\.){2,}/g, m=>m.replace(/\s/g,'').length>=6?'……':'…')
+    .replace(/‥{2,}/g,'……').replace(/‥/g,'…')
+    .replace(/[。·ㆍ]{3,}/g,'…');
+  if(quoteStyle==='curly'){
+    t=t.replace(/"/g,(m,off,str)=>{ const p=str[off-1]; return (!p||/[\s(\[{「『<《〈—\-]/.test(p))?'“':'”'; })
+       .replace(/(^|[\s(\[「『<《〈—\-])'(?=\S)/g,'$1‘')
+       .replace(/(\S)'(?=$|[\s.,!?…)\]」』>》〉])/g,'$1’')
+       .replace(/「/g,'“').replace(/」/g,'”').replace(/『/g,'‘').replace(/』/g,'’');
+  }else if(quoteStyle==='straight'){
+    t=t.replace(/[“”„‟「」]/g,'"').replace(/[‘’『』]/g,"'");
+  }
+  return t;
+}
+
+// 설정 탭 '본문 정리' 옵션 읽기 (UI 전용)
+function getTextCleanupOpts(){
+  const el=id=>document.getElementById(id);
+  return {
+    noise:        el('optNoiseFilter')?.checked===true,
+    noisePresets: Object.keys(NOISE_PRESETS).filter(k=>el('optNoise_'+k)?.checked===true),
+    noiseCustom:  el('optNoiseCustom')?.value||'',
+    hardWrap:     el('optHardWrap')?.checked===true,
+    mergeShort:   el('optMergeShortLines')?.checked===true,
+    symbols:      el('optNormalizeSymbols')?.checked===true,
+    quoteStyle:   el('optQuoteStyle')?.value||'keep',
+  };
+}
+
+// 챕터 배열에 정리 단계 적용 → {chapters, stats:{noise, wrap, symbols, wrapInfo}}
+function applyTextCleanup(chapters, opts={}){
+  const stats={noise:0, wrap:0, symbols:0, wrapInfo:null};
+  if(!Array.isArray(chapters)||!chapters.length) return {chapters, stats};
+  const anyOn=(opts.noise&&(opts.noisePresets?.length||String(opts.noiseCustom||'').trim()))||
+    opts.hardWrap||opts.mergeShort||opts.symbols;
+  if(!anyOn) return {chapters, stats};
+  const fams=_tocFamilies();
+  const presets=opts.noise?(opts.noisePresets||[]):[];
+  const customRxs=opts.noise?_compileNoiseCustom(opts.noiseCustom):[];
+  let bodies=chapters.map(c=>String(c[1]||'').replace(/\r\n?/g,'\n').split('\n'));
+  if(presets.length||customRxs.length){
+    bodies=bodies.map(lines=>{ const [o,n]=_filterNoiseLines(lines, presets, customRxs); stats.noise+=n; return o; });
+  }
+  if(opts.hardWrap){
+    const wrap=detectHardWrap(bodies);
+    stats.wrapInfo=wrap;
+    if(wrap) bodies=bodies.map(lines=>{ const [o,n]=_mergeHardWrapLines(lines, wrap, fams); stats.wrap+=n; return o; });
+  }
+  if(opts.mergeShort) bodies=bodies.map(lines=>_mergeShortLineArray(lines, fams));
+  if(opts.symbols){
+    const qs=opts.quoteStyle||'keep';
+    bodies=bodies.map(lines=>lines.map(l=>{ const n=normalizeSymbolsLine(l, qs); if(n!==l) stats.symbols++; return n; }));
+  }
+  const out=chapters.map((c,k)=>{
+    const o=[c[0], bodies[k].join('\n')];
+    if(c.length>2) o.push(c[2]);
+    return o;
+  });
+  return {chapters:out, stats};
+}
+
+// ════════════════════════════════════════════════════════════
+// ★ Phase 13: 변환 전 검수 리포트 — 목차 항목(S.tocItems)에서 누락 화수·중복·짧은/빈/긴 챕터 수집
+//   DOM 비의존 순수 함수 (renderTocReview가 화면에 그림)
+// ════════════════════════════════════════════════════════════
+function buildTocReview(items, threshold=50){
+  const r={missing:[], dups:[], short:[], empty:[], long:[]};
+  const list=Array.isArray(items)?items:[];
+  const act=list.map((t,i)=>({t,i})).filter(({t})=>t&&t.enabled!==false);
+  // 화 번호 사슬 — 본편(kind 'ch' 또는 미지정)이고 번호가 있는 항목만
+  const isCh=({t})=>(t.kind==null||t.kind==='ch')&&Number.isFinite(t.num);
+  const chain=act.filter(isCh);
+  // 누락은 비활성 항목까지 포함한 사슬로 판단 — 사용자가 끈 항목(내용은 앞 챕터로 이어짐)은 누락이 아님
+  const all=list.map((t,i)=>({t,i})).filter(({t})=>t).filter(isCh);
+  for(let k=1;k<all.length;k++){
+    const a=all[k-1].t.num, b=all[k].t.num;
+    if(b>a+1&&b-a<=500) r.missing.push({from:a+1, to:b-1, idx:all[k].i});
+  }
+  const byNum=new Map();
+  chain.forEach(({t,i})=>{
+    const key=t.num+'|'+(t.part!=null?t.part:'');
+    if(!byNum.has(key)) byNum.set(key,[]);
+    byNum.get(key).push(i);
+  });
+  for(const [key,idxs] of byNum){ if(idxs.length>1) r.dups.push({num:parseInt(key,10), idxs}); }
+  act.forEach(({t,i},k)=>{
+    const len=t.bodyLen||0;
+    if(len===0) r.empty.push(i);
+    else if(len<threshold&&k<act.length-1) r.short.push(i);
+    if(len>50000) r.long.push(i);
+  });
+  return r;
+}
+
+let _tocReviewOpen=false;
+function renderTocReview(){
+  const host=document.getElementById('tocReview');
+  if(!host) return;
+  const items=S.tocItems||[];
+  if(!items.length){ host.replaceChildren(); host.style.display='none'; return; }
+  const prev=host.querySelector('details');
+  if(prev) _tocReviewOpen=prev.open;
+  const rv=buildTocReview(items, getSuspThreshold());
+  const total=rv.missing.length+rv.dups.length+rv.short.length+rv.empty.length+rv.long.length;
+  host.style.display='';
+  const det=document.createElement('details');
+  det.className='toc-review'+(total?' has-issues':'');
+  det.open=_tocReviewOpen&&total>0;
+  det.addEventListener('toggle',()=>{ _tocReviewOpen=det.open; });
+  const sum=document.createElement('summary');
+  sum.textContent=total?('🔎 변환 전 검수 — 확인할 항목 '+total+'건'):'✅ 변환 전 검수 — 누락·중복·짧은 챕터 없음';
+  det.appendChild(sum);
+  const title=i=>String(items[i]?.title||'').slice(0,40);
+  const group=(label, entries)=>{
+    if(!entries.length) return;
+    const g=document.createElement('div'); g.className='toc-review-group';
+    const h=document.createElement('div'); h.className='toc-review-label'; h.textContent=label+' '+entries.length;
+    g.appendChild(h);
+    const wrap=document.createElement('div'); wrap.className='toc-review-items';
+    entries.slice(0,30).forEach(([text, idx])=>{
+      const b=document.createElement('button');
+      b.type='button'; b.className='toc-review-item';
+      b.dataset.action='tocReviewJump'; b.dataset.idx=String(idx);
+      b.textContent=text; b.title='목차에서 이 위치로 이동';
+      wrap.appendChild(b);
+    });
+    if(entries.length>30){ const m=document.createElement('span'); m.className='toc-review-more'; m.textContent='외 '+(entries.length-30)+'건'; wrap.appendChild(m); }
+    g.appendChild(wrap);
+    det.appendChild(g);
+  };
+  group('누락 의심', rv.missing.map(m=>[(m.from===m.to?m.from+'화':m.from+'~'+m.to+'화')+' 없음', m.idx]));
+  group('중복 번호', rv.dups.map(d=>[d.num+'화 ×'+d.idxs.length, d.idxs[1]]));
+  group('빈 챕터', rv.empty.map(i=>[title(i), i]));
+  group('짧은 챕터', rv.short.map(i=>[title(i)+' ('+(items[i].bodyLen||0)+'자)', i]));
+  group('긴 챕터 (5만 자 초과)', rv.long.map(i=>[title(i), i]));
+  host.replaceChildren(det);
+}
+
 // splitChapters: 동기 함수. 대용량은 splitChaptersAsync(Worker) 권장
 // ★ Phase 8: 패턴 하나(bestPat)로 줄을 자르던 방식 → detectToc(복합 패턴·번호 사슬·화수 보정) + assembleChapters
 //   미리보기(previewToc)와 같은 감지 함수를 쓰므로 "미리보기에 보이는 목차 = 변환 결과"
@@ -1868,12 +2150,14 @@ async function getCachedChapters(){
 
   // ★ tocItems가 있으면 항상 tocItems 기반 챕터 조립 (_autoSplitActive 무관)
   // ★ window._autoSplitActive: 간격 분할 원문 참조
-  const optMerge  = document.getElementById('optMergeShortLines')?.checked??false;
+  // ★ Phase 13: 문단 정합 포함 '본문 정리' 옵션 전체를 미리보기에도 적용 (미리보기 = 변환 결과)
+  const cleanOpts = getTextCleanupOpts();
+  const optMerge  = cleanOpts.mergeShort;
   if(S.tocItems.length>0){
     const sourceLines=_tocSourceLines();
     if(sourceLines){
       const chs=buildChaptersFromTocItems(sourceLines, S.tocItems);
-      return optMerge?applyParagraphMerge(chs):chs;
+      return applyTextCleanup(chs, cleanOpts).chapters;
     }
   }
 
@@ -1881,7 +2165,7 @@ async function getCachedChapters(){
   // ★ 캐시 키 정교화: 파일명+크기+최종수정시간+패턴+설정 해시
   const pat=document.getElementById('pattern')?.value.trim()||'';
   const optItalic = document.getElementById('optItalic')?.checked??true;
-  const settingHash = `${optItalic}:${optMerge}:${document.getElementById('optMergeParts')?.checked===true}`;
+  const settingHash = `${optItalic}:${optMerge}:${document.getElementById('optMergeParts')?.checked===true}:${JSON.stringify(cleanOpts)}`;
   const fileHash = S.txtFiles
     .map(f=>`${f.name}:${f.size}:${f.lastModified||0}`)
     .join('|');
@@ -1909,7 +2193,7 @@ async function getCachedChapters(){
         range:rangeForFiles(sorted.map(f=>f.name)),
         mergeParts:document.getElementById('optMergeParts')?.checked===true,
       });
-      _chaptersCache=optMerge?applyParagraphMerge(chs):chs;
+      _chaptersCache=applyTextCleanup(chs, cleanOpts).chapters;
       _chaptersCacheKey=cacheKey;
     }catch(e){
       _chaptersCache=[];
@@ -3202,6 +3486,8 @@ function updateTocStat(){
 
   // ★ I7: 미니 차트 갱신 (main.js에 함수 정의)
   if(typeof renderTocMiniChart==='function') renderTocMiniChart();
+  // ★ Phase 13: 변환 전 검수 리포트
+  renderTocReview();
 
   // ★ I10: 내보내기 버튼 동적 추가 — L-06 FIX: flag 변수로 중복 생성 방지 (DOM 조회 경합 제거)
   if(!_tocExportBtnCreated){

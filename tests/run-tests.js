@@ -12,6 +12,7 @@
  *   4. EPUB 빌드: epub-gen.js Worker 소스를 실제 실행 → OPF 필수 메타·시리즈·nav/ncx 계층·빈 목차 제목 검사
  *      생성된 EPUB은 tests/out/ 에 저장 → CI에서 epubcheck로 표준 검증
  *   7. Phase 12: 커스텀 폰트 base64·인코딩 감지(UTF-16 무BOM)·슬라이스 경계·URL 표지·Gemini·EPUB 편집 메타
+ *   8. Phase 13: 본문 정리(잡음 줄·줄바꿈 병합·기호)·장면 구분선·검수 리포트·인코딩 직접 지정
  */
 'use strict';
 const fs   = require('fs');
@@ -513,29 +514,31 @@ async function main(){
     check('[구조] window._autoSplitActive 정의 1곳', defs.reduce((a, b) => a + b, 0) === 1, defs.join('/'));
   }
 
+  const readRoot = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  // 앱 파일에서 최상위 function/const 선언 하나를 원문 그대로 잘라냄 (DOM 의존 파일을 통째로 로드하지 않기 위함)
+  const extract = (src, name) => {
+    const m = new RegExp('(?:^|\\n)((?:async\\s+)?function\\s+' + name + '\\s*\\(|const\\s+' + name + '\\s*=)').exec(src);
+    if(!m) throw new Error('선언을 찾지 못함: ' + name);
+    const start = m.index + (m[0].startsWith('\n') ? 1 : 0);
+    const body = start + m[1].length;
+    // 한 줄짜리 const (객체·배열 리터럴이 아님) → 줄 끝까지
+    if(m[1].startsWith('const') && !/^\s*[{[]/.test(src.slice(body, body + 8))) return src.slice(start, src.indexOf('\n', start));
+    let i = src.indexOf('{', body), depth = 0;
+    for(; i < src.length; i++){ if(src[i] === '{') depth++; else if(src[i] === '}' && --depth === 0) break; }
+    return src.slice(start, i + 1) + (m[1].startsWith('const') ? ';' : '');
+  };
+  const sandbox = (file, names, extra = {}) => {
+    const c = Object.assign({ console, TextDecoder, URL, btoa, Buffer }, extra);
+    vm.createContext(c);
+    const src = readRoot(file);
+    vm.runInContext(names.map(n => extract(src, n)).join('\n'), c, { filename: file + ':extract' });
+    return c;
+  };
+
+
   // ── 7. Phase 12 회귀 (테스트 밖 경로에서 발견된 버그: 폰트·인코딩·URL 표지·Gemini·편집) ──
   {
     const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
-    // 앱 파일에서 최상위 function/const 선언 하나를 원문 그대로 잘라냄 (DOM 의존 파일을 통째로 로드하지 않기 위함)
-    const extract = (src, name) => {
-      const m = new RegExp('(?:^|\\n)((?:async\\s+)?function\\s+' + name + '\\s*\\(|const\\s+' + name + '\\s*=)').exec(src);
-      if(!m) throw new Error('선언을 찾지 못함: ' + name);
-      const start = m.index + (m[0].startsWith('\n') ? 1 : 0);
-      const body = start + m[1].length;
-      // 한 줄짜리 const (객체·배열 리터럴이 아님) → 줄 끝까지
-      if(m[1].startsWith('const') && !/^\s*[{[]/.test(src.slice(body, body + 8))) return src.slice(start, src.indexOf('\n', start));
-      let i = src.indexOf('{', body), depth = 0;
-      for(; i < src.length; i++){ if(src[i] === '{') depth++; else if(src[i] === '}' && --depth === 0) break; }
-      return src.slice(start, i + 1) + (m[1].startsWith('const') ? ';' : '');
-    };
-    const sandbox = (file, names, extra = {}) => {
-      const c = Object.assign({ console, TextDecoder, URL, btoa, Buffer }, extra);
-      vm.createContext(c);
-      const src = read(file);
-      vm.runInContext(names.map(n => extract(src, n)).join('\n'), c, { filename: file + ':extract' });
-      return c;
-    };
-
     // 7-1. 커스텀 폰트 — base64가 표준 인코딩과 바이트 단위로 일치 (이전: 8192바이트 청크마다 중간 '=' 패딩)
     const S1 = sandbox('settings.js', ['_FONT_FORMATS', '_B64_CHUNK', '_bytesToBase64', '_isValidFontFace', '_safeFontName']);
     const lens = [0, 1, 2, 3, 8189, 8190, 8191, 8192, 20000, 100003];
@@ -621,6 +624,91 @@ async function main(){
     check('[편집] dcterms:modified 갱신 (EPUB3)', !t3.includes('2020-01-01') && /dcterms:modified">\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ</.test(t3));
     check('[편집] dcterms:modified 없으면 추가, EPUB2는 그대로', /dcterms:modified">\d{4}-/.test(tn) && t2 === opf2);
     check('[편집] EPUB 결과 Blob mimeType 지정', (ed.match(/newZip\.generateAsync\(\{type:'blob',(?!mimeType)/g) || []).length === 0);
+  }
+
+  // ── 8. Phase 13 — 본문 정리 · 장면 구분선 · 검수 리포트 · 인코딩 직접 지정 ──
+  {
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const clean = G('applyTextCleanup'), hw = G('detectHardWrap'), sym = G('normalizeSymbolsLine'), review = G('buildTocReview');
+    const body = (...ls) => ls.join('\n');
+
+    // 8-1. 잡음 줄 제외
+    const story = '그는 친구에게 이 식당을 추천했다. 오래된 집이었지만 음식 맛만큼은 누구에게나 자신 있게 권할 수 있었다. 그날도 사람이 많았다.';
+    const ch = [['1화', body('작가의 말', '첫 줄', story, '선작과 추천 부탁드립니다!', 'https://example.com/novel/123', '[공지] 다음 주는 휴재합니다', '※ 무단 전재 금지', '중간 줄', '마지막 본문', '', '작가의 말', '감사합니다 여러분', '다음 화도 기대해 주세요')]];
+    const r1 = clean(ch, { noise: true, noisePresets: ['author', 'promo', 'url', 'notice'], noiseCustom: '^※' }).chapters[0][1].split('\n');
+    check('[정리] 잡음 줄(선작 부탁·URL·공지·사용자 정규식) 제거', !r1.some(l => /선작과|example\.com|\[공지\]|※/.test(l)));
+    check('[정리] 뒤쪽 절반 작가의 말부터 끝까지 제거, 앞쪽 머리줄·본문 속 추천 문장은 유지', !r1.includes('감사합니다 여러분') && r1[0] === '작가의 말' && r1.includes(story) && r1.includes('마지막 본문'));
+    const off = [['1화', 'a']];
+    check('[정리] 옵션이 모두 꺼져 있으면 원본 그대로', clean(off, {}).chapters === off);
+
+    // 8-2. 줄바꿈 병합 — 글자 수 고정(30자) / 단어 경계 줄바꿈 / 일반 원고 미감지
+    const words = ['오래된', '골목을', '지나', '낡은', '서점', '앞에서', '그는', '잠시', '멈춰', '섰다가', '조용히', '문을', '밀고', '들어갔고', '먼지', '냄새가', '코끝을', '스쳤다'];
+    const paras = Array.from({ length: 40 }, (_, i) => '그날 밤 ' + (i + 1) + '번째 ' + Array.from({ length: 12 + (i % 5) }, (_, k) => words[(i * 7 + k * 3) % words.length]).join(' ') + '.');
+    const charWrap = paras.map(p => p.match(/.{1,30}/g).join('\n')).join('\n\n');
+    const w1 = hw([charWrap.split('\n')]);
+    const m1 = clean([['1화', charWrap]], { hardWrap: true });
+    check('[정리] 30자 고정 줄바꿈 감지(글자 단위)', w1 && w1.width === 30 && w1.charWrap === true);
+    check('[정리] 글자 단위 줄바꿈 병합 = 원래 문단', m1.chapters[0][1].split('\n').filter(Boolean).join('|') === paras.join('|'));
+    const wordWrap = paras.map(p => { const out = []; let cur = ''; for(const w of p.split(' ')){ if((cur + ' ' + w).trim().length > 30){ out.push(cur.trim()); cur = w; } else cur += ' ' + w; } out.push(cur.trim()); return out.join('\n'); }).join('\n\n');
+    const m2 = clean([['1화', wordWrap]], { hardWrap: true });
+    check('[정리] 단어 경계 줄바꿈 병합 = 원래 문단 (공백 복원)', m2.stats.wrapInfo && m2.stats.wrapInfo.charWrap === false && m2.chapters[0][1].split('\n').filter(Boolean).join('|') === paras.join('|'));
+    const mergeHW = G('_mergeHardWrapLines'), famsHW = G('_tocFamilies()');
+    const ell = mergeHW(['그는 한참 동안 아무 말도 하지 않고 창밖만 바라보았다.', '.. 그리고 고개를 저었다.', '', '오래 기다린 끝에 마침내 그녀가 입을 열었다 하지만...', '그 말은 끝내 이어지지 않았다.'], { width: 30, charWrap: true }, famsHW)[0];
+    check('[정리] 말줄임표가 줄 끝·줄 앞에서 잘려도 한 문단으로', ell[0] === '그는 한참 동안 아무 말도 하지 않고 창밖만 바라보았다... 그리고 고개를 저었다.' && ell[2] === '오래 기다린 끝에 마침내 그녀가 입을 열었다 하지만...그 말은 끝내 이어지지 않았다.');
+    const normal = fs.readFileSync(path.join(FIX_DIR, '01_je_n_hwa.txt'), 'utf8');
+    check('[정리] 일반 원고는 고정 폭 줄바꿈으로 감지하지 않음', hw([normal.split('\n')]) === null);
+
+    // 8-3. 기호 정리
+    check('[정리] 말줄임표 통일 (공백 보존)', sym('그래... 알았어') === '그래… 알았어' && sym('음. . .') === '음…' && sym('......') === '……' && sym('‥') === '…');
+    check('[정리] 둥근 따옴표·「」 변환, 영어 아포스트로피 유지', sym('"안녕" 그가 말했다', 'curly') === '“안녕” 그가 말했다' && sym('「네」', 'curly') === '“네”' && sym("don't", 'curly') === "don't");
+    check('[정리] 곧은 따옴표 변환', sym('“네” 『책』', 'straight') === '"네" \'책\'');
+    check('[정리] 숫자 목록·소수점은 그대로', sym('1. 2. 3.') === '1. 2. 3.' && sym('3.14') === '3.14');
+
+    // 8-4. 장면 구분선 (메인 = EPUB Worker)
+    const renderMain = G('renderBodyHtml');
+    const wctx2 = { console }; wctx2.self = wctx2; vm.createContext(wctx2);
+    vm.runInContext(epubSrc.replace(/^importScripts\(.*\);$/m, ''), wctx2);
+    const sceneSrc = body('앞 장면', '* * *', '◇◇◇', '----', '═══', '***강조***', '뒤 장면');
+    const hrs = (renderMain(sceneSrc, { sceneBreak: true }).match(/<hr class="scene"\/>/g) || []).length;
+    check('[장면] 기호만으로 된 줄 4개 → <hr class="scene"/>, 글자가 섞인 줄은 문단', hrs === 4 && renderMain(sceneSrc, { sceneBreak: true }).includes('<p>***강조***</p>'));
+    check('[장면] 옵션 꺼짐 = 기존 렌더링', !renderMain(sceneSrc).includes('<hr'));
+    check('[장면] 메인 스레드 = EPUB Worker', renderMain(sceneSrc, { sceneBreak: true }) === wctx2.renderBodyHtml(sceneSrc, { sceneBreak: true }));
+    const sceneEpub = await (async () => {
+      const chapters = [['1화', body('첫 장면 문장.', '* * *', '둘째 장면 문장.')], ['2화', body('본문', '◇◇◇', '끝')]];
+      const params = { title: '장면 구분', author: '테스트', chapters, illMapMeta: [], useItalic: true, showChTitle: true, compressionLevel: 6, lang: 'ko',
+        uid: 'urn:uuid:00000000-0000-4000-8000-000000000013', today: '2026-11-03', modified: '2026-11-03T00:00:00Z', sceneBreak: true };
+      const w = await runWorker(epubSrc, { params, imageData: { cover: null, ills: [] }, cssText: read('epub-gen.js').includes('hr.scene') ? 'hr.scene{border:0}' : '' },
+        wctx => ({ importScripts(){ vm.runInContext(jszipSrc, wctx); } }));
+      const buf = Buffer.from(await w.last.blob.arrayBuffer());
+      fs.writeFileSync(path.join(OUT_DIR, '13_scene_break.epub'), buf);
+      return (await JSZip.loadAsync(buf)).file('OEBPS/Text/chapter_0000.xhtml').async('string');
+    })();
+    check('[장면] EPUB 본문에 <hr class="scene"/> (tests/out/13_scene_break.epub → CI epubcheck)', sceneEpub.includes('<hr class="scene"/>'));
+    check('[장면] EPUB CSS에 hr.scene 스타일', /hr\.scene\{/.test(read('epub-gen.js')) && /'const _RX_SCENE='\+rx\(_RX_SCENE\)/.test(read('epub-gen.js')));
+
+    // 8-5. 검수 리포트
+    const it = (num, len, extra = {}) => ({ num, bodyLen: len, enabled: true, kind: 'ch', title: num + '화', ...extra });
+    const rv = review([it(1, 3000), it(2, 3000), it(3, 10), it(5, 3000), it(6, 3000), it(6, 2900), it(8, 0), it(9, 60000), it(10, 5, { enabled: false }), it(11, 20)], 50);
+    check('[검수] 누락 화수 4·7', JSON.stringify(rv.missing.map(m => [m.from, m.to])) === '[[4,4],[7,7]]');
+    check('[검수] 중복 6화', rv.dups.length === 1 && rv.dups[0].num === 6 && rv.dups[0].idxs.join() === '4,5');
+    check('[검수] 짧은 챕터(마지막 제외)·빈 챕터·긴 챕터·비활성 제외', rv.short.join() === '2' && rv.empty.join() === '6' && rv.long.join() === '7');
+    check('[검수] 분할 연재(같은 번호·다른 part)는 중복 아님', review([it(3, 900, { part: 1 }), it(3, 900, { part: 2 })], 50).dups.length === 0);
+
+    // 8-6. 연결 — 변환·일괄 변환·미리보기가 같은 정리 함수 사용, 설정 저장, 인코딩 직접 지정
+    const conv = read('convert.js'), html = read('index.html'), parser = read('parser.js'), st = read('settings.js'), ui = read('ui-state.js');
+    check('[연결] 변환·일괄 변환·미리보기 모두 applyTextCleanup', (conv.match(/applyTextCleanup\(/g) || []).length >= 2 && (parser.match(/applyTextCleanup\(chs, cleanOpts\)/g) || []).length === 2);
+    const ids = ['optHardWrap', 'optNormalizeSymbols', 'optQuoteStyle', 'optSceneBreak', 'optNoiseFilter', 'optNoise_author', 'optNoise_promo', 'optNoise_url', 'optNoise_notice', 'optNoiseCustom', 'tocReview'];
+    check('[연결] 본문 정리·검수 리포트 화면 요소', ids.every(id => html.includes('id="' + id + '"')));
+    check('[연결] 본문 정리 옵션 저장·복원', /cleanup:_readCleanupSettings\(\)/.test(st) && /_applyCleanupSettings\(s\.cleanup\)/.test(st));
+    check('[연결] data-action/data-input-action 등록', /tocReviewJump:/.test(ui) && /saveCleanupNoise:/.test(ui));
+    const D = sandbox('convert.js', ['_countChar', '_decodeFromAB'], { setTimeout, clearTimeout });
+    const eucBuf = Buffer.from(Array.from({ length: 400 }, (_, i) => i % 5 === 4 ? [0x20] : [[0xB0,0xA1],[0xB3,0xAA],[0xB4,0xD9]][i % 3]).flat());
+    const eucAB = eucBuf.buffer.slice(eucBuf.byteOffset, eucBuf.byteOffset + eucBuf.length);
+    const dec = vm.runInContext('_decodeFromAB', D);
+    check('[인코딩] 직접 지정(strict)은 UTF-8 자동 보정을 건너뜀', (await dec(eucAB, 'utf-8', true)).includes('\ufffd') && (await dec(eucAB, 'utf-8', false)).startsWith('가나다'));
+    check('[인코딩] Worker 디코딩도 strict 전달', /decodeViaWorker\(ab, enc, _encOverride\.has\(key\)\)/.test(conv) && /decodeText\(payload\.buffer, enc2, payload\.strict===true\)/.test(read('worker.js')));
+    check('[UI] 파일 목록 hidden 속성 해제 (이전: [hidden]{display:none!important}로 목록이 보이지 않음)', /listWrap\.hidden=false/.test(conv));
+    check('[인코딩] 직접 지정이 자동 감지보다 우선', /let enc = _encOverride\.get\(key\) \|\| _encCacheGet\(file\);/.test(conv) && /function setTxtEncoding\(file, enc\)/.test(conv) && /const ov=_encOverride\.get\(_fileKey\(file\)\);\n  if\(ov\) return ov;/.test(conv));
   }
 
   if(UPDATE){

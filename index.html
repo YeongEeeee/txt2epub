@@ -197,6 +197,8 @@
         </span>
       </div>
       <div id="toc-stat" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid var(--border);min-height:32px"></div>
+      <!-- ★ Phase 13: 변환 전 검수 리포트 (누락 화수·중복·빈/짧은/긴 챕터 — 항목 클릭 시 목차 위치로 이동) -->
+      <div id="tocReview" class="toc-review-host" style="display:none"></div>
       <div id="tocMiniChart" style="padding:4px 8px 0;cursor:pointer" title="챕터별 글자수 분포 — 클릭해서 해당 챕터로 이동"></div>
       <div class="toc-body" id="tb0"><div class="toc-empty"><div class="toc-empty-icon">📄</div><p>파일을 업로드하면<br>이곳에 목차가 생성됩니다</p></div></div>
       <div class="toc-body" id="tb1" style="display:none">
@@ -808,6 +810,39 @@
     <div class="toggle-row">
       <div><label for="optMergeShortLines">문단 정합</label><small>30자 미만 짧은 줄을 자동으로 이어 붙여요 (대화체 소설에 적합)</small></div>
       <label class="sw"><input type="checkbox" id="optMergeShortLines" data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
+    </div>
+    <!-- ★ Phase 13: 본문 정리 (변환·일괄 변환·챕터 미리보기 공용) -->
+    <div class="toggle-row">
+      <div><label for="optHardWrap">줄바꿈 병합</label><small>일정한 글자 수마다 끊겨 있는 원고(텍본)를 문단으로 이어요 · 고정 폭 줄바꿈이 감지될 때만 적용</small></div>
+      <label class="sw"><input type="checkbox" id="optHardWrap" data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
+    </div>
+    <div class="toggle-row">
+      <div><label for="optNormalizeSymbols">기호 정리</label><small>... · . . . · ‥ → … 로 통일하고 따옴표 스타일을 맞춰요</small></div>
+      <label class="sw"><input type="checkbox" id="optNormalizeSymbols" data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
+    </div>
+    <div class="toggle-row">
+      <div><label for="optQuoteStyle">따옴표 스타일</label><small>기호 정리를 켰을 때 적용 · 「」『』도 함께 바뀌어요</small></div>
+      <select id="optQuoteStyle" class="opt-select" data-input-action="saveExtraSettings">
+        <option value="keep">그대로</option>
+        <option value="curly">“둥근” 따옴표</option>
+        <option value="straight">"곧은" 따옴표</option>
+      </select>
+    </div>
+    <div class="toggle-row">
+      <div><label for="optSceneBreak">장면 구분선</label><small>* * * · ◇◇◇ · ---- 같은 줄을 EPUB 장면 구분 기호(⁂)로 표시해요</small></div>
+      <label class="sw"><input type="checkbox" id="optSceneBreak" data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
+    </div>
+    <div class="toggle-row">
+      <div><label for="optNoiseFilter">잡음 줄 제외</label><small>작가의 말·선작 부탁·공지·URL 줄을 본문에서 빼요</small></div>
+      <label class="sw"><input type="checkbox" id="optNoiseFilter" data-input-action="saveCleanupNoise"><span class="sw-slider" aria-hidden="true"></span></label>
+    </div>
+    <div id="optNoisePanel" class="opt-subpanel" style="display:none">
+      <label class="opt-check"><input type="checkbox" id="optNoise_author" checked data-input-action="saveExtraSettings"><span>작가의 말·후기 <small>챕터 뒤쪽 절반의 머리줄부터 챕터 끝까지</small></span></label>
+      <label class="opt-check"><input type="checkbox" id="optNoise_promo" checked data-input-action="saveExtraSettings"><span>선작·추천·댓글 부탁 <small>120자 이하 줄</small></span></label>
+      <label class="opt-check"><input type="checkbox" id="optNoise_url" checked data-input-action="saveExtraSettings"><span>URL·출처 표기 <small>줄 대부분이 주소인 경우</small></span></label>
+      <label class="opt-check"><input type="checkbox" id="optNoise_notice" checked data-input-action="saveExtraSettings"><span>공지·연재 안내 <small>[공지] · [휴재] 등으로 시작하는 줄</small></span></label>
+      <label for="optNoiseCustom" class="opt-sub-label">직접 입력 — 정규식, 한 줄에 하나 (150자 이하)</label>
+      <textarea id="optNoiseCustom" class="opt-noise-custom" rows="3" spellcheck="false" placeholder="예: ^※.*무단 전재" data-input-action="saveExtraSettings"></textarea>
     </div>
     <div class="toggle-row">
       <div><label for="optEmptyLine">빈 줄 보존</label><small>단락 사이 빈 줄을 그대로 유지해요</small></div>

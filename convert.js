@@ -128,9 +128,10 @@ const TextWorker = (() => {
   // ★ Phase 10: 이미 읽은 버퍼와 감지된 인코딩을 그대로 전달 (이전: 메인에서 읽은 뒤 Worker용으로 파일을 한 번 더 읽고,
   //   Worker는 인코딩을 다시 감지 → 대용량 파일 I/O·메모리 2배)
   //   반환 null = Worker 미사용(메인 스레드 처리) / 전송 후 버퍼는 detached → 실패 시 호출자가 다시 읽음
-  async function decodeViaWorker(ab, enc){
+  // ★ Phase 13: strict — 사용자가 직접 고른 인코딩은 'UTF-8이 깨지면 EUC-KR로 재시도' 자동 보정을 하지 않음
+  async function decodeViaWorker(ab, enc, strict=false){
     if(!ab || ab.byteLength < LARGE_FILE_THRESHOLD || !_getWorker()) return null;
-    const result = await post('FILE_TO_TEXT', { buffer: ab, enc }, [ab]);
+    const result = await post('FILE_TO_TEXT', { buffer: ab, enc, strict }, [ab]);
     return result.text;
   }
 
@@ -157,7 +158,7 @@ function _detectUtf16NoBom(bytes){
   else if(zEven>=zOdd*2) cand='utf-16be';
   if(!cand) return null;
   const text=new TextDecoder(cand,{fatal:false}).decode(bytes.subarray(0,n));
-  return _countChar(text,'�')<=text.length*0.01?cand:null;
+  return _countChar(text,'\ufffd')<=text.length*0.01?cand:null;
 }
 
 // ★ U-12: detectEncodingFromAB — ArrayBuffer를 직접 받아 처리 (이중 FileReader 제거용)
@@ -226,17 +227,56 @@ function _textCacheSet(file, text){
   _textCache.set(k,text); _textCacheChars+=text.length;
 }
 function clearTextCache(){ _textCache.clear(); _textCacheChars=0; }
+function _textCacheDelete(file){
+  const k=_fileKey(file);
+  if(_textCache.has(k)){ _textCacheChars-=_textCache.get(k).length; _textCache.delete(k); }
+}
+
+// ★ Phase 13: 사용자가 파일 목록에서 직접 고른 인코딩 (키: 파일명|크기|수정시간)
+//   자동 감지가 틀린 원고(짧은 EUC-KR·ASCII 위주 파일 등)를 바로잡는 용도 — 변환·미리보기 모두 이 값을 우선
+const _encOverride=new Map();
+const _encAuto=new Map();   // 자동 감지 결과 (사용자 지정과 별개로 '자동 (…)' 표시에 사용)
+const ENC_LABELS={'utf-8':'UTF-8','euc-kr':'EUC-KR','utf-16le':'UTF-16LE','utf-16be':'UTF-16BE'};
+
+async function detectEncodingAuto(file){
+  const k=_fileKey(file);
+  if(_encAuto.has(k)) return _encAuto.get(k);
+  // ★ Phase 12: 앞 64KB만 읽음 (감지에 쓰는 범위만)
+  const ab=await fileToAB(file.slice(0,65536));
+  const enc=_detectEncodingFromAB(ab);
+  if(_encAuto.size>=_ENC_CACHE_MAX) _encAuto.delete(_encAuto.keys().next().value);
+  _encAuto.set(k, enc);
+  return enc;
+}
 
 async function detectEncoding(file){
   // ★ Phase 12: 앞 64KB만 읽음 + 감지 결과 캐시 공유
   //   (이전: 감지에 쓰는 건 64KB인데 파일 전체를 ArrayBuffer로 읽음 — 목록을 다시 그릴 때마다 모든 파일을
   //    통째로 읽어 대용량 일괄 변환에서 메모리 급증, 결과도 _encCache에 저장하지 않아 변환 때 다시 감지)
+  const ov=_encOverride.get(_fileKey(file));
+  if(ov) return ov;
   const hit=_encCacheGet(file);
   if(hit) return hit;
-  const ab=await fileToAB(file.slice(0,65536));
-  const enc=_detectEncodingFromAB(ab);
+  const enc=await detectEncodingAuto(file);
   _encCacheSet(file, enc);
   return enc;
+}
+
+// ★ Phase 13: 파일 인코딩 직접 지정 ('auto' = 자동 감지로 복귀) → 디코딩 캐시를 비우고 목차를 다시 감지
+function setTxtEncoding(file, enc){
+  if(!file) return;
+  const k=_fileKey(file);
+  if(!enc||enc==='auto'){ _encOverride.delete(k); _encCache.delete(k); }
+  else{
+    if(!ENC_LABELS[enc]) return;
+    _encOverride.set(k, enc);
+    _encCacheSet(file, enc);
+  }
+  _textCacheDelete(file);
+  _chaptersCache=null; _chaptersCacheKey='';
+  renderTxtFileList();
+  if(typeof previewToc==='function') previewToc();
+  Toast.info((enc&&enc!=='auto'?ENC_LABELS[enc]+'(으)로 다시 읽어요':'자동 감지 인코딩으로 다시 읽어요')+' — '+file.name, 2500);
 }
 
 async function fileToText(file){
@@ -249,17 +289,18 @@ async function fileToText(file){
     // ★ U-12 FIX: ArrayBuffer를 한 번만 읽고 인코딩 감지 + 디코딩 모두 재사용
     let ab = await fileToAB(file);
     // ★ B-FIX-01: LRU 캐시에서 인코딩 조회 (파일명+크기+수정시간 기반 키)
-    let enc = _encCacheGet(file);
+    // ★ Phase 13: 사용자가 지정한 인코딩이 있으면 최우선 (LRU에서 밀려나도 유지)
+    let enc = _encOverride.get(key) || _encCacheGet(file);
     if(!enc){ enc = _detectEncodingFromAB(ab); _encCacheSet(file, enc); }
     let text = null;
     // ★ 대용량 파일(5MB+)은 Worker에 위임 → 메인 스레드 UI 비블로킹 (읽은 버퍼를 그대로 전송)
     if(file.size >= TextWorker.LARGE_FILE_THRESHOLD){
-      try{ text = await TextWorker.decodeViaWorker(ab, enc); }
+      try{ text = await TextWorker.decodeViaWorker(ab, enc, _encOverride.has(key)); }
       catch(e){ text = null; }
       // 전송된 버퍼는 detached — Worker 실패 시 다시 읽어 메인 스레드에서 디코딩
       if(text === null && ab.byteLength === 0) ab = await fileToAB(file);
     }
-    if(text === null) text = await _decodeFromAB(ab, enc);
+    if(text === null) text = await _decodeFromAB(ab, enc, _encOverride.has(key));
     _textCacheSet(file, text);
     return text;
   })();
@@ -269,7 +310,7 @@ async function fileToText(file){
 }
 
 // ★ B-FIX-02: ab 디코딩 로직 분리 — fileToText 재사용성 및 가독성 향상
-function _decodeFromAB(ab, enc){
+function _decodeFromAB(ab, enc, strict=false){
   return new Promise((res,rej)=>{
     // ★ 타임아웃 안전망: 30초 내 응답 없으면 reject
     const timer=setTimeout(()=>rej(new Error('fileToText timeout')), 30000);
@@ -280,7 +321,7 @@ function _decodeFromAB(ab, enc){
       const decoder=new TextDecoder(enc,{fatal:false});
       const text=decoder.decode(new Uint8Array(ab));
       // U+FFFD(대체문자) 포함 여부 — EUC-KR 오판 감지
-      const badCount=enc==='utf-8'?_countChar(text,'\ufffd'):0;
+      const badCount=enc==='utf-8'&&!strict?_countChar(text,'\ufffd'):0;
       if(badCount>10&&enc==='utf-8'){
         try{
           const text2=new TextDecoder('euc-kr',{fatal:false}).decode(new Uint8Array(ab));
@@ -663,9 +704,11 @@ function renderTxtFileList(){
   if(!listEl) return;
 
   // 기존 info 영역 간단 요약
-  infoEl.style.display='block';
-  infoEl.textContent='✅ '+files.length+'개 파일 선택됨';
-  listWrap.style.display='block';
+  if(infoEl){ infoEl.style.display='block'; infoEl.textContent='✅ '+files.length+'개 파일 선택됨'; }
+  // ★ Phase 13: index.html의 hidden 속성 + style.css [hidden]{display:none!important} 때문에
+  //   style.display='block'이 무시되어 파일 목록(순서 변경·개별 제거·정렬·인코딩 선택)이 한 번도 보이지 않던 문제
+  //   (txtInfo 요약은 목록 머리의 'N개 · 드래그로 순서 변경'과 중복이라 숨김 유지)
+  if(listWrap){ listWrap.hidden=false; listWrap.style.display='block'; }
   if(countEl) countEl.textContent=files.length+'개 · 드래그로 순서 변경';
 
   listEl.innerHTML='';
@@ -681,14 +724,24 @@ function renderTxtFileList(){
       '<span class="txt-file-name" title="'+escHtml(f.name)+'">'+escHtml(f.name)+'</span>'+
       '<span class="txt-file-rm" data-idx="'+i+'" title="제거">✕</span>';
 
-    // 인코딩 비동기 감지 (★ Phase 12: 앞 64KB만 읽고 캐시 — 실패해도 배지만 생략)
-    detectEncoding(f).then(enc=>{
+    // 인코딩 비동기 감지 (★ Phase 12: 앞 64KB만 읽고 캐시 — 실패해도 선택 상자만 생략)
+    // ★ Phase 13: 배지 → 선택 상자 — 글자가 깨지면 인코딩을 직접 골라 다시 읽기
+    detectEncodingAuto(f).then(auto=>{
       if(!row.isConnected) return;   // 그 사이 목록이 다시 그려졌으면 버려진 행에 붙이지 않음
-      const encBadge=document.createElement('span');
-      encBadge.className='txt-file-enc';
-      encBadge.textContent=String(enc||'').toUpperCase().replace(/-/g,'');
+      const ov=_encOverride.get(_fileKey(f));
+      const sel=document.createElement('select');
+      sel.className='txt-file-enc'+(ov?' is-manual':'');
+      sel.draggable=false;
+      sel.title='인코딩 — 글자가 깨져 보이면 직접 바꿔 보세요';
+      sel.setAttribute('aria-label', f.name+' 인코딩');
+      const opt=(v,t)=>{ const o=document.createElement('option'); o.value=v; o.textContent=t; sel.appendChild(o); };
+      opt('auto','자동 ('+(ENC_LABELS[auto]||String(auto||'').toUpperCase())+')');
+      Object.entries(ENC_LABELS).forEach(([v,t])=>opt(v,t));
+      sel.value=ov||'auto';
+      ['mousedown','touchstart','click','dragstart'].forEach(ev=>sel.addEventListener(ev,e=>e.stopPropagation(),{passive:ev==='touchstart'}));
+      sel.addEventListener('change',()=>setTxtEncoding(f, sel.value));
       const rmBtn=row.querySelector('.txt-file-rm');
-      if(rmBtn) row.insertBefore(encBadge,rmBtn);
+      if(rmBtn) row.insertBefore(sel,rmBtn);
     }).catch(()=>{});
 
     // ✕ 클릭으로 개별 파일 제거
@@ -1463,7 +1516,8 @@ async function startConvert(){
   try{
     const sorted=[...S.txtFiles];
     const customPat=document.getElementById('pattern')?.value.trim();
-    const optMergeLines=document.getElementById('optMergeShortLines')?.checked===true;
+    // ★ Phase 13: 설정 탭 '본문 정리' 옵션 (잡음 줄·줄바꿈 병합·문단 정합·기호 정리)
+    const cleanOpts=getTextCleanupOpts();
     const tocMode=S.tocItems.length>0;
     // ★ Phase 10: 목차가 이미 있고 원문 줄이 메모리에 있으면 파일을 다시 읽지 않음
     //   (이전: 목차 기반 조립에서도 모든 파일을 매번 다시 읽고 디코딩)
@@ -1518,10 +1572,13 @@ async function startConvert(){
     raw=null;
     checkAbort();
     // ★ Phase 10: '문단 정합' 옵션 — 조립된 본문에 적용 (이전: 실제 변환에는 전달되지 않아 무시됨)
-    if(optMergeLines){
-      setProgress(28,'② 문단 정합 중...');
+    // ★ Phase 13: 문단 정합을 포함한 본문 정리 파이프라인으로 통합 (일괄 변환·미리보기와 같은 함수)
+    let cleanStats=null;
+    {
+      setProgress(28,'② 본문 정리 중...');
       await yieldToMain();
-      chapters=applyParagraphMerge(chapters);
+      const res=applyTextCleanup(chapters, cleanOpts);
+      chapters=res.chapters; cleanStats=res.stats;
     }
     await yieldToMain();
     setProgress(30,'③ 삽화 파싱 중...');
@@ -1592,6 +1649,8 @@ async function startConvert(){
     }
     // ★ 변환 리포트: 챕터 구성에서 확인 가능한 경고 수집 (화수 도약·짧은 챕터·패턴 미감지·삽화 매핑 실패)
     epubWarnings = epubWarnings.concat(_collectConvertWarnings(chapters, illMap));
+    // ★ Phase 13: 본문 정리 결과 요약 (사용자가 켠 옵션이 실제로 무엇을 바꿨는지)
+    epubWarnings = epubWarnings.concat(_describeCleanStats(cleanStats, cleanOpts));
     S.epubBlob=blob;
     S.epubName=title.replace(/[\\/:*?"<>|]/g,'_')+'.epub';
     const elapsed=((Date.now()-convertStart)/1000).toFixed(1);
@@ -1712,6 +1771,19 @@ function _collectConvertWarnings(chapters, illMap){
   return out;
 }
 
+// ★ Phase 13: 본문 정리 통계 → 리포트 문구 (변경이 없으면 빈 배열)
+function _describeCleanStats(st, opts){
+  const out=[];
+  if(!st||!opts) return out;
+  if(opts.noise&&st.noise) out.push(`본문 정리: 잡음 줄 ${st.noise}줄을 제외했어요 (작가의 말·공지·URL 등).`);
+  if(opts.hardWrap){
+    if(st.wrapInfo&&st.wrap) out.push(`본문 정리: ${st.wrapInfo.width}자 고정 줄바꿈을 감지해 ${st.wrap}줄을 문단으로 이었어요.`);
+    else if(!st.wrapInfo) out.push('본문 정리: 고정 폭 줄바꿈이 감지되지 않아 줄바꿈 병합은 적용하지 않았어요.');
+  }
+  if(opts.symbols&&st.symbols) out.push(`본문 정리: 기호를 정리한 줄 ${st.symbols}줄.`);
+  return out;
+}
+
 // ★ U-17: 변환 오류 리포트 — 챕터별 경고 항목 요약 렌더링
 function _renderConvertReport(warnings){
   const el = document.getElementById('convertReport');
@@ -1719,10 +1791,16 @@ function _renderConvertReport(warnings){
   if(!warnings || !warnings.length){ el.style.display='none'; return; }
   // ★ style.css의 #convertReport{display:none} 기본값 때문에 ''가 아닌 'block'으로 명시
   el.style.display = 'block';
+  // ★ Phase 13: '본문 정리:' 항목은 경고가 아니라 정보 — 건수·아이콘·색을 분리
+  const isInfo=w=>/^본문 정리:/.test(String(w));
+  const warnCount=warnings.filter(w=>!isInfo(w)).length;
+  const head=warnCount?`⚠ 변환 경고 ${warnCount}건`:'ℹ 변환 정보';
   el.innerHTML =
-    `<div style="font-size:var(--fs-xs);font-weight:700;color:var(--accent);margin-bottom:6px">⚠ 변환 경고 ${warnings.length}건</div>` +
+    `<div style="font-size:var(--fs-xs);font-weight:700;color:${warnCount?'var(--accent)':'var(--blue)'};margin-bottom:6px">${head}</div>` +
     `<div style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto">` +
-    warnings.map(w=>`<div style="font-size:var(--fs-xs);color:var(--text2);padding:3px 6px;background:var(--accent-bg);border-radius:var(--radius-xs);border-left:2px solid var(--accent)">⚠ ${escHtml(String(w))}</div>`).join('') +
+    warnings.map(w=>isInfo(w)
+      ? `<div style="font-size:var(--fs-xs);color:var(--text2);padding:3px 6px;background:var(--blue-bg);border-radius:var(--radius-xs);border-left:2px solid var(--blue)">ℹ ${escHtml(String(w))}</div>`
+      : `<div style="font-size:var(--fs-xs);color:var(--text2);padding:3px 6px;background:var(--accent-bg);border-radius:var(--radius-xs);border-left:2px solid var(--accent)">⚠ ${escHtml(String(w))}</div>`).join('') +
     `</div>`;
 }
 
@@ -2941,6 +3019,8 @@ async function startBatch(){
             mergeParts:document.getElementById('optMergeParts')?.checked===true,
           });
         }
+        // ★ Phase 13: 설정 탭 '본문 정리'를 일괄 변환에도 적용 (이전: 문단 정합 옵션이 일괄 변환에는 전달되지 않음)
+        chapters=applyTextCleanup(chapters, getTextCleanupOpts()).chapters;
         // ★ 파일명에서 시리즈명·권 번호 자동 추출 ('작품 3권.txt' → 작품 / 3)
         const sm=parseSeriesFromName(f.name);
         const blob=await buildEpub({title,author,chapters,coverFile:cover,illMap:[],useItalic:useItalicBatch,
@@ -3204,7 +3284,7 @@ function resetConvertTxt(){
   // ★ UX-PD: 파일 리셋 → 목차 확인·간격 분할 버튼 비활성 표시 (.is-idle)
   document.getElementById('patSection')?.classList.add('is-idle');
   document.getElementById('txtInfo').style.display='none';
-  const fl=document.getElementById('txtFileList'); if(fl) fl.style.display='none';
+  const fl=document.getElementById('txtFileList'); if(fl){ fl.style.display='none'; fl.hidden=true; }
   const sl=document.getElementById('txtSortList'); if(sl) sl.innerHTML='';
   document.getElementById('tocPanel')?.classList.remove('show');
   ['title','author','series','seriesIdx','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});

@@ -73,7 +73,7 @@ function buildCss(){
   //   (이전: 글자색만 지정하면 다크 모드에서 배경만 어둡게 바뀌어 어두운 글자 + 어두운 배경 → 읽을 수 없음,
   //    배경색만 지정하면 밝은 배경 + 밝은 글자). 하나라도 지정했다면 사용자가 고른 색 조합을 그대로 유지
   const darkBlock=(!textColor&&!bgColor)?'@media (prefers-color-scheme:dark){body{background-color:#1a1208;color:#e8d8c4;}}\n':'';
-  return `@charset "UTF-8";\n${fontFaceBlock}\nbody{font-family:${font};line-height:${line};font-size:${size};margin:0;padding:${padTop} ${padRight} ${padBottom} ${padLeft};word-break:keep-all;overflow-wrap:break-word;text-align:${align};${textColor?'color:'+textColor+';':''}${bgColor?'background-color:'+bgColor+';':''}}\nh1{font-size:1.3em;${h1Extra}margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}\np{margin:0;padding:0.25em 0;text-indent:${useIndent?indentEm+'em':'0'}}\np.noindent{text-indent:0}\nem.flashback{font-style:italic;opacity:.85}\np.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}\n.illust-page{display:flex;align-items:center;justify-content:center;min-height:80vh;text-align:center;padding:0}\n.illust-page img{max-width:100%;max-height:100vh;object-fit:contain}\n${darkBlock}${extra}`;
+  return `@charset "UTF-8";\n${fontFaceBlock}\nbody{font-family:${font};line-height:${line};font-size:${size};margin:0;padding:${padTop} ${padRight} ${padBottom} ${padLeft};word-break:keep-all;overflow-wrap:break-word;text-align:${align};${textColor?'color:'+textColor+';':''}${bgColor?'background-color:'+bgColor+';':''}}\nh1{font-size:1.3em;${h1Extra}margin:1.2em 0 1.8em;font-weight:700;letter-spacing:-0.02em}\np{margin:0;padding:0.25em 0;text-indent:${useIndent?indentEm+'em':'0'}}\np.noindent{text-indent:0}\nem.flashback{font-style:italic;opacity:.85}\np.sysmsg{text-align:center;font-style:italic;opacity:.75;text-indent:0}\nhr.scene{border:0;margin:1.6em auto;text-align:center;height:1.2em;overflow:visible}\nhr.scene::after{content:"\\2042";opacity:.6;letter-spacing:.3em}\n.illust-page{display:flex;align-items:center;justify-content:center;min-height:80vh;text-align:center;padding:0}\n.illust-page img{max-width:100%;max-height:100vh;object-fit:contain}\n${darkBlock}${extra}`;
 }
 
 // ── UI 진행률 ──
@@ -236,7 +236,7 @@ async function _epubWorkerMain(e){
     const{title,author,chapters,illMapMeta,useItalic,showChTitle,
           compressionLevel,lang,uid,today,modified,
           publisher='',series='',seriesIndex=0,
-          removeBlankLines=false}=params;
+          removeBlankLines=false,sceneBreak=false}=params;
     const prog=(pct,msg)=>self.postMessage({type:'progress',pct,msg});
     prog(5,'이미지 처리 중...');
     const zip=new JSZip();
@@ -301,7 +301,7 @@ async function _epubWorkerMain(e){
       }
       const heading=chapters[idx][0],rawBody=chapters[idx][1];
       // ★ P2-01: 챕터별 즉석 렌더링 — 배열로 미리 만들어두지 않음 (Phase 10: 챕터당 1회)
-      const body=renderBodyHtml(rawBody,{useItalic,maxBlank:2,removeBlankLines});
+      const body=renderBodyHtml(rawBody,{useItalic,maxBlank:2,removeBlankLines,sceneBreak});
       const hasIll=illBefore.has(idx)||illAfter.has(idx);
       addIllPages(heading,illBefore.get(idx));
       const isAutoPage=RX_AUTO_PAGE.test(heading)||heading==='본문'||RX_CHAPTER_N.test(heading);
@@ -416,6 +416,7 @@ function _buildWorkerSrc(jszipUrl){
     'const _RX_SYSMSG_OPEN='+rx(_RX_SYSMSG_OPEN)+';',
     'const _RX_SYSMSG_CLOSE='+rx(_RX_SYSMSG_CLOSE)+';',
     'const _RX_FLASHBACK='+rx(_RX_FLASHBACK)+';',
+    'const _RX_SCENE='+rx(_RX_SCENE)+';',   // ★ Phase 13: 장면 구분선
     _escHtmlViaDOM.toString(),
     escHtml.toString(),
     sanitizeLine.toString(),
@@ -514,6 +515,8 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
     const lang = document.getElementById('optLang')?.value||'ko';
     // ★ Part2: 본문 공백 최적화 플래그 — optRemoveBlankLines 체크박스에서 읽음
     const removeBlankLines = document.getElementById('optRemoveBlankLines')?.checked ?? false;
+    // ★ Phase 13: 장면 구분선(* * *, ◇◇◇, ----) → <hr class="scene"/>
+    const sceneBreak = document.getElementById('optSceneBreak')?.checked === true;
     // ★ 설정 탭 '출판사(publisher) 태그' — 비워두면 dc:publisher 미포함
     const publisher = (document.getElementById('optPublisher')?.value || '').trim();
 
@@ -532,6 +535,7 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
           compressionLevel, lang,
           // ★ Part2: 본문 공백 최적화 플래그 전달
           removeBlankLines,
+          sceneBreak,
           publisher,
           series: String(series||'').trim(),
           seriesIndex: Math.max(0, parseInt(seriesIndex,10)||0),

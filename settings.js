@@ -63,8 +63,36 @@ function saveExtraSettings(){
       indent:document.getElementById('optIndent')?.checked,
       imgConvert:document.getElementById('optImgConvert')?.checked,
       imgQuality:document.getElementById('optImgQuality')?.value||'92',
+      // ★ Phase 13: 본문 정리 옵션
+      cleanup:_readCleanupSettings(),
     }));
   }catch(e){}
+}
+
+// ★ Phase 13: 본문 정리 옵션 저장·복원 (체크박스·선택·사용자 정규식)
+const _CLEANUP_CHECKS=['optNoiseFilter','optNoise_author','optNoise_promo','optNoise_url','optNoise_notice',
+  'optHardWrap','optNormalizeSymbols','optSceneBreak'];
+function _readCleanupSettings(){
+  const o={};
+  _CLEANUP_CHECKS.forEach(id=>{ const el=document.getElementById(id); if(el) o[id]=el.checked; });
+  o.optQuoteStyle=document.getElementById('optQuoteStyle')?.value||'keep';
+  o.optNoiseCustom=(document.getElementById('optNoiseCustom')?.value||'').slice(0,4000);
+  return o;
+}
+function _applyCleanupSettings(o){
+  if(!o||typeof o!=='object') return;
+  _CLEANUP_CHECKS.forEach(id=>{ const el=document.getElementById(id); if(el&&typeof o[id]==='boolean') el.checked=o[id]; });
+  const qs=document.getElementById('optQuoteStyle');
+  if(qs&&['keep','curly','straight'].includes(o.optQuoteStyle)) qs.value=o.optQuoteStyle;
+  const nc=document.getElementById('optNoiseCustom');
+  if(nc&&typeof o.optNoiseCustom==='string') nc.value=o.optNoiseCustom;
+  _syncNoisePanel();
+}
+// 잡음 줄 필터를 켰을 때만 세부 항목 표시
+function _syncNoisePanel(){
+  const on=document.getElementById('optNoiseFilter')?.checked===true;
+  const panel=document.getElementById('optNoisePanel');
+  if(panel) panel.style.display=on?'':'none';
 }
 
 // ★ API 키 저장/로드 (Gemini, Naver)
@@ -117,6 +145,7 @@ function loadExtraSettings(){
     if(s.publisher){ const _elPb=document.getElementById('optPublisher'); if(_elPb) _elPb.value=s.publisher; }
     if(s.compression){ const _elCp=document.getElementById('optCompression'); if(_elCp) _elCp.value=s.compression; }
     if(s.defaultPat){ const _elPt2=document.getElementById('pattern'); if(_elPt2) _elPt2.value=s.defaultPat; }
+    if(s.cleanup) _applyCleanupSettings(s.cleanup);
   }catch(e){}
 }
 

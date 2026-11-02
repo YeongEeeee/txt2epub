@@ -37,12 +37,13 @@ function countChar(text, ch){
 // ══════════════════════════════════════════
 // 2. 텍스트 디코딩 (fileToText 이식)
 // ══════════════════════════════════════════
-function decodeText(buffer, enc){
+function decodeText(buffer, enc, strict=false){
   const decoder=new TextDecoder(enc,{fatal:false});
   const text=decoder.decode(new Uint8Array(buffer));
 
   // UTF-8로 판정했는데 깨진 문자가 많으면 EUC-KR로 재시도
-  if(enc==='utf-8'){
+  // ★ Phase 13: 사용자가 직접 고른 인코딩(strict)은 재시도하지 않음
+  if(enc==='utf-8'&&!strict){
     const badCount=countChar(text,'\ufffd');
     if(badCount>10){
       const text2=new TextDecoder('euc-kr',{fatal:false}).decode(new Uint8Array(buffer));
@@ -70,7 +71,7 @@ self.onmessage = async function(e){
       case 'FILE_TO_TEXT': {
         // ★ Phase 12: 인코딩은 메인 스레드가 감지해 전달 (없으면 UTF-8 → decodeText가 EUC-KR 재시도)
         const enc2 = payload.enc || 'utf-8';
-        const text2 = decodeText(payload.buffer, enc2);
+        const text2 = decodeText(payload.buffer, enc2, payload.strict===true);
         // ★ W-02: 처리 완료 후 buffer 참조 해제
         payload.buffer = null;
         self.postMessage({ type:'RESULT', id, result:{ text: text2, encoding: enc2 } });
