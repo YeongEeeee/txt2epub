@@ -2784,7 +2784,7 @@ function renderTocItems(){
     '<button class="btn btn-ghost btn-sm" id="toc-select-mode-btn" title="클릭으로 다중 선택 모드 전환 (터치·모바일 친화)" style="font-size:var(--fs-xs);white-space:nowrap">☑ 선택 모드</button>'+
     // ★ 개선 06: 짧은챕터 자동 선택
     '<button class="btn btn-ghost btn-sm" id="toc-auto-sel-susp" title="⚠ 짧은챕터 항목 전체 선택" style="font-size:var(--fs-xs);white-space:nowrap;display:none">⚠ 자동 선택</button>'+
-    '<button class="btn btn-ghost btn-sm" onclick="undoToc()" title="되돌리기 (최대 10단계)" style="font-size:var(--fs-xs)">↩ Undo</button>';
+    '<button class="btn btn-ghost btn-sm" data-action="undoToc" title="되돌리기 (최대 10단계)" style="font-size:var(--fs-xs)">↩ Undo</button>';
   c.appendChild(filterBar);
 
   const searchInp=filterBar.querySelector('#toc-search');
@@ -3008,7 +3008,7 @@ function renderTocItems(){
         </div>`;
       });
       const morePreview=n>5?`<div style="font-size:var(--fs-xs);color:var(--text2);margin-top:2px">외 ${n-5}개 챕터...</div>`:'';
-      previewPanel.innerHTML=
+      previewPanel.innerHTML=  // safe-html: totalWan은 숫자로 만든 문자열, 제목은 escHtml
         `<div style="font-weight:600;color:var(--blue);margin-bottom:4px;font-size:var(--fs-xs)">병합하면 <b>${totalWan}</b> 챕터가 됩니다</div>`+
         previews.join('')+morePreview;
       previewPanel.style.display='';
@@ -3460,7 +3460,7 @@ function updateTocStat(){
       '<span>⚠</span><span>본문 짧음 '+suspCount+'개 전체 제거</span></button>'
     : '';
 
-  stat.innerHTML=
+  stat.innerHTML=  // safe-html: 칩·버튼은 숫자와 고정 문구로만 구성
     '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="true">전체 선택</button>'+
     '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="false">전체 해제</button>'+
     suspBtn+
@@ -3573,7 +3573,7 @@ async function renderTocPreview(){
   enabled.forEach((item,idx)=>{
     const div=document.createElement('div');
     div.className='toc-preview-item'+(idx===_previewActiveIdx?' active':'');
-    div.innerHTML=
+    div.innerHTML=  // safe-html: item.line은 줄 번호(숫자), 제목은 escHtml
       '<div style="display:flex;align-items:center;gap:6px">'+
       '<span style="font-size:var(--fs-xs);color:var(--text2);min-width:36px">'+item.line+'줄</span>'+
       '<span style="font-size:var(--fs-sm);font-weight:600;flex:1">'+escHtml(item.title)+'</span>'+
@@ -4075,7 +4075,7 @@ async function autoSplitByInterval(hybridMode=false){
   const avgWan=quality.avgLen>=10000?(quality.avgLen/10000).toFixed(1)+'만자':quality.avgLen.toLocaleString()+'자';
   const interval=Math.floor(totalLines/totalChapters);
   const modeLabel=hybridMode?'🔀 하이브리드':'⚡ 간격 분할';
-  document.getElementById('tb0')?.insertAdjacentHTML('afterbegin',
+  document.getElementById('tb0')?.insertAdjacentHTML('afterbegin',  // safe-html: 모드 이름은 고정 문구, 나머지는 숫자
     `<div style="font-size:var(--fs-xs);color:var(--text2);margin-bottom:8px;padding:0 4px">
       <span class="toc-auto-badge">${modeLabel} (${interval}줄 간격, ${finalItems.length}화)</span>
       <span style="margin-left:6px;font-size:var(--fs-xs)">균등도 ${quality.score}% · 평균 ${avgWan}/화</span>

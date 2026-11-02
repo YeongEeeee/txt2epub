@@ -1146,8 +1146,8 @@ function renderIllTags(){
     const fmtBadge=isJpg
       ? `<span style="font-size:var(--fs-xs);background:var(--green-bg);color:var(--green);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">JPG</span>`
       : needsConvert
-        ? `<span style="font-size:var(--fs-xs);background:var(--yellow-bg);color:var(--yellow);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">${ext.toUpperCase()}→JPG</span>`
-        : `<span style="font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">${ext.toUpperCase()}</span>`;
+        ? `<span style="font-size:var(--fs-xs);background:var(--yellow-bg);color:var(--yellow);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">${escHtml(ext.toUpperCase())}→JPG</span>`
+        : `<span style="font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">${escHtml(ext.toUpperCase())}</span>`;
 
     const t=document.createElement('div');
     t.className='tag';
@@ -1182,7 +1182,7 @@ function renderIllTags(){
     })() : null;
 
     const badge=document.createElement('span');
-    badge.innerHTML=fmtBadge;
+    badge.innerHTML=fmtBadge;  // safe-html: fmtBadge는 고정 마크업 + escHtml(확장자)
 
     const x=document.createElement('span');
     x.className='x';
@@ -1218,9 +1218,9 @@ function addManualIllRow(containerId){
   r.className='mill-row';r.id='mr'+id;
   r.innerHTML=
     '<div class="mill-row-top">'+
-      '<input placeholder="파일명 (예: 16.jpg)" id="mp'+id+'" style="flex:2;min-width:100px" oninput="onManualIllName('+id+')">'+
-      '<button class="btn btn-ghost btn-sm" onclick="browseManual('+id+')">찾기</button>'+
-      '<input type="number" placeholder="중심 화 번호" id="mc'+id+'" style="width:90px" min="1" oninput="loadIllRange('+id+')">'+
+      '<input placeholder="파일명 (예: 16.jpg)" id="mp'+id+'" style="flex:2;min-width:100px" data-input-action="manualIllName" data-id="'+id+'">'+
+      '<button class="btn btn-ghost btn-sm" data-action="browseManual" data-id="'+id+'">찾기</button>'+
+      '<input type="number" placeholder="중심 화 번호" id="mc'+id+'" style="width:90px" min="1" data-input-action="loadIllRange" data-id="'+id+'">'+
       '<select id="mpos'+id+'"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
       '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" data-action="removeManualIllRow" data-row-id="mr'+id+'">✕</button>'+
     '</div>'+
@@ -1272,7 +1272,7 @@ async function loadIllRange(id){
   const centerCi=chapters.findIndex(c=>((c[2]&&c[2].num!=null)?c[2].num:extractChNum(c[0]))===chNum);
 
   if(centerCi<0){
-    pv.innerHTML='<div class="mill-ch-match"><div class="mill-ch-title" style="color:var(--accent)">⚠️ '+chNum+'화를 찾지 못했어요</div>'+
+    pv.innerHTML='<div class="mill-ch-match"><div class="mill-ch-title" style="color:var(--accent)">⚠️ '+chNum+'화를 찾지 못했어요</div>'+  // safe-html: chNum은 parseInt 결과
       '<div class="mill-ch-body">화 번호를 확인하거나 목차 확인을 먼저 실행해주세요.</div></div>';
     pv.classList.add('show');
     return;
@@ -1326,7 +1326,7 @@ function renderIllRangePanel(id, kw, selectedCi){
     }
 
     cardsHtml+=
-      '<div class="'+cardClass+'" onclick="selectIllRangeCard('+id+','+ci+')" title="클릭해서 이 화로 삽입 위치 설정">'+
+      '<div class="'+cardClass+'" data-action="selectIllRangeCard" data-id="'+id+'" data-ci="'+ci+'" title="클릭해서 이 화로 삽입 위치 설정">'+
         '<div class="rc-role">'+roleLabel+(isSel?' ✓':'')+'</div>'+
         '<div class="rc-title">'+titleHtml+'</div>'+
         '<div class="rc-body">'+bodyHtml+'</div>'+
@@ -1339,7 +1339,7 @@ function renderIllRangePanel(id, kw, selectedCi){
     '<div class="mill-kw-bar">'+
       '<span style="font-size:var(--fs-xs);color:var(--text2);white-space:nowrap">🔍 범위 내 검색:</span>'+
       '<input id="mkw'+id+'" placeholder="키워드로 정확한 위치 찾기" value="'+escHtml(kw)+'" '+
-             'oninput="debounceIllKwSearch('+id+')">'+
+             'data-input-action="illKwSearch" data-id="'+id+'">'+
     '</div>'+
     '<div class="mill-kw-status" id="mks'+id+'">'+
       (kw
@@ -1474,9 +1474,33 @@ function setProgress(pct, msg){
 let _convertRunning=false;
 let _batchRunning=false;
 
+// ★ Phase 15: 스트리밍 저장 — 변환 시작 시 저장 위치를 먼저 고르면 EPUB을 메모리에 모으지 않고 파일로 바로 기록
+//   (Chromium 계열 File System Access API · 사용자 클릭 직후에만 대화상자 허용 → 첫 await 전에 호출)
+function _streamSaveAvailable(){ return typeof window.showSaveFilePicker==='function'; }
+async function _pickStreamTarget(title){
+  if(document.getElementById('optStreamSave')?.checked!==true||!_streamSaveAvailable()) return null;
+  try{
+    const handle=await window.showSaveFilePicker({
+      suggestedName:String(title||'제목 없음').replace(/[\\/:*?"<>|]/g,'_')+'.epub',
+      types:[{description:'EPUB 전자책', accept:{'application/epub+zip':['.epub']}}],
+    });
+    return {name:handle.name, writable:await handle.createWritable()};
+  }catch(e){
+    if(e?.name==='AbortError') return 'cancel';
+    Toast.warn('저장 위치를 열 수 없어 일반 방식으로 변환해요.');
+    return null;
+  }
+}
+
 async function startConvert(){
   if(!S.txtFiles.length){Toast.warn('TXT 파일을 선택해주세요.');return;}
   if(_convertRunning){Toast.info('변환이 이미 진행 중이에요.');return;}
+  // ★ Phase 15: 스트리밍 저장 위치 선택 (취소하면 변환하지 않음)
+  _convertRunning=true;
+  const streamTarget=await _pickStreamTarget(document.getElementById('title')?.value.trim());
+  _convertRunning=false;
+  if(streamTarget==='cancel'){ Toast.info('저장 위치 선택을 취소했어요.',2000); return; }
+  let streamDone=false;
   const convertStart=Date.now();
   // ★ U-01: 타임라인 초기화
   _progressTimeline.length = 0;
@@ -1645,11 +1669,17 @@ async function startConvert(){
         seriesIndex:parseInt(document.getElementById('seriesIdx')?.value||'0',10)||0,
       },
       (pct,msg)=>setProgress(40+Math.round(pct*0.52), msg),
-      {signal:ac.signal}
+      {signal:ac.signal, writable:streamTarget?.writable||null}
     );
     checkAbort();
+    // ★ Phase 15: 스트리밍 저장이면 Blob 없이 파일 크기만 돌아옴
+    const streamed=!!(epubResult&&epubResult.streamed);
+    if(streamed) streamDone=true;
+    const sizeBytes=streamed?(epubResult.size||0):null;
     let blob;
-    if(epubResult && epubResult.blob){
+    if(streamed){
+      blob=null;
+    } else if(epubResult && epubResult.blob){
       blob = epubResult.blob;
       epubWarnings = epubResult.warnings || [];
     } else {
@@ -1660,7 +1690,8 @@ async function startConvert(){
     // ★ Phase 13: 본문 정리 결과 요약 (사용자가 켠 옵션이 실제로 무엇을 바꿨는지)
     epubWarnings = epubWarnings.concat(_describeCleanStats(cleanStats, cleanOpts));
     S.epubBlob=blob;
-    S.epubName=title.replace(/[\\/:*?"<>|]/g,'_')+'.epub';
+    S.epubName=streamed?(streamTarget.name||title.replace(/[\\/:*?"<>|]/g,'_')+'.epub'):title.replace(/[\\/:*?"<>|]/g,'_')+'.epub';
+    const outBytes=streamed?sizeBytes:blob.size;
     const elapsed=((Date.now()-convertStart)/1000).toFixed(1);
     setProgress(100,'✅ 변환 완료! ('+elapsed+'초)');
     const _abDone=document.getElementById('convertAbortBtn'); if(_abDone) _abDone.style.display='none';
@@ -1674,13 +1705,13 @@ async function startConvert(){
       window._autoSplitLines=null;
     }
     const realChapters=chapters.filter(c=>!(c[2]&&c[2].pre)&&c[0]!=='서문');
-    document.getElementById('resultMsg').textContent=S.epubName;
+    document.getElementById('resultMsg').textContent=streamed?('💾 '+S.epubName+' — 고른 위치에 저장했어요'):S.epubName;
     showResultStats('resultStats',[
       {
         label: /^\(\d+\/\d+\)$/.test(realChapters[0]?.[0]||'') ? '페이지' : '챕터',
         value: realChapters.length+'개'
       },
-      {label:'파일 크기',value:(blob.size/1024/1024).toFixed(1)+'MB'},
+      {label:'파일 크기',value:(outBytes/1024/1024).toFixed(1)+'MB'},
       {label:'소요 시간',value:elapsed+'초'},
     ]);
     // 미리보기/분리용 챕터 저장
@@ -1691,11 +1722,11 @@ async function startConvert(){
     saveHistory({
       title,author,
       chapterCount:realChapters.length,
-      sizeMB:(blob.size/1024/1024).toFixed(1),
+      sizeMB:(outBytes/1024/1024).toFixed(1),
       elapsed,
       date:new Date().toLocaleString('ko-KR',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'}),
       name:S.epubName,
-      blob
+      blob   // ★ Phase 15: 스트리밍 저장이면 null — 기록만 남고 파일은 사용자가 고른 위치에 있음
     }).catch(err=>console.warn('[history] 저장 실패:', err));
     const _splitSec=document.getElementById('splitSec'); if(_splitSec) _splitSec.style.display='block';
     const _resBox = _progResultEl || document.getElementById('resultBox');
@@ -1704,10 +1735,13 @@ async function startConvert(){
       // ★ UX-ANIM: 결과박스 완료 시 부드러운 스크롤 이동
       _resBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
-    _showShareBtnIfSupported(); // ★ C-04: 공유 버튼 조건부 표시
-
-    // ★ EPUB 다운로드 완료 플로팅 바 활성화
-    _showEpubDownloadBar(S.epubName);
+    if(!streamed){
+      _showShareBtnIfSupported(); // ★ C-04: 공유 버튼 조건부 표시
+      // ★ EPUB 다운로드 완료 플로팅 바 활성화
+      _showEpubDownloadBar(S.epubName);
+    } else {
+      Toast.success('💾 '+S.epubName+' 파일로 저장했어요');
+    }
     // ★ 07: 결과 카드 count-up 애니메이션
     _animateResultStats();
     // ★ U-01: 진행 스파크라인 렌더링
@@ -1739,6 +1773,8 @@ async function startConvert(){
       console.error('[startConvert]', e);
     }
   }finally{
+    // ★ Phase 15: 스트리밍 저장 도중 실패·중단 → 쓰다 만 파일 폐기 (EPUB 빌드 전 단계에서 끝난 경우 포함)
+    if(streamTarget&&streamTarget!=='cancel'&&!streamDone) streamTarget.writable?.abort?.().catch?.(()=>{});
     // ★ Side-Effect 가드: 예외·정상 종료 모두 UI 스피너·중단 버튼 반드시 해제
     // ★ PERF-01: 캐싱 변수 우선 사용
     (_progWrapEl || document.getElementById('progWrap'))?.classList.remove('show');
@@ -1803,7 +1839,7 @@ function _renderConvertReport(warnings){
   const isInfo=w=>/^본문 정리:/.test(String(w));
   const warnCount=warnings.filter(w=>!isInfo(w)).length;
   const head=warnCount?`⚠ 변환 경고 ${warnCount}건`:'ℹ 변환 정보';
-  el.innerHTML =
+  el.innerHTML =  // safe-html: head는 고정 문구+건수, 항목은 escHtml
     `<div style="font-size:var(--fs-xs);font-weight:700;color:${warnCount?'var(--accent)':'var(--blue)'};margin-bottom:6px">${head}</div>` +
     `<div style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto">` +
     warnings.map(w=>isInfo(w)
@@ -1833,7 +1869,7 @@ function _renderProgressSparkline(){
     const label = steps[i].msg ? steps[i].msg.replace(/[①②③④⑤]/,'').trim().slice(0,12) : '';
     svgBars += `<rect x="${x}" y="${H-bh}" width="${barW}" height="${bh}" fill="${col}" rx="1" opacity="0.85"><title>${label} (${(dur/1000).toFixed(1)}s)</title></rect>`;
   }
-  container.innerHTML =
+  container.innerHTML =  // safe-html: 막대 SVG는 숫자 좌표로만 생성
     `<svg width="${W}" height="${H}" style="display:block;margin:6px auto 0" aria-label="단계별 소요시간 스파크라인">
       <title>변환 단계별 소요시간</title>${svgBars}
     </svg>
@@ -2009,7 +2045,7 @@ function renderPreview(){
     if(b.split('\n').length>30) html+='<p style="color:var(--text2);font-size:var(--fs-xs);margin-top:8px">... (이하 생략)</p>';
     html+='</div>';
   }
-  body.innerHTML=html;
+  body.innerHTML=html;  // safe-html: html은 escHtml로 이스케이프한 문단 조각
   body.style.fontFamily=_previewFont;
   body.style.lineHeight=_previewLine;
   document.getElementById('previewPageInfo').textContent=
@@ -2060,7 +2096,7 @@ async function startSplit(){
     const div=document.createElement('div');
     div.className='split-item';
     div.id='spi_'+pi;
-    div.innerHTML='<div style="font-weight:600;margin-bottom:4px">'+escHtml(partTitle)+'</div>'+
+    div.innerHTML='<div style="font-weight:600;margin-bottom:4px">'+escHtml(partTitle)+'</div>'+  // safe-html: pi는 인덱스(숫자)
       '<div style="font-size:var(--fs-xs);color:var(--text2)">'+escHtml(firstCh)+' ~ '+escHtml(lastCh)+'</div>'+
       '<div id="sps_'+pi+'" style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px">생성 중...</div>';
     listEl.appendChild(div);
@@ -2210,7 +2246,7 @@ function renderTocMiniChart(){
   }).join('');
 
   // viewBox + preserveAspectRatio=none: 실제 표시 폭(width:100%)에 막대 전체를 맞춤
-  el.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block;width:100%">${bars}</svg>`;
+  el.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block;width:100%">${bars}</svg>`;  // safe-html: 막대 SVG는 숫자 좌표로만 생성
 
   // ★ ADD-03: SVG hover 툴팁
   const svg = el.querySelector('svg');
@@ -2631,13 +2667,13 @@ function renderBatchList(){
     const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
     const d=document.createElement('div');d.className='batch-item';d.id='bi_'+i;
     const thumbHtml=cover
-      ?'<div class="batch-thumb" onclick="batchPickCover('+i+')" title="클릭해서 변경"><img id="bthumb_'+i+'" src=""></div>'
-      :'<div class="batch-thumb" onclick="batchPickCover('+i+')" title="표지 지정">+</div>';
-    d.innerHTML='<div class="batch-header">'+thumbHtml+
+      ?'<div class="batch-thumb" data-action="batchPickCover" data-idx="'+i+'" title="클릭해서 변경"><img id="bthumb_'+i+'" src=""></div>'
+      :'<div class="batch-thumb" data-action="batchPickCover" data-idx="'+i+'" title="표지 지정">+</div>';
+    d.innerHTML='<div class="batch-header">'+thumbHtml+  // safe-html: thumbHtml은 고정 마크업(+숫자 id)
       '<div style="flex:1;min-width:0"><div class="batch-title">'+escHtml(title)+'</div>'+
       '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><div class="batch-status" id="bst_'+i+'">'+(author?'✒️ '+escHtml(author):'')+'</div>'+
       '<span id="bmode_'+i+'" style="display:none;font-size:var(--fs-xs);padding:1px 7px;border-radius:var(--radius-sm);white-space:nowrap;background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue)"></span>'+
-      '<button class="batch-toc-btn" onclick="showBatchToc('+i+',this)" title="목차 미리보기">📋 목차 확인</button></div>'+
+      '<button class="batch-toc-btn" data-action="showBatchToc" data-idx="'+i+'" title="목차 미리보기">📋 목차 확인</button></div>'+
       '</div></div>'+
       '<div class="batch-toc-panel" id="btp_'+i+'"></div>'+
       '<div class="batch-prog"><div class="batch-prog-bar" id="bpb_'+i+'" style="width:0"></div></div>';
@@ -2717,9 +2753,9 @@ async function showBatchToc(idx, btn){
       const exactBadge=exactMatch
         ?' <span style="font-size:var(--fs-xs);padding:0 6px;border-radius:var(--radius-sm);background:var(--green-bg);color:var(--green);border:1px solid var(--green)">파일명 화수 100% 일치</span>'
         :'';
-      info.innerHTML=
+      info.innerHTML=  // safe-html: pctStr·exactBadge는 숫자·고정 마크업, 패턴 이름은 escHtml
         `<span>총 <b style="color:var(--accent)">${chapters.length}</b>개 챕터${pctStr}${detectedName?' · '+escHtml(detectedName):''}${exactBadge}</span>`+
-        '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="toggleBatchPreset('+idx+')">✏️ 패턴 변경 · 간격 분할</button>';
+        '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="toggleBatchPreset" data-idx="'+idx+'">✏️ 패턴 변경 · 간격 분할</button>';
       panel.appendChild(info);
       if(exactPreset) Toast.success(`'${exactPreset.label}' 패턴이 파일명 화수(${totalCh}화)와 정확히 일치해 이 파일에 적용했어요.`,3500);
 
@@ -2741,7 +2777,7 @@ async function showBatchToc(idx, btn){
           row.textContent='··· '+(chapters.length-HEAD-TAIL)+'개 더 ···';
         } else {
           row.className='batch-toc-row';
-          row.innerHTML='<span class="batch-toc-num">'+ch.line+'줄</span><span class="batch-toc-title">'+escHtml(ch.title)+'</span>';
+          row.innerHTML='<span class="batch-toc-num">'+ch.line+'줄</span><span class="batch-toc-title">'+escHtml(ch.title)+'</span>';  // safe-html: ch.line은 줄 번호(숫자), 제목은 escHtml
         }
         list.appendChild(row);
       });
@@ -2806,9 +2842,9 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
     '<div style="margin-top:6px;padding:8px;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border)">' +
     '<div style="font-size:var(--fs-sm);font-weight:700;color:var(--text);margin-bottom:8px">📐 챕터 패턴 선택</div>' +
     '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="batchPresetCheckAll('+idx+',true)">전체 선택</button>' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="batchPresetCheckAll('+idx+',false)">전체 해제</button>' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" onclick="batchPresetAuto('+idx+')">🔍 자동 감지</button>' +
+      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="batchPresetCheckAll" data-idx="'+idx+'" data-val="true">전체 선택</button>' +
+      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="batchPresetCheckAll" data-idx="'+idx+'" data-val="false">전체 해제</button>' +
+      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="batchPresetAuto" data-idx="'+idx+'">🔍 자동 감지</button>' +
     '</div>' +
     '<div id="bpck_list_'+idx+'" style="display:flex;flex-direction:column;gap:4px">';
 
@@ -2823,7 +2859,7 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
     html +=
       `<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 6px;border-radius:var(--radius-xs);cursor:pointer;border:1px solid var(--border);background:var(--bg2);${goodBg}">` +
         `<input type="checkbox" class="bpck_${idx}" data-val="${escHtml(val)}" ${checked}` +
-               ` onchange="applyBatchPreset(${idx})" style="margin-top:2px;flex-shrink:0">` +
+               ` data-input-action="applyBatchPreset" data-idx="${idx}" style="margin-top:2px;flex-shrink:0">` +
         '<div style="min-width:0;flex:1">' +
           '<div style="font-size:var(--fs-sm);font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
             escHtml(label) +
@@ -2840,8 +2876,8 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
       '<div style="font-size:var(--fs-xs);font-weight:600;color:var(--text2);margin-bottom:4px">직접 입력 (정규식)</div>' +
       '<div style="display:flex;gap:6px">' +
         `<input class="inp" id="bpat_direct_${idx}" placeholder="직접 입력하거나 위에서 선택" ` +
-               `value="${escHtml(curPat)}" style="flex:1;font-size:var(--fs-xs)" oninput="applyBatchPreset(${idx})">` +
-        `<button class="btn btn-blue btn-sm" onclick="confirmBatchPreset(${idx})">✅ 적용</button>` +
+               `value="${escHtml(curPat)}" style="flex:1;font-size:var(--fs-xs)" data-input-action="applyBatchPreset" data-idx="${idx}">` +
+        `<button class="btn btn-blue btn-sm" data-action="confirmBatchPreset" data-idx="${idx}">✅ 적용</button>` +
       '</div>' +
       `<div id="bpat_preview_${idx}" style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px">` +
         (curPat?'현재: '+escHtml(curPat):'(자동 감지)') +
@@ -2864,8 +2900,8 @@ function _batchIntervalSectionHtml(idx, lines, tc){
       '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
         `<input class="inp" type="number" min="1" max="9999" id="bint_total_${idx}" value="${est}" aria-label="간격 분할 화수" style="width:90px;font-size:var(--fs-xs)">` +
         '<span style="font-size:var(--fs-xs);color:var(--text2)">화로 균등 분할 (제목 줄이 있으면 그 줄에서 분할)</span>' +
-        `<button class="btn btn-blue btn-sm" onclick="applyBatchInterval(${idx})">간격 분할 적용</button>` +
-        `<button class="btn btn-ghost btn-sm" id="bint_clear_${idx}" onclick="clearBatchInterval(${idx})" style="display:${active?'':'none'}">↩ 패턴 모드로</button>` +
+        `<button class="btn btn-blue btn-sm" data-action="applyBatchInterval" data-idx="${idx}">간격 분할 적용</button>` +
+        `<button class="btn btn-ghost btn-sm" id="bint_clear_${idx}" data-action="clearBatchInterval" data-idx="${idx}" style="display:${active?'':'none'}">↩ 패턴 모드로</button>` +
       '</div>' +
       `<div id="bint_preview_${idx}" style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px">` +
         (active?'간격 분할 적용됨':'패턴 감지 모드로 변환해요.') +
@@ -2976,7 +3012,8 @@ function batchPickCover(idx){
     const f=inp.files[0];if(!f)return;
     B.coverMap[B.txtFiles[idx].name.replace(/\.txt$/i,'')]=f;
     const thumb=document.querySelector('#bi_'+idx+' .batch-thumb');
-    if(thumb){const r=new FileReader();r.onload=e=>{thumb.innerHTML='<img src="'+e.target.result+'" style="width:100%;height:100%;object-fit:cover">';};r.readAsDataURL(f);}
+    // ★ Phase 15: 문자열 대신 DOM으로 이미지 생성
+    if(thumb){const r=new FileReader();r.onload=e=>{const img=document.createElement('img');img.src=e.target.result;img.style.cssText='width:100%;height:100%;object-fit:cover';thumb.replaceChildren(img);};r.readAsDataURL(f);}
   };inp.click();
 }
 

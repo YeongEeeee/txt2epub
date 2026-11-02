@@ -587,7 +587,7 @@ function _showEpubConnectInfo(){
   const lastNum=_getEpubLastChNum();
   // ★ XSS 방어: lastNum은 parseInt 결과(숫자)이나 방어적 escHtml 적용
   const numText=lastNum>0?` (${escHtml(String(lastNum))}화)`:'';
-  textEl.innerHTML=
+  textEl.innerHTML=  // safe-html: numText는 escHtml(숫자), 제목은 escHtml
     `현재 EPUB 마지막 챕터: <b>${escHtml(lastCh.title)}</b>${numText} — `+
     `<b>${E.chapters.length}번째</b> 위치<br>`+
     `<span style="color:var(--accent);font-size:var(--fs-xs)">➡ 아래에서 이 이후 챕터들을 선택해 삽입하세요</span>`;
@@ -940,8 +940,8 @@ function addEditIllRow(){
   const r=document.createElement('div');r.className='mill-row';r.id='eir_'+id;
   r.innerHTML=
     '<input placeholder="파일명 (예: 16.jpg)" id="eif_'+id+'" style="flex:2;min-width:100px">'+
-    '<button class="btn btn-ghost btn-sm" onclick="browseEditIll('+id+')">찾기</button>'+
-    '<select id="eim_'+id+'" onchange="toggleEIM('+id+')"><option value="chapter">화 번호</option><option value="keyword">키워드</option><option value="title">챕터 제목 포함</option></select>'+
+    '<button class="btn btn-ghost btn-sm" data-action="browseEditIll" data-id="'+id+'">찾기</button>'+
+    '<select id="eim_'+id+'" data-input-action="toggleEIM" data-id="'+id+'"><option value="chapter">화 번호</option><option value="keyword">키워드</option><option value="title">챕터 제목 포함</option></select>'+
     '<input type="number" placeholder="화 번호" id="eic_'+id+'" style="width:78px" min="1">'+
     '<input placeholder="키워드/제목" id="eik_'+id+'" style="flex:1;min-width:80px;display:none">'+
     '<select id="eip_'+id+'"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
@@ -1421,7 +1421,7 @@ function renderDirectEditIllTags(){
     const badge=mi?`<span style="font-size:var(--fs-xs);background:var(--accent-bg);color:var(--accent);border-radius:var(--radius-xs);padding:1px 5px;font-weight:700">${parseInt(mi[1])}번째${mi[2]?'-'+parseInt(mi[2]):''}</span>`:'';
     const t=document.createElement('div');
     t.className='tag';
-    t.innerHTML=`<span style="font-size:var(--fs-xs);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.name)}</span>${badge}<span class="x" onclick="removeDirectEditIll(${i})">✕</span>`;
+    t.innerHTML=`<span style="font-size:var(--fs-xs);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.name)}</span>${badge}<span class="x" role="button" tabindex="0" aria-label="삽화 제거" data-action="removeDirectEditIll" data-idx="${i}">✕</span>`;  // safe-html: badge는 parseInt 숫자로 만든 마크업, 파일명은 escHtml
     c.appendChild(t);
   });
 }

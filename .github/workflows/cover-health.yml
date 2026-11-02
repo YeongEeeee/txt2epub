@@ -1,0 +1,23 @@
+# 표지 검색 플랫폼 응답 형식 점검 — 주 1회 (월요일 09:17 KST) + 수동 실행
+#   사이트 개편으로 cover-search.js 어댑터가 파싱하는 표식이 사라지면 실패 → GitHub 알림 메일
+#   러너에서 접속이 막힌 경우(403·429·시간 초과)는 경고만 하고 실패로 치지 않음
+name: cover-health
+
+on:
+  schedule:
+    - cron: '17 0 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Check cover search platforms
+        run: node tests/cover-health.js

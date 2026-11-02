@@ -441,6 +441,42 @@
 - 테스트 306 → 323개 전부 통과, epubcheck: 테스트 EPUB 10종 0 오류
 - 브라우저 E2E(Chromium): Kindle 프로필 저장·복원, TTF 업로드 → EPUB `Fonts/custom_font.ttf`·manifest·CSS 상대 경로·다크 CSS 제외, BMP 삽화 → JPG(설정 OFF 상태), 그 EPUB에 TXT 8화 삽입(34챕터)·dcterms:modified 갱신 — 두 결과 모두 epubcheck 0 오류, 콘솔 오류 0
 
+### Phase 15 — 성능 · 보안
+
+#### 1) 스트리밍 저장 (`epub-gen.js`, `convert.js`)
+- 설정 '저장 위치 먼저 고르기'(Chrome·Edge) — 변환 시작 직후(첫 await 전) `showSaveFilePicker`, Worker가 `generateInternalStream` 조각을 Transferable로 보내면 메인이 `FileSystemWritableFileStream`에 순서대로 기록
+- 결과 Blob을 만들지 않음 → 대용량 원고의 메모리 피크 감소. 실패·중단 시 `writable.abort()`로 쓰다 만 파일 폐기, 기록에는 파일 없이 메타만
+- 미지원 브라우저는 토글 비활성 + 안내
+
+#### 2) JSZip 로컬 배포 + SW 원자적 캐시 (`lib/jszip.min.js`, `sw.js`, `tests/stamp-sw.js`)
+- JSZip을 `lib/`에 함께 배포 (CDN 파일과 바이트 동일 → 기존 SRI 그대로). EPUB Worker도 로컬 URL로 `importScripts`
+- `CACHE_VERSION` = 앱 자산 내용 해시 (`npm run stamp`). 회귀 테스트가 계산값과 비교 → 손으로 날짜를 바꾸지 않아도 되고, 잊으면 CI가 막음
+- 설치는 `cache.addAll`(HTTP 캐시 우회 `cache:'reload'`) — 하나라도 실패하면 설치 실패, 기존 버전 유지
+- 로컬 자원은 현재 버전 캐시에서만 응답 → 이전(파일별 SWR)처럼 새 index.html + 옛 JS가 섞이는 일 없음
+
+#### 3) EPUB Worker 재사용 (`epub-gen.js`)
+- 소스 문자열·Blob URL 1회 생성, 정상 완료 Worker는 30초 유휴 보관 후 재사용 (오류·중단은 종료). 일괄 변환에서 Worker·JSZip 파싱 반복 제거
+
+#### 4) API 키 (`index.html`, `settings.js`)
+- `type="password"` + 보기/숨기기, '이 기기에 API 키 저장'(기본 켬) — 끄면 `localStorage`에서 즉시 삭제
+- 안내 문구 정정: Gemini 키는 '외부로 전송되지 않음'이 아니라 Google API 요청 헤더로만 전송
+
+#### 5) CSP · 인라인 핸들러 (`_headers`, `index.html`, 전 모듈)
+- HTML 6곳 + JS가 만드는 HTML 22곳의 `onclick`·`oninput`·`onchange` → `data-action`/`data-input-action` 이벤트 위임 (`ui-state.js`에 핸들러 23개 등록)
+- `script-src 'self'`(unsafe-inline·unsafe-eval 없음), `worker-src 'self' blob:`, `object-src 'none'`, `frame-ancestors 'none'` + nosniff·X-Frame-Options·Referrer-Policy·Permissions-Policy
+- GitHub Pages·로컬은 `<meta>` CSP로 같은 정책 (테스트가 헤더 = meta 확인)
+
+#### 6) innerHTML 정적 검사 (`tests/run-tests.js`)
+- 모든 `innerHTML`/`insertAdjacentHTML`의 동적 값 중 이스케이프되지 않은 것 22곳 → 2곳 실제 수정, 나머지는 검토 후 `// safe-html: 이유`
+- 수정: 미니 리더·설정 요약 칩이 **커스텀 폰트 이름(파일명)** 을 그대로 innerHTML에 넣던 문제, 삽화 확장자 배지, 일괄 표지 썸네일(FileReader 결과) → DOM 생성
+
+#### 7) 표지 플랫폼 주간 점검 (`tests/cover-health.js`, `cover-health.yml`)
+- 리디·카카오페이지·네이버 시리즈·노벨피아·DuckDuckGo 검색 결과에 어댑터가 쓰는 표식(클래스·JSON 키)이 있는지 주 1회 확인 → 사이트 개편 시 워크플로 실패 알림 (러너 차단 403·429는 경고만)
+
+#### 8) 검증
+- 테스트 323 → 343개 전부 통과, 스트리밍 결과 EPUB epubcheck 0 오류
+- 브라우저 E2E(Chromium, CSP 적용): SW 설치(자산 해시 캐시), 스킨·API 키 토글·저장 끄기, 스트리밍 저장 145조각 → epubcheck 0 오류, Worker 재사용 확인, 일괄 변환 2권, **오프라인 새로고침 후 JSZip 로드·변환 성공**, CDN 요청 0, CSP 위반 0, 콘솔 오류 0
+
 ---
 
 ## 파일별 역할 요약

@@ -236,14 +236,16 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
 ├── epub-gen.js — EPUB3 생성 엔진, Blob Worker 격리(parser.js 렌더링 함수 toString 이식), 계층 nav/ncx (564줄)
 ├── main.js     — 부트스트랩: JSZip 로드 가드, 필수 심볼 점검, SW 등록·업데이트 배너
 ├── worker.js   — 5MB+ 파일 인코딩 감지·디코딩 전담 Web Worker (129줄, 챕터 파싱 없음)
-├── sw.js       — Service Worker, 오프라인/PWA 지원 (218줄)
-└── tests/      — 회귀 테스트 (개발 전용, 런타임 미사용)
+├── sw.js       — Service Worker: 버전 단위 원자적 캐시 (CACHE_VERSION = 자산 해시, `npm run stamp`)
+├── lib/jszip.min.js — JSZip 3.10.1 로컬 배포 (CDN 파일과 동일, SRI 고정) — Phase 15
+├── _headers    — Cloudflare Pages 보안 헤더 (CSP·nosniff·frame 차단) — Phase 15
+└── tests/      — 회귀 테스트·stamp-sw.js(캐시 버전 기록)·cover-health.js(표지 플랫폼 주간 점검) (개발 전용)
     ├── run-tests.js  — Node vm 기반 러너
     ├── fixtures/     — 형식별 샘플 TXT 15종
     └── golden.json   — 기대 챕터 목록·감지 패턴·계층 형태
 ```
 
-> **총 코드량: 약 17,900줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 회귀 테스트 323개 통과 | epubcheck 0 오류
+> **총 코드량: 약 18,300줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 인라인 핸들러 0개 | 회귀 테스트 343개 통과 | epubcheck 0 오류
 
 ### 상태 관리 (StateManager + Proxy)
 
@@ -423,7 +425,10 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
 - **XSS 방지**: Toast confirm/prompt 모두 DOM API (`textContent`) 사용. Toast 메시지는 내부 생성 HTML(I9 delta 배지)에만 `innerHTML` 허용하며 외부 입력은 textContent로 처리
 - **입력 이스케이프**: `escHtml()`, `escAttr()`, `sanitizeLine()` 적용
 - **Content Security Policy**: 인라인 `<script>` 블록 없음 (단, 일부 버튼이 `onclick` 속성을 사용 — 엄격한 CSP를 걸려면 `unsafe-inline` 또는 해당 속성 정리 필요)
-- **JSZip SRI**: CDN 스크립트에 `integrity`(sha512) + `crossorigin` — 변조 시 실행 차단, SW는 같은 파일을 CORS로 캐시
+- **JSZip SRI**: `lib/jszip.min.js`(Phase 15부터 로컬 배포)에 `integrity`(sha512) — 회귀 테스트가 파일 해시 = SRI 일치 확인
+- **CSP (Phase 15)**: `script-src 'self'` — 인라인 스크립트·`on*` 속성 0개(전부 이벤트 위임), Blob Worker는 `worker-src blob:`. Cloudflare `_headers`와 `index.html` meta가 같은 정책
+- **innerHTML 정적 검사 (Phase 15)**: 동적 값은 `escHtml` 등으로 이스케이프하거나 검토 후 `// safe-html: 이유` 주석 — 회귀 테스트가 강제
+- **API 키 (Phase 15)**: 입력란 마스킹(보기 토글), '이 기기에 API 키 저장'을 끄면 즉시 삭제
 - **프록시 토큰 주의**: `X-NovelEPUB-Token`은 클라이언트 코드에 노출되는 값 — 실제 보호는 Cloudflare Worker 쪽 허용 호스트 목록·Origin 검사로 해야 함
 - **정규식 안전화**: `buildCombinedPat` `^`/`$`/`|` 포함 패턴 안전 그룹화, 백트래킹 최적화
 
@@ -449,6 +454,7 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
 
 ```bash
 npm install          # 개발 의존성(jszip)만 설치 — 사이트 런타임에는 영향 없음
+npm run stamp        # 앱 파일을 고친 뒤 sw.js CACHE_VERSION(자산 해시) 갱신 — 안 하면 회귀 테스트가 실패
 npm test             # 회귀 테스트 전체 실행
 npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golden.json 재생성
 ```
@@ -463,6 +469,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 15 (20) | SW 캐시 버전 = 자산 해시·원자적 설치·JSZip 로컬 SRI, 스트리밍 저장(조각 → 정상 EPUB, `tests/out/15_streamed.epub`), Worker 재사용, API 키 마스킹·저장 끄기, 인라인 핸들러 0·data-action 등록, CSP(헤더 = meta, unsafe 없음), innerHTML 정적 검사 |
 | Phase 14 (17) | 폰트 data URI → Fonts/ 파일·manifest·CSS 상대 경로, landmarks(표지·본문 시작, spine 밖 nav 미참조), 접근성 메타(이미지 유무별), 리더기 프로필(다크 CSS·표지 높이·JPG 강제), 비핵심 이미지 형식 변환, TXT 삽입 편집 EPUB(`buildInsertedEpub`) spine·nav·ncx 순서·끝에 추가 → `tests/out/14_*.epub` CI epubcheck |
 | Phase 13 (29) | 잡음 줄 프리셋·사용자 정규식·작가의 말 블록, 글자/단어 단위 줄바꿈 병합 = 원래 문단·말줄임표 경계·일반 원고 미감지, 기호 정리, 장면 구분선(메인=Worker·EPUB), 검수 리포트(누락·중복·분할 연재·짧은/빈/긴), 인코딩 직접 지정 strict, 파일 목록 표시 |
 | Phase 12 회귀 (29) | 커스텀 폰트 base64 = 표준 인코딩(0~100KB)·손상 데이터 감지·format 키워드, BOM 없는 UTF-16 LE/BE·EUC-KR 감지, 슬라이스 경계(EUC-KR 줄 단위·UTF-16 짝수·UTF-8), URL 표지 쿼리 보존·http(s) 검증·onclick 주입 제거, Gemini 종료 모델·헤더 키·AbortSignal, 다크 모드 CSS, 편집 OPF 경로·dcterms:modified·mimeType |
@@ -480,7 +487,7 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 | 항목 | 수치 |
 |------|------|
 | 총 줄수 | JS 13,522줄 (+ HTML/CSS 2,600줄) |
-| 회귀 테스트 | 323개 통과 + epubcheck 0 오류 |
+| 회귀 테스트 | 343개 통과 + epubcheck 0 오류 |
 | 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |
@@ -596,6 +603,14 @@ settings.js 구문 오류 수정 (고아 코드 블록 제거)
 ├── 리더기 프로필 6종: 표지 최대 높이·다크 모드 CSS·삽화 JPG 강제
 ├── 비핵심 이미지(BMP·TIFF·AVIF·HEIC) 항상 JPG, 변환 실패 이미지는 건너뜀(이전: 편집 탭 전체 중단)
 └── TXT 삽입 편집을 순수 함수 buildInsertedEpub로 분리 → 편집 결과 EPUB도 CI epubcheck, 본문 정리·장면 구분선 적용
+↓
+[ Phase 15: 성능 · 보안 ]
+├── 스트리밍 저장: 저장 위치를 먼저 고르면 Worker가 ZIP 조각을 파일에 바로 기록 (메모리에 결과 Blob 없음)
+├── JSZip 로컬 배포 + SW 버전 단위 원자적 캐시 (CACHE_VERSION = 자산 해시, npm run stamp, 테스트가 일치 검사)
+├── EPUB Worker 재사용 (소스·Blob URL 1회, 유휴 30초)
+├── API 키 마스킹·기기 저장 선택, 인라인 on* 핸들러 0 → CSP script-src 'self' (_headers + meta)
+├── innerHTML 정적 검사(escHtml 또는 safe-html 주석), 미니 리더·설정 칩 폰트 이름 XSS 수정
+└── 표지 검색 플랫폼 주간 점검 워크플로 (tests/cover-health.js)
 ```
 
 ---

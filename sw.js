@@ -1,218 +1,127 @@
 // ★ Service Worker — NovelEPUB 오프라인/PWA 지원
-// ★ Phase 2 최적화:
-//   SW-01: Stale-While-Revalidate → ETag/Last-Modified 조건부 재검증으로 전환
-//          캐시 HIT 시 무조건 network fetch 방지 → 배터리·대역폭 절감
-//   SW-02: opaque response(CDN no-cors) 최소 크기 검증 후 캐시 저장
-//   SW-03: install 핵심 에셋 캐싱 실패 시 경고 로깅 추가
 // ════════════════════════════════════════════════
-// ★ 배포 시 CACHE_VERSION 값을 갱신하면 구버전 캐시가 자동으로 삭제됩니다.
-const CACHE_VERSION = '2026-11-03T03:00:00';
+// ★ Phase 15: 버전 단위 원자적 캐시 (Atomic versioned cache)
+//   이전(Phase 2~14): 로컬 자원을 파일마다 Stale-While-Revalidate로 따로 갱신
+//     → 배포 직후 새 index.html + 옛 convert.js처럼 버전이 섞인 채 실행될 수 있었고,
+//       CACHE_VERSION을 손으로 바꾸지 않으면 갱신 시점이 파일마다 제각각이었음
+//   현재:
+//     1. CACHE_VERSION = 앱 자산 내용 해시 ('npm run stamp'가 기록, 회귀 테스트가 일치 여부 검사)
+//        → 자산이 바뀌면 sw.js 바이트가 바뀌고 브라우저가 새 SW를 설치
+//     2. install: CORE_ASSETS 전체를 HTTP 캐시를 우회(cache:'reload')해 새 캐시에 한꺼번에 저장
+//        하나라도 실패하면 설치 실패 → 기존 버전이 계속 동작 (반쪽 캐시 없음)
+//     3. 로컬 자원은 현재 버전 캐시에서만 응답 (Cache-first) → 한 화면의 파일은 항상 같은 버전
+//     4. 새 SW는 대기(waiting) → main.js 업데이트 배너 → SKIP_WAITING → controllerchange → 새로고침
+//   JSZip은 Phase 15부터 lib/jszip.min.js로 함께 배포 (CDN 불필요 — 첫 방문 직후 오프라인 변환 가능)
+// ════════════════════════════════════════════════
+const CACHE_VERSION = 'h-281b539c7b392a66';
 const CACHE_NAME = 'novelepub-' + CACHE_VERSION;
 
+// 해시 대상이자 프리캐시 목록 — 로컬 자원만 ('./'는 index.html과 같은 문서)
 const CORE_ASSETS = [
   './',
   './index.html',
+  './style.css',
+  './lib/jszip.min.js',
   './parser.js',
   './epub-gen.js',
-  './worker.js',
-  './style.css',
   './core.js',
   './settings.js',
   './cover-search.js',
   './convert.js',
   './edit.js',
   './ui-state.js',
-  './main.js',   // ★ Phase 9: 누락돼 있던 부트스트랩 스크립트 (index.html이 마지막에 로드)
-  'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js',
+  './main.js',
+  './worker.js',
 ];
 
-// 버전 고정 외부 정적 자원 — 이 목록(+ 웹폰트 호스트)만 Cache-first
-const _STATIC_EXTERNAL = new Set(CORE_ASSETS.filter(u => u.startsWith('http')));
+// 웹폰트(Google Fonts)만 외부 Cache-first — 표지 검색 등 동적 외부 요청은 가로채지 않음
 const _STATIC_EXTERNAL_HOSTS = new Set(['fonts.googleapis.com', 'fonts.gstatic.com']);
 function _isStaticExternal(url){
-  if (_STATIC_EXTERNAL.has(url)) return true;
   try { return _STATIC_EXTERNAL_HOSTS.has(new URL(url).hostname); } catch (e) { return false; }
 }
 
-// ── install: 핵심 에셋 프리캐싱 ──
-// ★ SW-03: 실패 에셋 로깅 추가 (무조건 catch 무시 → 실패 원인 추적 가능)
+// ── install: 버전 캐시를 한꺼번에 채움 (전부 성공해야 설치 완료) ──
 self.addEventListener('install', e => {
   e.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => Promise.allSettled(
-        CORE_ASSETS.map(u => {
-          // ★ Phase 10: 외부 정적 자원(JSZip)은 CORS로 캐시 — index.html의 SRI(integrity) 스크립트는
-          //   CORS 응답이어야 검증 가능 (opaque 응답이면 차단됨). cdnjs는 Access-Control-Allow-Origin: * 제공
-          const req = u.startsWith('http')
-            ? new Request(u, { mode: 'cors', credentials: 'omit' })
-            : u;
-          return cache.add(req).catch(err => {
-            // 개별 실패 시 SW 등록은 계속 — 하지만 로그는 남김
-            console.warn('[SW] 프리캐시 실패:', u, err.message||err);
-          });
-        })
-      ))
+    caches.open(CACHE_NAME).then(cache =>
+      cache.addAll(CORE_ASSETS.map(u => new Request(u, { cache: 'reload' })))
+    )
   );
 });
 
-// ── activate: 구버전 캐시 삭제 ──
+// ── activate: 다른 버전 캐시 삭제 ──
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys()
-      .then(keys => Promise.all(
-        keys
-          .filter(k => k !== CACHE_NAME)
-          .map(k => caches.delete(k))
-      ))
+      .then(keys => Promise.all(keys.filter(k => k.startsWith('novelepub-') && k !== CACHE_NAME).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
 
-// ── fetch: 요청별 캐싱 전략 ──
+// ── fetch ──
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-
   const url = e.request.url;
-  const isExternal = url.startsWith('http') &&
-    !url.startsWith(self.location.origin);
+  const isExternal = url.startsWith('http') && !url.startsWith(self.location.origin);
 
-  // ── 외부 요청 ──
-  // ★ Phase 9: Cache-first는 버전이 고정된 정적 CDN(CORE_ASSETS의 외부 URL)에만 적용.
-  //   이전에는 모든 외부 GET을 영구 캐시 → 표지 검색(프록시 경유 리디·카카오·노벨피아 등)이
-  //   같은 검색어에 옛 결과를 계속 반환하고, 프록시 오류 페이지까지 저장되며 캐시가 무한 증가.
-  //   그 밖의 외부 요청은 가로채지 않고 브라우저 기본 네트워크 처리에 맡긴다.
   if (isExternal) {
     if (_isStaticExternal(url)) e.respondWith(_cacheFirstExternal(e.request));
     return;
   }
-
-  // ★ SW-01: 로컬 에셋 — Conditional Stale-While-Revalidate
-  // 캐시 MISS → 네트워크 fetch 후 캐시 저장
-  // 캐시 HIT  → 즉시 반환 + 조건부 revalidation
-  //   조건부: ETag/Last-Modified 헤더가 있으면 conditional request
-  //            서버가 304 응답 시 네트워크 트래픽 최소화
-  //            서버가 200 응답(변경됨) 시에만 캐시 업데이트
-  e.respondWith(_conditionalSWR(e.request));
-});
-
-// ── 외부 CDN Cache-first ──
-async function _cacheFirstExternal(request){
-  const cached = await caches.match(request);
-  // ★ Phase 10: CORS 요청(SRI 스크립트·폰트)에 opaque 캐시를 돌려주면 브라우저가 차단 → 네트워크로 재요청
-  if (cached && !(cached.type === 'opaque' && request.mode === 'cors')) return cached;
-  try{
-    // 버전 고정 CDN 파일(JSZip)은 항상 CORS로 받아 저장 — 이후 no-cors(importScripts)·cors(script SRI) 요청 모두에 사용 가능
-    const isCoreExternal = _STATIC_EXTERNAL.has(request.url);
-    const resp = await fetch(isCoreExternal ? new Request(request.url, { mode: 'cors', credentials: 'omit' }) : request);
-    if(resp){
-      // ★ opaque response(status=0, type='opaque'): JSZip 등 no-cors CDN 응답
-      //   status로 성공/실패를 알 수 없으나, 캐시에 저장해야 오프라인에서 사용 가능
-      //   실패한 opaque response도 저장되는 단점이 있으나,
-      //   importScripts 단계에서 런타임 오류로 감지되므로 사용상 무해
-      const isOk = resp.status === 200 || resp.type === 'opaque';
-      if(isOk){
-        const cache = await caches.open(CACHE_NAME);
-        cache.put(request, resp.clone()).catch(()=>{});
-      }
-    }
-    return resp;
-  }catch(e){
-    return new Response('오프라인 상태입니다.', {
-      status: 503,
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-    });
-  }
-}
-
-// ★ SW-01: Conditional Stale-While-Revalidate
-// 캐시 HIT 시 조건부 재검증 — ETag/Last-Modified 활용
-// 네트워크 없이도 동작, 변경 없으면 304로 응답 받아 트래픽 절감
-async function _conditionalSWR(request){
-  const cache = await caches.open(CACHE_NAME);
-  const cached = await cache.match(request);
-
-  if(!cached){
-    // 캐시 MISS → 무조건 네트워크 fetch
-    return _fetchAndCache(cache, request);
-  }
-
-  // 캐시 HIT → 즉시 반환 + 백그라운드 조건부 재검증
-  // 조건부 헤더 구성: 캐시된 응답의 ETag/Last-Modified를 요청에 포함
-  const etag         = cached.headers.get('ETag');
-  const lastModified = cached.headers.get('Last-Modified');
-
-  if(etag || lastModified){
-    // 조건부 revalidation — 변경된 경우에만 새 응답을 받음
-    const condHeaders = new Headers(request.headers);
-    if(etag)         condHeaders.set('If-None-Match', etag);
-    if(lastModified) condHeaders.set('If-Modified-Since', lastModified);
-
-    const condRequest = new Request(request.url, {
-      method:  request.method,
-      headers: condHeaders,
-      mode:    'same-origin',
-      cache:   'no-cache',
-    });
-
-    // 백그라운드에서 조건부 재검증 (캐시 HIT 반환에 영향 없음)
-    _revalidate(cache, request, condRequest).catch(()=>{});
-  } else {
-    // ETag/Last-Modified 없는 경우 — 단순 백그라운드 재검증
-    // ★ SW-01 핵심: 무조건 fetch가 아니라 헤더 없는 에셋만 fallback으로 재검증
-    // 정적 에셋(JS/CSS)은 거의 항상 ETag를 보내므로 이 분기는 드물게 실행됨
-    _fetchAndCache(cache, request).catch(()=>{});
-  }
-
-  return cached;
-}
-
-// 조건부 재검증 실행
-async function _revalidate(cache, originalRequest, condRequest){
-  try{
-    const resp = await fetch(condRequest);
-    if(resp.status === 304){
-      // 304 Not Modified → 캐시 그대로 유지, 네트워크 트래픽 최소
-      return;
-    }
-    if(resp.status === 200){
-      // 변경됨 → 캐시 업데이트
-      cache.put(originalRequest, resp.clone()).catch(()=>{});
-    }
-  }catch(e){
-    // 오프라인 등 네트워크 오류 → 무시 (캐시 그대로 사용)
-  }
-}
-
-// 네트워크 fetch 후 캐시 저장
-async function _fetchAndCache(cache, request){
-  try{
-    const resp = await fetch(request);
-    if(resp){
-      // ★ opaque response(status=0) 포함 처리
-      //   로컬 에셋의 경우 통상 opaque가 발생하지 않지만
-      //   혹시 CORE_ASSETS에 외부 URL이 포함된 경우를 대비해 동일하게 처리
-      const isOk = resp.status === 200 || resp.type === 'opaque';
-      if(isOk){
-        cache.put(request, resp.clone()).catch(()=>{});
-      }
-    }
-    return resp;
-  }catch(e){
-    return new Response('오프라인 상태입니다.', {
-      status: 503,
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' }
-    });
-  }
-}
-
-// ── message 이벤트 ──
-self.addEventListener('message', e => {
-  if (!e.data) return;
-
-  if (e.data.type === 'SKIP_WAITING') {
-    self.skipWaiting();
+  if (e.request.mode === 'navigate') {
+    e.respondWith(_navigate(e.request));
     return;
   }
-  // ★ Phase 9: CHECK_CACHE(하드코딩 버전 비교 → 캐시 전체 삭제) 제거.
-  //   버전 갱신은 브라우저 표준 SW 업데이트(install → activate의 구버전 캐시 삭제)로만 처리.
+  e.respondWith(_cacheFirstLocal(e.request));
+});
+
+// 페이지 이동: 현재 버전의 index.html (쿼리스트링 무시) → 없으면 네트워크
+async function _navigate(request){
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match('./index.html') || await cache.match('./');
+  if (cached) return cached;
+  try {
+    return await fetch(request);
+  } catch (e) {
+    return _offline();
+  }
+}
+
+// 로컬 자원: 현재 버전 캐시 → 없으면(프리캐시 목록 밖) 네트워크 후 같은 버전 캐시에 저장
+async function _cacheFirstLocal(request){
+  const cache = await caches.open(CACHE_NAME);
+  const cached = await cache.match(request, { ignoreSearch: true });
+  if (cached) return cached;
+  try {
+    const resp = await fetch(request);
+    if (resp && resp.status === 200 && resp.type === 'basic') cache.put(request, resp.clone()).catch(() => {});
+    return resp;
+  } catch (e) {
+    return _offline();
+  }
+}
+
+// 웹폰트: 캐시 → 네트워크 (opaque 응답은 CORS 요청에 돌려주지 않음)
+async function _cacheFirstExternal(request){
+  const cached = await caches.match(request);
+  if (cached && !(cached.type === 'opaque' && request.mode === 'cors')) return cached;
+  try {
+    const resp = await fetch(request);
+    if (resp && (resp.status === 200 || resp.type === 'opaque')) {
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(request, resp.clone()).catch(() => {});
+    }
+    return resp;
+  } catch (e) {
+    return _offline();
+  }
+}
+
+function _offline(){
+  return new Response('오프라인 상태입니다.', { status: 503, headers: { 'Content-Type': 'text/plain;charset=utf-8' } });
+}
+
+// ── message: 업데이트 배너의 '지금 업데이트' → 대기 중인 새 SW 활성화 ──
+self.addEventListener('message', e => {
+  if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting();
 });

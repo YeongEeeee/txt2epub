@@ -14,6 +14,7 @@
  *   7. Phase 12: 커스텀 폰트 base64·인코딩 감지(UTF-16 무BOM)·슬라이스 경계·URL 표지·Gemini·EPUB 편집 메타
  *   8. Phase 13: 본문 정리(잡음 줄·줄바꿈 병합·기호)·장면 구분선·검수 리포트·인코딩 직접 지정
  *   9. Phase 14: 폰트 파일 분리·landmarks·접근성 메타·리더기 프로필·TXT 삽입 편집 EPUB(→ CI epubcheck)
+ *  10. Phase 15: 스트리밍 저장 출력·Worker 재사용·API 키·인라인 핸들러 제거·CSP·innerHTML 정적 검사
  */
 'use strict';
 const fs   = require('fs');
@@ -511,7 +512,16 @@ async function main(){
     check('[상태] StateManager.set이 기존 배열을 비우지 않음', setBody && !/\.length\s*=\s*0/.test(setBody));
     check('[저장] idbSet은 await + onabort 처리', /async function idbSet[\s\S]*?await new Promise[\s\S]*?tx\.onabort/.test(settings));
     check('[보안] JSZip SRI integrity', /jszip\.min\.js" integrity="sha512-[A-Za-z0-9+/=]+" crossorigin="anonymous"/.test(html));
-    check('[배포] SW 외부 자원 CORS 프리캐시', /mode: 'cors'/.test(sw));
+    // ★ Phase 15: JSZip 로컬 배포 + 버전 단위 원자적 캐시 (이전 검사: CDN JSZip CORS 프리캐시)
+    const { assetHash, currentVersion } = require('./stamp-sw.js');
+    check('[배포] SW CACHE_VERSION = 앱 자산 해시 (다르면 npm run stamp)', currentVersion(sw) === assetHash(sw), `sw.js ${currentVersion(sw)} / 계산 ${assetHash(sw)}`);
+    check('[배포] SW 설치는 전체 성공 시에만 (addAll + cache:reload)', /cache\.addAll\(CORE_ASSETS\.map\(u => new Request\(u, \{ cache: 'reload' \}\)\)\)/.test(sw) && !/allSettled/.test(sw));
+    check('[배포] 로컬 자원은 버전 캐시에서만 응답 (파일별 재검증 없음)', /_cacheFirstLocal/.test(sw) && !/_conditionalSWR|_revalidate/.test(sw));
+    const libJs = fs.readFileSync(path.join(ROOT, 'lib/jszip.min.js'));
+    const sri = 'sha512-' + require('crypto').createHash('sha512').update(libJs).digest('base64');
+    check('[배포] JSZip 로컬 파일 = index.html SRI 해시', html.includes('src="lib/jszip.min.js" integrity="' + sri + '"'));
+    const swAssets = (sw.match(/const CORE_ASSETS = \[([\s\S]*?)\];/) || [])[1] || '';
+    check('[배포] JSZip CDN 의존 제거 (index.html 스크립트·SW 프리캐시·EPUB Worker)', !/<script src="https?:\/\/[^"]*jszip/.test(html) && !/https?:/.test(swAssets) && /const jszipUrl  = new URL\('lib\/jszip\.min\.js', document\.baseURI\)\.href;/.test(read('epub-gen.js')));
     const defs = ['parser.js', 'convert.js', 'main.js'].map(f => (read(f).match(/defineProperty\(window,\s*'_autoSplitActive'/g) || []).length);
     check('[구조] window._autoSplitActive 정의 1곳', defs.reduce((a, b) => a + b, 0) === 1, defs.join('/'));
   }
@@ -784,6 +794,76 @@ async function main(){
     const res2 = await G('buildInsertedEpub')(src, ins, { selHref: '' });
     const nav2 = await res2.newZip.file('OEBPS/nav.xhtml').async('string');
     check('[편집] 기준 챕터가 없으면 맨 끝에 추가 (이전: 첫 navPoint 기준으로 끼어듦)', nav2.indexOf('삽입 1화') > nav2.lastIndexOf('chapter_0025.xhtml') && nav2.indexOf('삽입 1화') < nav2.indexOf('epub:type="landmarks"'));
+  }
+
+  // ── 10. Phase 15 — 성능·보안 ──
+  {
+    const read = readRoot;
+    const APP_JS = ['parser.js', 'epub-gen.js', 'core.js', 'settings.js', 'cover-search.js', 'convert.js', 'edit.js', 'ui-state.js', 'main.js'];
+    const srcs = Object.fromEntries(APP_JS.map(f => [f, read(f)]));
+    const html = read('index.html'), eg = srcs['epub-gen.js'], conv = srcs['convert.js'], ui = srcs['ui-state.js'], st = srcs['settings.js'];
+
+    // 10-1. 스트리밍 저장 — Worker가 조각(chunk)만 보내고 Blob을 만들지 않음, 조각을 이으면 정상 EPUB
+    const chs = splitChapters(fs.readFileSync(path.join(FIX_DIR, '01_je_n_hwa.txt'), 'utf8'), '');
+    const sp = { title: '스트리밍', author: '테스트', chapters: chs, illMapMeta: [], useItalic: true, showChTitle: true, compressionLevel: 6, lang: 'ko',
+      uid: 'urn:uuid:00000000-0000-4000-8000-000000000015', today: '2026-11-03', modified: '2026-11-03T00:00:00Z', stream: true };
+    const sw15 = await runWorker(epubSrc, { params: sp, imageData: { cover: null, ills: [] }, cssText: 'p{margin:0}' },
+      wctx => ({ importScripts(){ vm.runInContext(jszipSrc, wctx); } }));
+    const parts = sw15.msgs.filter(m => m.type === 'chunk').map(m => Buffer.from(m.data));
+    const streamedBuf = Buffer.concat(parts);
+    fs.writeFileSync(path.join(OUT_DIR, '15_streamed.epub'), streamedBuf);
+    const sz = await JSZip.loadAsync(streamedBuf);
+    check('[스트리밍] 조각 여러 개 + done(streamed, size) · Blob 없음', parts.length > 1 && sw15.last.type === 'done' && sw15.last.streamed === true && !sw15.last.blob && sw15.last.size === streamedBuf.length);
+    check('[스트리밍] 이어 붙인 결과가 정상 EPUB (mimetype 첫 항목·챕터 수) → tests/out/15_streamed.epub', streamedBuf.slice(30, 38).toString() === 'mimetype' && Object.keys(sz.files).filter(f => /Text\/chapter_/.test(f)).length === chs.length);
+    check('[스트리밍] 메인: 저장 위치 선택은 첫 await 전·실패/중단 시 파일 폐기', /const streamTarget=await _pickStreamTarget\(/.test(conv) && /streamTarget\.writable\?\.abort\?\.\(\)/.test(conv) && /writable\.abort\?\.\(\)/.test(eg) && /stream: !!writable/.test(eg));
+    check('[스트리밍] 설정 화면·미지원 브라우저 비활성', html.includes('id="optStreamSave"') && /ss\.disabled=!ok;/.test(st) && /streamSave:document\.getElementById\('optStreamSave'\)/.test(st));
+
+    // 10-2. EPUB Worker 재사용
+    check('[Worker] 소스·Blob URL 1회 생성 + 유휴 Worker 재사용', /function _acquireEpubWorker\(jszipUrl\)/.test(eg) && /worker = _acquireEpubWorker\(jszipUrl\);/.test(eg) && !/const workerSrc  = _buildWorkerSrc\(jszipUrl\);/.test(eg));
+    check('[Worker] 정상 완료만 재사용, 오류·중단은 종료', /_releaseEpubWorker\(worker, fn===resolve\);/.test(eg) && /if\(!healthy\|\|p\.idle\)\{ worker\.terminate\(\); return; \}/.test(eg));
+
+    // 10-3. API 키
+    check('[보안] API 키 입력란 password + 보기 토글', /id="geminiApiKey" type="password"/.test(html) && /id="naverClientSecret" type="password"/.test(html) && (html.match(/data-action="toggleSecret"/g) || []).length === 2 && /toggleSecret:/.test(ui));
+    check('[보안] 이 기기에 키 저장 끄면 즉시 삭제', /if\(!remember\)\{ localStorage\.removeItem\('novelepub_api'\); return; \}/.test(st) && html.includes('id="optRememberApiKeys"'));
+
+    // 10-4. 인라인 이벤트 핸들러 0 (HTML 마크업·JS가 만드는 HTML 문자열)
+    const inlineRx = /\son(?:click|change|input|error|load|submit|keydown|keyup|focus|blur|mouseover|mouseout|drag\w*|drop)=\\?["']/g;
+    const inline = [['index.html', html], ...Object.entries(srcs)].flatMap(([f, t]) => (t.match(inlineRx) || []).map(m => f + ':' + m.trim()));
+    check('[CSP] 인라인 on* 핸들러 없음', inline.length === 0, inline.slice(0, 5).join(', '));
+    const regKeys = new Set([...ui.matchAll(/^\s{2,6}([A-Za-z_]\w*)\s*:\s*(?:async\s*)?\(/gm)].map(m => m[1]));
+    Object.values(srcs).forEach(t => [...t.matchAll(/EventDelegate\.register\(\s*'([^']+)'/g)].forEach(m => regKeys.add(m[1])));
+    const used = name => [...new Set([html, ...Object.values(srcs)].map(t => t.replace(/^\s*\/\/.*$/gm, '')).flatMap(t => [...t.matchAll(new RegExp(name + '="([A-Za-z_]\\w*)"', 'g'))].map(m => m[1])))];
+    const missAct = used('data-action').filter(a => !regKeys.has(a));
+    const missInp = used('data-input-action').filter(a => !regKeys.has(a));
+    check('[CSP] data-action·data-input-action 전부 등록', !missAct.length && !missInp.length, [...missAct, ...missInp].join(', '));
+
+    // 10-5. CSP — Cloudflare _headers와 index.html meta가 같은 정책, 'unsafe-inline'·'unsafe-eval' 없는 script-src
+    const headers = read('_headers');
+    const hdrCsp = (headers.match(/Content-Security-Policy: (.+)/) || [])[1] || '';
+    const metaCsp = (html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/) || [])[1] || '';
+    check('[CSP] script-src \'self\' (unsafe-inline·unsafe-eval 없음) + Blob Worker 허용', /script-src 'self';/.test(hdrCsp) && !/script-src[^;]*unsafe/.test(hdrCsp) && /worker-src 'self' blob:/.test(hdrCsp));
+    check('[CSP] meta = 헤더 정책 (frame-ancestors 제외)', metaCsp && metaCsp === hdrCsp.replace(/; frame-ancestors 'none'$/, ''));
+    check('[CSP] 인라인 <script> 없음 · eval/new Function 없음', !/<script(?![^>]*\bsrc=)[^>]*>/.test(html) && !Object.values(srcs).some(t => /\beval\(|new Function\(/.test(t)));
+    check('[보안] 응답 헤더 nosniff·frame 차단·Referrer-Policy', /X-Content-Type-Options: nosniff/.test(headers) && /frame-ancestors 'none'/.test(headers) && /Referrer-Policy:/.test(headers));
+
+    // 10-6. innerHTML 정적 검사 — 동적 값은 escHtml 등으로 이스케이프하거나, 검토 후 '// safe-html: 이유' 주석
+    const SAFE = /^(?:escHtml|escAttr|_escAttr|_esc\w*|Number|parseInt|parseFloat|Math\.\w+|encodeURIComponent)\(|\.toFixed\(|\.toLocaleString\(|\.length$|^[A-Z0-9_]+$|^(?:i|j|k|n|idx|id|ci|fi|pct|total|active|count|len|num|cnt|w|h|W|H|x|y)$/;
+    const offenders = [];
+    for(const [f, src] of Object.entries(srcs)){
+      const rx = /\.innerHTML\s*\+?=\s*|insertAdjacentHTML\(\s*['"][a-z]+['"]\s*,\s*/g; let m;
+      while((m = rx.exec(src))){
+        const lineStart = src.lastIndexOf('\n', m.index) + 1, lineEnd = src.indexOf('\n', m.index);
+        if(/safe-html:/.test(src.slice(lineStart, lineEnd))) continue;
+        const start = m.index + m[0].length; let end = src.indexOf(';\n', start); if(end < 0) end = src.length;
+        const rhs = src.slice(start, end);
+        const dyn = [...[...rhs.matchAll(/\$\{([^}]*)\}/g)].map(t => t[1].trim()), ...[...rhs.matchAll(/['"`]\s*\+\s*([^'"`+]+?)\s*\+\s*['"`]/g)].map(t => t[1].trim())];
+        if(/^[A-Za-z_$][\w$.]*\s*$/.test(rhs.trim())) dyn.push(rhs.trim());
+        const bad = dyn.filter(d => !SAFE.test(d));
+        if(bad.length) offenders.push(f + ':' + src.slice(0, m.index).split('\n').length + ' ' + bad[0]);
+      }
+    }
+    check('[보안] innerHTML 동적 값은 이스케이프 또는 safe-html 검토 주석', offenders.length === 0, offenders.slice(0, 6).join(' / '));
+    check('[보안] 미니 리더·설정 요약 칩의 폰트 이름 이스케이프', /폰트 <strong>\$\{escHtml\(fontName\)\}<\/strong>/.test(ui) && /\$\{escHtml\(String\(val\)\)\}/.test(ui));
   }
 
   if(UPDATE){

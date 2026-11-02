@@ -514,6 +514,9 @@ body{
 .opt-check{display:flex;align-items:flex-start;gap:8px;font-size:var(--fs-sm);color:var(--text);cursor:pointer}
 .opt-check small{display:block;font-size:var(--fs-xs);color:var(--text2)}
 .opt-check input{accent-color:var(--accent);margin-top:3px;flex-shrink:0}
+/* ★ Phase 15: API 키 */
+.secret-toggle{flex-shrink:0;font-size:var(--fs-xs);padding:2px 8px}
+.api-remember{margin:0 0 10px}
 /* ★ Phase 14: 리더기 프로필 */
 .reader-profile-row{display:flex;flex-direction:column;gap:4px;padding:4px 0 8px;border-bottom:1px solid var(--border)}
 .reader-profile-head{display:flex;align-items:center;gap:8px;justify-content:space-between}

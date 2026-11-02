@@ -136,9 +136,10 @@ function updateMiniReader(){
   if(meta){
     const fontName=font.split(',')[0].replace(/['"]/g,'').trim()||'Noto Serif KR';
     meta.innerHTML=
-      `<span class="mini-reader-stat">폰트 <strong>${fontName}</strong></span>`+
-      `<span class="mini-reader-stat">줄간격 <strong>${lineH}</strong></span>`+
-      `<span class="mini-reader-stat">크기 <strong>${fontSize}</strong></span>`;
+      // ★ Phase 15: 폰트 이름(커스텀 폰트 파일명)·입력값 이스케이프 — 이전엔 그대로 innerHTML에 들어감
+      `<span class="mini-reader-stat">폰트 <strong>${escHtml(fontName)}</strong></span>`+
+      `<span class="mini-reader-stat">줄간격 <strong>${escHtml(String(lineH))}</strong></span>`+
+      `<span class="mini-reader-stat">크기 <strong>${escHtml(String(fontSize))}</strong></span>`;
   }
   preview.classList.add('updating');
   setTimeout(()=>preview.classList.remove('updating'),500);
@@ -158,7 +159,8 @@ function updateSettingsSummary(){
   // 정보성 요약 칩 — 아이콘 없이 '라벨 값'만, 강조색 대신 중립 톤 (style.css .opt-badge)
   function badge(label, val, on){
     const cls='opt-badge'+(on?' on':' off');
-    return `<span class="${cls}">${label} <span class="opt-badge-val">${val}</span></span>`;
+    // ★ Phase 15: 값에 커스텀 폰트 이름(파일명)이 들어갈 수 있어 이스케이프
+    return `<span class="${cls}">${escHtml(String(label))} <span class="opt-badge-val">${escHtml(String(val))}</span></span>`;
   }
   const chipHtml=
     badge('폰트',fontName,true)+
@@ -170,7 +172,7 @@ function updateSettingsSummary(){
     badge('JPG변환',imgConv?'ON':'OFF',imgConv);
 
   [document.getElementById('settingsSummary'), document.getElementById('batchSettingSummary')].forEach(el=>{
-    if(el) el.innerHTML=chipHtml;
+    if(el) el.innerHTML=chipHtml;  // safe-html: chipHtml은 badge()에서 escHtml 처리
   });
   updateMiniReader&&updateMiniReader();
 }
@@ -641,7 +643,7 @@ function showShortcutHelp(){
   const el=document.createElement('div');
   el.id='shortcutHelp';
   el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:var(--radius);padding:20px 24px;z-index:9999;box-shadow:var(--shadow-xl);font-size:var(--fs-sm);min-width:280px';
-  el.innerHTML='<div style="font-size:var(--fs-base);font-weight:700;margin-bottom:12px;color:var(--text)">⌨️ 단축키</div>'+
+  el.innerHTML='<div style="font-size:var(--fs-base);font-weight:700;margin-bottom:12px;color:var(--text)">⌨️ 단축키</div>'+  // safe-html: kbdStyle은 고정 스타일 문자열
     '<table style="border-collapse:collapse;width:100%;line-height:2"><tbody>'+
     '<tr><td style="color:var(--text2);padding-right:16px"><kbd style="'+kbdStyle+'">Ctrl+Space</kbd></td><td>✨ 변환 시작</td></tr>'+
     '<tr><td><kbd style="'+kbdStyle+'">Ctrl+S</kbd></td><td>⬇ EPUB 다운로드</td></tr>'+
@@ -807,6 +809,13 @@ function _spawnDropConfetti(container){
     syncCssFontSize:      (el) => { typeof syncSelect==='function'&&syncSelect('cssFontSize','cssFontSizeSlider','cssFontSizeVal',el.value); updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); updateMiniReader&&updateMiniReader(); },
     syncCssFontSizeSlider:(el) => { typeof syncSlider==='function'&&syncSlider('cssFontSize','cssFontSizeSlider','cssFontSizeVal',el.value); updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); updateMiniReader&&updateMiniReader(); },
     syncIndent:           (el) => { typeof syncIndent==='function'&&syncIndent(parseFloat(el.value)||1.0); updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); updateMiniReader&&updateMiniReader(); },
+    // ★ Phase 15: 인라인 oninput/onchange 제거 → data-input-action
+    renderHistory:        () => typeof renderHistory==='function'&&renderHistory(),
+    manualIllName:        (el) => typeof onManualIllName==='function'&&onManualIllName(parseInt(el.dataset.id,10)),
+    loadIllRange:         (el) => typeof loadIllRange==='function'&&loadIllRange(parseInt(el.dataset.id,10)),
+    illKwSearch:          (el) => typeof debounceIllKwSearch==='function'&&debounceIllKwSearch(parseInt(el.dataset.id,10)),
+    applyBatchPreset:     (el) => typeof applyBatchPreset==='function'&&applyBatchPreset(parseInt(el.dataset.idx,10)),
+    toggleEIM:            (el) => typeof toggleEIM==='function'&&toggleEIM(parseInt(el.dataset.id,10)),
     syncPadTop:           (el) => { const v=document.getElementById('cssPadTop');if(v)v.value=el.value; const d=document.getElementById('cssPadTopVal');if(d)d.textContent=el.value+'em'; updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); },
     syncPadBottom:        (el) => { const v=document.getElementById('cssPadBottom');if(v)v.value=el.value; const d=document.getElementById('cssPadBottomVal');if(d)d.textContent=el.value+'em'; updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); },
     syncPadLeft:          (el) => { const v=document.getElementById('cssPadLeft');if(v)v.value=el.value; const d=document.getElementById('cssPadLeftVal');if(d)d.textContent=el.value+'em'; updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); },
@@ -973,6 +982,26 @@ function setupEventDelegate(){
     autoSplitByInterval: () => typeof autoSplitByInterval==='function'&&autoSplitByInterval(),
     applyPat:      () => typeof applyPat==='function'&&applyPat(),
     tocTab:        (el) => typeof tocTab==='function'&&tocTab(parseInt(el.dataset.idx)),
+    // ★ Phase 15: 인라인 on* 속성 제거 → 이벤트 위임 (CSP script-src 'self' — 'unsafe-inline' 없이 동작)
+    setSkin:             (el) => typeof setSkin==='function'&&setSkin(el.dataset.skin),
+    reloadPage:          () => location.reload(),
+    closeErrorBoundary:  () => document.getElementById('errorBoundary')?.classList.remove('show'),
+    browseManual:        (el) => typeof browseManual==='function'&&browseManual(parseInt(el.dataset.id,10)),
+    selectIllRangeCard:  (el) => typeof selectIllRangeCard==='function'&&selectIllRangeCard(parseInt(el.dataset.id,10), parseInt(el.dataset.ci,10)),
+    batchPickCover:      (el) => typeof batchPickCover==='function'&&batchPickCover(parseInt(el.dataset.idx,10)),
+    showBatchToc:        (el) => typeof showBatchToc==='function'&&showBatchToc(parseInt(el.dataset.idx,10), el),
+    toggleBatchPreset:   (el) => typeof toggleBatchPreset==='function'&&toggleBatchPreset(parseInt(el.dataset.idx,10)),
+    batchPresetCheckAll: (el) => typeof batchPresetCheckAll==='function'&&batchPresetCheckAll(parseInt(el.dataset.idx,10), el.dataset.val==='true'),
+    batchPresetAuto:     (el) => typeof batchPresetAuto==='function'&&batchPresetAuto(parseInt(el.dataset.idx,10)),
+    confirmBatchPreset:  (el) => typeof confirmBatchPreset==='function'&&confirmBatchPreset(parseInt(el.dataset.idx,10)),
+    applyBatchInterval:  (el) => typeof applyBatchInterval==='function'&&applyBatchInterval(parseInt(el.dataset.idx,10)),
+    clearBatchInterval:  (el) => typeof clearBatchInterval==='function'&&clearBatchInterval(parseInt(el.dataset.idx,10)),
+    browseEditIll:       (el) => typeof browseEditIll==='function'&&browseEditIll(parseInt(el.dataset.id,10)),
+    removeDirectEditIll: (el) => typeof removeDirectEditIll==='function'&&removeDirectEditIll(parseInt(el.dataset.idx,10)),
+    undoToc:             () => typeof undoToc==='function'&&undoToc(),
+    deletePreset:        (el) => typeof deletePreset==='function'&&deletePreset(el.dataset.name),
+    // ★ Phase 15: API 키 보기/숨기기
+    toggleSecret: (el) => typeof toggleSecretField==='function'&&toggleSecretField(el.dataset.target, el),
     // ★ Phase 13: 검수 리포트 항목 → '감지된 목차' 탭에서 해당 항목으로 이동
     tocReviewJump: (el) => {
       typeof tocTab==='function'&&tocTab(0);

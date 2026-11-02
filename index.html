@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!-- ★ Phase 15: CSP — _headers(Cloudflare Pages)와 같은 정책 (frame-ancestors는 헤더에서만 적용) -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: data: blob:; manifest-src 'self'; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>📚 NovelEPUB — TXT to EPUB3 변환기</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4KPGRlZnM+CiAgPGxpbmVhckdyYWRpZW50IGlkPSJiZ0ciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMyYTFmMWEiLz4KICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzFhMTIxMCIvPgogIDwvbGluZWFyR3JhZGllbnQ+CiAgPGxpbmVhckdyYWRpZW50IGlkPSJwZ0wiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmNWVkZTAiLz4KICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2UwY2ZiOCIvPgogIDwvbGluZWFyR3JhZGllbnQ+CiAgPGxpbmVhckdyYWRpZW50IGlkPSJwZ1IiIHgxPSIxIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNlOGQ5YzUiLz4KICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2Q0YzRhOCIvPgogIDwvbGluZWFyR3JhZGllbnQ+CjwvZGVmcz4KPCEtLSDrsLDqsr0g7JuQIC0tPgo8Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0OCIgZmlsbD0idXJsKCNiZ0cpIi8+CjwhLS0g7JWh7IS87Yq4IOungSAtLT4KPGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNDUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2M4NTAzYyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2Utb3BhY2l0eT0iMC42Ii8+CjwhLS0g4pSA4pSAIOyxhSDsmbzsqr0g7Y6Y7J207KeAIOKUgOKUgCAtLT4KPHBhdGggZD0iTTE3IDI3IFExNyAyNSAxOSAyNSBMNDggMjcgTDQ4IDc1IEwxOSA3MyBRMTcgNzMgMTcgNzEgWiIgZmlsbD0idXJsKCNwZ0wpIi8+CjwhLS0g7Jm87Kq9IO2OmOydtOyngCDrgrTsp4Ag6re466a87J6Q7ISgIC0tPgo8cGF0aCBkPSJNNDUgMjcgTDQ4IDI3IEw0OCA3NSBMNDUgNzUgWiIgZmlsbD0iI2MwYTg4MCIgb3BhY2l0eT0iMC40Ii8+CjwhLS0g4pSA4pSAIOyxhSDsmKTrpbjsqr0g7Y6Y7J207KeAIOKUgOKUgCAtLT4KPHBhdGggZD0iTTUyIDI3IEw4MSAyNSBRODMgMjUgODMgMjcgTDgzIDcxIFE4MyA3MyA4MSA3MyBMNTIgNzUgWiIgZmlsbD0idXJsKCNwZ1IpIi8+CjwhLS0g7Jik66W47Kq9IO2OmOydtOyngCDrgrTsp4Ag6re466a87J6Q7ISgIC0tPgo8cGF0aCBkPSJNNTIgMjcgTDU1IDI3IEw1NSA3NSBMNTIgNzUgWiIgZmlsbD0iI2E4OTA2OCIgb3BhY2l0eT0iMC40Ii8+CjwhLS0g7LKZ7LaUKHNwaW5lKSAtLT4KPHJlY3QgeD0iNDgiIHk9IjI3IiB3aWR0aD0iNCIgaGVpZ2h0PSI0OCIgZmlsbD0iIzJlMWUxNCIvPgo8IS0tIOyxheuTsSDtlZjri6gg67O866Wo6rCQIC0tPgo8cGF0aCBkPSJNMTcgNzEgUTE3IDc2IDIxIDc3IEw0OCA3OSBMNTIgNzkgTDc5IDc3IFE4MyA3NiA4MyA3MSBMODMgNzMgUTgzIDc4IDc5IDc5IEw1MiA4MSBMNDggODEgTDIxIDc5IFExNyA3OCAxNyA3MyBaIiBmaWxsPSIjMWUxMjA4IiBvcGFjaXR5PSIwLjg1Ii8+CjwhLS0g4pSA4pSAIOyZvOyqvSDtjpjsnbTsp4A6IO2FjeyKpO2KuCDrnbzsnbgg4pSA4pSAIC0tPgo8bGluZSB4MT0iMjIiIHkxPSIzNCIgeDI9IjQ0IiB5Mj0iMzQiIHN0cm9rZT0iI2IwOTg3YSIgc3Ryb2tlLXdpZHRoPSIxLjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8bGluZSB4MT0iMjIiIHkxPSIzOSIgeDI9IjQ0IiB5Mj0iMzkiIHN0cm9rZT0iI2IwOTg3YSIgc3Ryb2tlLXdpZHRoPSIxLjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8bGluZSB4MT0iMjIiIHkxPSI0NCIgeDI9IjQ0IiB5Mj0iNDQiIHN0cm9rZT0iI2IwOTg3YSIgc3Ryb2tlLXdpZHRoPSIxLjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8bGluZSB4MT0iMjIiIHkxPSI0OSIgeDI9IjM4IiB5Mj0iNDkiIHN0cm9rZT0iI2IwOTg3YSIgc3Ryb2tlLXdpZHRoPSIxLjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8IS0tIOKUgOKUgCDsmbzsqr0g7Y6Y7J207KeAOiDrlJTsp4DthLgg7Iug7Zi4IOuFuOuTnCAo7JWh7IS87Yq4ICNjODUwM2MpIOKUgOKUgCAtLT4KPCEtLSDsiJjsp4Eg7Iug7Zi47ISgIC0tPgo8bGluZSB4MT0iMjgiIHkxPSI1OCIgeDI9IjI4IiB5Mj0iNTMiIHN0cm9rZT0iI2M4NTAzYyIgc3Ryb2tlLXdpZHRoPSIxLjMiLz4KPCEtLSDsiJjtj4kg7Jew6rKw7ISgIC0tPgo8bGluZSB4MT0iMjgiIHkxPSI2MyIgeDI9IjM2IiB5Mj0iNjMiIHN0cm9rZT0iI2M4NTAzYyIgc3Ryb2tlLXdpZHRoPSIxLjMiLz4KPCEtLSDrqZTsnbgg7IaU66as65OcIOuFuOuTnCAtLT4KPGNpcmNsZSBjeD0iMjgiIGN5PSI1OCIgcj0iMi41IiBmaWxsPSIjYzg1MDNjIi8+CjwhLS0g67O07KGwIOungSDrhbjrk5wgLS0+CjxjaXJjbGUgY3g9IjI4IiBjeT0iNTMiIHI9IjEuOCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjYzg1MDNjIiBzdHJva2Utd2lkdGg9IjEuMiIvPgo8IS0tIOyiheywqSDrhbjrk5wgLS0+CjxjaXJjbGUgY3g9IjM2IiBjeT0iNjMiIHI9IjIiIGZpbGw9IiNjODUwM2MiIG9wYWNpdHk9IjAuNzUiLz4KPCEtLSDilIDilIAg7Jik66W47Kq9IO2OmOydtOyngDog7YWN7Iqk7Yq4IOudvOyduCDilIDilIAgLS0+CjxsaW5lIHgxPSI1NiIgeTE9IjM0IiB4Mj0iNzgiIHkyPSIzNCIgc3Ryb2tlPSIjOWE4NDY1IiBzdHJva2Utd2lkdGg9IjEuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxsaW5lIHgxPSI1NiIgeTE9IjM5IiB4Mj0iNzgiIHkyPSIzOSIgc3Ryb2tlPSIjOWE4NDY1IiBzdHJva2Utd2lkdGg9IjEuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxsaW5lIHgxPSI1NiIgeTE9IjQ0IiB4Mj0iNzgiIHkyPSI0NCIgc3Ryb2tlPSIjOWE4NDY1IiBzdHJva2Utd2lkdGg9IjEuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxsaW5lIHgxPSI1NiIgeTE9IjQ5IiB4Mj0iNzAiIHkyPSI0OSIgc3Ryb2tlPSIjOWE4NDY1IiBzdHJva2Utd2lkdGg9IjEuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjwhLS0g4pSA4pSAIOyYpOuluOyqvSDtjpjsnbTsp4A6IEVQVUIg7Lac66ClIOuLqOyekCAo6rOo65OcICNkNGEwNTUpIOKUgOKUgCAtLT4KPCEtLSBJQyDsgqzqsIEg64uo7J6QIEEgLS0+CjxyZWN0IHg9IjU3IiB5PSI1NyIgd2lkdGg9IjgiIGhlaWdodD0iOCIgcng9IjEuNSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZDRhMDU1IiBzdHJva2Utd2lkdGg9IjEuNCIvPgo8IS0tIElDIOyCrOqwgSDri6jsnpAgQiAtLT4KPHJlY3QgeD0iNzAiIHk9IjU3IiB3aWR0aD0iOCIgaGVpZ2h0PSI4IiByeD0iMS41IiBmaWxsPSJub25lIiBzdHJva2U9IiNkNGEwNTUiIHN0cm9rZS13aWR0aD0iMS40Ii8+CjwhLS0gQeKGlEIg7IiY7Y+JIOyXsOqysOyEoCAtLT4KPGxpbmUgeDE9IjY1IiB5MT0iNjEiIHgyPSI3MCIgeTI9IjYxIiBzdHJva2U9IiNkNGEwNTUiIHN0cm9rZS13aWR0aD0iMS4yIi8+CjwhLS0gQSDtlZjri6gg7ZWAIC0tPgo8bGluZSB4MT0iNjEiIHkxPSI2NSIgeDI9IjYxIiB5Mj0iNjkiIHN0cm9rZT0iI2Q0YTA1NSIgc3Ryb2tlLXdpZHRoPSIxLjIiLz4KPCEtLSBCIO2VmOuLqCDtlYAgLS0+CjxsaW5lIHgxPSI3NCIgeTE9IjY1IiB4Mj0iNzQiIHkyPSI2OSIgc3Ryb2tlPSIjZDRhMDU1IiBzdHJva2Utd2lkdGg9IjEuMiIvPgo8IS0tIO2VgCDrgZ0g7IaU642UIOygkCAtLT4KPGNpcmNsZSBjeD0iNjEiIGN5PSI2OS41IiByPSIxLjQiIGZpbGw9IiNkNGEwNTUiLz4KPGNpcmNsZSBjeD0iNzQiIGN5PSI2OS41IiByPSIxLjQiIGZpbGw9IiNkNGEwNTUiLz4KPCEtLSBBIOuCtOu2gCDssYTsm4AgKO2ZnOyEsSDtkZzsi5wpIC0tPgo8cmVjdCB4PSI1OSIgeT0iNTkiIHdpZHRoPSI0IiBoZWlnaHQ9IjQiIHJ4PSIwLjgiIGZpbGw9IiNkNGEwNTUiIG9wYWNpdHk9IjAuMzUiLz4KPC9zdmc+">
   <!-- ① 5종 웹폰트 (Nanum Gothic/Myeongjo, Noto Sans/Serif KR, Gowun Batang) -->
@@ -12,7 +14,8 @@
   <!-- ② 레이아웃 & 테마 -->
   <link rel="stylesheet" href="style.css">
   <!-- ③ JSZip (EPUB 패키징) — ★ Phase 10: SRI 무결성 검증 (CDN 변조 시 실행 차단) · sw.js는 같은 파일을 CORS로 캐시 -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js" integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+  <!-- ★ Phase 15: JSZip 3.10.1 로컬 배포 (CDN 파일과 동일 — 같은 SRI 해시). 첫 방문 직후에도 오프라인 변환 가능 -->
+  <script src="lib/jszip.min.js" integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==" crossorigin="anonymous"></script>
 </head>
 <body>
 <!-- 헤더 -->
@@ -753,7 +756,7 @@
     <div class="hist-filter-bar">
       <input class="inp" id="histSearchInp" placeholder="제목 검색..." style="font-size:var(--fs-sm);padding:5px 10px;flex:1">
       <button class="hist-filter-toggle" id="histFilterHasFile" data-filter="hasFile">파일 있는 것만</button>
-      <select id="histSortSel" style="font-size:var(--fs-xs);padding:4px 7px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-family:inherit;cursor:pointer;height:30px" onchange="renderHistory&&renderHistory()"><option value="newest">최신순</option><option value="oldest">오래된순</option><option value="size">크기순</option><option value="chapters">챕터순</option></select>
+      <select id="histSortSel" style="font-size:var(--fs-xs);padding:4px 7px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-family:inherit;cursor:pointer;height:30px" data-input-action="renderHistory"><option value="newest">최신순</option><option value="oldest">오래된순</option><option value="size">크기순</option><option value="chapters">챕터순</option></select>
     </div>
     <div id="histList"></div>
   </div>
@@ -767,11 +770,11 @@
   <div class="card">
     <div style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:6px">포인트 컬러를 선택하세요. 라이트·다크 모드와 독립적으로 동작합니다.</div>
     <div class="skin-swatch-wrap">
-      <div class="skin-swatch active" id="skin-terracotta" onclick="setSkin('terracotta')" title="테라코타 (기본)" aria-label="테라코타 스킨"></div>
+      <div class="skin-swatch active" id="skin-terracotta" data-action="setSkin" data-skin="terracotta" title="테라코타 (기본)" aria-label="테라코타 스킨"></div>
       <span class="skin-swatch-label">테라코타</span>
-      <div class="skin-swatch" id="skin-indigo" onclick="setSkin('indigo')" title="인디고 블루" aria-label="인디고 블루 스킨"></div>
+      <div class="skin-swatch" id="skin-indigo" data-action="setSkin" data-skin="indigo" title="인디고 블루" aria-label="인디고 블루 스킨"></div>
       <span class="skin-swatch-label">인디고</span>
-      <div class="skin-swatch" id="skin-forest" onclick="setSkin('forest')" title="포레스트 그린" aria-label="포레스트 그린 스킨"></div>
+      <div class="skin-swatch" id="skin-forest" data-action="setSkin" data-skin="forest" title="포레스트 그린" aria-label="포레스트 그린 스킨"></div>
       <span class="skin-swatch-label">포레스트</span>
     </div>
   </div>
@@ -1094,6 +1097,11 @@
       </div>
       <small id="optReaderProfileDesc" class="reader-profile-desc" aria-live="polite">표지 최대 높이 1200px · 다크 모드 기본색 포함 · 삽화 설정 따름</small>
     </div>
+    <!-- ★ Phase 15: 스트리밍 저장 -->
+    <div class="toggle-row">
+      <div><label for="optStreamSave">저장 위치 먼저 고르기</label><small id="optStreamSaveDesc">변환을 시작할 때 저장 위치를 고르면 EPUB을 메모리에 모으지 않고 파일로 바로 저장해요 · 대용량 원고용 (Chrome·Edge)</small></div>
+      <label class="sw"><input type="checkbox" id="optStreamSave" data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
+    </div>
     <div class="row" style="padding:4px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
       <label class="txt-label-bold" style="flex:1" for="optLang">EPUB 메타 언어</label>
       <select id="optLang" data-input-action="saveExtraSettings" style="font-size:var(--fs-sm);padding:4px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--panel);color:var(--text)">
@@ -1118,6 +1126,8 @@
   </div>
 </div>
 <!-- ★ API 설정 — 접기/펴기 -->
+<!-- ★ Phase 15: API 키 저장 여부 -->
+<label class="opt-check api-remember"><input type="checkbox" id="optRememberApiKeys" checked data-input-action="saveApiSettings"><span>이 기기에 API 키 저장 <small>끄면 저장된 키를 지우고 이 탭에서만 사용해요 (새로고침하면 다시 입력)</small></span></label>
 <details class="settings-details" style="margin:0 0 14px">
   <summary class="settings-summary">Gemini API 설정</summary>
   <div class="settings-details-body">
@@ -1127,14 +1137,15 @@
     </div>
     <div class="adv-css-row" style="border:none">
       <span class="adv-css-lbl" style="min-width:100px">API Key</span>
-      <input class="inp" id="geminiApiKey" type="text" autocomplete="off"
-        placeholder="AIza..." style="font-size:var(--fs-sm);-webkit-text-security:disc"
+      <input class="inp" id="geminiApiKey" type="password" autocomplete="new-password" spellcheck="false"
+        placeholder="AIza..." style="font-size:var(--fs-sm)"
         data-input-action="saveApiSettings">
+      <button type="button" class="btn btn-ghost btn-sm secret-toggle" data-action="toggleSecret" data-target="geminiApiKey" aria-pressed="false" aria-label="Gemini API 키 보기">보기</button>
       <span id="geminiKeyStatus" style="font-size:var(--fs-xs);padding:2px 7px;border-radius:var(--radius-xs);white-space:nowrap;display:none"></span>
     </div>
     <div style="margin-top:8px;padding:8px 10px;background:var(--blue-bg);border-radius:var(--radius-xs);font-size:var(--fs-xs);color:var(--blue);line-height:1.7">
-      💡 <a href="https://aistudio.google.com/app/apikey" target="_blank" style="color:var(--blue);font-weight:600">Google AI Studio</a>에서 무료 발급 →
-      키는 이 기기의 localStorage에만 저장되며 외부로 전송되지 않아요.
+      💡 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="color:var(--blue);font-weight:600">Google AI Studio</a>에서 무료 발급 →
+      키는 정규식을 만들 때 Google API로만 전송돼요 (요청 헤더, 주소에 남지 않음).
     </div>
   </div>
 </details>
@@ -1151,7 +1162,8 @@
     </div>
     <div class="adv-css-row" style="border:none;padding-top:4px">
       <span class="adv-css-lbl" style="min-width:100px">Client Secret</span>
-      <input class="inp" id="naverClientSecret" type="text" autocomplete="off" placeholder="네이버 API Client Secret" style="font-size:var(--fs-sm);-webkit-text-security:disc" data-input-action="saveApiSettings">
+      <input class="inp" id="naverClientSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="네이버 API Client Secret" style="font-size:var(--fs-sm)" data-input-action="saveApiSettings">
+      <button type="button" class="btn btn-ghost btn-sm secret-toggle" data-action="toggleSecret" data-target="naverClientSecret" aria-pressed="false" aria-label="네이버 Client Secret 보기">보기</button>
     </div>
     <div style="margin-top:8px;padding:8px 10px;background:var(--blue-bg);border-radius:var(--radius-xs);font-size:var(--fs-xs);color:var(--blue);line-height:1.7">
       💡 <a href="https://developers.naver.com/apps/#/register" target="_blank" style="color:var(--blue);font-weight:600">네이버 개발자 센터</a>에서 애플리케이션 등록 → <b>검색 (책)</b> API 사용 신청 → Client ID/Secret 발급<br>
@@ -1285,8 +1297,8 @@
     <p>예기치 않은 오류가 발생했어요.<br>페이지를 새로고침하면 대부분 해결돼요.</p>
     <div class="error-boundary-detail" id="errorBoundaryDetail"></div>
     <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
-      <button class="btn btn-accent" onclick="location.reload()">새로고침</button>
-      <button class="btn btn-ghost" onclick="document.getElementById('errorBoundary').classList.remove('show')">닫기</button>
+      <button class="btn btn-accent" data-action="reloadPage">새로고침</button>
+      <button class="btn btn-ghost" data-action="closeErrorBoundary">닫기</button>
     </div>
   </div>
 </div>

@@ -67,6 +67,8 @@ function saveExtraSettings(){
       cleanup:_readCleanupSettings(),
       // ★ Phase 14: 리더기 프로필
       readerProfile:document.getElementById('optReaderProfile')?.value||'default',
+      // ★ Phase 15: 스트리밍 저장
+      streamSave:document.getElementById('optStreamSave')?.checked===true,
     }));
   }catch(e){}
 }
@@ -103,16 +105,31 @@ function _syncNoisePanel(){
 }
 
 // ★ API 키 저장/로드 (Gemini, Naver)
+// ★ Phase 15: '이 기기에 키 저장'을 끄면 localStorage에서 즉시 지우고 이 탭에서만 사용 (새로고침하면 사라짐)
 function saveApiSettings(){
   try{
+    const remember=document.getElementById('optRememberApiKeys')?.checked!==false;
+    localStorage.setItem('novelepub_api_remember', remember?'1':'0');
+    if(!remember){ localStorage.removeItem('novelepub_api'); return; }
     const gemini=(document.getElementById('geminiApiKey')?.value||'').trim();
     const naverId=(document.getElementById('naverClientId')?.value||'').trim();
     const naverSecret=(document.getElementById('naverClientSecret')?.value||'').trim();
     localStorage.setItem('novelepub_api',JSON.stringify({gemini,naverId,naverSecret}));
   }catch(e){}
 }
+// ★ Phase 15: 키 입력란 보기/숨기기 (type password ↔ text)
+function toggleSecretField(id, btn){
+  const el=document.getElementById(id);
+  if(!el) return;
+  const show=el.type==='password';
+  el.type=show?'text':'password';
+  if(btn){ btn.textContent=show?'숨기기':'보기'; btn.setAttribute('aria-pressed', String(show)); }
+}
 function loadApiSettings(){
   try{
+    const remember=localStorage.getItem('novelepub_api_remember')!=='0';
+    const rc=document.getElementById('optRememberApiKeys'); if(rc) rc.checked=remember;
+    if(!remember){ localStorage.removeItem('novelepub_api'); return; }
     const s=JSON.parse(localStorage.getItem('novelepub_api')||'{}');
     if(s.gemini){ const el=document.getElementById('geminiApiKey'); if(el) el.value=s.gemini; }
     if(s.naverId){ const el=document.getElementById('naverClientId'); if(el) el.value=s.naverId; }
@@ -157,6 +174,14 @@ function loadExtraSettings(){
       const rp=document.getElementById('optReaderProfile'); if(rp) rp.value=s.readerProfile;
     }
     _syncReaderProfileDesc();
+    // ★ Phase 15: 스트리밍 저장 — 지원하지 않는 브라우저는 비활성 + 안내
+    const ss=document.getElementById('optStreamSave');
+    if(ss){
+      const ok=typeof window.showSaveFilePicker==='function';
+      ss.checked=ok&&s.streamSave===true;
+      ss.disabled=!ok;
+      if(!ok){ const d=document.getElementById('optStreamSaveDesc'); if(d) d.textContent='이 브라우저는 파일 직접 저장(File System Access)을 지원하지 않아요 — Chrome·Edge 데스크톱에서 사용할 수 있어요'; }
+    }
   }catch(e){}
 }
 
@@ -457,7 +482,7 @@ function renderCssPresetList(){
     chip.title=`폰트: ${p.font}\n줄간격: ${p.line}\n여백: ${p.padTop||'1.5'}/${p.padLeft||'1.8'}em`;
     chip.innerHTML=
       `<span>${escHtml(p.name)}</span>`+
-      (isDefault?'':'<button class="preset-del" onclick="deletePreset(\''+escAttr(p.name)+'\')" title="삭제">✕</button>');
+      (isDefault?'':'<button class="preset-del" data-action="deletePreset" data-name="'+escHtml(p.name)+'" title="삭제">✕</button>');
     chip.querySelector('span').addEventListener('click',()=>applyPreset(p));
     container.appendChild(chip);
   });
@@ -476,7 +501,7 @@ function buildFontDropdown(){
   if(!selects||!selects.length) return; // guard: DOM 없으면 조용히 반환
   selects.forEach(sel=>{
     if(!sel) return;
-    sel.innerHTML=SUPPORTED_FONTS.map(f=>
+    sel.innerHTML=SUPPORTED_FONTS.map(f=>  // safe-html: SUPPORTED_FONTS 상수 목록
       `<option value="${f.family}">${f.label}</option>`
     ).join('');
   });
@@ -1112,7 +1137,8 @@ async function idbClear(){
 async function saveHistory(entry){
   const key='hist_'+(typeof genUID==='function'?genUID():Date.now()+'_'+Math.random().toString(36).slice(2));
   // ★ Phase 10: 파일 저장 실패(저장 공간 부족 등)는 안내만 — 기록 메타는 남기고 다운로드 버튼은 '파일 없음'으로 표시됨
-  const stored=await idbSet(key, entry.blob);
+  // ★ Phase 15: 스트리밍 저장(blob 없음)은 파일 없이 기록만 — 사용자가 고른 위치에 이미 저장됨
+  const stored=entry.blob?await idbSet(key, entry.blob):true;
   if(!stored&&typeof Toast!=='undefined') Toast.warn('변환 기록에 EPUB 파일을 저장하지 못했어요 (브라우저 저장 공간 부족). 변환 결과는 정상이에요.',5000);
   let metas=loadHistMetas();
   metas.unshift({key,title:entry.title,author:entry.author,chapterCount:entry.chapterCount,
@@ -1206,7 +1232,7 @@ async function renderHistory(){
     const safeKey        = escAttr(String(m.key||''));
     const safeName       = escAttr(String(m.name||''));
     // compareBadge는 내부 로직이 생성한 HTML — 이미 escHtml 처리된 상태
-    row.innerHTML=
+    row.innerHTML=  // safe-html: safe* 값은 바로 위에서 escHtml/escAttr 처리
       '<div class="hist-thumb">📚</div>'+
       '<div class="hist-info">'+
         '<div class="hist-title">'+escHtml(m.title)+(m.author?'<span style="font-weight:400;color:var(--text2);font-size:var(--fs-xs)"> / '+escHtml(m.author)+'</span>':'')+(compareBadge?' '+compareBadge:'')+'</div>'+

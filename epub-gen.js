@@ -397,6 +397,26 @@ async function _epubWorkerMain(e){
     opf.push('</manifest>\n<spine toc="ncx">\n');spineItems.forEach(s=>opf.push('<itemref idref="'+s+'"/>\n'));opf.push('</spine>\n</package>');
     oebps.file('content.opf',opf.join(''));
     prog(92,'압축 중...');
+    // ★ Phase 15: 스트리밍 저장 — 결과 ZIP을 메모리에 모으지 않고 조각(chunk)마다 메인 스레드로 보내 파일에 바로 기록
+    if(params.stream){
+      let total=0, lastPct=-1;
+      await new Promise((resolve,reject)=>{
+        zip.generateInternalStream({type:'uint8array',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:compressionLevel},streamFiles:true})
+          .on('data',(data,meta)=>{
+            const c=data.slice();   // JSZip 내부 버퍼를 분리하지 않도록 복사본을 전송
+            total+=c.byteLength;
+            self.postMessage({type:'chunk',data:c},[c.buffer]);
+            const p=Math.floor(meta.percent);
+            if(p!==lastPct){ lastPct=p; self.postMessage({type:'progress',pct:92+Math.floor(p*0.07),msg:'파일에 저장 중 '+p+'%...'}); }
+          })
+          .on('error',reject)
+          .on('end',resolve)
+          .resume();
+      });
+      imgStore.clear();
+      self.postMessage({type:'done',streamed:true,size:total});
+      return;
+    }
     let blob;
     try{
       blob=await zip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:compressionLevel},streamFiles:true},
@@ -502,6 +522,38 @@ function _fontFaceForEpub(font){
   return font?'@font-face{font-family:"'+font.family+'";src:url("Fonts/'+font.name+'") format("'+font.fmt+'");}\n':'';
 }
 
+// ★ Phase 15: EPUB Worker 재사용 — 소스 문자열·Blob URL은 1회 생성, 끝난 Worker는 30초간 유휴 보관 후 재사용
+//   (이전: 변환마다 소스 생성 → Blob URL → new Worker → importScripts(JSZip) → terminate.
+//    일괄 변환 100권이면 Worker 100개를 띄우고 JSZip을 100번 파싱)
+//   오류·중단으로 끝난 Worker는 상태를 믿을 수 없어 재사용하지 않고 종료
+const _EPUB_WORKER_IDLE_MS=30000;
+const _epubWorkerPool={key:null, url:null, idle:null, idleTimer:null};
+function _acquireEpubWorker(jszipUrl){
+  const p=_epubWorkerPool;
+  if(!p.url||p.key!==jszipUrl){
+    if(p.idle){ p.idle.terminate(); p.idle=null; }
+    if(p.url) URL.revokeObjectURL(p.url);
+    p.url=URL.createObjectURL(new Blob([_buildWorkerSrc(jszipUrl)],{type:'application/javascript'}));
+    p.key=jszipUrl;
+  }
+  if(p.idle){
+    const w=p.idle; p.idle=null; clearTimeout(p.idleTimer);
+    return w;
+  }
+  return new Worker(p.url);
+}
+function _releaseEpubWorker(worker, healthy){
+  const p=_epubWorkerPool;
+  worker.onmessage=null; worker.onerror=null;
+  if(!healthy||p.idle){ worker.terminate(); return; }
+  p.idle=worker;
+  clearTimeout(p.idleTimer);
+  p.idleTimer=setTimeout(()=>{
+    if(p.idle){ p.idle.terminate(); p.idle=null; }
+    if(p.url){ URL.revokeObjectURL(p.url); p.url=null; p.key=null; }
+  }, _EPUB_WORKER_IDLE_MS);
+}
+
 // ══════════════════════════════════════════
 // P2-03: launchEpubWorker — Worker URL 누수 방지 + renderedBodies 제거
 // ══════════════════════════════════════════
@@ -532,20 +584,18 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
     file_idx: i,
   }));
 
-  // ② Blob Worker 생성
-  const jszipUrl  = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
-  const workerSrc  = _buildWorkerSrc(jszipUrl);
-  const workerBlob = new Blob([workerSrc], {type:'application/javascript'});
-  const workerUrl  = URL.createObjectURL(workerBlob);
-
+  // ② Worker 확보 (★ Phase 15: 유휴 Worker 재사용)
+  // ★ Phase 15: 로컬 lib/jszip.min.js (Blob Worker의 importScripts는 절대 URL 필요)
+  const jszipUrl  = new URL('lib/jszip.min.js', document.baseURI).href;
   let worker;
-  // ★ P2-03: new Worker 예외 시 URL 누수 방지
   try{
-    worker = new Worker(workerUrl);
+    worker = _acquireEpubWorker(jszipUrl);
   }catch(e){
-    URL.revokeObjectURL(workerUrl);
     throw new Error('Worker 생성 실패 (CSP 또는 환경 제한): '+e.message);
   }
+  // ★ Phase 15: 스트리밍 저장 대상 (FileSystemWritableFileStream) — 있으면 Worker가 조각 단위로 보냄
+  const writable = opts?.writable || null;
+  let writeChain = Promise.resolve();
 
   // ③ Worker 메시지 통신
   return new Promise((resolve, reject)=>{
@@ -553,8 +603,9 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
     const finish=(fn, val)=>{
       if(settled) return;
       settled=true;
-      worker.terminate();
-      URL.revokeObjectURL(workerUrl);
+      // ★ Phase 15: 정상 완료만 재사용, 오류·중단은 종료 / 스트리밍 실패 시 쓰다 만 파일 폐기
+      _releaseEpubWorker(worker, fn===resolve);
+      if(fn!==resolve&&writable) writable.abort?.().catch?.(()=>{});
       signal?.removeEventListener('abort', onAbort);
       fn(val);
     };
@@ -567,7 +618,21 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
         if(!settled) onProgress&&onProgress(pct, msg);
         return;
       }
-      if(type==='done'){ finish(resolve, blob); return; }
+      if(type==='chunk'){
+        const data=e.data.data;
+        writeChain=writeChain.then(()=>writable.write(data));
+        writeChain.catch(err=>finish(reject, new Error('파일 저장 실패: '+(err?.message||err))));
+        return;
+      }
+      if(type==='done'){
+        if(e.data.streamed){
+          const size=e.data.size||0;
+          writeChain.then(()=>writable.close()).then(()=>finish(resolve, {streamed:true, size}))
+            .catch(err=>finish(reject, new Error('파일 저장 실패: '+(err?.message||err))));
+          return;
+        }
+        finish(resolve, blob); return;
+      }
       if(type==='error'){
         // ★ P2-04: message에 스택 트레이스 포함됨
         // ★ Phase 10: EPUB 생성 실패는 치명적 오류(일반 Error) — 호출자가 오류 박스로 표시
@@ -610,6 +675,7 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
           // ★ Part2: 본문 공백 최적화 플래그 전달
           removeBlankLines,
           sceneBreak,
+          stream: !!writable,
           publisher,
           series: String(series||'').trim(),
           seriesIndex: Math.max(0, parseInt(seriesIndex,10)||0),
