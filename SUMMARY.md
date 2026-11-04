@@ -510,6 +510,25 @@
 - 테스트 343 → 358개 전부 통과
 - 브라우저 E2E(Chromium, CSP 적용): manifest 파싱 오류 0(CDP), launchQueue로 .txt 열기 → 25화 감지, 목차 병합 후 새 탭에서 복원 제안 → 24화·제목 복원, 파일 추가·개별 제거 후 하단 바 갱신, 폰 프레임, 표지 검색 모달 포커스 진입·Tab 25회 순환 유지·검색창에서 Esc로 닫힘·여는 버튼으로 포커스 복귀, 스킨 견본 Enter, 콘솔 오류·CSP 위반 0
 
+### Phase 17 — 상태 구독 · 스타일 정리 2단계
+
+#### 1) StateManager 구독 2단계 (`core.js`, `convert.js`, `ui-state.js`)
+- `S.converting` 추가 — 변환 중복 실행 방지용 모듈 변수 `_convertRunning`을 대체하는 단일 소스
+- 변환 버튼 `disabled`·`aria-busy`는 `S.converting` 구독이 반영 (저장 위치 선택 대기 중에도 잠김)
+- 다운로드 바: `S.epubBlob`이 생기면 표시, `null`이 되면 숨김 + 변환 탭이면 변환 바 복귀 — 변환 완료·초기화·새 파일 로드 경로에서 직접 부르던 코드 제거 (`_hideEpubDownloadBar` 신설)
+- `S.epubName`을 `S.epubBlob`보다 먼저 설정 → 구독이 바를 띄울 때 새 파일명 사용 (이전 이름이 잠깐 보이는 문제 방지)
+- 스트리밍 저장은 결과 Blob이 없으므로 다운로드 바가 뜨지 않음 (기존 동작 그대로)
+
+#### 2) 인라인 스타일 정리 2단계 (`index.html`, `style.css`)
+- 반복 패턴 18종 36곳 → 클래스 (`.note-blue`·`.inp-xs`·`.lbl-110`·`.code-accent`·`.hr-fill`·`.sep-top`·`.u-row-6` 등 14개 신설, `txt-meta-sm`·`opt-select`·`u-*` 재사용)
+- id가 있는 요소의 1회성 style 27곳 → `style.css`의 `#id` 규칙 (값·토큰 그대로)
+- `display:none`(스크립트가 표시 전환) 48곳과 id 없는 1회성 style은 유지 → 183 → 120
+- 검증: 데스크톱 라이트·다크·모바일 390px × 5개 탭, 접힌 패널 펼침 + 숨김 패널 강제 표시 상태까지 변경 전후 **픽셀 차이 0** (1회 6px 차이는 재실행 시 사라진 타이밍 노이즈)
+
+#### 3) 검증
+- 테스트 358 → 371개 전부 통과 (실제 `StateManager`로 구독 순서 busy → 바 표시(새 이름) → busy 해제 → 숨김 확인 포함)
+- 브라우저 E2E(Chromium, CSP 적용): 변환 중 샘플 25회 모두 버튼 disabled·aria-busy, 완료 후 다운로드 바 표시·파일명 `p17.epub`, 결과 초기화 시 바 숨김·변환 바 복귀, 스트리밍 저장 145조각·바 없음, 콘솔 오류·CSP 위반 0
+
 ---
 
 ## 개선 30개 적용 결과 (Phase 13~16)
@@ -521,7 +540,7 @@
 | 성능·안정성 | 5/5 | Phase 12(64KB 감지) + Phase 15 |
 | UX/UI | 5/5 | Phase 16 + Phase 12(프록시 자동 재시도) |
 | 보안·인프라 | 5/5 | Phase 12(Worker 허용 목록) + Phase 15 |
-| 유지보수 | 3/5 + 부분 | 인코딩 단일화·테스트 확장 완료, StateManager·인라인 스타일은 점진 1단계, `@ts-check`는 외부 도구 미사용 결정으로 제외 (ESLint는 자체 정적 검사로 대체) |
+| 유지보수 | 3/5 + 부분 | 인코딩 단일화·테스트 확장 완료, StateManager·인라인 스타일은 점진 2단계(Phase 17)까지, `@ts-check`는 외부 도구 미사용 결정으로 제외 (ESLint는 자체 정적 검사로 대체) |
 
 ---
 

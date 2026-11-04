@@ -1371,3 +1371,46 @@ body.modal-open .page-tabs{
 .u-desc{font-size:var(--fs-sm);color:var(--text2);margin-bottom:10px;line-height:1.7}
 .u-desc-8{font-size:var(--fs-sm);color:var(--text2);margin-bottom:8px}
 .u-text2-sm{font-size:var(--fs-sm);color:var(--text2)}
+
+/* ★ Phase 17: 인라인 style 2단계 — 반복 패턴은 클래스, id가 있는 요소의 1회성 style은 id 규칙 (값·토큰 그대로) */
+.note-blue{margin-top:8px;padding:8px 10px;background:var(--blue-bg);border-radius:var(--radius-xs);font-size:var(--fs-xs);color:var(--blue);line-height:1.7}
+.inp-xs{margin-top:4px;font-size:var(--fs-xs);padding:3px 6px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text)}
+.u-row-wrap-6{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.u-lh-17{line-height:1.7}
+.hr-fill{height:1px;flex:1;background:var(--border)}
+.sep-top{height:10px;border-top:1px solid var(--border);margin-top:12px}
+.lbl-110{font-size:var(--fs-xs);color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px}
+.code-accent{font-size:var(--fs-xs);color:var(--accent);font-family:monospace;flex:1;word-break:break-all;min-width:0}
+.u-pad-btn-sm{padding:6px 14px}
+.u-pad-btn-xs{padding:4px 10px}
+.u-shrink-0{flex-shrink:0}
+.u-row-6{display:flex;gap:6px;align-items:center}
+.u-link-blue{color:var(--blue);font-weight:600}
+.u-accent{color:var(--accent)}
+#pattern{transition:border-color .15s;width:100%;padding-right:28px}
+#tocShortcutHint{margin-left:auto;align-self:center;padding-right:4px;transition:opacity .5s}
+#toc-stat{display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid var(--border);min-height:32px}
+#tocMiniChart{padding:4px 8px 0;cursor:pointer}
+#resultStats{display:flex;justify-content:center;gap:10px;margin:12px 0;flex-wrap:wrap}
+#resultMsg{font-size:var(--fs-xs);margin-bottom:10px}
+#splitN{max-width:80px}
+#extractProgBar{width:0%}
+#extractProgMsg{font-size:var(--fs-xs);color:var(--text2);margin-top:4px}
+#eTocDetectLabel{padding:6px 4px 0}
+#directEditCssInput{width:100%;height:160px;font-family:monospace;font-size:var(--fs-sm);line-height:1.6;resize:vertical}
+#insTocCount{color:var(--accent);font-weight:600}
+#insTocFilterBar{padding:10px 12px;background:var(--bg2);border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:10px}
+#insTocRefChapter{flex:1;min-width:140px;font-size:var(--fs-xs);padding:4px 7px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-family:inherit}
+#insTocRangeInfo{font-size:var(--fs-xs);color:var(--accent);margin-top:5px;font-weight:600}
+#editIllDrop{padding:12px}
+#histSearchInp{font-size:var(--fs-sm);padding:5px 10px;flex:1}
+#histSortSel{font-size:var(--fs-xs);padding:4px 7px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-family:inherit;cursor:pointer;height:30px}
+#optImgQuality{width:90px}
+#optImgQualityVal{font-size:var(--fs-sm);font-weight:700;color:var(--accent);min-width:36px}
+#cssImportDrop{padding:8px}
+#cssExtra{width:100%;height:auto;min-height:60px;overflow-y:hidden;resize:vertical;font-family:monospace;font-size:var(--fs-xs);padding:7px 9px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);resize:vertical;outline:none}
+#cssPreviewTitle{font-size:1.1em;display:block;text-align:center;margin-bottom:10px}
+#optDefaultPat{max-width:220px;font-size:var(--fs-sm)}
+#optPublisher{max-width:180px;font-size:var(--fs-sm)}
+#previewPageInfo{font-size:var(--fs-sm);color:var(--text2);align-self:center}
+#btmConvert{display:flex}

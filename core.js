@@ -570,6 +570,7 @@ const PAT_PRESETS = [
 const _sStore  = StateManager.create('convert', {
   txtFiles:[], coverFile:null, illFiles:[], tocItems:[],
   epubBlob:null, epubName:'', manualCnt:0,
+  converting:false, // ★ Phase 17: 변환 진행 중 (변환 버튼 disabled·aria-busy는 구독으로 반영)
   _rawTextFull:[], _detectedPat:null, _detectedName:'',
   _coverAuto:false, // ★ 표지가 파일명 유사도 자동 매칭으로 지정됐는지 (수동 지정 표지 보호용)
   _autoSplitActive:false // ★ Phase 10: 간격 분할 모드 (window._autoSplitActive 접근자 백킹 — parser.js)

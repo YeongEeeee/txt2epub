@@ -1154,6 +1154,20 @@ function setupEventDelegate(){
   //   (이전: handleTxt·reset 등 호출 지점마다 updateBtmBar를 직접 불러 순서 변경·개별 제거 후에는 갱신 누락)
   _sStore.subscribe((state, prev) => {
     if (state.txtFiles !== prev?.txtFiles) updateBtmBar(state.txtFiles);
+    // ★ Phase 17: 변환 결과 → 하단 다운로드 바 (생기면 표시, 사라지면 숨기고 변환 바로)
+    //   (이전: 변환 완료·초기화 지점마다 바를 직접 조작)
+    if (state.epubBlob !== prev?.epubBlob) {
+      if (state.epubBlob) typeof _showEpubDownloadBar==='function'&&_showEpubDownloadBar(state.epubName);
+      else typeof _hideEpubDownloadBar==='function'&&_hideEpubDownloadBar();
+    }
+    // ★ Phase 17: 변환 중 → 변환 버튼 비활성·aria-busy (재진입 방지 표시)
+    if (state.converting !== prev?.converting) {
+      const btn = document.getElementById('convertBtn');
+      if (btn) {
+        btn.disabled = !!state.converting;
+        if (state.converting) btn.setAttribute('aria-busy','true'); else btn.removeAttribute('aria-busy');
+      }
+    }
     const bar = document.getElementById('convertResetBar');
     if (bar) bar.style.display = (state.txtFiles.length || state.coverFile) ? 'flex' : 'none';
     if(state.tocItems) {

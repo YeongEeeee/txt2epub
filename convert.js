@@ -1482,7 +1482,7 @@ function setProgress(pct, msg){
 // ✨ Module: Convert (변환 실행 플로우)
 // ══════════════════════════════════════════
 // ★ Phase 9: 변환 재진입 방지 — 버튼 연타·단축키 반복으로 변환이 동시에 2개 이상 돌던 문제
-let _convertRunning=false;
+// ★ Phase 17: 변환 진행 상태는 S.converting(StateManager) 단일 소스 — 변환 버튼 상태는 ui-state.js 구독이 반영
 let _batchRunning=false;
 
 // ★ Phase 15: 스트리밍 저장 — 변환 시작 시 저장 위치를 먼저 고르면 EPUB을 메모리에 모으지 않고 파일로 바로 기록
@@ -1505,11 +1505,11 @@ async function _pickStreamTarget(title){
 
 async function startConvert(){
   if(!S.txtFiles.length){Toast.warn('TXT 파일을 선택해주세요.');return;}
-  if(_convertRunning){Toast.info('변환이 이미 진행 중이에요.');return;}
+  if(S.converting){Toast.info('변환이 이미 진행 중이에요.');return;}
   // ★ Phase 15: 스트리밍 저장 위치 선택 (취소하면 변환하지 않음)
-  _convertRunning=true;
+  S.converting=true;
   const streamTarget=await _pickStreamTarget(document.getElementById('title')?.value.trim());
-  _convertRunning=false;
+  S.converting=false;
   if(streamTarget==='cancel'){ Toast.info('저장 위치 선택을 취소했어요.',2000); return; }
   let streamDone=false;
   const convertStart=Date.now();
@@ -1552,10 +1552,7 @@ async function startConvert(){
     document.getElementById('progWrap')?.classList.remove('show');
   };
 
-  _convertRunning=true;
-  const _convertBtnEl=document.getElementById('convertBtn');
-  _convertBtnEl?.setAttribute('aria-busy','true');
-  if(_convertBtnEl) _convertBtnEl.disabled=true;
+  S.converting=true;   // ★ Phase 17: 버튼 disabled·aria-busy는 구독이 처리
   try{
     const sorted=[...S.txtFiles];
     const customPat=document.getElementById('pattern')?.value.trim();
@@ -1700,8 +1697,9 @@ async function startConvert(){
     epubWarnings = epubWarnings.concat(_collectConvertWarnings(chapters, illMap));
     // ★ Phase 13: 본문 정리 결과 요약 (사용자가 켠 옵션이 실제로 무엇을 바꿨는지)
     epubWarnings = epubWarnings.concat(_describeCleanStats(cleanStats, cleanOpts));
-    S.epubBlob=blob;
+    // ★ Phase 17: 이름을 먼저 정한 뒤 Blob 설정 → 구독(S.epubBlob)이 다운로드 바를 띄울 때 새 이름 사용
     S.epubName=streamed?(streamTarget.name||title.replace(/[\\/:*?"<>|]/g,'_')+'.epub'):title.replace(/[\\/:*?"<>|]/g,'_')+'.epub';
+    S.epubBlob=blob;
     const outBytes=streamed?sizeBytes:blob.size;
     const elapsed=((Date.now()-convertStart)/1000).toFixed(1);
     setProgress(100,'✅ 변환 완료! ('+elapsed+'초)');
@@ -1748,8 +1746,7 @@ async function startConvert(){
     }
     if(!streamed){
       _showShareBtnIfSupported(); // ★ C-04: 공유 버튼 조건부 표시
-      // ★ EPUB 다운로드 완료 플로팅 바 활성화
-      _showEpubDownloadBar(S.epubName);
+      // ★ Phase 17: 다운로드 바는 S.epubBlob 구독(ui-state.js)이 표시
     } else {
       Toast.success('💾 '+S.epubName+' 파일로 저장했어요');
     }
@@ -1791,9 +1788,7 @@ async function startConvert(){
     (_progWrapEl || document.getElementById('progWrap'))?.classList.remove('show');
     const _ab = document.getElementById('convertAbortBtn');
     if(_ab) _ab.style.display = 'none';
-    _convertRunning=false;
-    _convertBtnEl?.removeAttribute('aria-busy');
-    if(_convertBtnEl) _convertBtnEl.disabled=false;
+    S.converting=false;
   }
 }
 
@@ -2163,12 +2158,17 @@ function downloadEpub(){
 // ★ EPUB 다운로드 완료 플로팅 바 — 변환 완료 시 하단에 상시 표시
 // ★ Phase 10: 변환 결과 상태 해제 + 하단 바를 '변환' 상태로 복귀 (새 파일 로드·초기화 공용)
 function _resetConvertResultUi(){
+  // ★ Phase 17: 다운로드 바 숨김·변환 바 복귀는 S.epubBlob=null 구독이 처리
   S.epubBlob=null; S.epubName='';
   _previewChapters=[];
-  const dl=document.getElementById('btmDownload'); if(dl) dl.style.display='none';
-  const cv=document.getElementById('btmConvert'); if(cv&&document.getElementById('page-convert')?.offsetParent!==null) cv.style.display='flex';
   document.getElementById('resultBox')?.classList.remove('show');
   const sp=document.getElementById('splitSec'); if(sp) sp.style.display='none';
+}
+
+// ★ Phase 17: 변환 결과가 사라지면(새 파일·초기화) 다운로드 바를 숨기고 변환 바로 복귀 — S.epubBlob 구독에서 호출
+function _hideEpubDownloadBar(){
+  const dl=document.getElementById('btmDownload'); if(dl) dl.style.display='none';
+  const cv=document.getElementById('btmConvert'); if(cv&&document.getElementById('page-convert')?.offsetParent!==null) cv.style.display='flex';
 }
 
 function _showEpubDownloadBar(epubName){

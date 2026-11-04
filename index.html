@@ -119,7 +119,7 @@
     <div class="row">
       <span class="lbl">챕터 정규식</span>
       <div class="pat-input-wrap">
-        <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" data-input-action="patternValidate" style="transition:border-color .15s;width:100%;padding-right:28px">
+        <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" data-input-action="patternValidate">
         <button id="patternClearBtn" aria-label="패턴 입력 지우기" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text2);font-size:var(--fs-base);padding:0;line-height:1" title="입력 지우기">✕</button>
       </div>
       <div class="pat-actions">
@@ -140,10 +140,10 @@
       </div>
     </div>
     <div id="smartPatResultBox" class="flex-row" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:var(--radius-xs);flex-wrap:wrap">
-      <span class="txt-meta-sm" style="flex-shrink:0">변환된 정규식:</span>
-      <code id="smartPatResult" style="font-size:var(--fs-xs);color:var(--accent);font-family:monospace;flex:1;word-break:break-all;min-width:0"></code>
+      <span class="txt-meta-sm u-shrink-0">변환된 정규식:</span>
+      <code class="code-accent" id="smartPatResult"></code>
       <span id="smartPatAiLabel" style="font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);padding:1px 5px;flex-shrink:0;display:none">AI</span>
-      <button class="btn btn-accent btn-sm" id="smartPatApplyBtn" data-action="applySmartPat" style="flex-shrink:0;font-size:var(--fs-xs);padding:4px 10px">적용</button>
+      <button class="btn btn-accent btn-sm u-shrink-0 u-fs-xs u-pad-btn-xs" id="smartPatApplyBtn" data-action="applySmartPat">적용</button>
     </div>
     <div class="chip-group-wrap" id="chipGroupWrap">
       <!-- ★ 카테고리 탭 바 -->
@@ -160,7 +160,7 @@
       <button type="button" class="chip-group-toggle" id="chipGroupToggle" data-action="toggleChipGroup" aria-expanded="false" aria-controls="patHelper" style="display:none"><span class="chip-group-toggle-icon" aria-hidden="true">▼</span> 더 보기</button>
     </div>
     <div id="patApplyBar" class="flex-row" style="display:none;margin-top:5px">
-      <button class="btn btn-accent btn-sm" data-action="applySelectedChips" style="font-size:var(--fs-sm);padding:6px 14px">선택한 패턴 적용</button>
+      <button class="btn btn-accent btn-sm u-fs-sm u-pad-btn-sm" data-action="applySelectedChips">선택한 패턴 적용</button>
       <span id="patApplyInfo" class="txt-meta-sm"></span>
     </div>
     <div class="hint">혼합 패턴 예시: <code>^(소설명 \d+|\d+화|\d+$)</code> · <code>[ 파일명.txt ]</code> 형식: <code>^\[\s*.+\.txt\s*\]\s*$</code> · 정규식 문법은 목차 패널의 <strong>정규식 수정</strong> 탭 참고</div>
@@ -198,15 +198,15 @@
         <button class="ttab" data-action="tocTab" data-idx="2">원본 텍스트</button>
         <button class="ttab" data-action="tocTab" data-idx="3">정규식 수정</button>
         <!-- ★ 단축키 힌트 -->
-        <span id="tocShortcutHint" class="txt-meta-sm" style="margin-left:auto;align-self:center;padding-right:4px;transition:opacity .5s"
+        <span id="tocShortcutHint" class="txt-meta-sm"
               title="Ctrl+클릭: 다중 선택 | Shift+클릭: 범위 선택 | 드래그 중앙: 병합 | ☑ 선택 모드: 터치 친화 | Ctrl+Enter: 변환 | Ctrl+D: 다운로드">
           Shift=범위선택 · 드래그중앙=병합
         </span>
       </div>
-      <div id="toc-stat" style="display:flex;gap:5px;align-items:center;flex-wrap:wrap;padding:5px 8px;border-bottom:1px solid var(--border);min-height:32px"></div>
+      <div id="toc-stat"></div>
       <!-- ★ Phase 13: 변환 전 검수 리포트 (누락 화수·중복·빈/짧은/긴 챕터 — 항목 클릭 시 목차 위치로 이동) -->
       <div id="tocReview" class="toc-review-host" style="display:none"></div>
-      <div id="tocMiniChart" style="padding:4px 8px 0;cursor:pointer" title="챕터별 글자수 분포 — 클릭해서 해당 챕터로 이동"></div>
+      <div id="tocMiniChart" title="챕터별 글자수 분포 — 클릭해서 해당 챕터로 이동"></div>
       <div class="toc-body" id="tb0"><div class="toc-empty"><div class="toc-empty-icon">📄</div><p>파일을 업로드하면<br>이곳에 목차가 생성됩니다</p></div></div>
       <div class="toc-body" id="tb1" style="display:none">
         <div id="tocPreviewList"></div>
@@ -236,8 +236,8 @@
             <tr><td class="cell-key">영문</td><td class="cell-val">영문 그대로, 끝에 i 플래그로 대소문자 무시</td><td class="cell-code">^chapter\s*\d+</td></tr>
           </table>
           <div style="margin-top:8px;padding:7px 10px;background:var(--yellow-bg);border-radius:var(--radius-xs);color:var(--yellow);border-left:3px solid var(--accent2)">
-            💡 <strong>이 파일 패턴 예시</strong>: <code style="color:var(--accent)">^\[\s*.+\.txt\s*\]\s*$</code> → <code style="color:var(--text2)">[ 0001_어떤 길은 나를 통했다.txt ]</code> 형식 인식<br>
-            혼합 예: <code style="color:var(--accent)">^(?:\[\s*.+\.txt\s*\]|\d+화).*$</code> → 두 패턴 동시 지원
+            💡 <strong>이 파일 패턴 예시</strong>: <code class="u-accent">^\[\s*.+\.txt\s*\]\s*$</code> → <code style="color:var(--text2)">[ 0001_어떤 길은 나를 통했다.txt ]</code> 형식 인식<br>
+            혼합 예: <code class="u-accent">^(?:\[\s*.+\.txt\s*\]|\d+화).*$</code> → 두 패턴 동시 지원
           </div>
         </div>
       </div>
@@ -307,8 +307,8 @@
 <!-- ★ 결과 카드 (stat 스타일) -->
 <div class="result" id="resultBox">
   <h3>변환 완료!</h3>
-  <div id="resultStats" style="display:flex;justify-content:center;gap:10px;margin:12px 0;flex-wrap:wrap"></div>
-  <p id="resultMsg" style="font-size:var(--fs-xs);margin-bottom:10px"></p>
+  <div id="resultStats"></div>
+  <p id="resultMsg"></p>
   <!-- ★ 단계별 소요시간 스파크라인 (_renderProgressSparkline) / 변환 경고 리포트 (_renderConvertReport) -->
   <div id="progressSparkline" class="progress-sparkline"></div>
   <div id="convertReport" role="status" aria-live="polite"></div>
@@ -325,7 +325,7 @@
     <div class="txt-hint-sm">변환된 epub을 N화씩 여러 파일로 나눠요.</div>
     <div class="row">
       <label class="lbl" for="splitN">분리 단위</label>
-      <input class="inp" id="splitN" type="number" min="1" value="100" style="max-width:80px"> 화씩
+      <input class="inp" id="splitN" type="number" min="1" value="100"> 화씩
       <button class="btn btn-blue" data-action="startSplit">분리 시작</button>
     </div>
     <div id="splitList" class="split-grid u-mt-10"></div>
@@ -349,7 +349,7 @@
       <button class="btn-reset" data-action="resetBatchCover">✕ 표지 이미지 초기화</button>
       <button class="btn-reset danger" data-action="resetBatchAll">전체 초기화</button>
     </div>
-    <div style="height:10px;border-top:1px solid var(--border);margin-top:12px"></div>
+    <div class="sep-top"></div>
     <div style="font-size:var(--fs-sm);font-weight:600;color:var(--text2);margin:8px 0 6px">표지 이미지</div>
     <div style="font-size:var(--fs-xs);color:var(--text2);margin-bottom:8px">파일명 자동 매핑: <code>1권.txt</code> → <code>1권.jpg</code> · 또는 항목의 + 클릭해서 직접 지정</div>
     <div class="dz u-p-10" id="batchCoverDrop">
@@ -366,7 +366,7 @@
       <button class="btn-search" data-action="applyCoverUrl" data-inp="batchCoverUrlInp" data-mode="batch">적용</button>
     </div>
     <div class="cover-search-hint">표지 검색으로 네이버·리디·노벨피아 결과를 볼 수 있어요</div>
-    <div style="height:10px;border-top:1px solid var(--border);margin-top:12px"></div>
+    <div class="sep-top"></div>
     <div class="row" style="padding:3px 0"><span class="lbl" style="width:80px">챕터 정규식</span><input class="inp" id="batchPattern" placeholder="비워두면 자동 감지"></div>
     <div class="toggle-row" style="padding:6px 0">
       <div><label for="batchItalic">회상 대사 이탤릭</label></div>
@@ -418,13 +418,13 @@
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="flex:1;min-width:0">
           <div style="font-size:var(--fs-sm);font-weight:600;color:var(--text);margin-bottom:3px">이미지 추출</div>
-          <div style="font-size:var(--fs-xs);color:var(--text2)" id="extractImgInfo">EPUB 내 이미지를 챕터명으로 추출해요</div>
+          <div class="txt-meta-sm" id="extractImgInfo">EPUB 내 이미지를 챕터명으로 추출해요</div>
         </div>
         <button class="btn btn-blue" id="extractImgBtn" data-action="extractEpubImages">이미지 추출</button>
       </div>
       <div id="extractImgProgress" style="display:none;margin-top:8px">
-        <div class="prog-bg" style="height:4px"><div class="prog-bar" id="extractProgBar" style="width:0%"></div></div>
-        <div id="extractProgMsg" style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px"></div>
+        <div class="prog-bg" style="height:4px"><div class="prog-bar" id="extractProgBar"></div></div>
+        <div id="extractProgMsg"></div>
       </div>
     </div>
   </div>
@@ -481,15 +481,15 @@
 
       <!-- AI 예시 입력 -->
       <div style="display:flex;flex-direction:column;gap:5px;margin-top:4px">
-        <div style="display:flex;gap:6px;align-items:center">
-          <span style="font-size:var(--fs-xs);color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px">예시 입력:</span>
+        <div class="u-row-6">
+          <span class="lbl-110">예시 입력:</span>
           <input class="inp u-fs-sm" id="eSmartPatInput"
             placeholder="예) 1화 제목 / [EP.001] / Chapter 1"
            
             data-input-action="eSmartPatConvert">
         </div>
-        <div style="display:flex;gap:6px;align-items:center">
-          <span style="font-size:var(--fs-xs);color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px">제외할 예시:</span>
+        <div class="u-row-6">
+          <span class="lbl-110">제외할 예시:</span>
           <input class="inp u-fs-sm" id="eSmartPatExclude"
             placeholder="챕터 제목이 아닌 줄 (예: 작가의 말)"
            
@@ -500,9 +500,9 @@
       <!-- AI 변환 결과 -->
       <div id="eSmartPatResultBox" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:var(--radius-xs);align-items:center;gap:8px;flex-wrap:wrap">
         <span style="font-size:var(--fs-xs);color:var(--text2);flex-shrink:0">변환된 정규식:</span>
-        <code id="eSmartPatResult" style="font-size:var(--fs-xs);color:var(--accent);font-family:monospace;flex:1;word-break:break-all;min-width:0"></code>
+        <code class="code-accent" id="eSmartPatResult"></code>
         <span id="eSmartPatAiLabel" style="font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);padding:1px 5px;flex-shrink:0;display:none">AI</span>
-        <button class="btn btn-accent btn-sm" data-action="applyESmartPat" style="flex-shrink:0;font-size:var(--fs-xs);padding:4px 10px">적용</button>
+        <button class="btn btn-accent btn-sm u-shrink-0 u-fs-xs u-pad-btn-xs" data-action="applyESmartPat">적용</button>
       </div>
 
       <!-- 빠른 선택 칩 -->
@@ -510,8 +510,8 @@
         <span style="font-size:var(--fs-xs);color:var(--text2);align-self:center">빠른 선택:</span>
       </div>
       <div id="eTocPatApplyBar" style="display:none;margin-top:5px;gap:6px;align-items:center">
-        <button class="btn btn-accent btn-sm" data-action="applyETocSelectedChips" style="font-size:var(--fs-sm);padding:6px 14px">선택한 패턴 적용</button>
-        <span id="eTocPatApplyInfo" style="font-size:var(--fs-xs);color:var(--text2)"></span>
+        <button class="btn btn-accent btn-sm u-fs-sm u-pad-btn-sm" data-action="applyETocSelectedChips">선택한 패턴 적용</button>
+        <span class="txt-meta-sm" id="eTocPatApplyInfo"></span>
       </div>
 
       <!-- 힌트 -->
@@ -524,7 +524,7 @@
           <button class="ttab" data-action="eTocTab" data-idx="1">원본 텍스트</button>
           <button class="ttab" data-action="eTocTab" data-idx="2">정규식 수정</button>
         </div>
-        <div class="txt-meta-sm" id="eTocDetectLabel" style="padding:6px 4px 0"></div>
+        <div class="txt-meta-sm" id="eTocDetectLabel"></div>
         <div class="toc-body" id="eTb0"><div class="toc-empty">목차 확인 버튼을 눌러주세요</div></div>
         <div class="toc-body" id="eTb1" style="display:none"></div>
         <div class="toc-body" id="eTb2" style="display:none">
@@ -549,7 +549,7 @@
       </div>
       <input type="file" id="directEditIllIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.avif" multiple hidden>
       <div id="directEditIllTags" class="tags u-mt-8"></div>
-      <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <div class="u-mt-10 u-row-wrap-6">
         <span class="u-text2-sm">매핑 방식</span>
         <label class="u-check-label">
           <input type="radio" name="directEditIllMode" value="auto" checked> 파일명 인덱스 자동
@@ -575,7 +575,7 @@
       </div>
       <div style="font-size:var(--fs-xs);font-weight:600;color:var(--text2);margin-bottom:5px">추가할 CSS 입력:</div>
       <textarea id="directEditCssInput" class="inp"
-        style="width:100%;height:160px;font-family:monospace;font-size:var(--fs-sm);line-height:1.6;resize:vertical"
+       
         placeholder="예)&#10;body { font-size: 1.1em; line-height: 1.9; }&#10;p { text-indent: 1em; }&#10;.chapter-title { font-weight: bold; text-align: center; }"></textarea>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap">
         <button class="btn btn-ghost btn-sm" data-action="directEditCssPreset" data-preset="indent">들여쓰기</button>
@@ -607,9 +607,9 @@
 <div class="sec u-mt-4">
   <div class="sec-hdr">
     <div style="width:100%;display:flex;align-items:center;gap:8px">
-      <div style="height:1px;flex:1;background:var(--border)"></div>
+      <div class="hr-fill"></div>
       <span style="font-size:var(--fs-xs);color:var(--text2);white-space:nowrap;padding:0 8px">TXT 삽입 (기존 기능)</span>
-      <div style="height:1px;flex:1;background:var(--border)"></div>
+      <div class="hr-fill"></div>
     </div>
   </div>
 </div>
@@ -617,7 +617,7 @@
 <div class="sec" id="editSec" style="display:none">
   <div class="sec-hdr"><span class="sec-title">현재 목차 (삽입 위치 선택)</span><div class="sec-line"></div></div>
   <div class="card">
-    <div style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:6px">클릭하면 삽입 위치로 선택돼요. <span style="color:var(--blue)">■ 파란색</span>은 새로 삽입될 챕터예요.</div>
+    <div class="u-text2-sm u-mb-6">클릭하면 삽입 위치로 선택돼요. <span style="color:var(--blue)">■ 파란색</span>은 새로 삽입될 챕터예요.</div>
     <div class="ch-list" id="chList"></div>
   </div>
 </div>
@@ -652,16 +652,16 @@
 <div class="sec" id="insTocSec" style="display:none">
   <div class="sec-hdr"><span class="sec-title">삽입할 챕터 선택</span><div class="sec-line"></div></div>
   <div class="card">
-    <div class="u-desc-8">중복 화는 체크 해제하세요. <span id="insTocCount" style="color:var(--accent);font-weight:600"></span></div>
+    <div class="u-desc-8">중복 화는 체크 해제하세요. <span id="insTocCount"></span></div>
     <!-- 기준 챕터 필터 (TXT 파일 챕터 기준) -->
-    <div id="insTocFilterBar" style="padding:10px 12px;background:var(--bg2);border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:10px">
+    <div id="insTocFilterBar">
       <!-- EPUB 마지막 위치 안내 -->
       <div id="insTocEpubInfo" style="font-size:var(--fs-xs);color:var(--text2);margin-bottom:8px;padding:6px 8px;background:var(--blue-bg);border-radius:var(--radius-xs);display:none">
         📖 <span id="insTocEpubInfoText"></span>
       </div>
       <div style="font-size:var(--fs-xs);font-weight:600;color:var(--text);margin-bottom:6px">TXT 챕터 기준으로 범위 선택</div>
       <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <select id="insTocRefChapter" style="flex:1;min-width:140px;font-size:var(--fs-xs);padding:4px 7px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-family:inherit">
+        <select id="insTocRefChapter">
           <option value="">— TXT 기준 챕터 선택 —</option>
         </select>
         <button class="btn btn-ghost btn-sm" data-action="applyInsTocRange" data-range="before"
@@ -681,7 +681,7 @@
       </div>
       <!-- 연속성 경고 -->
       <div id="insTocGapWarn" style="display:none;margin-top:6px;padding:5px 8px;background:var(--yellow-bg);border-radius:var(--radius-xs);font-size:var(--fs-xs);color:var(--yellow);line-height:1.6"></div>
-      <div id="insTocRangeInfo" style="font-size:var(--fs-xs);color:var(--accent);margin-top:5px;font-weight:600"></div>
+      <div id="insTocRangeInfo"></div>
     </div>
     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" data-action="toggleAllInsToc" data-val="true">전체 선택</button>
@@ -717,7 +717,7 @@
     <div class="u-desc-8">
       삽화를 삽입할 챕터를 지정하세요. 파일명 자동 매핑 또는 수동으로 각 챕터를 지정할 수 있어요.
     </div>
-    <div class="dz" id="editIllDrop" style="padding:12px">
+    <div class="dz" id="editIllDrop">
       <svg class="dz-icon" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
       <div class="dz-text">삽화 이미지 드래그 또는 클릭</div>
       <div class="dz-sub">파일명 자동 매핑: 16.jpg → 16화 앞 · 16_1.jpg, 16_2.jpg → 순서대로</div>
@@ -725,7 +725,7 @@
     <input type="file" id="editIllIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
     <div id="editIllTags" class="tags u-mt-8"></div>
     <div id="editIllOverflowWarn" style="display:none;margin-top:8px;background:var(--yellow-bg);border-left:3px solid var(--accent2);border-radius:0 6px 6px 0;padding:7px 11px;font-size:var(--fs-xs);color:var(--yellow);line-height:1.6"></div>
-    <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+    <div class="u-mt-10 u-row-wrap-6">
       <span class="u-text2-sm">매핑 방식</span>
       <label class="u-check-label">
         <input type="radio" name="editIllMode" value="auto" checked> 파일명 자동
@@ -765,9 +765,9 @@
     </div>
     <!-- ★ 히스토리 필터 바 -->
     <div class="hist-filter-bar">
-      <input class="inp" id="histSearchInp" placeholder="제목 검색..." style="font-size:var(--fs-sm);padding:5px 10px;flex:1">
+      <input class="inp" id="histSearchInp" placeholder="제목 검색...">
       <button class="hist-filter-toggle" id="histFilterHasFile" data-filter="hasFile">파일 있는 것만</button>
-      <select id="histSortSel" style="font-size:var(--fs-xs);padding:4px 7px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-family:inherit;cursor:pointer;height:30px" data-input-action="renderHistory"><option value="newest">최신순</option><option value="oldest">오래된순</option><option value="size">크기순</option><option value="chapters">챕터순</option></select>
+      <select id="histSortSel" data-input-action="renderHistory"><option value="newest">최신순</option><option value="oldest">오래된순</option><option value="size">크기순</option><option value="chapters">챕터순</option></select>
     </div>
     <div id="histList"></div>
   </div>
@@ -779,7 +779,7 @@
   <div class="sec">
   <div class="sec-hdr"><span class="sec-title">컬러 테마</span><div class="sec-line"></div></div>
   <div class="card">
-    <div style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:6px">포인트 컬러를 선택하세요. 라이트·다크 모드와 독립적으로 동작합니다.</div>
+    <div class="u-text2-sm u-mb-6">포인트 컬러를 선택하세요. 라이트·다크 모드와 독립적으로 동작합니다.</div>
     <div class="skin-swatch-wrap">
       <div class="skin-swatch active" id="skin-terracotta" data-action="setSkin" data-skin="terracotta" role="button" tabindex="0" title="테라코타 (기본)" aria-label="테라코타 스킨"></div>
       <span class="skin-swatch-label">테라코타</span>
@@ -884,8 +884,8 @@
     <div class="toggle-row" id="optImgQualityRow">
       <div><label>JPG 변환 품질</label><small>높을수록 화질 좋고 용량 큼 (기본: 92%)</small></div>
       <div class="flex-row">
-        <input type="range" id="optImgQuality" min="60" max="100" step="2" value="92" style="width:90px" data-input-action="syncImgQuality">
-        <span id="optImgQualityVal" style="font-size:var(--fs-sm);font-weight:700;color:var(--accent);min-width:36px">92%</span>
+        <input type="range" id="optImgQuality" min="60" max="100" step="2" value="92" data-input-action="syncImgQuality">
+        <span id="optImgQualityVal">92%</span>
       </div>
     </div>
   </div>
@@ -961,7 +961,7 @@
     <div class="css-slider-wrap u-mb-10">
       <div class="css-slider-label">줄간격<span id="cssLineVal">1.9</span></div>
       <input type="range" class="css-slider" id="cssLineSlider" min="1.4" max="2.8" step="0.1" value="1.9" data-input-action="syncCssLineSlider">
-      <select id="cssLine" data-input-action="syncCssLine" style="margin-top:4px;font-size:var(--fs-xs);padding:3px 6px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text)">
+      <select class="inp-xs" id="cssLine" data-input-action="syncCssLine">
         <option value="1.4">1.4 (좁게)</option><option value="1.6">1.6</option><option value="1.7">1.7</option>
         <option value="1.9" selected>1.9 (기본)</option><option value="2.1">2.1</option>
         <option value="2.3">2.3</option><option value="2.5">2.5</option><option value="2.8">2.8 (넓게)</option>
@@ -970,7 +970,7 @@
     <div class="css-slider-wrap u-mb-10">
       <div class="css-slider-label">글자 크기<span id="cssFontSizeVal">1.0em</span></div>
       <input type="range" class="css-slider" id="cssFontSizeSlider" min="0.8" max="1.4" step="0.05" value="1.0" data-input-action="syncCssFontSizeSlider">
-      <select id="cssFontSize" data-input-action="syncCssFontSize" style="margin-top:4px;font-size:var(--fs-xs);padding:3px 6px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text)">
+      <select class="inp-xs" id="cssFontSize" data-input-action="syncCssFontSize">
         <option value="0.8em">0.8em (매우 작게)</option><option value="0.9em">0.9em (작게)</option>
         <option value="1em" selected>1.0em (보통)</option><option value="1.1em">1.1em (크게)</option>
         <option value="1.2em">1.2em (매우 크게)</option><option value="1.4em">1.4em (최대)</option>
@@ -1019,7 +1019,7 @@
       <summary class="settings-summary">EPUB에서 CSS 클래스 임포트</summary>
       <div class="settings-details-body">
         <div class="txt-hint-sm">기존 EPUB의 CSS 스타일을 가져와 변환에 적용할 수 있어요.</div>
-        <div class="dz" id="cssImportDrop" style="padding:8px">
+        <div class="dz" id="cssImportDrop">
           <div class="txt-label">EPUB 파일 드래그 또는 클릭해서 CSS 임포트</div>
           <div id="cssImportInfo" class="txt-green-sm"></div>
         </div>
@@ -1045,7 +1045,7 @@
     <!-- 추가 CSS 직접 입력 -->
     <div class="sec-divider">
       <div class="txt-label-bold u-mb-4">추가 CSS 직접 입력</div>
-      <textarea id="cssExtra" style="width:100%;height:auto;min-height:60px;overflow-y:hidden;resize:vertical;font-family:monospace;font-size:var(--fs-xs);padding:7px 9px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);resize:vertical;outline:none" placeholder="/* 예) h1 { color: #c63; } */" data-input-action="cssExtraAutoResize"></textarea>
+      <textarea id="cssExtra" placeholder="/* 예) h1 { color: #c63; } */" data-input-action="cssExtraAutoResize"></textarea>
     </div>
     <!-- 커스텀 폰트 업로드 -->
     <details class="settings-details u-mt-10">
@@ -1060,7 +1060,7 @@
       </div>
     </details>
     <div class="css-preview" id="cssPreview">
-      <strong id="cssPreviewTitle" style="font-size:1.1em;display:block;text-align:center;margin-bottom:10px">미리보기 제목</strong>
+      <strong id="cssPreviewTitle">미리보기 제목</strong>
       <p>가나다라마바사아자차카타파하. 한글 소설 본문 미리보기입니다. 두 번째 문장이에요.</p>
       <p style="font-style:italic;margin-top:6px">— 이것은 회상 대사입니다.</p>
       <p class="u-mt-6">【시스템 알림: 이것은 시스템창 예시입니다.】</p>
@@ -1085,7 +1085,7 @@
     </div>
     <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
       <div class="u-flex-1"><label class="txt-label-bold" for="optDefaultPat">기본 챕터 정규식</label><small class="txt-meta-sm" style="display:block">비워두면 자동 감지. 매번 같은 패턴 쓴다면 여기에 저장</small></div>
-      <input class="inp" id="optDefaultPat" placeholder="자동 감지" style="max-width:220px;font-size:var(--fs-sm)" data-input-action="saveExtraSettings">
+      <input class="inp" id="optDefaultPat" placeholder="자동 감지" data-input-action="saveExtraSettings">
     </div>
   </div>
 </div>
@@ -1115,7 +1115,7 @@
     </div>
     <div class="row" style="padding:4px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
       <label class="txt-label-bold u-flex-1" for="optLang">EPUB 메타 언어</label>
-      <select id="optLang" data-input-action="saveExtraSettings" style="font-size:var(--fs-sm);padding:4px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--panel);color:var(--text)">
+      <select class="opt-select" id="optLang" data-input-action="saveExtraSettings">
         <option value="ko" selected>한국어 (ko)</option>
         <option value="en">영어 (en)</option>
         <option value="ja">일본어 (ja)</option>
@@ -1124,11 +1124,11 @@
     </div>
     <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
       <label class="txt-label-bold u-flex-1" for="optPublisher">출판사(publisher) 태그</label>
-      <input class="inp" id="optPublisher" placeholder="비워두면 미포함" style="max-width:180px;font-size:var(--fs-sm)" data-input-action="saveExtraSettings">
+      <input class="inp" id="optPublisher" placeholder="비워두면 미포함" data-input-action="saveExtraSettings">
     </div>
     <div class="row" style="padding:8px 0;gap:8px;align-items:center">
       <label class="txt-label-bold u-flex-1" for="optCompression">EPUB 압축 수준</label>
-      <select id="optCompression" data-input-action="saveExtraSettings" style="font-size:var(--fs-sm);padding:4px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--panel);color:var(--text)">
+      <select class="opt-select" id="optCompression" data-input-action="saveExtraSettings">
         <option value="1">빠름 (낮은 압축)</option>
         <option value="6" selected>보통 (권장)</option>
         <option value="9">최대 압축 (느림)</option>
@@ -1142,7 +1142,7 @@
 <details class="settings-details u-mb-14">
   <summary class="settings-summary">Gemini API 설정</summary>
   <div class="settings-details-body">
-    <div class="txt-hint-sm" style="line-height:1.7">
+    <div class="txt-hint-sm u-lh-17">
       Gemini API 키를 등록하면 <b>예시 입력</b>칸에서 AI가 정규식을 자동 생성해줘요.<br>
       <span>키 없이도 내장 로직으로 변환되지만, AI가 훨씬 정확해요.</span>
     </div>
@@ -1154,8 +1154,8 @@
       <button type="button" class="btn btn-ghost btn-sm secret-toggle" data-action="toggleSecret" data-target="geminiApiKey" aria-pressed="false" aria-label="Gemini API 키 보기">보기</button>
       <span id="geminiKeyStatus" style="font-size:var(--fs-xs);padding:2px 7px;border-radius:var(--radius-xs);white-space:nowrap;display:none"></span>
     </div>
-    <div style="margin-top:8px;padding:8px 10px;background:var(--blue-bg);border-radius:var(--radius-xs);font-size:var(--fs-xs);color:var(--blue);line-height:1.7">
-      💡 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="color:var(--blue);font-weight:600">Google AI Studio</a>에서 무료 발급 →
+    <div class="note-blue">
+      💡 <a class="u-link-blue" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>에서 무료 발급 →
       키는 정규식을 만들 때 Google API로만 전송돼요 (요청 헤더, 주소에 남지 않음).
     </div>
   </div>
@@ -1163,7 +1163,7 @@
 <details class="settings-details u-mb-14">
   <summary class="settings-summary">표지 검색 API 설정</summary>
   <div class="settings-details-body">
-    <div class="txt-hint-sm" style="line-height:1.7">
+    <div class="txt-hint-sm u-lh-17">
       네이버 책 검색 API 키를 등록하면 표지 검색 품질이 향상돼요.<br>
       <span>키 없이도 CORS 프록시를 통한 검색이 가능하지만 불안정할 수 있어요.</span>
     </div>
@@ -1176,8 +1176,8 @@
       <input class="inp u-fs-sm" id="naverClientSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="네이버 API Client Secret" data-input-action="saveApiSettings">
       <button type="button" class="btn btn-ghost btn-sm secret-toggle" data-action="toggleSecret" data-target="naverClientSecret" aria-pressed="false" aria-label="네이버 Client Secret 보기">보기</button>
     </div>
-    <div style="margin-top:8px;padding:8px 10px;background:var(--blue-bg);border-radius:var(--radius-xs);font-size:var(--fs-xs);color:var(--blue);line-height:1.7">
-      💡 <a href="https://developers.naver.com/apps/#/register" target="_blank" style="color:var(--blue);font-weight:600">네이버 개발자 센터</a>에서 애플리케이션 등록 → <b>검색 (책)</b> API 사용 신청 → Client ID/Secret 발급<br>
+    <div class="note-blue">
+      💡 <a class="u-link-blue" href="https://developers.naver.com/apps/#/register" target="_blank">네이버 개발자 센터</a>에서 애플리케이션 등록 → <b>검색 (책)</b> API 사용 신청 → Client ID/Secret 발급<br>
       키는 이 기기의 localStorage에만 저장되며 외부로 전송되지 않아요.
     </div>
     <div class="sec-divider">
@@ -1195,7 +1195,7 @@
 <details class="settings-details u-mb-14">
   <summary class="settings-summary">설정 백업 / 복원</summary>
   <div class="settings-details-body">
-    <div class="txt-hint-sm" style="line-height:1.7;margin-bottom:10px">
+    <div class="txt-hint-sm u-lh-17 u-mb-10">
       현재 설정(폰트·스타일·정규식·옵션 등)을 JSON 파일로 내보내고,<br>
       다른 기기나 다음 작업에서 불러와 사용할 수 있어요.
     </div>
@@ -1212,7 +1212,7 @@
 <details class="settings-details u-mb-14">
   <summary class="settings-summary">변환 완료 알림</summary>
   <div class="settings-details-body">
-    <div class="txt-hint-sm" style="line-height:1.7;margin-bottom:10px">
+    <div class="txt-hint-sm u-lh-17 u-mb-10">
       긴 변환 작업 중 탭을 벗어나도 완료 시 브라우저 알림을 받을 수 있어요.
     </div>
     <div class="notif-toggle-row">
@@ -1240,7 +1240,7 @@
     </div>
     <div class="modal-body" id="previewBody"></div>
     <div class="modal-footer">
-      <span id="previewPageInfo" style="font-size:var(--fs-sm);color:var(--text2);align-self:center"></span>
+      <span id="previewPageInfo"></span>
       <button class="btn btn-ghost btn-sm" data-action="previewNav" data-dir="-1">◀ 이전</button>
       <button class="btn btn-ghost btn-sm" data-action="previewNav" data-dir="1">다음 ▶</button>
       <button class="btn btn-green btn-sm" data-action="downloadEpub">⬇ 다운로드</button>
@@ -1316,7 +1316,7 @@
 
   <!-- ════ 하단 고정 버튼 바 ════ -->
 <!-- 변환 탭 -->
-<div class="btm" id="btmConvert" style="display:flex" role="toolbar" aria-label="변환 실행 바">
+<div class="btm" id="btmConvert" role="toolbar" aria-label="변환 실행 바">
   <div class="btm-inner">
     <div class="btm-status" id="btmStatusWrap" aria-live="polite" aria-atomic="true">
       <span class="btm-status-val none" id="btmFileStatus">TXT 파일을 추가하세요</span>
@@ -1341,7 +1341,7 @@
           aria-label="EPUB 다운로드 (Ctrl+D)">
     ⬇ EPUB 다운로드
   </button>
-  <div class="btm-hint" style="flex-shrink:0">
+  <div class="btm-hint u-shrink-0">
     <kbd>Ctrl</kbd>+<kbd>S</kbd>
   </div>
   <button class="btm-dl-close" id="btmDlClose" aria-label="다운로드 바 닫기" title="닫기 (변환 결과는 위 카드에서 다시 다운로드 가능)">✕</button>

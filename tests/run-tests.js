@@ -16,6 +16,7 @@
  *   9. Phase 14: 폰트 파일 분리·landmarks·접근성 메타·리더기 프로필·TXT 삽입 편집 EPUB(→ CI epubcheck)
  *  10. Phase 15: 스트리밍 저장 출력·Worker 재사용·API 키·인라인 핸들러 제거·CSP·innerHTML 정적 검사
  *  11. Phase 16: 앱 설치(manifest·아이콘·파일 열기)·접근성·작업 복원·기기 미리보기·StateManager 구독·유틸리티 클래스
+ *  12. Phase 17: StateManager 구독 2단계(변환 진행·결과 → 버튼·다운로드 바)·인라인 style 2단계
  */
 'use strict';
 const fs   = require('fs');
@@ -902,6 +903,51 @@ async function main(){
     const styleAttrs = (html.match(/\sstyle="/g) || []).length;
     check('[스타일] 반복 인라인 style을 유틸리티 클래스로 (266 → 183 이하, 화면 픽셀 동일 확인)', styleAttrs <= 183 && /\.u-fs-xs\{font-size:var\(--fs-xs\)\}/.test(css), `style 속성 ${styleAttrs}개`);
     check('[스타일] 한 태그에 class 속성 중복 없음', !/<[a-z][^>]*\sclass="[^"]*"[^>]*\sclass="/i.test(html));
+  }
+
+  // ── 12. Phase 17 — StateManager 구독 2단계 · 인라인 style 2단계 ──
+  {
+    const read = readRoot;
+    const html = read('index.html'), ui = read('ui-state.js'), conv = read('convert.js'), core = read('core.js'), css = read('style.css');
+    const allJs = ['parser.js', 'epub-gen.js', 'core.js', 'settings.js', 'cover-search.js', 'convert.js', 'edit.js', 'ui-state.js', 'main.js', 'worker.js'].map(read).join('\n');
+    // 12-1. 변환 진행 상태 — S.converting 단일 소스
+    check('[상태] S 초기 상태에 converting:false', /converting:false,/.test(core));
+    check('[상태] 모듈 변수 _convertRunning 제거 → S.converting 사용', !/_convertRunning/.test(allJs) && /if\(S\.converting\)\{Toast\.info/.test(conv) && (conv.match(/S\.converting=false;/g) || []).length >= 2);
+    check('[상태] 변환 버튼 disabled·aria-busy는 S.converting 구독이 반영', /if \(state\.converting !== prev\?\.converting\)/.test(ui) && /btn\.disabled = !!state\.converting;/.test(ui) && !/convertBtn'\)[^;\n]*\.disabled\s*=/.test(conv));
+    // 12-2. 변환 결과 → 다운로드 바
+    check('[상태] 다운로드 바 표시·숨김은 S.epubBlob 구독에서만 호출', /if \(state\.epubBlob !== prev\?\.epubBlob\)/.test(ui) &&
+      (allJs.match(/_showEpubDownloadBar\(/g) || []).length === 2 && (allJs.match(/_hideEpubDownloadBar\(/g) || []).length === 2 && /function _hideEpubDownloadBar\(\)/.test(conv));
+    const iName = conv.indexOf('S.epubName=streamed?'), iBlob = conv.indexOf('S.epubBlob=blob;');
+    check('[상태] 파일명(S.epubName)을 먼저 정한 뒤 S.epubBlob 설정', iName > 0 && iBlob > iName && iBlob - iName < 300);
+    check('[상태] 결과 초기화는 S.epubBlob=null 한 곳에서 (바 직접 조작 없음)', /function _resetConvertResultUi\(\)\{[\s\S]{0,140}S\.epubBlob=null; S\.epubName='';/.test(conv) &&
+      !/function _resetConvertResultUi\(\)\{[\s\S]{0,400}btmDownload/.test(conv));
+    // 구독 동작 — 실제 StateManager로 epubBlob·converting 변화 → 콜백 순서 확인
+    {
+      const calls = [];
+      // IIFE 선언이라 extract 대신 'const StateManager = (() => {' ~ '})();' 구간을 잘라 실행
+      const smStart = core.indexOf('const StateManager = (() => {'), smEnd = core.indexOf('\n})();', smStart) + 6;
+      const SM = vm.createContext({ EventBus: { emit(){} } });
+      vm.runInContext(core.slice(smStart, smEnd) + '\nthis.StateManager = StateManager;', SM);
+      const store = SM.StateManager.create('p17test', { epubBlob: null, epubName: '', converting: false });
+      store.subscribe((s, p) => { if(s.epubBlob !== p?.epubBlob) calls.push(s.epubBlob ? 'show:' + s.epubName : 'hide'); if(s.converting !== p?.converting) calls.push('busy:' + s.converting); });
+      store.set({converting: true}); store.set({epubName: 'a.epub'}); store.set({epubBlob: {size: 1}}); store.set({converting: false}); store.set({epubBlob: null, epubName: ''});
+      check('[상태] 구독 순서: busy → 다운로드 바(새 이름) → busy 해제 → 숨김', calls.join(',') === 'busy:true,show:a.epub,busy:false,hide', calls.join(','));
+    }
+    // 12-3. 인라인 style 2단계
+    const styleTags = [...html.matchAll(/<[a-zA-Z][a-zA-Z0-9]*\b[^<>]*\sstyle="([^"]*)"[^<>]*>/g)];
+    check('[스타일] 인라인 style 2단계 (183 → 120 이하, 화면 픽셀 동일 확인)', styleTags.length <= 120 && /★ Phase 17: 인라인 style 2단계/.test(css), `style 속성 ${styleTags.length}개`);
+    const cnt = {}; styleTags.forEach(m => { cnt[m[1]] = (cnt[m[1]] || 0) + 1; });
+    const leftover = styleTags.filter(m => !/display:\s*none/.test(m[1]) && /\sid="[A-Za-z][\w-]*"/.test(m[0]) && cnt[m[1]] === 1);
+    check('[스타일] id가 있는 요소의 1회성 style은 모두 #id 규칙으로 (display:none 토글 제외)', leftover.length === 0, leftover.map(m => m[0].slice(0, 60)).join(' / '));
+    const p17 = css.slice(css.indexOf('★ Phase 17: 인라인 style 2단계'));
+    const used = new Set([...html.matchAll(/\sclass="([^"]*)"/g)].flatMap(m => m[1].split(/\s+/)));
+    const newCls = [...p17.matchAll(/^\.([\w-]+)\{/gm)].map(m => m[1]);
+    check('[스타일] Phase 17 새 클래스는 모두 사용 중·정의 1회', newCls.length >= 10 && newCls.every(c => used.has(c)) &&
+      newCls.every(c => (css.match(new RegExp('(^|[\\s,}])\\.' + c + '\\{', 'g')) || []).length === 1), newCls.filter(c => !used.has(c)).join(','));
+    const p17Ids = [...p17.matchAll(/^#([\w-]+)\{/gm)].map(m => m[1]);
+    check('[스타일] Phase 17 #id 규칙의 id는 모두 index.html에 1개씩 존재', p17Ids.length > 0 && p17Ids.every(id => (html.match(new RegExp('\\sid="' + id + '"', 'g')) || []).length === 1));
+    check('[스타일] Phase 17 블록에 하드코딩 색상 없음 (CSS 변수만)', !/#[0-9a-fA-F]{3,8}\b(?![\w-]*\{)|rgba?\(|hsla?\(/.test(p17.replace(/^#[\w-]+\{/gm, '{')));
+    check('[스타일] 한 태그에 class 속성 중복 없음 (2단계 후)', !/<[a-z][^>]*\sclass="[^"]*"[^>]*\sclass="/i.test(html));
   }
 
   if(UPDATE){

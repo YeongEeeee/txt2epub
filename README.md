@@ -251,7 +251,7 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
     └── golden.json   — 기대 챕터 목록·감지 패턴·계층 형태
 ```
 
-> **총 코드량: 약 18,600줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 인라인 핸들러 0개 | 회귀 테스트 358개 통과 | epubcheck 0 오류
+> **총 코드량: 약 18,600줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 인라인 핸들러 0개 | 회귀 테스트 371개 통과 | epubcheck 0 오류
 
 ### 상태 관리 (StateManager + Proxy)
 
@@ -475,6 +475,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 17 (13) | S.converting 단일 소스(_convertRunning 제거)·버튼 disabled/aria-busy 구독, 다운로드 바 표시·숨김은 S.epubBlob 구독에서만·파일명 먼저 설정, 실제 StateManager 구독 순서, 인라인 style ≤120·id 1회성 style 잔여 0·새 클래스 사용/정의 1회·#id 대상 존재·하드코딩 색상 없음 |
 | Phase 16 (15) | manifest 필수 항목·아이콘 실제 크기·file_handlers·launchQueue·SW 프리캐시, 아이콘 버튼 aria-label·div 액션 role/tabindex·progressbar·status·dialog·포커스 트랩, 작업 복원 저장·복원 제안, 기기 프레임, S.txtFiles 구독·제자리 변경 금지, 인라인 style 감소·class 중복 없음 |
 | Phase 15 (20) | SW 캐시 버전 = 자산 해시·원자적 설치·JSZip 로컬 SRI, 스트리밍 저장(조각 → 정상 EPUB, `tests/out/15_streamed.epub`), Worker 재사용, API 키 마스킹·저장 끄기, 인라인 핸들러 0·data-action 등록, CSP(헤더 = meta, unsafe 없음), innerHTML 정적 검사 |
 | Phase 14 (17) | 폰트 data URI → Fonts/ 파일·manifest·CSS 상대 경로, landmarks(표지·본문 시작, spine 밖 nav 미참조), 접근성 메타(이미지 유무별), 리더기 프로필(다크 CSS·표지 높이·JPG 강제), 비핵심 이미지 형식 변환, TXT 삽입 편집 EPUB(`buildInsertedEpub`) spine·nav·ncx 순서·끝에 추가 → `tests/out/14_*.epub` CI epubcheck |
@@ -494,7 +495,7 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 | 항목 | 수치 |
 |------|------|
 | 총 줄수 | JS 13,522줄 (+ HTML/CSS 2,600줄) |
-| 회귀 테스트 | 358개 통과 + epubcheck 0 오류 |
+| 회귀 테스트 | 371개 통과 + epubcheck 0 오류 |
 | 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |
@@ -625,6 +626,11 @@ settings.js 구문 오류 수정 (고아 코드 블록 제거)
 ├── 미니 리더 기기 프레임(폰·태블릿·6″ 리더), 접근성(aria·포커스 트랩·Esc·포커스 복귀·키보드)
 ├── StateManager 구독: S.txtFiles 변경 → 하단 바 (제자리 splice 제거 → 순서 변경·개별 제거 후 갱신 누락 해결)
 └── 인라인 style 266 → 183 (반복 패턴 19종 유틸리티 클래스, 5개 탭 스크린샷 픽셀 동일 확인)
+↓
+[ Phase 17: 상태 구독 · 스타일 정리 2단계 ]
+├── S.converting(StateManager) 단일 소스 → 변환 버튼 disabled·aria-busy를 구독이 반영 (모듈 변수 _convertRunning 제거)
+├── S.epubBlob 구독 → 다운로드 바 표시·숨김 (변환 완료·초기화·새 파일 경로의 직접 호출 제거, 파일명 먼저 설정)
+└── 인라인 style 183 → 120 (반복 패턴 18종 클래스 + id 요소 1회성 style 27곳 → #id 규칙, 3개 화면 × 5개 탭 · 숨김 패널 강제 표시까지 픽셀 동일)
 ```
 
 ---
