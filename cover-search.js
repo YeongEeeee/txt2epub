@@ -536,8 +536,9 @@ async function fetchRidiCover(q) {
 //   GET https://bff-page.kakao.com/api/gateway/api/v2/search/series?keyword=…&category_uid=0
 //   응답: result.list[] { title, thumbnail(kid), category_uid(11=웹소설, 10=웹툰) }
 //   표지 이미지: https://dn-img-page.kakao.com/download/resource?kid={kid}&filename=o1 (원본 약 720×970)
-//   ⚠️ 현재 Workers 프록시 경유 시 bff가 403을 반환함 — 프록시가 Referer/Origin을 page.kakao.com으로
-//      보내도록 Worker를 고치면 이 어댑터가 그대로 동작. 그 전까지는 빈 배열을 조용히 반환
+//   ⚠️ Worker v7은 bff-page.kakao.com을 허용 목록에 두지 않아 403('허용되지 않은 도메인') 반환
+//      → Worker v8(SEARCH_SITES에 bff-page.kakao.com 추가 + Referer/Origin page.kakao.com) 배포 후 동작
+//      그 전까지는 빈 배열을 조용히 반환
 async function fetchKakaoCover(q) {
   try {
     const text = await proxyFetch(
@@ -587,7 +588,9 @@ async function fetchNaverSeriesCover(q) {
 }
 
 // ★ Phase 24: Workers 프록시 POST → JSON (노벨피아 검색 API 전용)
-//   proxyFetch는 GET 전용이라 별도 헬퍼. AbortController 타임아웃 + 토큰 헤더 동일 적용
+//   Worker(v7~)는 실제 요청 메서드가 아니라 쿼리 파라미터로 POST를 전달받음:
+//     ?url={대상}&_method=POST&_body={본문} — 본문이 x-www-form-urlencoded면 Worker가 Content-Type 자동 지정
+//   요청 자체는 GET으로 보냄 (Worker는 request.method를 OPTIONS 판별에만 사용)
 async function _proxyPostJson(url, body = '', timeout = 9000) {
   const base = (typeof CORS_PROXY_URL !== 'undefined'
     ? CORS_PROXY_URL
@@ -596,17 +599,18 @@ async function _proxyPostJson(url, body = '', timeout = 9000) {
   try { encoded = encodeURIComponent(decodeURIComponent(url)); }
   catch(e) { encoded = encodeURIComponent(url); }
 
+  const target = base + encoded + '&_method=POST'
+    + (body ? '&_body=' + encodeURIComponent(body) : '');
+
   const ctrl  = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), timeout);
   try {
-    const res = await fetch(base + encoded, {
-      method: 'POST',
+    const res = await fetch(target, {
       signal: ctrl.signal,
       headers: {
         'X-NovelEPUB-Token': (typeof _PROXY_TOKEN !== 'undefined' ? _PROXY_TOKEN : 'novelepub-secure-token'),
-        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+        'Cache-Control': 'no-cache',
       },
-      body,
     });
     if(!res.ok) throw new Error('HTTP ' + res.status);
     return await res.json();
