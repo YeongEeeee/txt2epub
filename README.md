@@ -31,6 +31,7 @@
   - **작업 복원**: TXT·편집한 목차·제목/작가·표지를 자동 저장, 새로고침·탭 닫힘 후 다시 열면 이어서 할지 확인
   - **기기별 미리보기**: 미니 리더를 폰·태블릿·6인치 전자잉크 화면 비율로 전환 (EPUB 여백 반영)
   - **접근성**: 아이콘 버튼 이름, 진행률 progressbar, 알림 status, 모달 포커스 이동·Tab 순환·Esc·닫으면 원래 위치로, 스킨 견본 키보드 조작
+- **커스텀 폰트 서브셋 (Phase 22)**: 책에 쓰인 글자만 남겨 폰트 용량을 줄임 — 예) Noto Sans CJK KR 15.7MB → 359KB (8.6MB 장편, 2,484자, 약 0.2초). HarfBuzz WebAssembly(`lib/harfbuzz-subset.wasm`)를 커스텀 폰트를 쓸 때만 받아옴. TTF·OTF만, WOFF·WOFF2와 '서브셋 금지' 폰트는 원본 그대로, 실패해도 원본으로 변환 계속. 설정 '쓰인 글자만 포함'(기본 켜짐), 편집 탭은 원본 폰트로 다시 서브셋
 - **EPUB 호환 (Phase 14)**
   - **커스텀 폰트 파일 분리**: `style.css`의 수 MB짜리 data URI 대신 `OEBPS/Fonts/custom_font.*` + manifest(`font/ttf` 등) 등록
   - **landmarks**: 리더기의 '표지로'·'처음부터 읽기' 위치 (`epub:type="cover"`·`bodymatter`, '서문' 제외)
@@ -243,6 +244,7 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
 ├── worker.js   — 5MB+ 파일 인코딩 감지·디코딩 전담 Web Worker (129줄, 챕터 파싱 없음)
 ├── sw.js       — Service Worker: 버전 단위 원자적 캐시 (CACHE_VERSION = 자산 해시, `npm run stamp`)
 ├── lib/jszip.min.js — JSZip 3.10.1 로컬 배포 (CDN 파일과 동일, SRI 고정) — Phase 15
+├── lib/harfbuzz-subset.wasm — HarfBuzz 폰트 서브셋 엔진 (harfbuzzjs 1.6.3, MIT·Old MIT, SRI 고정, 커스텀 폰트 사용 시에만 로드) + lib/harfbuzz-LICENSE.txt — Phase 22
 ├── _headers    — Cloudflare Pages 보안 헤더 (CSP·nosniff·frame 차단) — Phase 15
 ├── manifest.webmanifest + icons/ — 앱 설치(PWA)·.txt 파일 열기(file_handlers) — Phase 16
 └── tests/      — 회귀 테스트·stamp-sw.js(캐시 버전 기록)·cover-health.js(표지 플랫폼 주간 점검) (개발 전용)
@@ -251,7 +253,7 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
     └── golden.json   — 기대 챕터 목록·감지 패턴·계층 형태
 ```
 
-> **총 코드량: 약 18,600줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 인라인 핸들러 0개 | 회귀 테스트 398개 통과 | epubcheck 0 오류
+> **총 코드량: 약 18,600줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 인라인 핸들러 0개 | 회귀 테스트 413개 통과 | epubcheck 0 오류
 
 ### 상태 관리 (StateManager + Proxy)
 
@@ -430,8 +432,9 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
 - **서버 업로드 없음**: 모든 파일 처리가 브라우저 내에서 완료
 - **XSS 방지**: Toast confirm/prompt 모두 DOM API (`textContent`) 사용. Toast 메시지는 내부 생성 HTML(I9 delta 배지)에만 `innerHTML` 허용하며 외부 입력은 textContent로 처리
 - **입력 이스케이프**: `escHtml()`, `escAttr()`, `sanitizeLine()` 적용
-- **Content Security Policy**: `script-src 'self'`·`style-src 'self'`(+Google Fonts) — 인라인 스크립트·`on*` 속성·`style` 속성 모두 없음 (Phase 15: 이벤트 위임, Phase 19~20: style 속성 → 클래스, 동적 값은 CSSOM `el.style.*`). Cloudflare `_headers`와 `<meta>`가 같은 정책
+- **Content Security Policy**: `script-src 'self' 'wasm-unsafe-eval'`·`style-src 'self'`(+Google Fonts) — 인라인 스크립트·`on*` 속성·`style` 속성 모두 없음 (Phase 15: 이벤트 위임, Phase 19~20: style 속성 → 클래스, 동적 값은 CSSOM `el.style.*`). Cloudflare `_headers`와 `<meta>`가 같은 정책 · `'wasm-unsafe-eval'`은 폰트 서브셋 WebAssembly 컴파일용(Phase 22) — JS `eval`·`new Function`은 계속 차단
 - **JSZip SRI**: `lib/jszip.min.js`(Phase 15부터 로컬 배포)에 `integrity`(sha512) — 회귀 테스트가 파일 해시 = SRI 일치 확인
+- **HarfBuzz SRI**: `lib/harfbuzz-subset.wasm`을 `fetch(..., {integrity: sha384})`로 받음 — 변조된 파일은 실행되지 않고 원본 폰트로 변환 (회귀 테스트가 파일 해시 = 코드 상수 확인)
 - **CSP (Phase 15)**: `script-src 'self'` — 인라인 스크립트·`on*` 속성 0개(전부 이벤트 위임), Blob Worker는 `worker-src blob:`. Cloudflare `_headers`와 `index.html` meta가 같은 정책
 - **innerHTML 정적 검사 (Phase 15)**: 동적 값은 `escHtml` 등으로 이스케이프하거나 검토 후 `// safe-html: 이유` 주석 — 회귀 테스트가 강제
 - **API 키 (Phase 15)**: 입력란 마스킹(보기 토글), '이 기기에 API 키 저장'을 끄면 즉시 삭제
@@ -475,6 +478,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 22 (15) | wasm SRI = 파일 해시, 형식·fsType 판별, cmap(4·12) 읽기, 글자 수집(서로게이트·제어 문자·템플릿 문구), **HarfBuzz 실제 서브셋(TTF·OTF) 쓰인 글자 유지·용량 감소**, 엔진 1회 로드, 서브셋 금지·WOFF2·엔진 실패 → 원본, 리포트 문구, EPUB(`tests/out/22_font_subset.epub`) 문서 글자 ⊂ 폰트, 편집 탭 재서브셋·누락 글자, 연결·설정·CSP |
 | Phase 21 (4) | SW `_plain` 실제 동작(리디렉트 응답 → 새 응답·헤더 유지), 프리캐시·페이지 이동·로컬 저장 모두 `_plain`, 화면 없을 때만 즉시 활성화, CACHE_VERSION 해시에 sw.js 코드 포함 |
 | Phase 20 (8) | JS 마크업 style 속성 0·setAttribute('style')·페이지용 <style> 없음, CSP style-src 'self'+Google Fonts(헤더 = meta, unsafe 없음), Phase 20 클래스 정의 1회·사용 중·하드코딩 색상 없음, 구체적 기존 규칙 위 인라인 값 유지, JS 템플릿 유틸리티 충돌 없음, 템플릿 숨김 요소 hidden+setShown |
 | Phase 19 (5) | index.html 인라인 style 0, Phase 19 클래스 사용·정의 1회·하드코딩 색상 없음, 한 요소의 유틸리티끼리 같은 속성 충돌 없음, class 속성 중복 없음 |
@@ -499,7 +503,7 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 | 항목 | 수치 |
 |------|------|
 | 총 줄수 | JS 13,522줄 (+ HTML/CSS 2,600줄) |
-| 회귀 테스트 | 398개 통과 + epubcheck 0 오류 |
+| 회귀 테스트 | 413개 통과 + epubcheck 0 오류 |
 | 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |

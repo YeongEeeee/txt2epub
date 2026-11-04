@@ -21,6 +21,7 @@
  *  14. Phase 19: index.html 인라인 style 0 — 원자 유틸리티·의미 클래스, 유틸리티 속성 충돌 검사
  *  15. Phase 20: JS 마크업 style 속성 0 → CSP style-src 'unsafe-inline' 제거
  *  16. Phase 21: SW 페이지 이동 ERR_FAILED 수정 — 리디렉트 응답 정리(_plain)·고장 SW 복구·SW 코드 포함 해시
+ *  17. Phase 22: 커스텀 폰트 서브셋 — HarfBuzz WebAssembly 실제 실행(TTF·OTF), 제외·실패 경로, EPUB(22_font_subset.epub), 편집 탭 갱신
  */
 'use strict';
 const fs   = require('fs');
@@ -851,7 +852,8 @@ async function main(){
     const headers = read('_headers');
     const hdrCsp = (headers.match(/Content-Security-Policy: (.+)/) || [])[1] || '';
     const metaCsp = (html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/) || [])[1] || '';
-    check('[CSP] script-src \'self\' (unsafe-inline·unsafe-eval 없음) + Blob Worker 허용', /script-src 'self';/.test(hdrCsp) && !/script-src[^;]*unsafe/.test(hdrCsp) && /worker-src 'self' blob:/.test(hdrCsp));
+    // ★ Phase 22: 'wasm-unsafe-eval'만 추가 허용 (폰트 서브셋 WebAssembly 컴파일) — 'unsafe-inline'·'unsafe-eval'은 계속 금지
+    check('[CSP] script-src \'self\' \'wasm-unsafe-eval\' (unsafe-inline·unsafe-eval 없음) + Blob Worker 허용', /script-src 'self' 'wasm-unsafe-eval';/.test(hdrCsp) && !/script-src[^;]*'unsafe-/.test(hdrCsp) && /worker-src 'self' blob:/.test(hdrCsp));
     check('[CSP] meta = 헤더 정책 (frame-ancestors 제외)', metaCsp && metaCsp === hdrCsp.replace(/; frame-ancestors 'none'$/, ''));
     check('[CSP] 인라인 <script> 없음 · eval/new Function 없음', !/<script(?![^>]*\bsrc=)[^>]*>/.test(html) && !Object.values(srcs).some(t => /\beval\(|new Function\(/.test(t)));
     check('[보안] 응답 헤더 nosniff·frame 차단·Referrer-Policy', /X-Content-Type-Options: nosniff/.test(headers) && /frame-ancestors 'none'/.test(headers) && /Referrer-Policy:/.test(headers));
@@ -1033,7 +1035,7 @@ async function main(){
     const hdrCsp = (hdr.match(/Content-Security-Policy:\s*([^\n]+)/) || [])[1] || '';
     const metaCsp = (html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/) || [])[1] || '';
     const styleSrc = c => (c.match(/style-src ([^;]+)/) || [])[1] || '';
-    check('[CSP] style-src \'self\' + Google Fonts만 (unsafe-inline 없음, 헤더 = meta)', styleSrc(hdrCsp) === "'self' https://fonts.googleapis.com" && styleSrc(metaCsp) === styleSrc(hdrCsp) && !/unsafe/.test(hdrCsp) && !/unsafe/.test(metaCsp));
+    check('[CSP] style-src \'self\' + Google Fonts만 (unsafe-inline 없음, 헤더 = meta)', styleSrc(hdrCsp) === "'self' https://fonts.googleapis.com" && styleSrc(metaCsp) === styleSrc(hdrCsp) && !/'unsafe-/.test(hdrCsp) && !/'unsafe-/.test(metaCsp));
     // 15-3. Phase 20 클래스 — 정의 1회·사용 중·하드코딩 색상 없음
     const p20 = cssBlock(css, '★ Phase 20:');
     const defs = [...p20.matchAll(/^\.([\w-]+)\{/gm)].map(m => m[1]);
@@ -1076,6 +1078,114 @@ async function main(){
     const { assetHash } = require('./stamp-sw.js');
     const swAlt = sw.replace("async function _plain(resp){", "async function _plain(resp){ /* 변경 */");
     check('[SW] CACHE_VERSION 해시에 sw.js 코드 포함 (CACHE_VERSION 줄 자체는 제외)', assetHash(sw) !== assetHash(swAlt) && assetHash(sw) === assetHash(sw.replace(/const CACHE_VERSION = '[^']+';/, "const CACHE_VERSION = 'x';")));
+  }
+
+  // ── 17. Phase 22 — 커스텀 폰트 서브셋 (HarfBuzz WebAssembly) ──
+  {
+    const read = readRoot;
+    const eg = read('epub-gen.js'), conv = read('convert.js'), ed = read('edit.js'), st = read('settings.js'), html = read('index.html'), hdr = read('_headers');
+    const wasmBuf = fs.readFileSync(path.join(ROOT, 'lib', 'harfbuzz-subset.wasm'));
+    const FONT_DIR = path.join(FIX_DIR, 'fonts');
+    const ttf = fs.readFileSync(path.join(FONT_DIR, 'fixture-kr.ttf')), otf = fs.readFileSync(path.join(FONT_DIR, 'fixture-kr.otf'));
+    // 17-1. 엔진 파일 무결성 — epub-gen.js의 SRI = 실제 파일 sha384
+    const sri = 'sha384-' + require('crypto').createHash('sha384').update(wasmBuf).digest('base64');
+    check('[서브셋] lib/harfbuzz-subset.wasm 무결성 해시(SRI) = 코드의 HB_SUBSET_SRI', G('HB_SUBSET_SRI') === sri && fs.existsSync(path.join(ROOT, 'lib', 'harfbuzz-LICENSE.txt')), G('HB_SUBSET_SRI') + ' / ' + sri);
+    // fetch 흉내 (요청 옵션 기록) — 브라우저에선 integrity로 변조 차단
+    const fetchLog = [];
+    let fetchMode = 'ok';
+    app.fetch = async (url, init) => { fetchLog.push({ url: String(url), integrity: init && init.integrity });
+      return fetchMode === 'ok' ? { ok: true, status: 200, arrayBuffer: async () => wasmBuf.buffer.slice(wasmBuf.byteOffset, wasmBuf.byteOffset + wasmBuf.byteLength) } : { ok: false, status: 404 }; };
+    const ab = b => b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+    const fontOf = (buf, ext) => ({ family: '시험체', fmt: ext === 'ttf' ? 'truetype' : 'opentype', mt: 'font/' + ext, name: 'custom_font.' + ext, ab: ab(buf) });
+    // 17-2. 형식·fsType 판별, cmap 읽기
+    const info = G('_fontFileInfo');
+    check('[서브셋] 형식 판별 (TTF·OTF·WOFF·WOFF2·TTC) + fsType 읽기', info(new Uint8Array(ttf)).kind === 'ttf' && info(new Uint8Array(otf)).kind === 'otf' &&
+      info(new Uint8Array(Buffer.from('wOFF00000000'))).kind === 'woff' && info(new Uint8Array(Buffer.from('wOF200000000'))).kind === 'woff2' && info(new Uint8Array(Buffer.from('ttcf00000000'))).kind === 'ttc' &&
+      info(new Uint8Array(ttf)).fsType === 0);
+    const cmapOf = b => G('_fontCmapCodepoints')(new Uint8Array(b));
+    const fullCmap = cmapOf(ttf);
+    check('[서브셋] cmap(format 4·12) 읽기 — 픽스처 폰트 글자 수', fullCmap.size >= 700 && fullCmap.has(0xAC00 + 0) === fullCmap.has(0xAC00) && fullCmap.has(0x41) && cmapOf(otf).size === fullCmap.size, `cmap ${fullCmap.size}자`);
+    // 17-3. 코드포인트 수집 — 서로게이트 쌍·제어 문자·ASCII 기본 포함
+    const cps = G('_collectFontCodepoints')(['가나\n\t다', '😀', '\u0007']);
+    check('[서브셋] 글자 수집: 서로게이트 결합·제어 문자 제외·ASCII 출력 문자 기본 포함', cps.has(0xAC00) && cps.has(0xB098) && cps.has(0xB2E4) && cps.has(0x1F600) && !cps.has(0xD83D) && !cps.has(0x0A) && !cps.has(0x07) && cps.has(0x41) && cps.has(0x7E));
+    check('[서브셋] EPUB 템플릿 고정 문구(목차 등)도 글자 집합에 포함', /목차/.test(G('_epubTemplateText()')) && !/[\x00-\x7f]/.test(G('_epubTemplateText()')));
+    // 17-4. 실제 서브셋 — TTF·OTF 모두, 쓰인 글자 전부 남고 용량 감소
+    const bookText = fs.readFileSync(path.join(FIX_DIR, '01_je_n_hwa.txt'), 'utf8');
+    const want = [...G('_collectFontCodepoints')([bookText])].filter(c => fullCmap.has(c));
+    for (const [buf, ext] of [[ttf, 'ttf'], [otf, 'otf']]) {
+      const sub = await G('_subsetCustomFont')(fontOf(buf, ext), [bookText]);
+      const rep = G('takeFontSubsetReport()');
+      const got = sub && sub.subset ? cmapOf(Buffer.from(sub.ab)) : new Set();
+      check(`[서브셋] ${ext.toUpperCase()} 실제 서브셋: 쓰인 글자 모두 유지·용량 감소·리포트`, !!(sub && sub.subset) && want.every(c => got.has(c)) && got.size < fullCmap.size &&
+        rep && rep.to < rep.from && rep.to === sub.ab.byteLength && G('_fontFileInfo')(new Uint8Array(sub.ab)).kind === ext,
+        rep ? `${rep.from} → ${rep.to} bytes · 글자 ${got.size}/${fullCmap.size}` : '리포트 없음');
+    }
+    check('[서브셋] 엔진은 무결성 해시와 함께 한 번만 받아옴 (모듈 재사용)', fetchLog.length === 1 && fetchLog[0].integrity === sri && /lib\/harfbuzz-subset\.wasm$/.test(fetchLog[0].url));
+    // 17-5. 제외·실패 경로 — 원본 그대로, 변환은 계속
+    const os2 = buf => { const b = Buffer.from(buf); const n = b.readUInt16BE(4); for (let i = 0; i < n; i++) { const r = 12 + i * 16; if (b.toString('latin1', r, r + 4) === 'OS/2') { b.writeUInt16BE(0x0100, b.readUInt32BE(r + 8) + 8); return b; } } return b; };
+    const noSub = fontOf(os2(ttf), 'ttf');
+    const r1 = await G('_subsetCustomFont')(noSub, [bookText]); const rep1 = G('takeFontSubsetReport()');
+    const woff2 = fontOf(Buffer.concat([Buffer.from('wOF2'), Buffer.alloc(60)]), 'woff2');
+    const r2 = await G('_subsetCustomFont')(woff2, [bookText]); const rep2 = G('takeFontSubsetReport()');
+    vm.runInContext('_hbModulePromise=null', app); fetchMode = 'fail';
+    const r3 = await G('_subsetCustomFont')(fontOf(ttf, 'ttf'), [bookText]); const rep3 = G('takeFontSubsetReport()');
+    fetchMode = 'ok';
+    const r4 = await G('_subsetCustomFont')(fontOf(ttf, 'ttf'), [bookText]); G('takeFontSubsetReport()');
+    check('[서브셋] 서브셋 금지(fsType 0x0100)·WOFF2·엔진 실패는 원본 그대로 + 이유 리포트, 실패 뒤 다시 시도', r1 === noSub && rep1.skipped === 'license' && r2 === woff2 && rep2.skipped === 'format' &&
+      !r3.subset && rep3.skipped === 'error' && r4.subset === true);
+    const desc = G('describeFontSubsetReport');
+    check('[서브셋] 리포트 문구 — 결과는 정보(폰트:), 라이선스 제한은 경고', /^폰트: 책에 쓰인 글자 2,100자만 남겨 3\.8MB → 293KB로 줄였어요/.test(desc({ from: 4e6, to: 3e5, chars: 2100 })[0]) && /^폰트: WOFF2 형식은/.test(desc(rep2)[0]) &&
+      desc({ from: 1, to: 1, restricted: true, skipped: 'nochange' }).some(t => /^폰트 라이선스/.test(t)) && /\^\(\?:본문 정리\|폰트\):/.test(conv) &&
+      /^폰트: 브라우저 보안 정책\(CSP\)이 WebAssembly 실행을 막았어요 — 원본 그대로/.test(desc({ from: 2e5, skipped: 'error', error: "WebAssembly.compile(): ... 'unsafe-eval' is not an allowed source ..." })[0]) &&
+      /^폰트: 서브셋 엔진 파일을 받지 못했어요/.test(desc(rep3)[0]));
+    // 17-6. EPUB 생성 — 서브셋 폰트 + 표식 CSS → tests/out/22_font_subset.epub (CI epubcheck)
+    const chs = [['1화 시작', bookText.slice(0, 1500)], ['2화 이어서', bookText.slice(1500, 3000)]];
+    // launchEpubWorker와 같은 글자 집합: 제목·작가·시리즈·CSS·템플릿 고정 문구·챕터
+    const sub = await G('_subsetCustomFont')(fontOf(ttf, 'ttf'), ['서브셋 시험', '테스트', '', G('buildCss')({ fontFace: '' }), G('_epubTemplateText()'), ...chs.flat()]); G('takeFontSubsetReport()');
+    const css = G('buildCss')({ fontFace: G('_fontFaceForEpub')(sub) });
+    const base = { title: '서브셋 시험', author: '테스트', illMapMeta: [], useItalic: true, showChTitle: true, compressionLevel: 6, lang: 'ko',
+      uid: 'urn:uuid:00000000-0000-4000-8000-000000000022', today: '2026-11-05', modified: '2026-11-05T00:00:00Z', chapters: chs };
+    const w = await runWorker(epubSrc, { params: base, imageData: { cover: null, ills: [] }, cssText: css, fontData: { name: sub.name, mt: sub.mt, ab: new Uint8Array(sub.ab).slice().buffer } },
+      wctx => ({ importScripts(){ vm.runInContext(jszipSrc, wctx); } }));
+    const epubBuf = Buffer.from(await w.last.blob.arrayBuffer());
+    fs.writeFileSync(path.join(OUT_DIR, '22_font_subset.epub'), epubBuf);
+    // 편집 탭 함수는 앱 렐름에서 ArrayBuffer를 넘기므로 같은 렐름의 JSZip으로 연다 (브라우저는 한 렐름)
+    //   (앞 섹션이 app.JSZip에 메인 렐름 JSZip을 넣어 두었을 수 있음 → 앱 렐름 JSZip을 따로 만들고 원래 값 복원)
+    const prevZip = app.JSZip; delete app.JSZip;
+    vm.runInContext(jszipSrc, app);
+    const AppJSZip = app.JSZip; app.JSZip = prevZip;
+    const AppU8 = G('Uint8Array');
+    const appZip = buf => AppJSZip.loadAsync(new AppU8(buf));
+    const ez = await appZip(epubBuf);
+    const fontIn = Buffer.from(await ez.file('OEBPS/Fonts/custom_font.ttf').async('uint8array'));
+    const docText = (await Promise.all(Object.keys(ez.files).filter(p => /\.(xhtml|ncx)$/.test(p)).map(p => ez.file(p).async('string')))).join('');
+    const usedInDocs = [...G('_collectFontCodepoints')([docText.replace(/<[^>]+>/g, '')])].filter(c => fullCmap.has(c));
+    const inFont = cmapOf(fontIn);
+    check('[서브셋] EPUB 폰트 = 서브셋 결과, 문서에 보이는 글자 모두 폰트에 있음 (tests/out/22_font_subset.epub)', fontIn.length === sub.ab.byteLength && fontIn.length < ttf.length &&
+      usedInDocs.every(c => inFont.has(c)) && (await ez.file('OEBPS/Styles/style.css')?.async('string') || css).includes('/* novelepub:font-subset */@font-face{font-family:"시험체"'),
+      `폰트 ${ttf.length} → ${fontIn.length} bytes, 문서 글자 ${usedInDocs.length}`);
+    // 17-7. 편집 탭 — 새 글자가 생기면 원본으로 다시 서브셋 / 원본이 없으면 누락 글자 수
+    const newChar = [...fullCmap].find(c => c > 0xAC00 && !inFont.has(c));
+    const chapPath = Object.keys(ez.files).find(p => /Text\/chapter_0001\.xhtml$/.test(p));
+    ez.file(chapPath, (await ez.file(chapPath).async('string')).replace('</body>', '<p>' + String.fromCodePoint(newChar) + '</p></body>'));
+    app.customFontFace = '@font-face{font-family:"시험체";src:url("data:font/ttf;base64,' + ttf.toString('base64') + '") format("truetype");}\n';
+    const fr1 = await G('refreshEpubFontSubset')(ez);
+    const afterFont = Buffer.from(await ez.file('OEBPS/Fonts/custom_font.ttf').async('uint8array'));
+    const zipB = await appZip(epubBuf);
+    zipB.file(chapPath, (await zipB.file(chapPath).async('string')).replace('</body>', '<p>' + String.fromCodePoint(newChar) + '</p></body>'));
+    app.customFontFace = '';
+    const fr2 = await G('refreshEpubFontSubset')(zipB, await appZip(epubBuf));   // 편집 전 EPUB 기준 — 원래부터 없던 글자는 세지 않음
+    const fr3 = await G('refreshEpubFontSubset')(await appZip(fs.readFileSync(path.join(OUT_DIR, '14_font_file.epub'))));
+    check('[서브셋] 편집 탭: 원본 폰트가 있으면 다시 서브셋(새 글자 포함), 없으면 누락 글자 수, 표식 없는 폰트는 건드리지 않음',
+      fr1 && fr1.resubset === true && cmapOf(afterFont).has(newChar) && fr2 && fr2.resubset === false && fr2.missing === 1 && fr3 === null,
+      JSON.stringify({ fr1, fr2, fr3, newChar: newChar && newChar.toString(16), has: cmapOf(afterFont).has(newChar) }));
+    // 17-8. 연결 — 변환 경로·설정·CSP
+    check('[서브셋] launchEpubWorker가 폰트를 Worker에 보내기 전에 서브셋 (설정 끄면 생략)', /fontData = await _subsetCustomFont\(fontData, fontTexts\(\)\);/.test(eg) && /document\.getElementById\?\.\('optFontSubset'\)\?\.checked!==false/.test(eg) &&
+      eg.indexOf('_subsetCustomFont(fontData, fontTexts())') < eg.indexOf("const cssText   = buildCss({fontFace:_fontFaceForEpub(fontData)});"));
+    check('[서브셋] 설정 토글(기본 켜짐)·저장·복원, 편집 두 경로에서 갱신', /id="optFontSubset" data-input-action="saveExtraSettings" checked>/.test(html) && /fontSubset:document\.getElementById\('optFontSubset'\)\?\.checked!==false/.test(st) &&
+      /fsub\.checked=s\.fontSubset!==false;/.test(st) && (ed.match(/await refreshEpubFontSubset\(newZip, E\.epubZip\)\.catch\(\(\)=>null\)/g) || []).length === 2);
+    const hdrPolicy = (hdr.match(/Content-Security-Policy:\s*([^\n]+)/) || [])[1] || '', metaPolicy = (html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/) || [])[1] || '';
+    check('[서브셋] CSP는 \'wasm-unsafe-eval\'만 추가 (헤더 = meta)', /script-src 'self' 'wasm-unsafe-eval';/.test(hdrPolicy) && /script-src 'self' 'wasm-unsafe-eval';/.test(metaPolicy) && !/'unsafe-(?:eval|inline)'/.test(hdrPolicy + metaPolicy));
   }
 
   if(UPDATE){

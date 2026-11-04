@@ -1,9 +1,10 @@
 # ★ Phase 15: Cloudflare Pages 보안 헤더 (GitHub Pages·로컬은 index.html의 <meta> CSP가 같은 정책 적용)
-#   script-src 'self' — 인라인 스크립트·on* 속성 없음 (이벤트 위임), Blob Worker는 worker-src blob:
+#   script-src 'self' 'wasm-unsafe-eval' — 인라인 스크립트·on* 속성 없음 (이벤트 위임), Blob Worker는 worker-src blob:
+#     ★ Phase 22: 'wasm-unsafe-eval'은 폰트 서브셋 엔진(lib/harfbuzz-subset.wasm) 컴파일용 — JS eval·new Function은 계속 차단
 #   style-src 'self' — ★ Phase 20: index.html·JS 마크업 모두 style 속성 0 → 'unsafe-inline' 제거 (동적 값은 CSSOM el.style.* — CSP 대상 아님)
 #   connect-src / img-src https: — 표지 검색(여러 플랫폼·프록시)·URL 표지·Gemini API
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: data: blob:; manifest-src 'self'; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: data: blob:; manifest-src 'self'; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin

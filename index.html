@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!-- ★ Phase 15: CSP — _headers(Cloudflare Pages)와 같은 정책 (frame-ancestors는 헤더에서만 적용) -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: data: blob:; manifest-src 'self'; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: data: blob:; manifest-src 'self'; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>📚 NovelEPUB — TXT to EPUB3 변환기</title>
   <!-- ★ Phase 16: 앱 설치(PWA) — 설치하면 .txt 파일을 NovelEPUB으로 바로 열 수 있음 (file_handlers) -->
   <link rel="manifest" href="manifest.webmanifest">
@@ -1057,6 +1057,11 @@
           <div id="fontInfo" class="txt-green-sm"></div>
         </div>
         <input type="file" id="fontIn" accept=".ttf,.otf,.woff,.woff2" hidden>
+        <!-- ★ Phase 22: 폰트 서브셋 -->
+        <div class="toggle-row u-mt-8">
+          <div><label for="optFontSubset">쓰인 글자만 포함 (서브셋)</label><small id="optFontSubsetDesc">책에 나오는 글자만 남겨 폰트 용량을 줄여요 · TTF·OTF만 (WOFF·WOFF2는 원본 그대로) · 폰트에 '서브셋 금지' 표시가 있으면 원본 그대로</small></div>
+          <label class="sw"><input type="checkbox" id="optFontSubset" data-input-action="saveExtraSettings" checked><span class="sw-slider" aria-hidden="true"></span></label>
+        </div>
       </div>
     </details>
     <div class="css-preview" id="cssPreview">

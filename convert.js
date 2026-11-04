@@ -1698,6 +1698,8 @@ async function startConvert(){
     epubWarnings = epubWarnings.concat(_collectConvertWarnings(chapters, illMap));
     // ★ Phase 13: 본문 정리 결과 요약 (사용자가 켠 옵션이 실제로 무엇을 바꿨는지)
     epubWarnings = epubWarnings.concat(_describeCleanStats(cleanStats, cleanOpts));
+    // ★ Phase 22: 커스텀 폰트 서브셋 결과 (줄인 용량·원본 그대로 넣은 이유)
+    if(typeof takeFontSubsetReport==='function') epubWarnings = epubWarnings.concat(describeFontSubsetReport(takeFontSubsetReport()));
     // ★ Phase 17: 이름을 먼저 정한 뒤 Blob 설정 → 구독(S.epubBlob)이 다운로드 바를 띄울 때 새 이름 사용
     S.epubName=streamed?(streamTarget.name||title.replace(/[\\/:*?"<>|]/g,'_')+'.epub'):title.replace(/[\\/:*?"<>|]/g,'_')+'.epub';
     S.epubBlob=blob;
@@ -1839,11 +1841,11 @@ function _describeCleanStats(st, opts){
 function _renderConvertReport(warnings){
   const el = document.getElementById('convertReport');
   if(!el) return;
-  if(!warnings || !warnings.length){ el.style.display='none'; return; }
+  if(!warnings || !warnings.length){ el.style.display='none'; el.replaceChildren(); return; }   // ★ Phase 22: 숨길 때 이전 내용도 비움
   // ★ style.css의 #convertReport{display:none} 기본값 때문에 ''가 아닌 'block'으로 명시
   el.style.display = 'block';
   // ★ Phase 13: '본문 정리:' 항목은 경고가 아니라 정보 — 건수·아이콘·색을 분리
-  const isInfo=w=>/^본문 정리:/.test(String(w));
+  const isInfo=w=>/^(?:본문 정리|폰트):/.test(String(w));   // ★ Phase 22: '폰트:' 서브셋 결과도 정보
   const warnCount=warnings.filter(w=>!isInfo(w)).length;
   const head=warnCount?`⚠ 변환 경고 ${warnCount}건`:'ℹ 변환 정보';
   el.innerHTML =  // safe-html: head는 고정 문구+건수, 항목은 escHtml

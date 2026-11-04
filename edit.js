@@ -882,6 +882,8 @@ async function startEditEpub(){
       const illEntries=buildIllEntries(E.chapters,opfBase);
       if(illEntries.length>0) await insertIllsToEpub(newZip,opfPath,opfBase,illEntries);
     }
+    // ★ Phase 22: 이 앱이 서브셋한 폰트면 편집 결과의 글자로 다시 서브셋 (원본 폰트가 설정에 있을 때)
+    const fontRep=typeof refreshEpubFontSubset==='function'?await refreshEpubFontSubset(newZip, E.epubZip).catch(()=>null):null;
     await _touchOpfModified(newZip,opfPath);
     ep(92,'압축 중...');
     const blob=await newZip.generateAsync({type:'blob',mimeType:'application/epub+zip',compression:'DEFLATE',compressionOptions:{level:parseInt(document.getElementById('optCompression')?.value||'6')}},
@@ -891,6 +893,7 @@ async function startEditEpub(){
     ep(100,'완료!');
     document.getElementById('editResultMsg').textContent=E.resultName+' ('+(blob.size/1024/1024).toFixed(1)+'MB)';
     document.getElementById('editResultBox')?.classList.add('show');
+    _toastFontRefresh(fontRep);
   }catch(e){
     document.getElementById('editProgWrap')?.classList.remove('show');
     document.getElementById('editErrBox').textContent='❌ '+friendlyError(e);
@@ -1291,6 +1294,14 @@ function applyESmartPat(){
   previewEpubToc();
 }
 
+// ★ Phase 22: 서브셋 폰트 갱신 결과 안내 (다시 서브셋했거나, 원본이 없어 폰트에 없는 글자가 생긴 경우)
+function _toastFontRefresh(rep){
+  if(!rep) return;
+  const kb=n=>Math.max(1,Math.round((n||0)/1024))+'KB';
+  if(rep.resubset) Toast.info('폰트를 편집 결과의 글자에 맞춰 다시 줄였어요 ('+kb(rep.from)+' → '+kb(rep.to)+').', 3500);
+  else if(rep.missing>0) Toast.warn('편집으로 새로 생긴 글자 '+rep.missing+'자가 EPUB 폰트에 없어 리더기 기본 글꼴로 보일 수 있어요. 설정에 같은 커스텀 폰트를 넣고 다시 편집하면 함께 갱신돼요.', 6000);
+}
+
 // ── 탭 전환 ──
 function switchEditTab(name){
   ['toc','ill','css'].forEach(t=>{
@@ -1612,6 +1623,8 @@ async function applyDirectEdit(){
       ep(80,'완료 중...');
     }
 
+    // ★ Phase 22: 목차 제목 수정 등으로 새 글자가 생겼으면 서브셋 폰트 갱신
+    const fontRep=typeof refreshEpubFontSubset==='function'?await refreshEpubFontSubset(newZip, E.epubZip).catch(()=>null):null;
     await _touchOpfModified(newZip,opfPath);
     ep(90,'EPUB 생성 중...');
     // ★ Phase 12: mimeType 지정 — 이전엔 application/zip Blob으로 저장돼 공유·열기 시 ZIP으로 인식될 수 있었음
@@ -1623,6 +1636,7 @@ async function applyDirectEdit(){
     document.getElementById('directEditResultMsg').textContent=_directEditResult.name;
     setShown(resultBox,true);
     Toast.success('EPUB 편집이 완료됐어요.');
+    _toastFontRefresh(fontRep);
   }catch(e){
     errBox.textContent='❌ '+e.message; errBox.classList.add('show');
     progWrap.classList.remove('show');

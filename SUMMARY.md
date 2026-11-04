@@ -611,6 +611,32 @@
 - 화면이 열린 상태의 일반 업데이트: 새 SW 대기 + 업데이트 배너 (즉시 교체 안 함)
 - 테스트 394 → 398개 전부 통과 (`_plain` 실제 동작 포함)
 
+### Phase 22 — 커스텀 폰트 서브셋 (HarfBuzz WebAssembly)
+
+#### 1) 엔진 (`lib/harfbuzz-subset.wasm`, `lib/harfbuzz-LICENSE.txt`)
+- HarfBuzz 공식 `harfbuzzjs` 1.6.3의 서브셋 전용 빌드 (667KB, 압축 전송 약 270KB, import 없음) — 비공식 `hb-subset-wasm` 0.5.0(744KB, 공개 며칠)보다 작고 공식 저장소 관리
+- 커스텀 폰트로 변환할 때만 `fetch(..., {integrity: sha384})` → `WebAssembly.compile` (모듈 재사용, 호출마다 새 인스턴스로 메모리 해제), 한 번 받으면 SW 캐시로 오프라인에서도 동작
+- CSP `script-src`에 `'wasm-unsafe-eval'` 추가 (WebAssembly 컴파일만 허용, JS `eval`·`new Function`은 계속 차단) — `_headers`·meta 동일
+
+#### 2) 변환 흐름 (`epub-gen.js` `launchEpubWorker`)
+- Worker에 폰트를 보내기 직전 `_subsetCustomFont`: 글자 집합 = 제목·작가·시리즈·챕터 제목·본문 + EPUB 템플릿 고정 문구(Worker 소스의 비ASCII 문자) + CSS가 만드는 문자 + ASCII 출력 문자 — 실제 표시 글자의 상위 집합
+- 글자 수집은 BMP 비트맵(Uint8Array 64K) + 보조 평면 Set — 8.6MB 원고 14ms
+- TTF·OTF만 (WOFF·WOFF2·TTC는 원본 그대로), OS/2 fsType '서브셋 금지(0x0100)'면 원본, '임베딩 제한(0x0002)'이면 경고
+- 엔진을 못 받거나·CSP가 막거나·오류가 나면 원본 그대로 넣고 리포트에 이유 — 폰트 때문에 변환이 실패하지 않음
+- 서브셋한 폰트는 CSS `@font-face` 앞에 `/* novelepub:font-subset */` 표식
+- 변환 리포트(ℹ): '폰트: 책에 쓰인 글자 N자만 남겨 A → B로 줄였어요' 또는 원본 그대로 넣은 이유
+- 설정 > 커스텀 폰트 '쓰인 글자만 포함 (서브셋)' 토글 (기본 켜짐, 저장·복원) — 일괄 변환·분할 변환도 같은 경로
+
+#### 3) 편집 탭 (`refreshEpubFontSubset`)
+- 표식이 있는 EPUB을 편집(TXT 삽입·목차·삽화·CSS)하면 결과 EPUB의 글자로 다시 서브셋 — 설정에 같은 이름의 원본 폰트가 있을 때
+- 원본이 없으면 '편집으로 새로 생긴 글자 중 폰트에 없는 것'의 수를 알림 (편집 전 EPUB과 비교 — 원래부터 없던 이모지·드문 한자는 세지 않음), 표식 없는 폰트(다른 도구가 만든 EPUB)는 건드리지 않음
+- 삽입 챕터는 시스템 글꼴을 !important로 강제하므로(기존 동작) 글자 집계에서 제외
+
+#### 4) 검증
+- Node: 실제 HarfBuzz로 TTF·OTF 픽스처(Noto Sans CJK KR 일부, OFL — `tests/fixtures/fonts/`) 서브셋 → 쓰인 글자 모두 cmap에 남음·용량 감소, 제외·실패 경로, EPUB `tests/out/22_font_subset.epub`(epubcheck 0 오류) 문서 글자 ⊂ 폰트, 편집 탭 재서브셋·누락 글자 — 테스트 398 → 413개 통과
+- Chromium: 원본·서브셋 폰트로 같은 문장을 그린 캔버스 픽셀 차이 0 (글자 픽셀 23,031개), 앱 흐름 184KB → 38KB·리포트·토글 끄면 원본, `'wasm-unsafe-eval'` 없는 CSP에서 원본+안내, 오프라인 재변환 서브셋 동작, 엄격 CSP 24단계 위반 0, Phase 16·17 E2E 정상
+- 실측: Noto Sans CJK KR 15.7MB → 359KB (8.6MB 장편, 2,484자, 서브셋 0.17초)
+
 ---
 
 ## 개선 30개 적용 결과 (Phase 13~16)
@@ -618,7 +644,7 @@
 | 카테고리 | 적용 | 비고 |
 |------|------|------|
 | 변환 품질 | 5/5 | Phase 13 |
-| EPUB 호환 | 5/5 | Phase 14 — 폰트는 파일 분리까지(서브셋은 외부 라이브러리 미사용 결정으로 제외) |
+| EPUB 호환 | 5/5 | Phase 14 + Phase 22(폰트 서브셋 — HarfBuzz WebAssembly 도입으로 원칙 변경) |
 | 성능·안정성 | 5/5 | Phase 12(64KB 감지) + Phase 15 |
 | UX/UI | 5/5 | Phase 16 + Phase 12(프록시 자동 재시도) |
 | 보안·인프라 | 5/5 | Phase 12(Worker 허용 목록) + Phase 15 |
