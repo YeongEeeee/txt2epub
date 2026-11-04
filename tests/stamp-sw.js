@@ -27,9 +27,10 @@ function assetHash(swSrc = fs.readFileSync(SW, 'utf8')){
   const h = crypto.createHash('sha256');
   for(const rel of coreAssets(swSrc)){
     const buf = fs.readFileSync(path.join(ROOT, rel));
-    // 텍스트 자산만 CRLF → LF (lib/jszip.min.js 포함 전부 텍스트)
     h.update(rel + '\0');
-    h.update(buf.toString('utf8').replace(/\r\n/g, '\n'));
+    // 텍스트 자산만 CRLF → LF (Windows 체크아웃 대비), 이미지 등 바이너리는 원본 바이트
+    if(/\.(?:js|css|html|webmanifest|json|svg|txt|md)$/i.test(rel)) h.update(buf.toString('utf8').replace(/\r\n/g, '\n'));
+    else h.update(buf);
     h.update('\0');
   }
   return 'h-' + h.digest('hex').slice(0, 16);

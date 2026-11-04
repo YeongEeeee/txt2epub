@@ -15,6 +15,7 @@
  *   8. Phase 13: 본문 정리(잡음 줄·줄바꿈 병합·기호)·장면 구분선·검수 리포트·인코딩 직접 지정
  *   9. Phase 14: 폰트 파일 분리·landmarks·접근성 메타·리더기 프로필·TXT 삽입 편집 EPUB(→ CI epubcheck)
  *  10. Phase 15: 스트리밍 저장 출력·Worker 재사용·API 키·인라인 핸들러 제거·CSP·innerHTML 정적 검사
+ *  11. Phase 16: 앱 설치(manifest·아이콘·파일 열기)·접근성·작업 복원·기기 미리보기·StateManager 구독·유틸리티 클래스
  */
 'use strict';
 const fs   = require('fs');
@@ -864,6 +865,43 @@ async function main(){
     }
     check('[보안] innerHTML 동적 값은 이스케이프 또는 safe-html 검토 주석', offenders.length === 0, offenders.slice(0, 6).join(' / '));
     check('[보안] 미니 리더·설정 요약 칩의 폰트 이름 이스케이프', /폰트 <strong>\$\{escHtml\(fontName\)\}<\/strong>/.test(ui) && /\$\{escHtml\(String\(val\)\)\}/.test(ui));
+  }
+
+  // ── 11. Phase 16 — UX · 유지보수 ──
+  {
+    const read = readRoot;
+    const html = read('index.html'), sw = read('sw.js'), ui = read('ui-state.js'), conv = read('convert.js'), parser = read('parser.js'), core = read('core.js'), css = read('style.css');
+    // 11-1. 앱 설치 — manifest·아이콘·.txt 파일 열기
+    let mf = null; try{ mf = JSON.parse(read('manifest.webmanifest')); }catch(e){}
+    const pngSize = f => { const b = fs.readFileSync(path.join(ROOT, f)); return b.slice(1, 4).toString() === 'PNG' ? [b.readUInt32BE(16), b.readUInt32BE(20)] : null; };
+    check('[설치] manifest 필수 항목 (name·start_url·display·아이콘 192/512·maskable)', !!mf && mf.name && mf.start_url && mf.display === 'standalone' &&
+      mf.icons.every(i => fs.existsSync(path.join(ROOT, i.src))) &&
+      mf.icons.some(i => i.sizes === '192x192' && String(pngSize(i.src)) === '192,192') &&
+      mf.icons.some(i => i.sizes === '512x512' && i.purpose === 'any' && String(pngSize(i.src)) === '512,512') &&
+      mf.icons.some(i => i.purpose === 'maskable'));
+    check('[설치] .txt 파일 열기 (file_handlers + launchQueue)', !!mf && mf.file_handlers?.[0]?.accept?.['text/plain']?.includes('.txt') && /window\.launchQueue\.setConsumer\(/.test(ui) && /_setupLaunchQueue\(\);/.test(ui));
+    check('[설치] manifest 링크·theme-color·SW 프리캐시', html.includes('<link rel="manifest" href="manifest.webmanifest">') && /name="theme-color"/.test(html) &&
+      ['./manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png', './icons/icon-maskable-512.png', './icons/icon.svg'].every(a => sw.includes(`'${a}'`)));
+    // 11-2. 접근성
+    const iconOnly = [...html.matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].filter(([, a, t]) => !/aria-label=/.test(a) && !/[A-Za-z0-9가-힣]/.test(t.replace(/<[^>]+>/g, '')));
+    check('[접근성] 글자 없는 아이콘 버튼은 모두 aria-label', iconOnly.length === 0, iconOnly.map(m => m[0].slice(0, 60)).join(' / '));
+    const divActs = [...html.matchAll(/<(?:div|span)\b([^>]*\bdata-action="[^"]*"[^>]*)>/g)].filter(m => !/role="button"/.test(m[1]) || !/tabindex="0"/.test(m[1]));
+    check('[접근성] data-action이 달린 div·span은 role="button" + tabindex', divActs.length === 0, divActs.map(m => m[0].slice(0, 60)).join(' / '));
+    check('[접근성] 진행률 progressbar·토스트 status·미리보기 dialog', /id="progBar" role="progressbar"/.test(html) && /_container\.setAttribute\('role', 'status'\)/.test(core) && /id="previewModal"[\s\S]{0,80}role="dialog" aria-modal="true"/.test(html));
+    check('[접근성] 모달 포커스 이동·Tab 순환·닫으면 복귀 (전역 keydown 핸들러 1개 유지)', /function _trapModalTab\(e\)/.test(ui) && /if\(e\.key==='Tab'&&_trapModalTab\(e\)\) return;/.test(ui) && /prev\.focus\?\.\(\)/.test(ui));
+    // 11-3. 작업 복원
+    check('[복원] TXT·목차 편집·메타·표지 자동 저장 (SettingsDB, 300MB 상한)', /const _SESSION_KEY='session_v1';/.test(conv) && /files:\[\.\.\.S\.txtFiles\]/.test(conv) && /_SESSION_MAX_BYTES=300\*1024\*1024/.test(conv));
+    check('[복원] 목차 편집·파일 목록·표지 변경 시 저장 예약', /scheduleSessionSave\(\{tocEdited:true\}\)/.test(parser) && (conv.match(/scheduleSessionSave\(\);/g) || []).length >= 3);
+    check('[복원] 시작 시 복원 제안 (.txt로 실행했으면 생략)·초기화하면 삭제', /async function offerSessionRestore\(\)/.test(conv) && /if\(window\.__launchedWithFiles\|\|S\.txtFiles\.length\) return;/.test(conv) && /SettingsDB\.remove\(_SESSION_KEY\)\.catch/.test(conv) && /setupSessionAutosave\(\)/.test(ui));
+    // 11-4. 기기 미리보기
+    check('[미리보기] 폰·태블릿·6인치 리더 프레임', /function setReaderDevice\(dev\)/.test(ui) && /setReaderDevice:/.test(ui) && ['phone', 'tablet', 'eink'].every(d => html.includes(`data-device="${d}"`) && css.includes(`.mini-reader.dev-${d}{`)));
+    // 11-5. StateManager 구독 — 파일 목록 → 하단 바
+    check('[상태] 하단 바는 S.txtFiles 구독으로 갱신 (직접 호출 없음)', /if \(state\.txtFiles !== prev\?\.txtFiles\) updateBtmBar\(state\.txtFiles\);/.test(ui) && !/updateBtmBar\(S\.txtFiles\)|updateBtmBar\(\[\]\)/.test(conv));
+    check('[상태] S.txtFiles 제자리 변경(splice·push) 없음 → 항상 새 배열로 교체', ![conv, ui, parser, read('settings.js'), read('edit.js')].some(t => /S\.txtFiles\.(?:splice|push|pop|shift|unshift|sort|reverse)\(/.test(t)));
+    // 11-6. 인라인 스타일 → 유틸리티 클래스
+    const styleAttrs = (html.match(/\sstyle="/g) || []).length;
+    check('[스타일] 반복 인라인 style을 유틸리티 클래스로 (266 → 183 이하, 화면 픽셀 동일 확인)', styleAttrs <= 183 && /\.u-fs-xs\{font-size:var\(--fs-xs\)\}/.test(css), `style 속성 ${styleAttrs}개`);
+    check('[스타일] 한 태그에 class 속성 중복 없음', !/<[a-z][^>]*\sclass="[^"]*"[^>]*\sclass="/i.test(html));
   }
 
   if(UPDATE){

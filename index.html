@@ -6,6 +6,10 @@
   <!-- ★ Phase 15: CSP — _headers(Cloudflare Pages)와 같은 정책 (frame-ancestors는 헤더에서만 적용) -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: data: blob:; manifest-src 'self'; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
   <title>📚 NovelEPUB — TXT to EPUB3 변환기</title>
+  <!-- ★ Phase 16: 앱 설치(PWA) — 설치하면 .txt 파일을 NovelEPUB으로 바로 열 수 있음 (file_handlers) -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#c8503c">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj4KPGRlZnM+CiAgPGxpbmVhckdyYWRpZW50IGlkPSJiZ0ciIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiMyYTFmMWEiLz4KICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iIzFhMTIxMCIvPgogIDwvbGluZWFyR3JhZGllbnQ+CiAgPGxpbmVhckdyYWRpZW50IGlkPSJwZ0wiIHgxPSIwIiB5MT0iMCIgeDI9IjEiIHkyPSIxIj4KICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNmNWVkZTAiLz4KICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2UwY2ZiOCIvPgogIDwvbGluZWFyR3JhZGllbnQ+CiAgPGxpbmVhckdyYWRpZW50IGlkPSJwZ1IiIHgxPSIxIiB5MT0iMCIgeDI9IjAiIHkyPSIxIj4KICAgIDxzdG9wIG9mZnNldD0iMCUiIHN0b3AtY29sb3I9IiNlOGQ5YzUiLz4KICAgIDxzdG9wIG9mZnNldD0iMTAwJSIgc3RvcC1jb2xvcj0iI2Q0YzRhOCIvPgogIDwvbGluZWFyR3JhZGllbnQ+CjwvZGVmcz4KPCEtLSDrsLDqsr0g7JuQIC0tPgo8Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI0OCIgZmlsbD0idXJsKCNiZ0cpIi8+CjwhLS0g7JWh7IS87Yq4IOungSAtLT4KPGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNDUiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI2M4NTAzYyIgc3Ryb2tlLXdpZHRoPSIyIiBzdHJva2Utb3BhY2l0eT0iMC42Ii8+CjwhLS0g4pSA4pSAIOyxhSDsmbzsqr0g7Y6Y7J207KeAIOKUgOKUgCAtLT4KPHBhdGggZD0iTTE3IDI3IFExNyAyNSAxOSAyNSBMNDggMjcgTDQ4IDc1IEwxOSA3MyBRMTcgNzMgMTcgNzEgWiIgZmlsbD0idXJsKCNwZ0wpIi8+CjwhLS0g7Jm87Kq9IO2OmOydtOyngCDrgrTsp4Ag6re466a87J6Q7ISgIC0tPgo8cGF0aCBkPSJNNDUgMjcgTDQ4IDI3IEw0OCA3NSBMNDUgNzUgWiIgZmlsbD0iI2MwYTg4MCIgb3BhY2l0eT0iMC40Ii8+CjwhLS0g4pSA4pSAIOyxhSDsmKTrpbjsqr0g7Y6Y7J207KeAIOKUgOKUgCAtLT4KPHBhdGggZD0iTTUyIDI3IEw4MSAyNSBRODMgMjUgODMgMjcgTDgzIDcxIFE4MyA3MyA4MSA3MyBMNTIgNzUgWiIgZmlsbD0idXJsKCNwZ1IpIi8+CjwhLS0g7Jik66W47Kq9IO2OmOydtOyngCDrgrTsp4Ag6re466a87J6Q7ISgIC0tPgo8cGF0aCBkPSJNNTIgMjcgTDU1IDI3IEw1NSA3NSBMNTIgNzUgWiIgZmlsbD0iI2E4OTA2OCIgb3BhY2l0eT0iMC40Ii8+CjwhLS0g7LKZ7LaUKHNwaW5lKSAtLT4KPHJlY3QgeD0iNDgiIHk9IjI3IiB3aWR0aD0iNCIgaGVpZ2h0PSI0OCIgZmlsbD0iIzJlMWUxNCIvPgo8IS0tIOyxheuTsSDtlZjri6gg67O866Wo6rCQIC0tPgo8cGF0aCBkPSJNMTcgNzEgUTE3IDc2IDIxIDc3IEw0OCA3OSBMNTIgNzkgTDc5IDc3IFE4MyA3NiA4MyA3MSBMODMgNzMgUTgzIDc4IDc5IDc5IEw1MiA4MSBMNDggODEgTDIxIDc5IFExNyA3OCAxNyA3MyBaIiBmaWxsPSIjMWUxMjA4IiBvcGFjaXR5PSIwLjg1Ii8+CjwhLS0g4pSA4pSAIOyZvOyqvSDtjpjsnbTsp4A6IO2FjeyKpO2KuCDrnbzsnbgg4pSA4pSAIC0tPgo8bGluZSB4MT0iMjIiIHkxPSIzNCIgeDI9IjQ0IiB5Mj0iMzQiIHN0cm9rZT0iI2IwOTg3YSIgc3Ryb2tlLXdpZHRoPSIxLjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8bGluZSB4MT0iMjIiIHkxPSIzOSIgeDI9IjQ0IiB5Mj0iMzkiIHN0cm9rZT0iI2IwOTg3YSIgc3Ryb2tlLXdpZHRoPSIxLjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8bGluZSB4MT0iMjIiIHkxPSI0NCIgeDI9IjQ0IiB5Mj0iNDQiIHN0cm9rZT0iI2IwOTg3YSIgc3Ryb2tlLXdpZHRoPSIxLjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8bGluZSB4MT0iMjIiIHkxPSI0OSIgeDI9IjM4IiB5Mj0iNDkiIHN0cm9rZT0iI2IwOTg3YSIgc3Ryb2tlLXdpZHRoPSIxLjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8IS0tIOKUgOKUgCDsmbzsqr0g7Y6Y7J207KeAOiDrlJTsp4DthLgg7Iug7Zi4IOuFuOuTnCAo7JWh7IS87Yq4ICNjODUwM2MpIOKUgOKUgCAtLT4KPCEtLSDsiJjsp4Eg7Iug7Zi47ISgIC0tPgo8bGluZSB4MT0iMjgiIHkxPSI1OCIgeDI9IjI4IiB5Mj0iNTMiIHN0cm9rZT0iI2M4NTAzYyIgc3Ryb2tlLXdpZHRoPSIxLjMiLz4KPCEtLSDsiJjtj4kg7Jew6rKw7ISgIC0tPgo8bGluZSB4MT0iMjgiIHkxPSI2MyIgeDI9IjM2IiB5Mj0iNjMiIHN0cm9rZT0iI2M4NTAzYyIgc3Ryb2tlLXdpZHRoPSIxLjMiLz4KPCEtLSDrqZTsnbgg7IaU66as65OcIOuFuOuTnCAtLT4KPGNpcmNsZSBjeD0iMjgiIGN5PSI1OCIgcj0iMi41IiBmaWxsPSIjYzg1MDNjIi8+CjwhLS0g67O07KGwIOungSDrhbjrk5wgLS0+CjxjaXJjbGUgY3g9IjI4IiBjeT0iNTMiIHI9IjEuOCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjYzg1MDNjIiBzdHJva2Utd2lkdGg9IjEuMiIvPgo8IS0tIOyiheywqSDrhbjrk5wgLS0+CjxjaXJjbGUgY3g9IjM2IiBjeT0iNjMiIHI9IjIiIGZpbGw9IiNjODUwM2MiIG9wYWNpdHk9IjAuNzUiLz4KPCEtLSDilIDilIAg7Jik66W47Kq9IO2OmOydtOyngDog7YWN7Iqk7Yq4IOudvOyduCDilIDilIAgLS0+CjxsaW5lIHgxPSI1NiIgeTE9IjM0IiB4Mj0iNzgiIHkyPSIzNCIgc3Ryb2tlPSIjOWE4NDY1IiBzdHJva2Utd2lkdGg9IjEuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxsaW5lIHgxPSI1NiIgeTE9IjM5IiB4Mj0iNzgiIHkyPSIzOSIgc3Ryb2tlPSIjOWE4NDY1IiBzdHJva2Utd2lkdGg9IjEuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxsaW5lIHgxPSI1NiIgeTE9IjQ0IiB4Mj0iNzgiIHkyPSI0NCIgc3Ryb2tlPSIjOWE4NDY1IiBzdHJva2Utd2lkdGg9IjEuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjxsaW5lIHgxPSI1NiIgeTE9IjQ5IiB4Mj0iNzAiIHkyPSI0OSIgc3Ryb2tlPSIjOWE4NDY1IiBzdHJva2Utd2lkdGg9IjEuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+CjwhLS0g4pSA4pSAIOyYpOuluOyqvSDtjpjsnbTsp4A6IEVQVUIg7Lac66ClIOuLqOyekCAo6rOo65OcICNkNGEwNTUpIOKUgOKUgCAtLT4KPCEtLSBJQyDsgqzqsIEg64uo7J6QIEEgLS0+CjxyZWN0IHg9IjU3IiB5PSI1NyIgd2lkdGg9IjgiIGhlaWdodD0iOCIgcng9IjEuNSIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZDRhMDU1IiBzdHJva2Utd2lkdGg9IjEuNCIvPgo8IS0tIElDIOyCrOqwgSDri6jsnpAgQiAtLT4KPHJlY3QgeD0iNzAiIHk9IjU3IiB3aWR0aD0iOCIgaGVpZ2h0PSI4IiByeD0iMS41IiBmaWxsPSJub25lIiBzdHJva2U9IiNkNGEwNTUiIHN0cm9rZS13aWR0aD0iMS40Ii8+CjwhLS0gQeKGlEIg7IiY7Y+JIOyXsOqysOyEoCAtLT4KPGxpbmUgeDE9IjY1IiB5MT0iNjEiIHgyPSI3MCIgeTI9IjYxIiBzdHJva2U9IiNkNGEwNTUiIHN0cm9rZS13aWR0aD0iMS4yIi8+CjwhLS0gQSDtlZjri6gg7ZWAIC0tPgo8bGluZSB4MT0iNjEiIHkxPSI2NSIgeDI9IjYxIiB5Mj0iNjkiIHN0cm9rZT0iI2Q0YTA1NSIgc3Ryb2tlLXdpZHRoPSIxLjIiLz4KPCEtLSBCIO2VmOuLqCDtlYAgLS0+CjxsaW5lIHgxPSI3NCIgeTE9IjY1IiB4Mj0iNzQiIHkyPSI2OSIgc3Ryb2tlPSIjZDRhMDU1IiBzdHJva2Utd2lkdGg9IjEuMiIvPgo8IS0tIO2VgCDrgZ0g7IaU642UIOygkCAtLT4KPGNpcmNsZSBjeD0iNjEiIGN5PSI2OS41IiByPSIxLjQiIGZpbGw9IiNkNGEwNTUiLz4KPGNpcmNsZSBjeD0iNzQiIGN5PSI2OS41IiByPSIxLjQiIGZpbGw9IiNkNGEwNTUiLz4KPCEtLSBBIOuCtOu2gCDssYTsm4AgKO2ZnOyEsSDtkZzsi5wpIC0tPgo8cmVjdCB4PSI1OSIgeT0iNTkiIHdpZHRoPSI0IiBoZWlnaHQ9IjQiIHJ4PSIwLjgiIGZpbGw9IiNkNGEwNTUiIG9wYWNpdHk9IjAuMzUiLz4KPC9zdmc+">
   <!-- ① 5종 웹폰트 (Nanum Gothic/Myeongjo, Noto Sans/Serif KR, Gowun Batang) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -45,7 +49,7 @@
   <div class="sec-hdr"><span class="sec-title">파일 설정</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="dz" id="txtDz" tabindex="0" role="button" aria-label="TXT 파일 업로드 영역. Enter나 Space로 파일 탐색기 열기">
-      <svg width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);display:block;margin:0 auto 6px" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></svg>
+      <svg class="dz-icon" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></svg>
       <div class="dz-text">TXT 파일을 드래그하거나 클릭</div>
       <div class="dz-sub">여러 파일 가능 · 자동 정렬 병합 · EUC-KR 자동 감지 · 이름이 비슷한 이미지를 함께 넣으면 표지 자동 연결</div>
     </div>
@@ -55,9 +59,9 @@
       <div class="flex-row-sb" style="margin-bottom:5px">
         <span class="txt-meta-sm" id="txtFileCount"></span>
         <div class="flex-row gap-5">
-          <button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="sortTxtAuto" title="파일명 숫자 기준 자동 정렬">자동 정렬</button>
-          <button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="sortTxtAlpha" title="사전순 정렬">가나다↑</button>
-          <button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="addMoreTxt" title="파일 추가">＋ 파일 추가</button>
+          <button class="btn btn-ghost btn-sm u-fs-xs" data-action="sortTxtAuto" title="파일명 숫자 기준 자동 정렬">자동 정렬</button>
+          <button class="btn btn-ghost btn-sm u-fs-xs" data-action="sortTxtAlpha" title="사전순 정렬">가나다↑</button>
+          <button class="btn btn-ghost btn-sm u-fs-xs" data-action="addMoreTxt" title="파일 추가">＋ 파일 추가</button>
         </div>
       </div>
       <div id="txtSortList" class="txt-sort-list"></div>
@@ -116,7 +120,7 @@
       <span class="lbl">챕터 정규식</span>
       <div class="pat-input-wrap">
         <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" data-input-action="patternValidate" style="transition:border-color .15s;width:100%;padding-right:28px">
-        <button id="patternClearBtn" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text2);font-size:var(--fs-base);padding:0;line-height:1" title="입력 지우기">✕</button>
+        <button id="patternClearBtn" aria-label="패턴 입력 지우기" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text2);font-size:var(--fs-base);padding:0;line-height:1" title="입력 지우기">✕</button>
       </div>
       <div class="pat-actions">
         <button class="btn btn-blue btn-sm" data-action="previewToc">목차 확인</button><button class="btn btn-ghost btn-sm" data-action="autoSplitByInterval">간격 분할</button>
@@ -125,14 +129,14 @@
     <!-- ★ 고급 패턴 도구: 자동 감지가 실패했을 때만 필요 → 기본 접힘 (감지 실패 시 parser.js previewToc가 자동으로 펼침) -->
     <details class="adv-box" id="patAdvanced">
       <summary>패턴 직접 지정 <span class="txt-meta-sm">예시 입력 · 빠른 선택 칩 · 정규식 도움말</span></summary>
-    <div class="flex-col" style="margin-top:4px">
+    <div class="flex-col u-mt-4">
       <div class="search-row">
         <span class="txt-label-shrink">예시 입력:</span>
-        <input class="inp" id="smartPatInput" placeholder="예) 1화 제목 / [EP.001] / Chapter 1 / 00001  제로 코드..." style="font-size:var(--fs-sm)" data-input-action="smartPatConvert">
+        <input class="inp u-fs-sm" id="smartPatInput" placeholder="예) 1화 제목 / [EP.001] / Chapter 1 / 00001  제로 코드..." data-input-action="smartPatConvert">
       </div>
       <div class="search-row">
         <span class="txt-label-shrink">제외할 예시:</span>
-        <input class="inp" id="smartPatExclude" placeholder="이 내용은 챕터 제목이 아님 (예: 작가의 말, 목차)" style="font-size:var(--fs-sm)" data-input-action="smartPatConvert">
+        <input class="inp u-fs-sm" id="smartPatExclude" placeholder="이 내용은 챕터 제목이 아님 (예: 작가의 말, 목차)" data-input-action="smartPatConvert">
       </div>
     </div>
     <div id="smartPatResultBox" class="flex-row" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:var(--radius-xs);flex-wrap:wrap">
@@ -214,7 +218,7 @@
           <button class="btn btn-accent btn-sm" data-action="applyPat">적용 후 재확인</button>
         </div>
         <div style="margin-top:10px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px;font-size:var(--fs-xs);line-height:1.9;color:var(--text2)">
-          <div class="txt-label-bold" style="margin-bottom:6px">정규식 작성 가이드</div>
+          <div class="txt-label-bold u-mb-6">정규식 작성 가이드</div>
           <table style="border-collapse:collapse;width:100%">
             <tr style="border-bottom:1px solid var(--border)">
               <td class="cell-key">기호</td><td class="cell-val">설명</td><td class="cell-code">예시</td>
@@ -253,6 +257,13 @@
       <!-- 오른쪽: 미니 리더 상시 미리보기 -->
       <div class="mini-reader-wrap">
         <div class="mini-reader-label">리더 미리보기</div>
+        <!-- ★ Phase 16: 기기별 화면 비율 미리보기 -->
+        <div class="reader-device-seg" role="group" aria-label="미리보기 기기">
+          <button type="button" class="reader-device-btn on" data-action="setReaderDevice" data-device="" aria-pressed="true">기본</button>
+          <button type="button" class="reader-device-btn" data-action="setReaderDevice" data-device="phone" aria-pressed="false">폰</button>
+          <button type="button" class="reader-device-btn" data-action="setReaderDevice" data-device="tablet" aria-pressed="false">태블릿</button>
+          <button type="button" class="reader-device-btn" data-action="setReaderDevice" data-device="eink" aria-pressed="false">6″ 리더</button>
+        </div>
         <div class="mini-reader" id="miniReaderPreview">
           <div class="mini-reader-title" id="miniReaderTitle">1화 — 미리보기</div>
           <div class="mini-reader-body" id="miniReaderBody">가나다라마바사아자차카타파하. 한글 소설 본문 미리보기입니다.<br><em>— 이것은 회상 대사입니다.</em><br>두 번째 문장이에요. 설정을 변경하면 여기서 바로 확인할 수 있어요.</div>
@@ -266,12 +277,12 @@
   <div class="sec-hdr"><span class="sec-title">삽화 설정</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="dz" id="illDz">
-      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);display:block;margin:0 auto 6px" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      <svg class="dz-icon" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
       <div class="dz-text">삽화 이미지 드래그하거나 클릭</div>
       <div class="dz-sub">16.jpg → 16화 앞에 삽입 · 198_1.jpg, 198_2.jpg → 순서대로 · PNG·GIF·WebP 지원</div>
     </div>
     <input type="file" id="illIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
-    <div id="illTags" class="tags" style="margin-top:8px"></div>
+    <div id="illTags" class="tags u-mt-8"></div>
     <div class="sec-divider txt-label-bold" style="font-weight:600;color:var(--text2)">추가 삽화 (수동)</div>
     <div id="manualIlls"></div>
     <button class="btn btn-ghost btn-sm" data-action="addManualIll">＋ 수동 삽화 추가</button>
@@ -290,7 +301,7 @@
     <div class="prog-step-line" id="pline3"></div>
     <div class="prog-step" id="pstep4"><div class="prog-step-dot">✅</div><div class="prog-step-label">완료</div></div>
   </div>
-  <div class="prog-bg"><div class="prog-bar" id="progBar"></div></div>
+  <div class="prog-bg"><div class="prog-bar" id="progBar" role="progressbar" aria-label="변환 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
   <div class="prog-msg" id="progMsg"></div>
 </div>
 <!-- ★ 결과 카드 (stat 스타일) -->
@@ -317,7 +328,7 @@
       <input class="inp" id="splitN" type="number" min="1" value="100" style="max-width:80px"> 화씩
       <button class="btn btn-blue" data-action="startSplit">분리 시작</button>
     </div>
-    <div id="splitList" class="split-grid" style="margin-top:10px"></div>
+    <div id="splitList" class="split-grid u-mt-10"></div>
   </div>
 </div>
 </div><!-- /page-convert -->
@@ -328,7 +339,7 @@
   <div class="sec-hdr"><span class="sec-title">일괄 변환</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="dz" id="batchTxtDrop">
-      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);display:block;margin:0 auto 6px" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/><polyline points="17 14 19 16 17 18"/></svg>
+      <svg class="dz-icon" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/><polyline points="17 14 19 16 17 18"/></svg>
       <div class="dz-text">TXT 파일 여러 개 드래그하거나 클릭</div>
       <div class="dz-sub">파일마다 epub 하나씩 생성 · 파일명에서 제목/작가 자동 인식 · 표지 이미지를 함께 넣어도 이름으로 자동 매핑</div>
     </div>
@@ -341,15 +352,15 @@
     <div style="height:10px;border-top:1px solid var(--border);margin-top:12px"></div>
     <div style="font-size:var(--fs-sm);font-weight:600;color:var(--text2);margin:8px 0 6px">표지 이미지</div>
     <div style="font-size:var(--fs-xs);color:var(--text2);margin-bottom:8px">파일명 자동 매핑: <code>1권.txt</code> → <code>1권.jpg</code> · 또는 항목의 + 클릭해서 직접 지정</div>
-    <div class="dz" id="batchCoverDrop" style="padding:10px">
-      <div style="font-size:var(--fs-sm);color:var(--text2)">표지 이미지들 한꺼번에 드래그</div>
+    <div class="dz u-p-10" id="batchCoverDrop">
+      <div class="u-text2-sm">표지 이미지들 한꺼번에 드래그</div>
     </div>
     <input type="file" id="batchCoverIn" accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
-    <div class="cover-search-row" style="margin-top:8px">
+    <div class="cover-search-row u-mt-8">
       <button class="btn-search" data-action="openCoverModal" data-mode="batch" title="네이버·리디·노벨피아에서 표지 검색">표지 검색</button>
       <input class="cover-url-inp" id="batchTitle" placeholder="검색어 (비우면 첫 TXT 제목)" aria-label="일괄 변환 표지 검색어">
     </div>
-    <div class="txt-meta-sm" style="margin-top:6px">또는 공통 표지 URL 직접 입력</div>
+    <div class="txt-meta-sm u-mt-6">또는 공통 표지 URL 직접 입력</div>
     <div class="cover-url-row">
       <input class="cover-url-inp" id="batchCoverUrlInp" placeholder="이미지 URL 붙여넣기 (https://...)" data-input-action="previewCoverUrlBatch">
       <button class="btn-search" data-action="applyCoverUrl" data-inp="batchCoverUrlInp" data-mode="batch">적용</button>
@@ -365,7 +376,7 @@
     <div class="batch-setting-wrap">
       <div class="flex-row-sb">
         <span class="txt-meta-sm">현재 설정 (설정 탭과 공유)</span>
-        <button class="btn btn-ghost btn-sm" data-action="switchPage" data-page="settings" style="font-size:var(--fs-xs)">설정 열기</button>
+        <button class="btn btn-ghost btn-sm u-fs-xs" data-action="switchPage" data-page="settings">설정 열기</button>
       </div>
       <div id="batchSettingSummary" class="opt-summary-grid"></div>
     </div>
@@ -433,8 +444,8 @@
     </div>
 
     <!-- 목차 재생성 탭 -->
-    <div id="editPanel_toc" style="padding:14px">
-      <div style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:10px;line-height:1.7">
+    <div class="u-p-14" id="editPanel_toc">
+      <div class="u-desc">
         EPUB 본문 텍스트에서 챕터를 새로 감지해 NCX/Nav 목차를 재생성해요.
       </div>
 
@@ -449,10 +460,10 @@
         <div class="flex-row-sb" style="margin-bottom:6px;flex-wrap:wrap;gap:6px">
           <span class="txt-label-bold">기존 목차 직접 편집</span>
           <div class="flex-row gap-5" style="flex-wrap:wrap">
-            <button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="directEditTocCheckAll" data-val="true">전체 포함</button>
-            <button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="directEditTocCheckAll" data-val="false">전체 제외</button>
-            <button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="directEditTocMoveUp" title="선택한 항목을 위로">▲ 위로</button>
-            <button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="directEditTocMoveDown" title="선택한 항목을 아래로">▼ 아래로</button>
+            <button class="btn btn-ghost btn-sm u-fs-xs" data-action="directEditTocCheckAll" data-val="true">전체 포함</button>
+            <button class="btn btn-ghost btn-sm u-fs-xs" data-action="directEditTocCheckAll" data-val="false">전체 제외</button>
+            <button class="btn btn-ghost btn-sm u-fs-xs" data-action="directEditTocMoveUp" title="선택한 항목을 위로">▲ 위로</button>
+            <button class="btn btn-ghost btn-sm u-fs-xs" data-action="directEditTocMoveDown" title="선택한 항목을 아래로">▼ 아래로</button>
           </div>
         </div>
         <div class="txt-hint-sm">항목을 눌러 선택한 뒤 ▲▼로 순서를 바꾸거나 끌어서 옮기세요. 제목은 바로 고칠 수 있고, 체크를 끄면 목차에서 빠져요.</div>
@@ -460,7 +471,7 @@
       </div>
 
       <!-- 챕터 정규식 -->
-      <div class="row" style="margin-bottom:4px">
+      <div class="row u-mb-4">
         <span class="lbl">챕터 정규식</span>
         <input class="inp" id="eTocPattern"
           placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능"
@@ -472,16 +483,16 @@
       <div style="display:flex;flex-direction:column;gap:5px;margin-top:4px">
         <div style="display:flex;gap:6px;align-items:center">
           <span style="font-size:var(--fs-xs);color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px">예시 입력:</span>
-          <input class="inp" id="eSmartPatInput"
+          <input class="inp u-fs-sm" id="eSmartPatInput"
             placeholder="예) 1화 제목 / [EP.001] / Chapter 1"
-            style="font-size:var(--fs-sm)"
+           
             data-input-action="eSmartPatConvert">
         </div>
         <div style="display:flex;gap:6px;align-items:center">
           <span style="font-size:var(--fs-xs);color:var(--text2);white-space:nowrap;flex-shrink:0;min-width:110px">제외할 예시:</span>
-          <input class="inp" id="eSmartPatExclude"
+          <input class="inp u-fs-sm" id="eSmartPatExclude"
             placeholder="챕터 제목이 아닌 줄 (예: 작가의 말)"
-            style="font-size:var(--fs-sm)"
+           
             data-input-action="eSmartPatConvert">
         </div>
       </div>
@@ -495,7 +506,7 @@
       </div>
 
       <!-- 빠른 선택 칩 -->
-      <div class="pat-helper" id="eTocPatHelper" style="margin-top:6px">
+      <div class="pat-helper u-mt-6" id="eTocPatHelper">
         <span style="font-size:var(--fs-xs);color:var(--text2);align-self:center">빠른 선택:</span>
       </div>
       <div id="eTocPatApplyBar" style="display:none;margin-top:5px;gap:6px;align-items:center">
@@ -504,10 +515,10 @@
       </div>
 
       <!-- 힌트 -->
-      <div class="hint" style="margin-top:6px">EPUB 내 텍스트 전체를 합쳐서 패턴을 탐색해요. 정규식 수정은 목차 패널 탭에서 직접 입력할 수 있어요.</div>
+      <div class="hint u-mt-6">EPUB 내 텍스트 전체를 합쳐서 패턴을 탐색해요. 정규식 수정은 목차 패널 탭에서 직접 입력할 수 있어요.</div>
 
       <!-- 목차 패널 -->
-      <div class="toc-panel show" id="eTocPanel" style="margin-top:10px">
+      <div class="toc-panel show u-mt-10" id="eTocPanel">
         <div class="toc-tabs">
           <button class="ttab on" data-action="eTocTab" data-idx="0">감지된 목차</button>
           <button class="ttab" data-action="eTocTab" data-idx="1">원본 텍스트</button>
@@ -527,23 +538,23 @@
 
     <!-- 삽화 추가 탭 -->
     <div id="editPanel_ill" style="display:none;padding:14px">
-      <div style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:10px;line-height:1.7">
+      <div class="u-desc">
         기존 EPUB에 삽화를 추가해요.<br>
-        <span style="font-size:var(--fs-xs)">파일명 숫자 = 챕터 인덱스(1-based) · 01_01.jpg = 1번째 챕터 첫 번째 삽화</span>
+        <span class="u-fs-xs">파일명 숫자 = 챕터 인덱스(1-based) · 01_01.jpg = 1번째 챕터 첫 번째 삽화</span>
       </div>
-      <div class="dz" id="directEditIllDrop" style="padding:14px">
-        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);display:block;margin:0 auto 6px" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      <div class="dz u-p-14" id="directEditIllDrop">
+        <svg class="dz-icon" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
         <div class="dz-text">삽화 이미지 드래그하거나 클릭</div>
         <div class="dz-sub">jpg, png, gif, webp 지원</div>
       </div>
       <input type="file" id="directEditIllIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.avif" multiple hidden>
-      <div id="directEditIllTags" class="tags" style="margin-top:8px"></div>
+      <div id="directEditIllTags" class="tags u-mt-8"></div>
       <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <span style="font-size:var(--fs-sm);color:var(--text2)">매핑 방식</span>
-        <label style="font-size:var(--fs-sm);display:flex;align-items:center;gap:4px;cursor:pointer">
+        <span class="u-text2-sm">매핑 방식</span>
+        <label class="u-check-label">
           <input type="radio" name="directEditIllMode" value="auto" checked> 파일명 인덱스 자동
         </label>
-        <label style="font-size:var(--fs-sm);display:flex;align-items:center;gap:4px;cursor:pointer">
+        <label class="u-check-label">
           <input type="radio" name="directEditIllMode" value="manual"> 수동 지정
         </label>
       </div>
@@ -555,10 +566,10 @@
 
     <!-- CSS 추가 탭 -->
     <div id="editPanel_css" style="display:none;padding:14px">
-      <div style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:10px;line-height:1.7">
+      <div class="u-desc">
         EPUB 스타일시트에 CSS를 추가하거나 교체해요. 기존 CSS를 유지하고 뒤에 덧붙이는 방식이 기본이에요.
       </div>
-      <div class="toggle-row" style="margin-bottom:10px">
+      <div class="toggle-row u-mb-10">
         <div><label>기존 CSS 유지 후 추가</label><small>OFF 시 기존 CSS를 완전히 교체</small></div>
         <label class="sw"><input type="checkbox" id="directEditCssAppend" checked><span class="sw-slider" aria-hidden="true"></span></label>
       </div>
@@ -577,7 +588,7 @@
   </div>
 
   <!-- 적용 버튼 -->
-  <div style="margin-top:10px">
+  <div class="u-mt-10">
     <button class="btn btn-accent" style="width:100%;font-size:var(--fs-base);padding:12px" data-action="applyDirectEdit">EPUB 직접 편집 적용</button>
   </div>
   <div class="prog-wrap" id="directEditProgWrap">
@@ -593,7 +604,7 @@
 </div>
 
 <!-- 구분선: 기존 TXT 삽입 기능 -->
-<div class="sec" style="margin-top:4px">
+<div class="sec u-mt-4">
   <div class="sec-hdr">
     <div style="width:100%;display:flex;align-items:center;gap:8px">
       <div style="height:1px;flex:1;background:var(--border)"></div>
@@ -619,7 +630,7 @@
     </div>
     <div class="insert-pos" id="insertPos">위 목차에서 삽입 위치를 선택해주세요</div>
     <div class="dz" id="insTxtDrop">
-      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);display:block;margin:0 auto 6px" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></svg>
+      <svg class="dz-icon" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></svg>
       <div class="dz-text">삽입할 TXT 파일 드래그하거나 클릭</div>
       <div class="dz-sub">여러 파일 가능</div>
     </div>
@@ -632,16 +643,16 @@
     </div>
     <div class="pat-helper" id="insPatHelper"></div>
     <div style="margin-top:10px;display:flex;align-items:center;gap:10px">
-      <span style="font-size:var(--fs-sm);color:var(--text2)">삽입 위치</span>
-      <label style="font-size:var(--fs-sm);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="insPos" value="before" id="insPosBefore"> 선택 챕터 앞</label>
-      <label style="font-size:var(--fs-sm);display:flex;align-items:center;gap:4px;cursor:pointer"><input type="radio" name="insPos" value="after" id="insPosAfter" checked> 선택 챕터 뒤</label>
+      <span class="u-text2-sm">삽입 위치</span>
+      <label class="u-check-label"><input type="radio" name="insPos" value="before" id="insPosBefore"> 선택 챕터 앞</label>
+      <label class="u-check-label"><input type="radio" name="insPos" value="after" id="insPosAfter" checked> 선택 챕터 뒤</label>
     </div>
   </div>
 </div>
 <div class="sec" id="insTocSec" style="display:none">
   <div class="sec-hdr"><span class="sec-title">삽입할 챕터 선택</span><div class="sec-line"></div></div>
   <div class="card">
-    <div style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:8px">중복 화는 체크 해제하세요. <span id="insTocCount" style="color:var(--accent);font-weight:600"></span></div>
+    <div class="u-desc-8">중복 화는 체크 해제하세요. <span id="insTocCount" style="color:var(--accent);font-weight:600"></span></div>
     <!-- 기준 챕터 필터 (TXT 파일 챕터 기준) -->
     <div id="insTocFilterBar" style="padding:10px 12px;background:var(--bg2);border-radius:var(--radius-sm);border:1px solid var(--border);margin-bottom:10px">
       <!-- EPUB 마지막 위치 안내 -->
@@ -661,9 +672,9 @@
       <!-- 빠른 선택 버튼 -->
       <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:7px;padding-top:7px;border-top:1px dashed var(--border)">
         <span style="font-size:var(--fs-xs);color:var(--text2);align-self:center;white-space:nowrap">빠른 선택:</span>
-        <button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="applyInsTocRange" data-range="epubAfter"
+        <button class="btn btn-ghost btn-sm u-fs-xs" data-action="applyInsTocRange" data-range="epubAfter"
           title="EPUB 마지막 화 이후 챕터만 선택">EPUB 이후만</button>
-        <button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="applyInsTocRange" data-range="epubBefore"
+        <button class="btn btn-ghost btn-sm u-fs-xs" data-action="applyInsTocRange" data-range="epubBefore"
           title="EPUB에 이미 있는 화 이전 챕터만 선택">EPUB 이전만</button>
         <button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs);color:var(--accent)" data-action="applyInsTocRange" data-range="dedupe"
           title="EPUB에 이미 있는 중복 화를 자동 해제">중복 제외</button>
@@ -683,17 +694,17 @@
 <div class="sec" id="insIllSec" style="display:none">
   <div class="sec-hdr"><span class="sec-title">삽화 추가 (선택사항)</span><div class="sec-line"></div></div>
   <div class="card">
-    <div style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:8px">
+    <div class="u-desc-8">
       삽입되는 새 챕터에 삽화를 추가할 수 있어요.<br>
-      <span style="font-size:var(--fs-xs)">파일명 숫자(예: 16.jpg) = 해당 화 앞에 자동 삽입 · 198_1.jpg, 198_2.jpg = 순서대로</span>
+      <span class="u-fs-xs">파일명 숫자(예: 16.jpg) = 해당 화 앞에 자동 삽입 · 198_1.jpg, 198_2.jpg = 순서대로</span>
     </div>
     <div class="dz" id="insIllDrop">
-      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);display:block;margin:0 auto 6px" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      <svg class="dz-icon" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
       <div class="dz-text">삽화 이미지 드래그하거나 클릭</div>
       <div class="dz-sub">jpg, png, gif, webp, bmp 지원 · 설정에서 JPG 변환 여부 선택 가능</div>
     </div>
     <input type="file" id="insIllIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
-    <div id="insIllTags" class="tags" style="margin-top:8px"></div>
+    <div id="insIllTags" class="tags u-mt-8"></div>
     <div style="margin-top:10px;border-top:1px solid var(--border);padding-top:10px;font-size:var(--fs-sm);font-weight:600;color:var(--text2);margin-bottom:6px">수동 삽화 위치 지정</div>
     <div id="insManualIlls"></div>
     <button class="btn btn-ghost btn-sm" data-action="addInsManualIll">＋ 수동 삽화 추가</button>
@@ -703,23 +714,23 @@
 <div class="sec" id="editIllSec" style="display:none">
   <div class="sec-hdr"><span class="sec-title">삽화 삽입 (선택)</span><div class="sec-line"></div></div>
   <div class="card">
-    <div style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:8px">
+    <div class="u-desc-8">
       삽화를 삽입할 챕터를 지정하세요. 파일명 자동 매핑 또는 수동으로 각 챕터를 지정할 수 있어요.
     </div>
     <div class="dz" id="editIllDrop" style="padding:12px">
-      <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3);display:block;margin:0 auto 6px" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+      <svg class="dz-icon" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
       <div class="dz-text">삽화 이미지 드래그 또는 클릭</div>
       <div class="dz-sub">파일명 자동 매핑: 16.jpg → 16화 앞 · 16_1.jpg, 16_2.jpg → 순서대로</div>
     </div>
     <input type="file" id="editIllIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
-    <div id="editIllTags" class="tags" style="margin-top:8px"></div>
+    <div id="editIllTags" class="tags u-mt-8"></div>
     <div id="editIllOverflowWarn" style="display:none;margin-top:8px;background:var(--yellow-bg);border-left:3px solid var(--accent2);border-radius:0 6px 6px 0;padding:7px 11px;font-size:var(--fs-xs);color:var(--yellow);line-height:1.6"></div>
     <div style="margin-top:10px;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-      <span style="font-size:var(--fs-sm);color:var(--text2)">매핑 방식</span>
-      <label style="font-size:var(--fs-sm);display:flex;align-items:center;gap:4px;cursor:pointer">
+      <span class="u-text2-sm">매핑 방식</span>
+      <label class="u-check-label">
         <input type="radio" name="editIllMode" value="auto" checked> 파일명 자동
       </label>
-      <label style="font-size:var(--fs-sm);display:flex;align-items:center;gap:4px;cursor:pointer">
+      <label class="u-check-label">
         <input type="radio" name="editIllMode" value="manual"> 수동 지정
       </label>
     </div>
@@ -770,11 +781,11 @@
   <div class="card">
     <div style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:6px">포인트 컬러를 선택하세요. 라이트·다크 모드와 독립적으로 동작합니다.</div>
     <div class="skin-swatch-wrap">
-      <div class="skin-swatch active" id="skin-terracotta" data-action="setSkin" data-skin="terracotta" title="테라코타 (기본)" aria-label="테라코타 스킨"></div>
+      <div class="skin-swatch active" id="skin-terracotta" data-action="setSkin" data-skin="terracotta" role="button" tabindex="0" title="테라코타 (기본)" aria-label="테라코타 스킨"></div>
       <span class="skin-swatch-label">테라코타</span>
-      <div class="skin-swatch" id="skin-indigo" data-action="setSkin" data-skin="indigo" title="인디고 블루" aria-label="인디고 블루 스킨"></div>
+      <div class="skin-swatch" id="skin-indigo" data-action="setSkin" data-skin="indigo" role="button" tabindex="0" title="인디고 블루" aria-label="인디고 블루 스킨"></div>
       <span class="skin-swatch-label">인디고</span>
-      <div class="skin-swatch" id="skin-forest" data-action="setSkin" data-skin="forest" title="포레스트 그린" aria-label="포레스트 그린 스킨"></div>
+      <div class="skin-swatch" id="skin-forest" data-action="setSkin" data-skin="forest" role="button" tabindex="0" title="포레스트 그린" aria-label="포레스트 그린 스킨"></div>
       <span class="skin-swatch-label">포레스트</span>
     </div>
   </div>
@@ -782,14 +793,14 @@
 <div class="sec">
 <div class="sec-hdr"><span class="sec-title">짧은 챕터 기준</span><div class="sec-line"></div></div>
 <div class="card">
-  <div style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:10px;line-height:1.7">
+  <div class="u-desc">
     목차에서 <strong>오감지 경고(본문 짧음 ⚠)</strong>를 표시할 글자 수 기준입니다.<br>
     <span style="color:var(--accent);font-size:var(--fs-xs)">슬라이더를 드래그하면 목차가 즉시 재계산돼요.</span>
   </div>
   <div class="susp-slider-wrap">
     <label for="suspThresholdSlider">기준 글자수</label>
     <input type="range" id="suspThresholdSlider" min="10" max="2000" step="10" value="50"
-      class="css-slider" style="flex:1"
+      class="css-slider u-flex-1"
       data-input-action="updateSuspThreshold">
     <span id="suspThresholdVal" class="susp-slider-val">50자</span>
   </div>
@@ -947,7 +958,7 @@
         </div>
       </div>
     </div>
-    <div class="css-slider-wrap" style="margin-bottom:10px">
+    <div class="css-slider-wrap u-mb-10">
       <div class="css-slider-label">줄간격<span id="cssLineVal">1.9</span></div>
       <input type="range" class="css-slider" id="cssLineSlider" min="1.4" max="2.8" step="0.1" value="1.9" data-input-action="syncCssLineSlider">
       <select id="cssLine" data-input-action="syncCssLine" style="margin-top:4px;font-size:var(--fs-xs);padding:3px 6px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text)">
@@ -956,7 +967,7 @@
         <option value="2.3">2.3</option><option value="2.5">2.5</option><option value="2.8">2.8 (넓게)</option>
       </select>
     </div>
-    <div class="css-slider-wrap" style="margin-bottom:10px">
+    <div class="css-slider-wrap u-mb-10">
       <div class="css-slider-label">글자 크기<span id="cssFontSizeVal">1.0em</span></div>
       <input type="range" class="css-slider" id="cssFontSizeSlider" min="0.8" max="1.4" step="0.05" value="1.0" data-input-action="syncCssFontSizeSlider">
       <select id="cssFontSize" data-input-action="syncCssFontSize" style="margin-top:4px;font-size:var(--fs-xs);padding:3px 6px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text)">
@@ -982,7 +993,7 @@
           <span class="adv-css-lbl">배경 색상</span>
           <input type="color" class="color-inp" id="cssBgColor" value="#fdf6ee" data-input-action="updateCssSave" title="본문 배경색">
           <span class="adv-css-val">기본: 아이보리</span>
-          <button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="resetColors">리셋</button>
+          <button class="btn btn-ghost btn-sm u-fs-xs" data-action="resetColors">리셋</button>
         </div>
         <div class="adv-css-row">
           <span class="adv-css-lbl">텍스트 정렬</span>
@@ -1033,15 +1044,15 @@
     </div>
     <!-- 추가 CSS 직접 입력 -->
     <div class="sec-divider">
-      <div class="txt-label-bold" style="margin-bottom:4px">추가 CSS 직접 입력</div>
+      <div class="txt-label-bold u-mb-4">추가 CSS 직접 입력</div>
       <textarea id="cssExtra" style="width:100%;height:auto;min-height:60px;overflow-y:hidden;resize:vertical;font-family:monospace;font-size:var(--fs-xs);padding:7px 9px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);resize:vertical;outline:none" placeholder="/* 예) h1 { color: #c63; } */" data-input-action="cssExtraAutoResize"></textarea>
     </div>
     <!-- 커스텀 폰트 업로드 -->
-    <details class="settings-details" style="margin-top:10px">
+    <details class="settings-details u-mt-10">
       <summary class="settings-summary">커스텀 폰트 파일 추가</summary>
       <div class="settings-details-body">
         <div class="txt-hint-sm">TTF, OTF, WOFF, WOFF2 파일을 epub에 직접 포함시켜요.</div>
-        <div class="dz" id="fontDrop" style="padding:10px">
+        <div class="dz u-p-10" id="fontDrop">
           <div class="txt-label">폰트 파일 드래그하거나 클릭 (.ttf .otf .woff .woff2)</div>
           <div id="fontInfo" class="txt-green-sm"></div>
         </div>
@@ -1052,7 +1063,7 @@
       <strong id="cssPreviewTitle" style="font-size:1.1em;display:block;text-align:center;margin-bottom:10px">미리보기 제목</strong>
       <p>가나다라마바사아자차카타파하. 한글 소설 본문 미리보기입니다. 두 번째 문장이에요.</p>
       <p style="font-style:italic;margin-top:6px">— 이것은 회상 대사입니다.</p>
-      <p style="margin-top:6px">【시스템 알림: 이것은 시스템창 예시입니다.】</p>
+      <p class="u-mt-6">【시스템 알림: 이것은 시스템창 예시입니다.】</p>
     </div>
   </div>
 </div>
@@ -1073,7 +1084,7 @@
       <label class="sw"><input type="checkbox" id="optShowLineNum" data-input-action="saveExtraSettings" checked><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border)">
-      <div style="flex:1"><label class="txt-label-bold" for="optDefaultPat">기본 챕터 정규식</label><small class="txt-meta-sm" style="display:block">비워두면 자동 감지. 매번 같은 패턴 쓴다면 여기에 저장</small></div>
+      <div class="u-flex-1"><label class="txt-label-bold" for="optDefaultPat">기본 챕터 정규식</label><small class="txt-meta-sm" style="display:block">비워두면 자동 감지. 매번 같은 패턴 쓴다면 여기에 저장</small></div>
       <input class="inp" id="optDefaultPat" placeholder="자동 감지" style="max-width:220px;font-size:var(--fs-sm)" data-input-action="saveExtraSettings">
     </div>
   </div>
@@ -1103,7 +1114,7 @@
       <label class="sw"><input type="checkbox" id="optStreamSave" data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="row" style="padding:4px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
-      <label class="txt-label-bold" style="flex:1" for="optLang">EPUB 메타 언어</label>
+      <label class="txt-label-bold u-flex-1" for="optLang">EPUB 메타 언어</label>
       <select id="optLang" data-input-action="saveExtraSettings" style="font-size:var(--fs-sm);padding:4px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--panel);color:var(--text)">
         <option value="ko" selected>한국어 (ko)</option>
         <option value="en">영어 (en)</option>
@@ -1112,11 +1123,11 @@
       </select>
     </div>
     <div class="row" style="padding:8px 0;border-bottom:1px solid var(--border);gap:8px;align-items:center">
-      <label class="txt-label-bold" style="flex:1" for="optPublisher">출판사(publisher) 태그</label>
+      <label class="txt-label-bold u-flex-1" for="optPublisher">출판사(publisher) 태그</label>
       <input class="inp" id="optPublisher" placeholder="비워두면 미포함" style="max-width:180px;font-size:var(--fs-sm)" data-input-action="saveExtraSettings">
     </div>
     <div class="row" style="padding:8px 0;gap:8px;align-items:center">
-      <label class="txt-label-bold" style="flex:1" for="optCompression">EPUB 압축 수준</label>
+      <label class="txt-label-bold u-flex-1" for="optCompression">EPUB 압축 수준</label>
       <select id="optCompression" data-input-action="saveExtraSettings" style="font-size:var(--fs-sm);padding:4px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--panel);color:var(--text)">
         <option value="1">빠름 (낮은 압축)</option>
         <option value="6" selected>보통 (권장)</option>
@@ -1128,7 +1139,7 @@
 <!-- ★ API 설정 — 접기/펴기 -->
 <!-- ★ Phase 15: API 키 저장 여부 -->
 <label class="opt-check api-remember"><input type="checkbox" id="optRememberApiKeys" checked data-input-action="saveApiSettings"><span>이 기기에 API 키 저장 <small>끄면 저장된 키를 지우고 이 탭에서만 사용해요 (새로고침하면 다시 입력)</small></span></label>
-<details class="settings-details" style="margin:0 0 14px">
+<details class="settings-details u-mb-14">
   <summary class="settings-summary">Gemini API 설정</summary>
   <div class="settings-details-body">
     <div class="txt-hint-sm" style="line-height:1.7">
@@ -1136,9 +1147,9 @@
       <span>키 없이도 내장 로직으로 변환되지만, AI가 훨씬 정확해요.</span>
     </div>
     <div class="adv-css-row" style="border:none">
-      <span class="adv-css-lbl" style="min-width:100px">API Key</span>
-      <input class="inp" id="geminiApiKey" type="password" autocomplete="new-password" spellcheck="false"
-        placeholder="AIza..." style="font-size:var(--fs-sm)"
+      <span class="adv-css-lbl u-minw-100">API Key</span>
+      <input class="inp u-fs-sm" id="geminiApiKey" type="password" autocomplete="new-password" spellcheck="false"
+        placeholder="AIza..."
         data-input-action="saveApiSettings">
       <button type="button" class="btn btn-ghost btn-sm secret-toggle" data-action="toggleSecret" data-target="geminiApiKey" aria-pressed="false" aria-label="Gemini API 키 보기">보기</button>
       <span id="geminiKeyStatus" style="font-size:var(--fs-xs);padding:2px 7px;border-radius:var(--radius-xs);white-space:nowrap;display:none"></span>
@@ -1149,7 +1160,7 @@
     </div>
   </div>
 </details>
-<details class="settings-details" style="margin:0 0 14px">
+<details class="settings-details u-mb-14">
   <summary class="settings-summary">표지 검색 API 설정</summary>
   <div class="settings-details-body">
     <div class="txt-hint-sm" style="line-height:1.7">
@@ -1157,12 +1168,12 @@
       <span>키 없이도 CORS 프록시를 통한 검색이 가능하지만 불안정할 수 있어요.</span>
     </div>
     <div class="adv-css-row" style="border:none;padding-bottom:4px">
-      <span class="adv-css-lbl" style="min-width:100px">Client ID</span>
-      <input class="inp" id="naverClientId" placeholder="네이버 API Client ID" style="font-size:var(--fs-sm)" data-input-action="saveApiSettings">
+      <span class="adv-css-lbl u-minw-100">Client ID</span>
+      <input class="inp u-fs-sm" id="naverClientId" placeholder="네이버 API Client ID" data-input-action="saveApiSettings">
     </div>
     <div class="adv-css-row" style="border:none;padding-top:4px">
-      <span class="adv-css-lbl" style="min-width:100px">Client Secret</span>
-      <input class="inp" id="naverClientSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="네이버 API Client Secret" style="font-size:var(--fs-sm)" data-input-action="saveApiSettings">
+      <span class="adv-css-lbl u-minw-100">Client Secret</span>
+      <input class="inp u-fs-sm" id="naverClientSecret" type="password" autocomplete="new-password" spellcheck="false" placeholder="네이버 API Client Secret" data-input-action="saveApiSettings">
       <button type="button" class="btn btn-ghost btn-sm secret-toggle" data-action="toggleSecret" data-target="naverClientSecret" aria-pressed="false" aria-label="네이버 Client Secret 보기">보기</button>
     </div>
     <div style="margin-top:8px;padding:8px 10px;background:var(--blue-bg);border-radius:var(--radius-xs);font-size:var(--fs-xs);color:var(--blue);line-height:1.7">
@@ -1170,7 +1181,7 @@
       키는 이 기기의 localStorage에만 저장되며 외부로 전송되지 않아요.
     </div>
     <div class="sec-divider">
-      <div class="txt-label-bold" style="margin-bottom:6px">키 없이 사용 가능한 검색 방법</div>
+      <div class="txt-label-bold u-mb-6">키 없이 사용 가능한 검색 방법</div>
       <div class="txt-hint-sm" style="line-height:1.8">
         • <b>CORS 프록시</b> — allorigins.win 경유로 네이버 책 검색 (불안정)<br>
         • <b>리디북스 · 노벨피아</b> — 사이트 직접 링크 열기 (이미지 URL 복사 후 붙여넣기)<br>
@@ -1181,7 +1192,7 @@
 </details>
 
 <!-- ★ ADD-05: 설정 JSON 내보내기/가져오기 -->
-<details class="settings-details" style="margin:0 0 14px">
+<details class="settings-details u-mb-14">
   <summary class="settings-summary">설정 백업 / 복원</summary>
   <div class="settings-details-body">
     <div class="txt-hint-sm" style="line-height:1.7;margin-bottom:10px">
@@ -1198,7 +1209,7 @@
 </details>
 
 <!-- ★ ADD-10: 브라우저 알림 설정 -->
-<details class="settings-details" style="margin:0 0 14px">
+<details class="settings-details u-mb-14">
   <summary class="settings-summary">변환 완료 알림</summary>
   <div class="settings-details-body">
     <div class="txt-hint-sm" style="line-height:1.7;margin-bottom:10px">
@@ -1209,7 +1220,7 @@
       <span id="notifStatus">미설정</span>
       <label class="sw"><input type="checkbox" id="optNotification" data-input-action="toggleNotification"><span class="sw-track"><span class="sw-thumb"></span></span></label>
     </div>
-    <div class="txt-hint-sm" style="margin-top:6px">
+    <div class="txt-hint-sm u-mt-6">
       브라우저 권한 허용 후 탭이 백그라운드일 때만 알림이 표시돼요.
     </div>
   </div>
@@ -1222,10 +1233,10 @@
 </div><!-- /page-settings -->
 </div><!-- /wrap — ★ 이전엔 page-edit 뒤에서 닫혀 히스토리·설정이 레이아웃 밖에 있었음 -->
 <div class="modal-overlay" id="previewModal" data-action-overlay="closePreview">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="previewModalTitle">
     <div class="modal-hdr">
-      <h3>EPUB 미리보기</h3>
-      <button class="modal-close" data-action="closePreview">✕</button>
+      <h3 id="previewModalTitle">EPUB 미리보기</h3>
+      <button class="modal-close" data-action="closePreview" aria-label="미리보기 닫기">✕</button>
     </div>
     <div class="modal-body" id="previewBody"></div>
     <div class="modal-footer">

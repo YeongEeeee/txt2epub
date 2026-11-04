@@ -13,7 +13,7 @@
 //     4. 새 SW는 대기(waiting) → main.js 업데이트 배너 → SKIP_WAITING → controllerchange → 새로고침
 //   JSZip은 Phase 15부터 lib/jszip.min.js로 함께 배포 (CDN 불필요 — 첫 방문 직후 오프라인 변환 가능)
 // ════════════════════════════════════════════════
-const CACHE_VERSION = 'h-281b539c7b392a66';
+const CACHE_VERSION = 'h-faae3379f703ab42';
 const CACHE_NAME = 'novelepub-' + CACHE_VERSION;
 
 // 해시 대상이자 프리캐시 목록 — 로컬 자원만 ('./'는 index.html과 같은 문서)
@@ -32,6 +32,11 @@ const CORE_ASSETS = [
   './ui-state.js',
   './main.js',
   './worker.js',
+  './manifest.webmanifest',   // ★ Phase 16: 앱 설치
+  './icons/icon.svg',
+  './icons/icon-192.png',
+  './icons/icon-512.png',
+  './icons/icon-maskable-512.png',
 ];
 
 // 웹폰트(Google Fonts)만 외부 Cache-first — 표지 검색 등 동적 외부 요청은 가로채지 않음

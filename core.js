@@ -51,6 +51,9 @@ const Toast = (() => {
     if (_container) return;
     _container = document.createElement('div');
     _container.id = 'toast-container';
+    // ★ Phase 16: 스크린리더가 새 알림을 읽도록 (방해하지 않는 polite)
+    _container.setAttribute('role', 'status');
+    _container.setAttribute('aria-live', 'polite');
     document.body.appendChild(_container);
   }
 

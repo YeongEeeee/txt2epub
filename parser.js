@@ -2137,6 +2137,8 @@ function _tocMergeItems(idxs, title){
 function _tocTouch(){
   _chaptersCache=null; _chaptersCacheKey='';
   if(typeof _sStore!=='undefined') _sStore.set({tocItems:S.tocItems});
+  // ★ Phase 16: 편집한 목차를 작업 복원용으로 저장
+  typeof scheduleSessionSave==='function'&&scheduleSessionSave({tocEdited:true});
 }
 // 목차 구조가 바뀜(병합·분리·이동·Undo) — 통계 재계산 + 다시 그리기
 function _tocCommit(){

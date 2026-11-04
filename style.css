@@ -635,6 +635,15 @@ body{
 .mini-reader-stat{font-size:var(--fs-xs);background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:1px 6px;color:var(--text2)}
 .mini-reader-stat strong{color:var(--text);font-weight:700}
 .mini-reader.updating{animation:readerFlash .4s var(--ease)}
+/* ★ Phase 16: 기기별 화면 비율 미리보기 — 실제 화면 비율 안에서 본문이 얼마나 들어가는지 확인 */
+.reader-device-seg{display:flex;gap:2px;padding:2px;border:1px solid var(--border);border-radius:var(--radius-xs);background:var(--bg2);align-self:flex-start}
+.reader-device-btn{font-size:var(--fs-xs);padding:2px 8px;border:none;border-radius:var(--radius-xs);background:none;color:var(--text2);cursor:pointer}
+.reader-device-btn.on{background:var(--panel);color:var(--accent);font-weight:700;box-shadow:var(--shadow-xs)}
+.mini-reader.dev-phone,.mini-reader.dev-tablet,.mini-reader.dev-eink{margin:0 auto;width:100%;min-height:0;display:flex;flex-direction:column}
+.mini-reader.dev-phone{max-width:170px;aspect-ratio:9/19.5;border-radius:calc(var(--radius-sm)*3);border-width:5px}
+.mini-reader.dev-tablet{max-width:240px;aspect-ratio:3/4;border-width:6px}
+.mini-reader.dev-eink{max-width:210px;aspect-ratio:3/4;border-width:8px;filter:grayscale(1) contrast(.95)}
+.mini-reader.dev-phone .mini-reader-body,.mini-reader.dev-tablet .mini-reader-body,.mini-reader.dev-eink .mini-reader-body{-webkit-line-clamp:unset;display:block;flex:1;overflow:hidden}
 
 /* 챕터 피드 마그네틱 호버 [G.12] */
 .feed-item{
@@ -1341,3 +1350,24 @@ body.modal-open .page-tabs{
   .btn{border-width:2px!important}
   .btn-accent{background:var(--accent)!important;color:var(--on-accent)!important}
 }
+
+/* ★ Phase 16: 유틸리티 클래스 — index.html에서 반복되던 인라인 style 속성을 옮김 (디자인 토큰 그대로) */
+.u-fs-xs{font-size:var(--fs-xs)}
+.u-fs-sm{font-size:var(--fs-sm)}
+.dz-icon{color:var(--text3);display:block;margin:0 auto 6px}
+.u-check-label{font-size:var(--fs-sm);display:flex;align-items:center;gap:4px;cursor:pointer}
+.u-mt-4{margin-top:4px}
+.u-mt-6{margin-top:6px}
+.u-mt-8{margin-top:8px}
+.u-mt-10{margin-top:10px}
+.u-mb-4{margin-bottom:4px}
+.u-mb-6{margin-bottom:6px}
+.u-mb-10{margin-bottom:10px}
+.u-mb-14{margin:0 0 14px}
+.u-flex-1{flex:1}
+.u-minw-100{min-width:100px}
+.u-p-10{padding:10px}
+.u-p-14{padding:14px}
+.u-desc{font-size:var(--fs-sm);color:var(--text2);margin-bottom:10px;line-height:1.7}
+.u-desc-8{font-size:var(--fs-sm);color:var(--text2);margin-bottom:8px}
+.u-text2-sm{font-size:var(--fs-sm);color:var(--text2)}

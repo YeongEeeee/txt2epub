@@ -562,7 +562,7 @@ function handleTxt(files, append=false){
   _chaptersCache=null; // 캐시 무효화
 
   renderTxtFileList();
-  updateBtmBar&&updateBtmBar(S.txtFiles); // ★ 스티키 바 상태 갱신
+  // ★ Phase 16: 하단 바 상태는 StateManager 구독(ui-state.js)이 S.txtFiles 변경 시 갱신
 
   // ★ 파일 로드 즉시 splitBtn 활성화 — disabled 교착 방지
   // previewToc 완료 전에 버튼이 먼저 열려있어야 함
@@ -600,6 +600,8 @@ function handleTxt(files, append=false){
 
   // ★ 이름이 유사한 이미지가 함께 들어왔으면 표지로 자동 연결
   if(imgs.length) autoMatchCoverImage(imgs, S.txtFiles);
+  // ★ Phase 16: 작업 자동 저장
+  scheduleSessionSave();
 }
 handleTxt._timer=null; // 디바운스 타이머 초기화
 
@@ -693,14 +695,22 @@ function _attachTouchSort(row, listEl, idx){
     const toIdx=targetRow?parseInt(targetRow.dataset.idx):-1;
 
     if(toIdx>=0 && toIdx!==st.fromIdx){
-      const moved=S.txtFiles.splice(st.fromIdx,1)[0];
-      S.txtFiles.splice(toIdx,0,moved);
+      // ★ Phase 16: 제자리 splice 대신 새 배열로 교체 → StateManager 구독자(하단 바 등)에 변경 알림
+      S.txtFiles=_moveItem(S.txtFiles, st.fromIdx, toIdx);
       _chaptersCache=null;
       renderTxtFileList();
     }
 
     _touchDragState=null;
   });
+}
+
+// ★ Phase 16: 배열 항목 이동 (원본은 그대로, 새 배열 반환)
+function _moveItem(arr, from, to){
+  const out=[...arr];
+  const [m]=out.splice(from,1);
+  out.splice(to,0,m);
+  return out;
 }
 
 function renderTxtFileList(){
@@ -710,6 +720,7 @@ function renderTxtFileList(){
   const infoEl=document.getElementById('txtInfo');
   const listWrap=document.getElementById('txtFileList');
   if(!listEl) return;
+  scheduleSessionSave();   // ★ Phase 16: 순서 변경·개별 제거도 작업 복원에 반영
 
   // 기존 info 영역 간단 요약
   if(infoEl){ infoEl.style.display='block'; infoEl.textContent='✅ '+files.length+'개 파일 선택됨'; }
@@ -756,7 +767,7 @@ function renderTxtFileList(){
     row.querySelector('.txt-file-rm').onclick=e=>{
       e.stopPropagation();
       const idx=parseInt(e.target.dataset.idx);
-      S.txtFiles.splice(idx,1);
+      S.txtFiles=S.txtFiles.filter((_,k)=>k!==idx);   // ★ Phase 16: 새 배열로 교체 (구독 알림)
       _chaptersCache=null;
       if(!S.txtFiles.length){resetConvertTxt();}
       else renderTxtFileList();
@@ -788,8 +799,7 @@ function renderTxtFileList(){
       const fromIdx=parseInt(e.dataTransfer.getData('text/plain'));
       const toIdx=i;
       if(fromIdx===toIdx) return;
-      const moved=S.txtFiles.splice(fromIdx,1)[0];
-      S.txtFiles.splice(toIdx,0,moved);
+      S.txtFiles=_moveItem(S.txtFiles, fromIdx, toIdx);   // ★ Phase 16: 새 배열로 교체 (구독 알림)
       _chaptersCache=null;
       renderTxtFileList();
     });
@@ -1010,6 +1020,7 @@ function handleCover(files){
     if(prevImg) URL.revokeObjectURL(prevImg.dataset.blobUrl);
   }
   S.coverFile=f;
+  scheduleSessionSave();   // ★ Phase 16
   document.getElementById('coverName').textContent='✅ '+f.name;
   document.getElementById('coverDz')?.classList.add('ok');
   const objUrl=URL.createObjectURL(f);
@@ -3309,7 +3320,106 @@ async function resetEditAll(){
 }
 
 // ════ 결과 stat 카드 렌더링 (최적화 5) ════
+// ════════════════════════════════════════════════════════════
+// ★ Phase 16: 작업 복원 — 변환 탭의 TXT 파일·목차 편집·메타데이터·표지를 IndexedDB(SettingsDB)에 자동 저장
+//   새로고침·탭 닫힘 후 다시 열면 '이전 작업을 이어서 할까요?' 확인 → 파일을 다시 넣고 편집한 목차까지 복원
+//   File 객체는 IndexedDB에 그대로 저장 가능(구조화 복제). 합계 300MB 초과·저장 실패는 조용히 건너뜀
+// ════════════════════════════════════════════════════════════
+const _SESSION_KEY='session_v1';
+const _SESSION_MAX_BYTES=300*1024*1024;
+let _sessionTimer=null, _sessionRestoring=false, _sessionTocEdited=false;
+
+function scheduleSessionSave(opts={}){
+  if(opts.tocEdited) _sessionTocEdited=true;
+  if(_sessionRestoring||typeof SettingsDB==='undefined') return;
+  clearTimeout(_sessionTimer);
+  _sessionTimer=setTimeout(_saveSessionNow, 800);
+}
+
+async function _saveSessionNow(){
+  try{
+    if(!S.txtFiles.length){ await SettingsDB.remove(_SESSION_KEY); return; }
+    const total=S.txtFiles.reduce((s,f)=>s+(f.size||0),0)+(S.coverFile?.size||0);
+    if(total>_SESSION_MAX_BYTES) return;
+    const val=id=>document.getElementById(id)?.value||'';
+    await SettingsDB.set(_SESSION_KEY, {
+      v:1, savedAt:Date.now(),
+      files:[...S.txtFiles],
+      tocItems:_sessionTocEdited?JSON.parse(JSON.stringify(S.tocItems||[])):null,
+      meta:{title:val('title'), author:val('author'), series:val('series'), seriesIdx:val('seriesIdx'), pattern:val('pattern')},
+      cover:(S.coverFile instanceof Blob)?S.coverFile:null,
+    });
+  }catch(e){ console.warn('[session] 저장 실패:', e?.name||e); }
+}
+
+function _timeAgo(ts){
+  const m=Math.round((Date.now()-ts)/60000);
+  if(m<1) return '방금';
+  if(m<60) return m+'분 전';
+  const h=Math.round(m/60);
+  return h<24?h+'시간 전':Math.round(h/24)+'일 전';
+}
+
+// 앱 시작 시 1회 — 파일이 이미 있거나(.txt로 실행) 저장된 작업이 없으면 아무것도 하지 않음
+async function offerSessionRestore(){
+  if(typeof SettingsDB==='undefined') return;
+  let ses=null;
+  try{ ses=await SettingsDB.get(_SESSION_KEY); }catch(e){ return; }
+  if(!ses||!Array.isArray(ses.files)||!ses.files.length) return;
+  if(window.__launchedWithFiles||S.txtFiles.length) return;
+  const desc=ses.files.length+'개 파일'+(ses.tocItems?.length?' · 목차 편집 포함':'')+' · '+_timeAgo(ses.savedAt||Date.now());
+  const ok=await Toast.confirm('이전 작업을 이어서 할까요? ('+desc+')');
+  if(!ok){ SettingsDB.remove(_SESSION_KEY).catch(()=>{}); return; }
+  await restoreSession(ses);
+}
+
+async function restoreSession(ses){
+  _sessionRestoring=true;
+  try{
+    typeof switchPage==='function'&&switchPage('convert');
+    handleTxt(ses.files, false);
+    if(ses.cover instanceof Blob){
+      const cf=ses.cover instanceof File?ses.cover:new File([ses.cover],'cover.jpg',{type:ses.cover.type||'image/jpeg'});
+      handleCover([cf]);
+    }
+    // 자동 목차 감지(previewToc)가 끝날 때까지 기다린 뒤 편집한 목차·메타 덮어쓰기
+    const t0=Date.now();
+    while(!S.tocItems.length&&Date.now()-t0<15000) await new Promise(r=>setTimeout(r,150));
+    if(Array.isArray(ses.tocItems)&&ses.tocItems.length){
+      S.tocItems=ses.tocItems;
+      _sessionTocEdited=true;
+      typeof _tocTouch==='function'&&_tocTouch();
+      typeof renderTocItems==='function'&&renderTocItems();
+      typeof updateTocStat==='function'&&updateTocStat();
+      typeof updateTocEditBanner==='function'&&updateTocEditBanner();
+    }
+    const m=ses.meta||{};
+    ['title','author','series','seriesIdx','pattern'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el&&typeof m[id]==='string'&&m[id]) el.value=m[id];
+    });
+    Toast.success('이전 작업을 복원했어요.');
+  }catch(e){
+    console.warn('[session] 복원 실패:', e);
+    Toast.warn('이전 작업을 복원하지 못했어요.');
+  }finally{
+    _sessionRestoring=false;
+    scheduleSessionSave();
+  }
+}
+
+// 메타데이터 입력도 자동 저장 대상
+function setupSessionAutosave(){
+  ['title','author','series','seriesIdx','pattern'].forEach(id=>{
+    document.getElementById(id)?.addEventListener('input', ()=>scheduleSessionSave());
+  });
+  setTimeout(()=>{ offerSessionRestore(); }, 700);   // launchQueue(.txt로 실행)가 먼저 처리되도록 잠시 뒤
+}
+
 function resetConvertTxt(){
+  // ★ Phase 16: 저장된 작업도 함께 삭제
+  _sessionTocEdited=false; clearTimeout(_sessionTimer);
+  if(typeof SettingsDB!=='undefined') SettingsDB.remove(_SESSION_KEY).catch(()=>{});
   // ★ 목차·감지 상태도 함께 초기화 (이전: tocItems가 남아 자동 미리보기 OFF일 때 새 파일을 이전 목차로 자름)
   S.txtFiles=[];S._rawTextFull=[];S.tocItems=[];_tocDropLines=[];_chaptersCache=null;_chaptersCacheKey='';
   // ★ Phase 10: 목차 편집 UI 상태·디코딩 캐시·이전 변환 결과도 함께 정리
@@ -3335,7 +3445,7 @@ function resetConvertTxt(){
   ['title','author','series','seriesIdx','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('convertResetBar').style.display='none';
   const regexFeed=document.getElementById('regexFeed');if(regexFeed)regexFeed.style.display='none';
-  updateBtmBar&&updateBtmBar([]);
+  // ★ Phase 16: 하단 바는 S.txtFiles=[] 구독 알림으로 갱신
 }
 function resetConvertCover(){
   S.coverFile=null;

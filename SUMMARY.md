@@ -477,6 +477,52 @@
 - 테스트 323 → 343개 전부 통과, 스트리밍 결과 EPUB epubcheck 0 오류
 - 브라우저 E2E(Chromium, CSP 적용): SW 설치(자산 해시 캐시), 스킨·API 키 토글·저장 끄기, 스트리밍 저장 145조각 → epubcheck 0 오류, Worker 재사용 확인, 일괄 변환 2권, **오프라인 새로고침 후 JSZip 로드·변환 성공**, CDN 요청 0, CSP 위반 0, 콘솔 오류 0
 
+### Phase 16 — UX · 유지보수
+
+#### 1) 앱 설치 (`manifest.webmanifest`, `icons/`, `ui-state.js`)
+- manifest(이름·standalone·테마색·아이콘 192/512/maskable/SVG) + `<link rel="manifest">`·theme-color·apple-touch-icon, SW 프리캐시에 포함
+- `file_handlers`(.txt) + `launchQueue.setConsumer` — 설치한 앱으로 .txt를 열면 변환 탭에 바로 로드
+- 아이콘은 기존 파비콘 SVG에서 생성 (maskable은 안전 영역 여백)
+
+#### 2) 접근성 (`index.html`, `core.js`, `ui-state.js`)
+- 글자 없는 아이콘 버튼 aria-label, 스킨 견본 `role="button"`+`tabindex`+Enter/Space, 진행률 `role="progressbar"`, 토스트 컨테이너 `role="status"`, 미리보기 모달 `role="dialog"`
+- 모달 포커스: 열리면 첫 입력란/버튼, Tab 순환(모달 밖으로 안 나감), 닫으면 열기 전 위치로 복귀 — 전역 keydown 핸들러 1개 원칙 유지
+- 버그: Esc가 입력란 포커스 상태에서 무시돼 **표지 검색 모달은 Esc로 닫히지 않던 문제**(열리자마자 검색창 포커스) → 입력란 거르기 전에 처리
+
+#### 3) 작업 복원 (`convert.js`, `parser.js`)
+- `SettingsDB`(IndexedDB)에 `session_v1` — TXT `File`·편집한 목차(편집했을 때만)·제목/작가/시리즈/패턴·표지, 0.8초 디바운스, 합계 300MB 초과는 건너뜀
+- 시작 0.7초 후(launchQueue 우선) '이전 작업을 이어서 할까요? (N개 파일 · 목차 편집 포함 · N분 전)' → 파일 재로드 → 자동 감지 완료 대기 → 편집 목차·메타 덮어쓰기
+- 변환 탭 초기화 시 삭제
+
+#### 4) 기기별 미리보기 (`ui-state.js`, `style.css`)
+- 미니 리더 위 세그먼트(기본·폰·태블릿·6″ 리더) — 화면 비율 프레임 안에서 줄 수 제한 해제, EPUB 여백 설정 반영, 전자잉크는 흑백. 선택은 브라우저에 기억
+
+#### 5) StateManager 구독 (점진 전환 1단계)
+- `S.txtFiles` 변경 → `updateBtmBar` 를 구독에서 호출 (호출 지점마다 직접 부르던 코드 제거)
+- 제자리 `splice` 3곳(드래그·터치 이동, 개별 제거)을 새 배열 교체로 → 이전엔 구독이 알 수 없어 순서 변경·개별 제거 후 하단 바 정보가 갱신되지 않음
+- 테스트: `S.txtFiles`의 제자리 변경 메서드 사용 금지
+
+#### 6) 인라인 스타일 → 유틸리티 클래스 (점진 1단계)
+- `index.html` 반복 패턴 19종 83곳 → `.u-fs-xs`·`.u-mt-8`·`.u-desc`·`.dz-icon` 등 (토큰 그대로). `display:none`(스크립트가 표시 전환)은 유지
+- 변경 전후 5개 탭 전체 페이지 스크린샷(설정 탭은 접힌 패널 모두 펼침) **픽셀 차이 0** 확인
+
+#### 7) 검증
+- 테스트 343 → 358개 전부 통과
+- 브라우저 E2E(Chromium, CSP 적용): manifest 파싱 오류 0(CDP), launchQueue로 .txt 열기 → 25화 감지, 목차 병합 후 새 탭에서 복원 제안 → 24화·제목 복원, 파일 추가·개별 제거 후 하단 바 갱신, 폰 프레임, 표지 검색 모달 포커스 진입·Tab 25회 순환 유지·검색창에서 Esc로 닫힘·여는 버튼으로 포커스 복귀, 스킨 견본 Enter, 콘솔 오류·CSP 위반 0
+
+---
+
+## 개선 30개 적용 결과 (Phase 13~16)
+
+| 카테고리 | 적용 | 비고 |
+|------|------|------|
+| 변환 품질 | 5/5 | Phase 13 |
+| EPUB 호환 | 5/5 | Phase 14 — 폰트는 파일 분리까지(서브셋은 외부 라이브러리 미사용 결정으로 제외) |
+| 성능·안정성 | 5/5 | Phase 12(64KB 감지) + Phase 15 |
+| UX/UI | 5/5 | Phase 16 + Phase 12(프록시 자동 재시도) |
+| 보안·인프라 | 5/5 | Phase 12(Worker 허용 목록) + Phase 15 |
+| 유지보수 | 3/5 + 부분 | 인코딩 단일화·테스트 확장 완료, StateManager·인라인 스타일은 점진 1단계, `@ts-check`는 외부 도구 미사용 결정으로 제외 (ESLint는 자체 정적 검사로 대체) |
+
 ---
 
 ## 파일별 역할 요약

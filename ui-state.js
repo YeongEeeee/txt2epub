@@ -104,6 +104,24 @@ function updateCssPreview(){
   }
 }
 
+// ★ Phase 16: 미니 리더 기기 프레임 (폰·태블릿·6인치 전자잉크) — 이 브라우저에서만 기억
+const _READER_DEVICES=['','phone','tablet','eink'];
+function setReaderDevice(dev){
+  const d=_READER_DEVICES.includes(dev)?dev:'';
+  const preview=document.getElementById('miniReaderPreview');
+  if(preview){
+    _READER_DEVICES.filter(Boolean).forEach(k=>preview.classList.remove('dev-'+k));
+    if(d) preview.classList.add('dev-'+d);
+  }
+  document.querySelectorAll('.reader-device-btn').forEach(b=>{
+    const on=(b.dataset.device||'')===d;
+    b.classList.toggle('on', on);
+    b.setAttribute('aria-pressed', String(on));
+  });
+  try{ localStorage.setItem('novelepub_reader_device', d); }catch(e){}
+  updateMiniReader();
+}
+
 // ── 미니 리더 실시간 반영 ──
 function updateMiniReader(){
   const preview=document.getElementById('miniReaderPreview');
@@ -121,6 +139,13 @@ function updateMiniReader(){
   preview.style.fontSize=fontSize;
   preview.style.background=bgColor;
   preview.style.color=txColor;
+  // ★ Phase 16: 기기 프레임에서는 EPUB 여백 설정도 반영 (실제 화면 안의 글 영역)
+  if(/\bdev-/.test(preview.className)){
+    const em=id=>{ const v=parseFloat(document.getElementById(id)?.value); return Number.isFinite(v)?(v*0.6)+'em':''; };
+    preview.style.padding=[em('cssPadTop'),em('cssPadRight'),em('cssPadBottom'),em('cssPadLeft')].map(v=>v||'1em').join(' ');
+  }else{
+    preview.style.padding='';
+  }
   const toc=typeof S!=='undefined'&&S.tocItems?S.tocItems.filter(t=>t.enabled):[];
   if(toc.length>0&&title&&body){
     title.textContent=toc[0].title||'1화';
@@ -891,6 +916,21 @@ function setupEventListeners(){
   //   stopPropagation()으로 막히지 않아 Ctrl+Space는 변환 2회 실행, Ctrl+/는 도움말을 열자마자 닫았음.
   //   → main.js §7을 제거하고 Ctrl+Z(목차 Undo)를 이곳으로 이관.
   document.addEventListener('keydown',e=>{
+    // ★ Phase 16: 열린 모달 안에서 Tab 포커스 순환 (입력란에서도 동작해야 하므로 입력란 거르기 전에 처리)
+    if(e.key==='Tab'&&_trapModalTab(e)) return;
+    // Esc: 열린 모달 닫기 — ★ Phase 16: 모달 안 입력란에 포커스가 있어도 닫히도록 입력란 거르기 전으로 이동
+    //   (이전: 표지 검색 모달은 열리자마자 검색창에 포커스가 가서 Esc가 무시됨)
+    if(e.key==='Escape'){
+      const ov=[...document.querySelectorAll('.modal-overlay.show')].pop();
+      if(ov){
+        ov.querySelectorAll('[data-action]').forEach(el=>{ if(el.dataset.action?.includes('close'))el.click(); });
+        return;
+      }
+    }
+    // ★ Phase 16: role="button"인 div·span(스킨 견본 등)도 Enter/Space로 실행
+    if((e.key==='Enter'||e.key===' ')&&e.target?.getAttribute?.('role')==='button'&&e.target.dataset?.action&&!/^(BUTTON|A|INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)){
+      e.preventDefault(); e.target.click(); return;
+    }
     const tag=(e.target?.tagName||'').toUpperCase();
     if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||e.target?.isContentEditable) return;
     if(e.ctrlKey||e.metaKey){
@@ -911,11 +951,6 @@ function setupEventListeners(){
           typeof undoToc==='function'&&undoToc();
         }
       }
-    }
-    if(e.key==='Escape'){
-      document.querySelector('.modal-overlay.show')&&document.querySelector('.modal-overlay.show')
-        .querySelectorAll('[data-action]')
-        .forEach(el=>{ if(el.dataset.action?.includes('close'))el.click(); });
     }
   });
 }
@@ -1000,6 +1035,8 @@ function setupEventDelegate(){
     removeDirectEditIll: (el) => typeof removeDirectEditIll==='function'&&removeDirectEditIll(parseInt(el.dataset.idx,10)),
     undoToc:             () => typeof undoToc==='function'&&undoToc(),
     deletePreset:        (el) => typeof deletePreset==='function'&&deletePreset(el.dataset.name),
+    // ★ Phase 16: 미니 리더 기기 프레임
+    setReaderDevice:     (el) => setReaderDevice(el.dataset.device||''),
     // ★ Phase 15: API 키 보기/숨기기
     toggleSecret: (el) => typeof toggleSecretField==='function'&&toggleSecretField(el.dataset.target, el),
     // ★ Phase 13: 검수 리포트 항목 → '감지된 목차' 탭에서 해당 항목으로 이동
@@ -1067,9 +1104,27 @@ function setupEventDelegate(){
 
   // ★ [G.16] 모달 오픈 시 body.modal-open 토글 → CSS scale/blur 배경 효과
   (function _setupModalBodyClass(){
+    // ★ Phase 16: 모달 포커스 관리 — 열리면 첫 입력/버튼으로 이동, 닫히면 열기 전 위치로 복귀
+    const opened=new Map();   // overlay → 열기 전 포커스 요소
+    // 여는 함수가 곧바로 모달 안 입력란에 포커스를 주는 경우가 있어(표지 검색) 모달 밖 마지막 포커스를 따로 기억
+    let lastOutside=null;
+    document.addEventListener('focusin', e=>{ if(!e.target?.closest?.('.modal-overlay')) lastOutside=e.target; });
     const observer=new MutationObserver(()=>{
-      const anyOpen=!!document.querySelector('.modal-overlay.show');
-      document.body.classList.toggle('modal-open',anyOpen);
+      const open=[...document.querySelectorAll('.modal-overlay.show')];
+      document.body.classList.toggle('modal-open',open.length>0);
+      open.forEach(ov=>{
+        if(opened.has(ov)) return;
+        opened.set(ov, ov.contains(document.activeElement)?lastOutside:document.activeElement);
+        requestAnimationFrame(()=>{
+          const f=_modalFocusables(ov);
+          (f.find(el=>el.matches('input,textarea,select'))||f[0])?.focus?.();
+        });
+      });
+      [...opened.keys()].forEach(ov=>{
+        if(open.includes(ov)) return;
+        const prev=opened.get(ov); opened.delete(ov);
+        if(prev&&document.contains(prev)) prev.focus?.();
+      });
     });
     observer.observe(document.body,{subtree:true,attributeFilter:['class'],attributes:true});
   })();
@@ -1095,7 +1150,10 @@ function setupEventDelegate(){
   });
 
   // ── StateManager 구독 ──
-  _sStore.subscribe((state) => {
+  // ★ Phase 16: 파일 목록이 바뀌면(새 배열 교체) 하단 변환 바·변환 버튼 상태를 구독으로 갱신
+  //   (이전: handleTxt·reset 등 호출 지점마다 updateBtmBar를 직접 불러 순서 변경·개별 제거 후에는 갱신 누락)
+  _sStore.subscribe((state, prev) => {
+    if (state.txtFiles !== prev?.txtFiles) updateBtmBar(state.txtFiles);
     const bar = document.getElementById('convertResetBar');
     if (bar) bar.style.display = (state.txtFiles.length || state.coverFile) ? 'flex' : 'none';
     if(state.tocItems) {
@@ -1116,7 +1174,44 @@ function setupEventDelegate(){
 //
 // 호출 시점: main.js § 5 DOMContentLoaded 오케스트레이터 내부
 // ══════════════════════════════════════════════════════════════
+// ★ Phase 16: 모달 포커스 대상 / Tab 순환
+function _modalFocusables(root){
+  return [...(root?.querySelectorAll?.('a[href],button:not([disabled]),input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])')||[])]
+    .filter(el=>el.offsetParent!==null||el===document.activeElement);
+}
+function _trapModalTab(e){
+  const open=[...document.querySelectorAll('.modal-overlay.show')].pop();
+  if(!open) return false;
+  const f=_modalFocusables(open);
+  if(!f.length) return false;
+  const first=f[0], last=f[f.length-1], cur=document.activeElement;
+  if(!open.contains(cur)){ e.preventDefault(); first.focus(); return true; }
+  if(e.shiftKey&&cur===first){ e.preventDefault(); last.focus(); return true; }
+  if(!e.shiftKey&&cur===last){ e.preventDefault(); first.focus(); return true; }
+  return false;
+}
+
+// ★ Phase 16: 설치한 앱에서 .txt 파일 열기 (manifest file_handlers → launchQueue)
+function _setupLaunchQueue(){
+  if(!('launchQueue' in window)) return;
+  window.launchQueue.setConsumer(async params=>{
+    try{
+      if(!params?.files?.length) return;
+      const files=(await Promise.all(params.files.map(h=>h.getFile()))).filter(f=>/\.txt$/i.test(f.name));
+      if(!files.length) return;
+      window.__launchedWithFiles=true;   // 작업 복원 제안보다 우선
+      typeof switchPage==='function'&&switchPage('convert');
+      typeof handleTxt==='function'&&handleTxt(files, false);
+    }catch(err){ console.warn('[launchQueue]', err); }
+  });
+}
+
 window.initUiState = function initUiState(){
+  // ★ Phase 16: 미니 리더 기기 프레임 복원
+  try{ const d=localStorage.getItem('novelepub_reader_device'); if(d) setReaderDevice(d); }catch(e){}
+  // ★ Phase 16: 앱 설치 후 .txt 파일 열기 + 이전 작업 복원 제안
+  _setupLaunchQueue();
+  typeof setupSessionAutosave==='function'&&setupSessionAutosave();
   // ★ 2단계 연결: convert.js의 DOM 캐싱 초기화 함수 호출
   // DOMContentLoaded 이후 DOM이 준비된 이 시점에 progBar 등 엘리먼트를 1회 캐싱
   if(typeof window._initProgEls === 'function') window._initProgEls();
