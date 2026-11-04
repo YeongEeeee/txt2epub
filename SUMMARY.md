@@ -549,6 +549,23 @@
   - 기본 상태 15개 화면(라이트·다크·모바일 × 5개 탭) + 모든 숨김 요소를 보이게 한 10개 화면 픽셀 차이 0
 - 테스트 371 → 381개 전부 통과, Phase 16·17 E2E 재실행 정상, 콘솔 오류·CSP 위반 0
 
+### Phase 19 — 인라인 style 4단계 (index.html style 속성 0)
+
+#### 1) 변환 방식 (`index.html`, `style.css`)
+- 남은 72곳은 모두 id 없는 요소의 1회성 style → 성격에 따라 둘로 나눔
+  - 1~3개 선언 조합: 원자 유틸리티 45개 신설 (`u-gap-5/6/8/10`·`u-py-3/4/6/8`·`u-bb`·`u-flex`·`u-wrap`·`u-text2`·`u-fw-600`·`u-row-wrap-8/10` 등) + 기존 `u-*`·`txt-meta-sm` 재사용
+  - 역할이 분명한 복합 스타일: 의미 클래스 16개 (`rx-guide`·`rx-guide-table`·`note-yellow`·`sec-caps`·`sub-head`·`sub-head-top`·`mini-head`·`item-title`·`card-flush`·`edit-tabs-bar`·`sec-split`·`btn-block-lg`·`divider-label`·`quick-sel-row` 등)
+- 변환 스크립트(`mig4.py`)가 요소마다 클래스 조합의 선언 = 원래 inline 선언(속성·값 완전 일치)인지, 같은 속성을 두 클래스가 지정하지 않는지 확인 — 유틸리티는 class 속성 순서가 아니라 CSS 정의 순서로 이기므로 충돌 자체를 금지
+- 값·토큰 그대로 (하드코딩 색상 없음), index.html style 속성 72 → **0**
+
+#### 2) 검증
+- 계산된 스타일 비교: 72개 중 런타임에 존재하는 71개 요소(1개는 빠른 선택 칩 영역이 시작 시 다시 그려짐)의 546개 속성 전부 — 데스크톱 라이트·다크·모바일에서 차이 0
+- 기본 상태 15개 화면 + 숨김 요소를 모두 보이게 한 10개 화면 픽셀 비교 동일 (일괄 탭 그라데이션의 3픽셀 1단계 차이는 렌더링 노이즈), Phase 18 사용 흐름 23단계 보임 상태 동일
+- 테스트 381 → 386개 전부 통과 (유틸리티 속성 충돌 검사 포함), Phase 16·17 E2E 재실행 정상, 콘솔 오류·CSP 위반 0
+
+#### 3) 남은 일
+- JS가 innerHTML로 만드는 마크업에 `style="..."`이 약 165곳 남아 있어 CSP `style-src 'unsafe-inline'`은 아직 필요 (스크립트 실행 경로는 아님)
+
 ---
 
 ## 개선 30개 적용 결과 (Phase 13~16)
@@ -560,7 +577,7 @@
 | 성능·안정성 | 5/5 | Phase 12(64KB 감지) + Phase 15 |
 | UX/UI | 5/5 | Phase 16 + Phase 12(프록시 자동 재시도) |
 | 보안·인프라 | 5/5 | Phase 12(Worker 허용 목록) + Phase 15 |
-| 유지보수 | 3/5 + 부분 | 인코딩 단일화·테스트 확장 완료, StateManager는 점진 2단계(Phase 17), 인라인 스타일은 3단계(Phase 18 — display 토글 hidden 단일화)까지, `@ts-check`는 외부 도구 미사용 결정으로 제외 (ESLint는 자체 정적 검사로 대체) |
+| 유지보수 | 3/5 + 부분 | 인코딩 단일화·테스트 확장 완료, StateManager는 점진 2단계(Phase 17), 인라인 스타일은 4단계(Phase 19 — index.html style 속성 0)까지, `@ts-check`는 외부 도구 미사용 결정으로 제외 (ESLint는 자체 정적 검사로 대체) |
 
 ---
 

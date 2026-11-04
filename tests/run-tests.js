@@ -18,6 +18,7 @@
  *  11. Phase 16: 앱 설치(manifest·아이콘·파일 열기)·접근성·작업 복원·기기 미리보기·StateManager 구독·유틸리티 클래스
  *  12. Phase 17: StateManager 구독 2단계(변환 진행·결과 → 버튼·다운로드 바)·인라인 style 2단계
  *  13. Phase 18: 표시 전환 = hidden 속성 단일 경로(setShown) — 인라인 display:none 제거
+ *  14. Phase 19: index.html 인라인 style 0 — 원자 유틸리티·의미 클래스, 유틸리티 속성 충돌 검사
  */
 'use strict';
 const fs   = require('fs');
@@ -985,6 +986,30 @@ async function main(){
     check('[표시] Phase 18 #id 규칙 대상은 모두 1개씩 존재·하드코딩 색상 없음', p18Ids.length >= 35 && p18Ids.every(id => (html.match(new RegExp(`\\sid="${id}"`, 'g')) || []).length === 1) &&
       !/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/.test(p18.replace(/^#[\w-]+\{/gm, '{')));
     check('[표시] 인라인 style 값에 의존하던 선택자([style*="none"]) 제거', !/\[style\*=/.test(css));
+  }
+
+  // ── 14. Phase 19 — 인라인 style 4단계 (index.html style 속성 0) ──
+  {
+    const read = readRoot;
+    const html = read('index.html'), css = read('style.css');
+    const styleAttrs = (html.match(/\sstyle="/g) || []).length;
+    check('[스타일] index.html 인라인 style 속성 0개 (266 → 183 → 120 → 72 → 0, 계산된 스타일·화면 픽셀 동일 확인)', styleAttrs === 0, `style 속성 ${styleAttrs}개`);
+    const p19 = css.slice(css.indexOf('★ Phase 19:'));
+    const defs = [...p19.matchAll(/^\.([\w-]+)\{([^}]*)\}/gm)];
+    const used = new Set([...html.matchAll(/\sclass="([^"]*)"/g)].flatMap(m => m[1].split(/\s+/)));
+    check('[스타일] Phase 19 클래스는 모두 사용 중·정의 1회', css.includes('★ Phase 19:') && defs.length >= 50 && defs.every(m => used.has(m[1])) &&
+      defs.every(m => (css.match(new RegExp('(^|[\\s,}])\\.' + m[1] + '\\{', 'g')) || []).length === 1), defs.filter(m => !used.has(m[1])).map(m => m[1]).join(','));
+    check('[스타일] Phase 19 블록에 하드코딩 색상 없음 (CSS 변수만)', !/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/.test(p19));
+    // 한 요소에 붙은 유틸리티들이 같은 속성을 동시에 지정하지 않음 (선언 순서가 아니라 CSS 정의 순서로 이기는 문제 방지)
+    const utilDecl = {};
+    for (const m of css.matchAll(/(?:^|\n)\.(u-[\w-]+|txt-meta-sm)\{([^}]*)\}/g)) utilDecl[m[1]] = m[2].split(';').filter(Boolean).map(d => d.split(':')[0].trim());
+    const clash = [];
+    for (const m of html.matchAll(/\sclass="([^"]*)"/g)) {
+      const seen = {};
+      for (const c of m[1].split(/\s+/)) for (const prop of (utilDecl[c] || [])) { if (seen[prop] && seen[prop] !== c) clash.push(`${seen[prop]}+${c}(${prop})`); seen[prop] = c; }
+    }
+    check('[스타일] 한 요소의 유틸리티 클래스끼리 같은 속성 충돌 없음', clash.length === 0, [...new Set(clash)].slice(0, 6).join(' / '));
+    check('[스타일] 한 태그에 class 속성 중복 없음 (4단계 후)', !/<[a-z][^>]*\sclass="[^"]*"[^>]*\sclass="/i.test(html));
   }
 
   if(UPDATE){
