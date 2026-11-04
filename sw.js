@@ -19,7 +19,7 @@
 //   복구: 이전 SW 때문에 화면이 하나도 열리지 못한 상태라면 새 SW가 대기 없이 바로 활성화
 //   CACHE_VERSION 해시에는 sw.js 자체 코드도 포함(stamp-sw.js) → SW 로직만 바뀌어도 새 캐시 이름
 // ════════════════════════════════════════════════
-const CACHE_VERSION = 'h-70ff174c9a72f721';
+const CACHE_VERSION = 'h-9e0082c6888326b4';
 const CACHE_NAME = 'novelepub-' + CACHE_VERSION;
 
 // 해시 대상이자 프리캐시 목록 — 로컬 자원만 ('./'는 index.html과 같은 문서)

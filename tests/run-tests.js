@@ -581,7 +581,7 @@ async function main(){
     check('[폰트] format()은 표준 키워드 사용', !/format\("'\+ext\+'"\)/.test(read('settings.js')) && /format\("'\+fontInfo\.fmt\+'"\)/.test(read('settings.js')));
 
     // 7-2. 인코딩 감지 (단일 소스) — UTF-16 무BOM·UTF-8·EUC-KR
-    const C1 = sandbox('convert.js', ['_countChar', '_detectUtf16NoBom', '_detectEncodingFromAB', '_sliceBounds', '_withCacheBust', '_parseHttpUrl']);
+    const C1 = sandbox('convert.js', ['_countChar', '_detectUtf16NoBom', '_detectEncodingFromAB', '_sliceBounds', '_nextEolByte', '_prevEolByte', '_normalizeEOL', '_withCacheBust', '_parseHttpUrl']);
     const det = buf => vm.runInContext('_detectEncodingFromAB', C1)(buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length));
     const ko = ('제1화 시작\n그는 문을 열었다. "누구세요?" 대답이 없었다.\n' ).repeat(80);
     const le = Buffer.from(ko, 'utf16le');
@@ -605,6 +605,21 @@ async function main(){
     const u8 = Buffer.from('가나다라마바사', 'utf8');
     const [s8, e8] = bounds(u8, 1, 8, 0, u8.length, 'utf-8', 4);
     check('[슬라이스] UTF-8 연속 바이트 건너뜀', !new TextDecoder().decode(u8.subarray(s8, e8)).includes('\ufffd'));
+
+    // 7-3b. ★ Phase 25: 줄바꿈 정규화 — CR 단독(구형 Mac)·CRLF·혼합 → LF
+    const eol = vm.runInContext('_normalizeEOL', C1);
+    check('[줄바꿈] CR 단독 → LF', eol('1화 시작\r\r본문\r2화 다음') === '1화 시작\n\n본문\n2화 다음');
+    check('[줄바꿈] CRLF → LF (CR 중복 없음)', eol('1화\r\n\r\n본문\r\n') === '1화\n\n본문\n');
+    check('[줄바꿈] 혼합 줄바꿈 통일', eol('a\r\nb\rc\nd') === 'a\nb\nc\nd');
+    const lfOnly = '1화\n본문\n';
+    check('[줄바꿈] LF 전용은 그대로 (같은 문자열)', eol(lfOnly) === lfOnly);
+    check('[줄바꿈] fileToText·readFileSlice 출구에서 정규화',
+      /text = _normalizeEOL\(text\);\s*_textCacheSet\(file, text\);/.test(read('convert.js')) &&
+      /res\(_normalizeEOL\(text\)\)/.test(read('convert.js')));
+    const eucCr = Buffer.from(Array.from(euc).map(b => b === 0x0A ? 0x0D : b));
+    const [cs, ce] = bounds(eucCr, 5, 200, 0, 10000, 'euc-kr', 4);
+    const eucCrTxt = new TextDecoder('euc-kr').decode(eucCr.subarray(cs, ce));
+    check('[슬라이스] CR 단독 EUC-KR도 줄 단위 동기화', cs > 0 && eucCr[cs - 1] === 0x0D && !eucCrTxt.includes('\ufffd'));
 
     // 7-4. URL 표지 — 기존 쿼리 보존·http(s)만 허용·inline onclick 주입 제거
     const bust = vm.runInContext('_withCacheBust', C1)('https://img.cdn.com/a.jpg?type=w500');

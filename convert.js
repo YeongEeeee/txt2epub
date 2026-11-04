@@ -279,6 +279,15 @@ function setTxtEncoding(file, enc){
   Toast.info((enc&&enc!=='auto'?ENC_LABELS[enc]+'(으)로 다시 읽어요':'자동 감지 인코딩으로 다시 읽어요')+' — '+file.name, 2500);
 }
 
+// ★ Phase 25: 줄바꿈 정규화 — CR 단독(구형 Mac)·CRLF(Windows) → LF
+//   화 감지·샘플링·분할이 모두 split('\n') 기준이라, CR만 쓰는 파일은 전체가 '1줄'로 읽혀
+//   제목 패턴이 하나도 감지되지 않았음 (예: 10.9MB 단일 줄 파일)
+//   '\r'이 없으면 원문 그대로 반환 (대부분의 파일은 복사 비용 0). 정규식은 백트래킹 없는 단일 문자 매칭
+function _normalizeEOL(text){
+  if(typeof text!=='string' || text.indexOf('\r')===-1) return text;
+  return text.replace(/\r\n?/g,'\n');
+}
+
 async function fileToText(file){
   // ★ Phase 10: 디코딩 결과 캐시 → 같은 파일은 다시 읽지 않음
   const hit=_textCacheGet(file);
@@ -301,6 +310,8 @@ async function fileToText(file){
       if(text === null && ab.byteLength === 0) ab = await fileToAB(file);
     }
     if(text === null) text = await _decodeFromAB(ab, enc, _encOverride.has(key));
+    // ★ Phase 25: 메인 스레드·Worker 디코딩 공통 출구에서 줄바꿈 통일 (캐시에도 정규화본 저장)
+    text = _normalizeEOL(text);
     _textCacheSet(file, text);
     return text;
   })();
@@ -352,7 +363,8 @@ function _decodeFromAB(ab, enc, strict=false){
 // ★ Phase 12: 바이트 경계 보정 (순수 함수 — 테스트 대상)
 //   UTF-8   : 연속 바이트(10xxxxxx)를 건너뛰어 문자 시작에 맞춤
 //   UTF-16  : 파일 절대 오프셋 기준 짝수 바이트에 맞춤
-//   EUC-KR  : 2바이트 문자의 둘째 바이트는 0x41 이상이라 줄바꿈(0x0A)과 겹치지 않음 → 줄 단위로 동기화
+//   EUC-KR  : 2바이트 문자의 둘째 바이트는 0x41 이상이라 줄바꿈(0x0A·0x0D)과 겹치지 않음 → 줄 단위로 동기화
+//            ★ Phase 25: CR 단독 줄바꿈 파일은 0x0A가 없어 동기화 실패 → 0x0D도 줄 경계로 인정
 function _sliceBounds(bytes, start, end, safeStart, fileSize, enc, MARGIN){
   let s=start-safeStart, e2=Math.min(bytes.length, end-safeStart);
   if(enc==='utf-8'){
@@ -362,10 +374,20 @@ function _sliceBounds(bytes, start, end, safeStart, fileSize, enc, MARGIN){
     if((safeStart+s)%2) s++;
     if((safeStart+e2)%2) e2--;
   }else{
-    if(start>0){ const nl=bytes.indexOf(0x0A, s); if(nl!==-1&&nl<e2) s=nl+1; }
-    if(end<fileSize){ const nl=bytes.lastIndexOf(0x0A, e2-1); if(nl>=s) e2=nl+1; }
+    if(start>0){ const nl=_nextEolByte(bytes, s, e2); if(nl!==-1) s=nl+1; }
+    if(end<fileSize){ const nl=_prevEolByte(bytes, s, e2-1); if(nl!==-1) e2=nl+1; }
   }
   return [s, Math.max(s, e2)];
+}
+
+// ★ Phase 25: 줄 경계 바이트 탐색 (LF 0x0A 또는 CR 0x0D) — O(n) 단순 순회
+function _nextEolByte(bytes, from, to){
+  for(let i=from;i<to;i++){ const b=bytes[i]; if(b===0x0A||b===0x0D) return i; }
+  return -1;
+}
+function _prevEolByte(bytes, min, from){
+  for(let i=from;i>=min;i--){ const b=bytes[i]; if(b===0x0A||b===0x0D) return i; }
+  return -1;
 }
 
 // ★ Phase 12: enc 인자 — 이전엔 항상 UTF-8로 디코딩해 5MB 넘는 EUC-KR 파일의 샘플이 전부 깨짐
@@ -383,11 +405,11 @@ async function readFileSlice(file, start, end, enc='utf-8'){
       const [s,e2]=_sliceBounds(bytes, start, end, safeStart, file.size, enc, MARGIN);
       try{
         const text=new TextDecoder(enc,{fatal:false}).decode(bytes.subarray(s,e2));
-        res(text);
+        res(_normalizeEOL(text)); // ★ Phase 25: 대용량 샘플(5MB+)도 줄바꿈 통일
       }catch(err){
         // fallback: FileReader readAsText
         const fr=new FileReader();
-        fr.onload=ev=>res(ev.target.result);
+        fr.onload=ev=>res(_normalizeEOL(ev.target.result));
         fr.onerror=()=>res('');
         fr.readAsText(new Blob([bytes.subarray(s,e2)]),enc);
       }
