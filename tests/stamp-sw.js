@@ -6,6 +6,7 @@
  *   (회귀 테스트가 sw.js 값과 계산값이 같은지 검사 — 다르면 CI 실패)
  *
  * 해시 대상: sw.js CORE_ASSETS의 로컬 파일 ('./'는 index.html과 같아 제외)
+ *            + sw.js 자체 코드(CACHE_VERSION 줄 제외) — ★ Phase 21: SW 로직만 바뀌어도 새 캐시 이름
  * 줄바꿈은 LF로 정규화 — Windows(CRLF) 체크아웃과 CI(LF)에서 같은 값
  */
 'use strict';
@@ -33,6 +34,7 @@ function assetHash(swSrc = fs.readFileSync(SW, 'utf8')){
     else h.update(buf);
     h.update('\0');
   }
+  h.update('sw.js\0' + swSrc.replace(/const CACHE_VERSION = '[^']+';/, '').replace(/\r\n/g, '\n') + '\0');
   return 'h-' + h.digest('hex').slice(0, 16);
 }
 

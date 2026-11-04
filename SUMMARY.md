@@ -591,6 +591,26 @@
 - 엄격 CSP(`'unsafe-inline'` 없음)로 같은 24단계 → `securitypolicyviolation` 0건·페이지 오류 0, Phase 16·17 E2E 재실행 정상
 - 테스트 386 → 394개 전부 통과 (이전 Phase 스타일 검사는 자기 블록 범위만 보도록 정리)
 
+### Phase 21 — 사이트 접속 오류(ERR_FAILED) 수정 (`sw.js`, `tests/stamp-sw.js`)
+
+#### 1) 원인
+- Cloudflare Pages는 `/index.html` 요청을 `/`로 308 리디렉트 (pretty URL)
+- SW 설치 때 `cache.addAll`이 `./index.html`을 리디렉트를 거친 응답(`redirected: true`)으로 저장 → 페이지 이동(navigate, redirect 모드 manual)에 이 응답을 돌려주면 Chrome이 네트워크 오류로 처리
+- 결과: 첫 방문은 정상, SW 설치 뒤 두 번째 방문부터 '사이트에 연결할 수 없음 (ERR_FAILED)' — Phase 15 SW 재작성부터 잠재, Phase 20과 무관
+- 같은 리디렉트를 하는 로컬 서버(`cfserve.py`)로 재현: 첫 방문 200 → 재방문 `net::ERR_FAILED`
+
+#### 2) 수정
+- `_plain(resp)`: 리디렉트를 거친 응답이면 본문·상태·헤더만 담은 새 응답으로 바꿈 — 프리캐시 저장 전, 페이지 이동 응답 직전(이전 버전이 남긴 캐시 대비), 로컬 자원 캐시 저장 전
+- 설치: `addAll` 대신 자산마다 `cache:'reload'`로 받아 `_plain` 후 저장, 하나라도 실패하면 새 캐시를 지우고 설치 실패 (원자성 유지)
+- 복구: 설치 시점에 열린 화면이 없으면(첫 설치, 또는 이전 SW 오류로 화면이 뜨지 못한 경우) 대기 없이 활성화 — 화면이 열려 있으면 기존처럼 업데이트 배너
+- `CACHE_VERSION` 해시에 sw.js 자체 코드(CACHE_VERSION 줄 제외) 포함 → SW 로직만 바뀌어도 새 캐시 이름
+
+#### 3) 검증 (Cloudflare 리디렉트 흉내 서버 + Chromium)
+- 새 방문자: 1회차 네트워크 → 2·3회차 SW 응답 200, 오프라인 새로고침 200
+- 고장 SW에 갇힌 브라우저: 새 sw.js 배포 후 1회는 이전 SW가 처리해 실패(이때 업데이트 확인), 다음 새로고침부터 정상
+- 화면이 열린 상태의 일반 업데이트: 새 SW 대기 + 업데이트 배너 (즉시 교체 안 함)
+- 테스트 394 → 398개 전부 통과 (`_plain` 실제 동작 포함)
+
 ---
 
 ## 개선 30개 적용 결과 (Phase 13~16)

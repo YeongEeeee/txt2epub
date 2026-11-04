@@ -251,7 +251,7 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
     └── golden.json   — 기대 챕터 목록·감지 패턴·계층 형태
 ```
 
-> **총 코드량: 약 18,600줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 인라인 핸들러 0개 | 회귀 테스트 394개 통과 | epubcheck 0 오류
+> **총 코드량: 약 18,600줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 인라인 핸들러 0개 | 회귀 테스트 398개 통과 | epubcheck 0 오류
 
 ### 상태 관리 (StateManager + Proxy)
 
@@ -475,6 +475,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 21 (4) | SW `_plain` 실제 동작(리디렉트 응답 → 새 응답·헤더 유지), 프리캐시·페이지 이동·로컬 저장 모두 `_plain`, 화면 없을 때만 즉시 활성화, CACHE_VERSION 해시에 sw.js 코드 포함 |
 | Phase 20 (8) | JS 마크업 style 속성 0·setAttribute('style')·페이지용 <style> 없음, CSP style-src 'self'+Google Fonts(헤더 = meta, unsafe 없음), Phase 20 클래스 정의 1회·사용 중·하드코딩 색상 없음, 구체적 기존 규칙 위 인라인 값 유지, JS 템플릿 유틸리티 충돌 없음, 템플릿 숨김 요소 hidden+setShown |
 | Phase 19 (5) | index.html 인라인 style 0, Phase 19 클래스 사용·정의 1회·하드코딩 색상 없음, 한 요소의 유틸리티끼리 같은 속성 충돌 없음, class 속성 중복 없음 |
 | Phase 18 (10) | setShown 동작(hidden 토글·인라인 display 정리·null 안전), 인라인 display:none 0·style ≤72, hidden 요소의 style.display 직접 전환 없음, setShown 대상 id 존재, 판독도 hidden 기준, 탭형 전환, 보일 때 display 규칙·하드코딩 색상 없음, [style*=] 선택자 제거 |
@@ -498,7 +499,7 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 | 항목 | 수치 |
 |------|------|
 | 총 줄수 | JS 13,522줄 (+ HTML/CSS 2,600줄) |
-| 회귀 테스트 | 394개 통과 + epubcheck 0 오류 |
+| 회귀 테스트 | 398개 통과 + epubcheck 0 오류 |
 | 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |
@@ -655,6 +656,12 @@ settings.js 구문 오류 수정 (고아 코드 블록 제거)
 ---
 
 ## 🔧 Troubleshooting
+
+### 두 번째 방문부터 '사이트에 연결할 수 없음 (ERR_FAILED)' (해결됨 — Phase 21)
+**증상**: 첫 방문은 정상, 서비스 워커가 설치된 뒤 다시 열면 `net::ERR_FAILED`.  
+**원인**: Cloudflare Pages가 `/index.html`을 `/`로 308 리디렉트(pretty URL) → SW가 프리캐시한 `./index.html`이 '리디렉트를 거친 응답'이 되고, 이를 페이지 이동 응답으로 돌려주면 Chrome이 네트워크 오류로 처리. Phase 15의 SW 재작성부터 있던 문제.  
+**해결**: 캐시에 넣기 전·응답 직전에 리디렉트 흔적을 지운 새 응답으로 교체(`_plain`), 화면이 하나도 열리지 못한 상태면 새 SW가 바로 활성화. 배포 후 한두 번 새로고침하면 복구되며, 바로 열려면 `Ctrl+Shift+R`(SW 우회) 또는 개발자 도구 → Application → Service Workers → Unregister.
+
 
 ### `content-visibility` 탭 렌더링 버그 (해결됨)
 **증상**: 탭 전환 시 하단 UI 밀림, 콘텐츠 화이트아웃(white-out) 발생, Reflow 레이턴시 불규칙.  

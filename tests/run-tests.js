@@ -20,6 +20,7 @@
  *  13. Phase 18: 표시 전환 = hidden 속성 단일 경로(setShown) — 인라인 display:none 제거
  *  14. Phase 19: index.html 인라인 style 0 — 원자 유틸리티·의미 클래스, 유틸리티 속성 충돌 검사
  *  15. Phase 20: JS 마크업 style 속성 0 → CSP style-src 'unsafe-inline' 제거
+ *  16. Phase 21: SW 페이지 이동 ERR_FAILED 수정 — 리디렉트 응답 정리(_plain)·고장 SW 복구·SW 코드 포함 해시
  */
 'use strict';
 const fs   = require('fs');
@@ -520,7 +521,9 @@ async function main(){
     // ★ Phase 15: JSZip 로컬 배포 + 버전 단위 원자적 캐시 (이전 검사: CDN JSZip CORS 프리캐시)
     const { assetHash, currentVersion } = require('./stamp-sw.js');
     check('[배포] SW CACHE_VERSION = 앱 자산 해시 (다르면 npm run stamp)', currentVersion(sw) === assetHash(sw), `sw.js ${currentVersion(sw)} / 계산 ${assetHash(sw)}`);
-    check('[배포] SW 설치는 전체 성공 시에만 (addAll + cache:reload)', /cache\.addAll\(CORE_ASSETS\.map\(u => new Request\(u, \{ cache: 'reload' \}\)\)\)/.test(sw) && !/allSettled/.test(sw));
+    // ★ Phase 21: addAll 대신 직접 받아 리디렉트 흔적을 지운 뒤 저장 — 하나라도 실패하면 새 캐시 삭제 후 설치 실패 (원자성 유지)
+    check('[배포] SW 설치는 전체 성공 시에만 (Promise.all + cache:reload, 실패 시 새 캐시 삭제)', /await Promise\.all\(CORE_ASSETS\.map\(async u => \{/.test(sw) && /new Request\(u, \{ cache: 'reload' \}\)/.test(sw) &&
+      /if \(!resp\.ok\) throw new Error/.test(sw) && /catch \(err\) \{\s*await caches\.delete\(CACHE_NAME\);\s*throw err;/.test(sw) && !/allSettled/.test(sw));
     check('[배포] 로컬 자원은 버전 캐시에서만 응답 (파일별 재검증 없음)', /_cacheFirstLocal/.test(sw) && !/_conditionalSWR|_revalidate/.test(sw));
     const libJs = fs.readFileSync(path.join(ROOT, 'lib/jszip.min.js'));
     const sri = 'sha512-' + require('crypto').createHash('sha512').update(libJs).digest('base64');
@@ -1050,6 +1053,29 @@ async function main(){
     // 15-6. 템플릿에서 숨김으로 만들던 요소는 hidden + setShown
     check('[CSP] 템플릿의 처음 숨김 요소는 hidden 속성 + setShown 전환', /id="toc-auto-sel-susp"[^>]*\shidden>/.test(src['parser.js']) && /setShown\(autoSelBtn, suspCount>0&&!_tocFilterQ\);/.test(src['parser.js']) &&
       /id="bmode_'\+i\+'" class="badge-blue-line" hidden>/.test(src['convert.js']) && /\$\{active\?'':' hidden'\}>/.test(src['convert.js']) && /setShown\(document\.getElementById\('eik_'\+id\), m==='keyword'\|\|m==='title'\);/.test(src['edit.js']));
+  }
+
+  // ── 16. Phase 21 — SW 페이지 이동 ERR_FAILED (Cloudflare /index.html → / 리디렉트) ──
+  {
+    const read = readRoot;
+    const sw = read('sw.js');
+    // 16-1. 리디렉트를 거친 응답을 새 응답으로 바꾸는 _plain — 실제 동작 (Node 18+ 내장 Response)
+    const P = sandbox('sw.js', ['_plain'], { Response, Blob });
+    const plainOk = await (async () => {
+      const body = '<!doctype html><title>x</title>';
+      const red = new Response(body, { status: 200, headers: { 'Content-Type': 'text/html;charset=utf-8', 'X-T': '1' } });
+      Object.defineProperty(red, 'redirected', { value: true });
+      const out = await P._plain(red);
+      const same = new Response('a'); const out2 = await P._plain(same);
+      return out !== red && out.redirected === false && out.status === 200 && out.headers.get('X-T') === '1' && (await out.text()) === body && out2 === same && (await P._plain(null)) === null;
+    })();
+    check('[SW] _plain: 리디렉트 응답 → 본문·상태·헤더 같은 새 응답, 일반 응답·null은 그대로', plainOk);
+    check('[SW] 프리캐시 저장 전·페이지 이동 응답 전·로컬 자원 저장 전 모두 _plain', /await cache\.put\(u, await _plain\(resp\)\);/.test(sw) && /if \(cached\) return _plain\(cached\);/.test(sw) && /_plain\(resp\.clone\(\)\)\.then\(r => cache\.put\(request, r\)\)/.test(sw) && !/cache\.addAll\(/.test(sw));
+    check('[SW] 열린 화면이 없을 때만 대기 없이 활성화 (고장 난 이전 SW에서 복구, 화면이 있으면 업데이트 배너)', /const wins = await self\.clients\.matchAll\(\{ type: 'window', includeUncontrolled: true \}\);\s*if \(!wins\.length\) await self\.skipWaiting\(\);/.test(sw) && /e\.data\.type === 'SKIP_WAITING'\) self\.skipWaiting\(\)/.test(sw));
+    // 16-2. CACHE_VERSION 해시에 sw.js 자체 코드 포함 — SW 로직만 바뀌어도 새 캐시 이름 (같은 이름 캐시를 실패 시 지우는 사고 방지)
+    const { assetHash } = require('./stamp-sw.js');
+    const swAlt = sw.replace("async function _plain(resp){", "async function _plain(resp){ /* 변경 */");
+    check('[SW] CACHE_VERSION 해시에 sw.js 코드 포함 (CACHE_VERSION 줄 자체는 제외)', assetHash(sw) !== assetHash(swAlt) && assetHash(sw) === assetHash(sw.replace(/const CACHE_VERSION = '[^']+';/, "const CACHE_VERSION = 'x';")));
   }
 
   if(UPDATE){
