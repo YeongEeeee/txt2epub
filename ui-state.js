@@ -788,6 +788,8 @@ function _spawnDropConfetti(container){
     saveReaderProfile: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof _syncReaderProfileDesc==='function'&&_syncReaderProfileDesc(); typeof updateCssPreview==='function'&&updateCssPreview(); },
     // ★ Phase 13: 잡음 줄 제외 토글 — 저장 + 세부 항목 표시 전환
     saveCleanupNoise: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof _syncNoisePanel==='function'&&_syncNoisePanel(); },
+    // ★ Phase 26: 이전 작업 복원 확인 토글 — 저장 + 끄면 저장된 작업 삭제
+    saveSessionRestore: () => { typeof onSessionRestoreToggle==='function'&&onSessionRestoreToggle(); },
     saveExtraSettingsRenderIll: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof renderIllTags==='function'&&renderIllTags(); },
     updateCssSave: () => { updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); updateMiniReader&&updateMiniReader(); updateSettingsSummary&&updateSettingsSummary(); },
     cssExtraAutoResize: (el) => {

@@ -702,6 +702,15 @@
 | 수정 후 | 148,222 | 771개 (1화 여기가 독일 제국이라니?! … 786화 + 외전 2) |
 - 테스트 419 → 425개 통과 (CR 단독·CRLF·혼합·LF 원문 유지·출구 정규화·CR 단독 EUC-KR 슬라이스)
 
+### Phase 26 — '이전 작업을 이어서 할까요?' 끄기 옵션
+
+- **설정 > 작업 복원 > 이전 작업 이어서 하기 묻기** (`#optSessionRestore`, 기본 켜짐 = 기존 동작)
+- 끄면: 시작 시 확인 팝업 없음 + 작업 자동 저장(IndexedDB, 최대 300MB) 중단 + 저장돼 있던 작업 삭제
+- 다시 켜면: 현재 작업을 바로 저장, 다음 방문부터 다시 물어봄
+- 구현: `convert.js` `_sessionRestoreEnabled()`·`onSessionRestoreToggle()` (`scheduleSessionSave`·`offerSessionRestore` 앞단 검사), `settings.js` `sessionRestore` 저장·복원, `ui-state.js` `saveSessionRestore` 액션
+- 검증 (Chromium): 기본 → 팝업 표시 / 끔 → 저장값 false·저장 작업 삭제·새로고침 후 팝업 없음·저장된 작업 남아 있어도 정리 / 다시 켬 → 팝업 표시, 페이지 오류 0
+- 테스트 425 → 429개 통과
+
 ---
 
 ## 개선 30개 적용 결과 (Phase 13~16)

@@ -71,6 +71,8 @@ function saveExtraSettings(){
       streamSave:document.getElementById('optStreamSave')?.checked===true,
       // ★ Phase 22: 커스텀 폰트 서브셋 (기본 켜짐)
       fontSubset:document.getElementById('optFontSubset')?.checked!==false,
+      // ★ Phase 26: 시작 시 이전 작업 복원 확인 (기본 켜짐)
+      sessionRestore:document.getElementById('optSessionRestore')?.checked!==false,
     }));
   }catch(e){}
 }
@@ -178,6 +180,8 @@ function loadExtraSettings(){
     _syncReaderProfileDesc();
     // ★ Phase 22: 커스텀 폰트 서브셋 — 저장값이 없으면 켜짐
     const fsub=document.getElementById('optFontSubset'); if(fsub) fsub.checked=s.fontSubset!==false;
+    // ★ Phase 26: 이전 작업 복원 확인 — 저장값이 없으면 켜짐
+    const sr=document.getElementById('optSessionRestore'); if(sr) sr.checked=s.sessionRestore!==false;
     // ★ Phase 15: 스트리밍 저장 — 지원하지 않는 브라우저는 비활성 + 안내
     const ss=document.getElementById('optStreamSave');
     if(ss){

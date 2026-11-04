@@ -3377,9 +3377,32 @@ const _SESSION_KEY='session_v1';
 const _SESSION_MAX_BYTES=300*1024*1024;
 let _sessionTimer=null, _sessionRestoring=false, _sessionTocEdited=false;
 
+// ★ Phase 26: 설정 '이전 작업 이어서 하기 묻기' — 끄면 저장·확인 모두 하지 않음 (기본 켜짐)
+//   체크박스가 아직 없으면(초기화 전) 저장값으로 판단
+function _sessionRestoreEnabled(){
+  const el=document.getElementById('optSessionRestore');
+  if(el) return el.checked!==false;
+  try{ return JSON.parse(localStorage.getItem('epub_extra')||'{}').sessionRestore!==false; }
+  catch(e){ return true; }
+}
+
+// 설정 토글 — 끄면 예약된 저장 취소 + 저장된 작업 삭제, 켜면 지금 작업을 바로 저장
+function onSessionRestoreToggle(){
+  typeof saveExtraSettings==='function'&&saveExtraSettings();
+  if(_sessionRestoreEnabled()){
+    scheduleSessionSave();
+    typeof Toast!=='undefined'&&Toast.info?.('다시 열 때 이전 작업을 이어서 할지 물어볼게요.');
+    return;
+  }
+  clearTimeout(_sessionTimer);
+  if(typeof SettingsDB!=='undefined') SettingsDB.remove(_SESSION_KEY).catch(()=>{});
+  typeof Toast!=='undefined'&&Toast.info?.('이전 작업 복원을 껐어요. 저장된 작업도 지웠어요.');
+}
+
 function scheduleSessionSave(opts={}){
   if(opts.tocEdited) _sessionTocEdited=true;
   if(_sessionRestoring||typeof SettingsDB==='undefined') return;
+  if(!_sessionRestoreEnabled()) return;   // ★ Phase 26
   clearTimeout(_sessionTimer);
   _sessionTimer=setTimeout(_saveSessionNow, 800);
 }
@@ -3411,6 +3434,8 @@ function _timeAgo(ts){
 // 앱 시작 시 1회 — 파일이 이미 있거나(.txt로 실행) 저장된 작업이 없으면 아무것도 하지 않음
 async function offerSessionRestore(){
   if(typeof SettingsDB==='undefined') return;
+  // ★ Phase 26: 설정에서 끈 경우 묻지 않음 — 이전 버전이 남긴 저장 작업도 정리
+  if(!_sessionRestoreEnabled()){ SettingsDB.remove(_SESSION_KEY).catch(()=>{}); return; }
   let ses=null;
   try{ ses=await SettingsDB.get(_SESSION_KEY); }catch(e){ return; }
   if(!ses||!Array.isArray(ses.files)||!ses.files.length) return;

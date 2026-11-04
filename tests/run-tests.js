@@ -621,6 +621,13 @@ async function main(){
     const eucCrTxt = new TextDecoder('euc-kr').decode(eucCr.subarray(cs, ce));
     check('[슬라이스] CR 단독 EUC-KR도 줄 단위 동기화', cs > 0 && eucCr[cs - 1] === 0x0D && !eucCrTxt.includes('\ufffd'));
 
+    // 7-3c. ★ Phase 26: 이전 작업 복원 확인 끄기 옵션
+    const htmlSR = read('index.html'), convSR = read('convert.js'), setSR = read('settings.js'), uiSR = read('ui-state.js');
+    check('[작업복원] 설정 토글 존재·기본 켜짐', /id="optSessionRestore" data-input-action="saveSessionRestore" checked/.test(htmlSR));
+    check('[작업복원] 저장·복원 (저장값 없으면 켜짐)', /sessionRestore:document\.getElementById\('optSessionRestore'\)\?\.checked!==false/.test(setSR) && /sr\.checked=s\.sessionRestore!==false/.test(setSR));
+    check('[작업복원] 끄면 확인 팝업·자동 저장 생략', /if\(!_sessionRestoreEnabled\(\)\)\{ SettingsDB\.remove\(_SESSION_KEY\)/.test(convSR) && /if\(!_sessionRestoreEnabled\(\)\) return;/.test(convSR));
+    check('[작업복원] 토글 액션 연결', /saveSessionRestore: \(\) => \{ typeof onSessionRestoreToggle==='function'&&onSessionRestoreToggle\(\); \}/.test(uiSR) && /function onSessionRestoreToggle\(\)/.test(convSR));
+
     // 7-4. URL 표지 — 기존 쿼리 보존·http(s)만 허용·inline onclick 주입 제거
     const bust = vm.runInContext('_withCacheBust', C1)('https://img.cdn.com/a.jpg?type=w500');
     check('[URL표지] 캐시 우회 쿼리가 기존 쿼리를 깨지 않음', bust.split('?').length === 2 && bust.includes('type=w500') && /[&]_nvt=\d+/.test(bust));
