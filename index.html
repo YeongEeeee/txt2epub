@@ -66,7 +66,7 @@
       </div>
       <div id="txtSortList" class="txt-sort-list"></div>
     </div>
-    <div class="reset-bar" id="convertResetBar" style="display:none">
+    <div class="reset-bar" id="convertResetBar" hidden>
       <button class="btn-reset" data-action="resetConvertTxt">✕ TXT 파일 초기화</button>
       <button class="btn-reset" data-action="resetConvertCover">✕ 표지 이미지 초기화</button>
       <button class="btn-reset danger" data-action="resetConvertAll">전체 초기화</button>
@@ -120,7 +120,7 @@
       <span class="lbl">챕터 정규식</span>
       <div class="pat-input-wrap">
         <input class="inp" id="pattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" data-input-action="patternValidate">
-        <button id="patternClearBtn" aria-label="패턴 입력 지우기" style="display:none;position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text2);font-size:var(--fs-base);padding:0;line-height:1" title="입력 지우기">✕</button>
+        <button id="patternClearBtn" aria-label="패턴 입력 지우기" title="입력 지우기" hidden>✕</button>
       </div>
       <div class="pat-actions">
         <button class="btn btn-blue btn-sm" data-action="previewToc">목차 확인</button><button class="btn btn-ghost btn-sm" data-action="autoSplitByInterval">간격 분할</button>
@@ -139,10 +139,10 @@
         <input class="inp u-fs-sm" id="smartPatExclude" placeholder="이 내용은 챕터 제목이 아님 (예: 작가의 말, 목차)" data-input-action="smartPatConvert">
       </div>
     </div>
-    <div id="smartPatResultBox" class="flex-row" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:var(--radius-xs);flex-wrap:wrap">
+    <div id="smartPatResultBox" class="flex-row" hidden>
       <span class="txt-meta-sm u-shrink-0">변환된 정규식:</span>
       <code class="code-accent" id="smartPatResult"></code>
-      <span id="smartPatAiLabel" style="font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);padding:1px 5px;flex-shrink:0;display:none">AI</span>
+      <span id="smartPatAiLabel" hidden>AI</span>
       <button class="btn btn-accent btn-sm u-shrink-0 u-fs-xs u-pad-btn-xs" id="smartPatApplyBtn" data-action="applySmartPat">적용</button>
     </div>
     <div class="chip-group-wrap" id="chipGroupWrap">
@@ -152,14 +152,14 @@
         <button class="pat-cat-tab" data-cat="kor">한국어</button>
         <button class="pat-cat-tab" data-cat="eng">영문/숫자</button>
         <button class="pat-cat-tab" data-cat="special">특수형식</button>
-        <button class="pat-cat-tab" data-cat="recent" id="patCatRecent" style="display:none">최근</button>
+        <button class="pat-cat-tab" data-cat="recent" id="patCatRecent" hidden>최근</button>
       </div>
       <!-- ★ 칩 그리드 (카테고리별 표시) -->
       <div class="pat-helper chip-group-grid" id="patHelper"></div>
       <!-- ★ 칩이 한 줄을 넘칠 때만 표시 (ui-state.js _syncChipGroupToggle) -->
-      <button type="button" class="chip-group-toggle" id="chipGroupToggle" data-action="toggleChipGroup" aria-expanded="false" aria-controls="patHelper" style="display:none"><span class="chip-group-toggle-icon" aria-hidden="true">▼</span> 더 보기</button>
+      <button type="button" class="chip-group-toggle" id="chipGroupToggle" data-action="toggleChipGroup" aria-expanded="false" aria-controls="patHelper" hidden><span class="chip-group-toggle-icon" aria-hidden="true">▼</span> 더 보기</button>
     </div>
-    <div id="patApplyBar" class="flex-row" style="display:none;margin-top:5px">
+    <div id="patApplyBar" class="flex-row" hidden>
       <button class="btn btn-accent btn-sm u-fs-sm u-pad-btn-sm" data-action="applySelectedChips">선택한 패턴 적용</button>
       <span id="patApplyInfo" class="txt-meta-sm"></span>
     </div>
@@ -167,7 +167,7 @@
     </details>
 
     <!-- ③ 실시간 피드백 피드 -->
-    <div class="regex-feed" id="regexFeed" style="display:none">
+    <div class="regex-feed" id="regexFeed" hidden>
       <div class="regex-feed-hdr">
         <div class="regex-feed-title">챕터 감지 결과</div>
         <span class="detect-badge zero" id="detectBadge">감지 전</span>
@@ -205,14 +205,14 @@
       </div>
       <div id="toc-stat"></div>
       <!-- ★ Phase 13: 변환 전 검수 리포트 (누락 화수·중복·빈/짧은/긴 챕터 — 항목 클릭 시 목차 위치로 이동) -->
-      <div id="tocReview" class="toc-review-host" style="display:none"></div>
+      <div id="tocReview" class="toc-review-host" hidden></div>
       <div id="tocMiniChart" title="챕터별 글자수 분포 — 클릭해서 해당 챕터로 이동"></div>
       <div class="toc-body" id="tb0"><div class="toc-empty"><div class="toc-empty-icon">📄</div><p>파일을 업로드하면<br>이곳에 목차가 생성됩니다</p></div></div>
-      <div class="toc-body" id="tb1" style="display:none">
+      <div class="toc-body" id="tb1" hidden>
         <div id="tocPreviewList"></div>
       </div>
-      <div class="toc-body" id="tb2" style="display:none"></div>
-      <div class="toc-body" id="tb3" style="display:none">
+      <div class="toc-body" id="tb2" hidden></div>
+      <div class="toc-body" id="tb3" hidden>
         <div class="flex-row" style="padding:4px 0;gap:8px">
           <input class="inp" id="patEdit" placeholder="새 정규식">
           <button class="btn btn-accent btn-sm" data-action="applyPat">적용 후 재확인</button>
@@ -319,7 +319,7 @@
 </div>
 <div class="err-box" id="errBox"></div>
 <!-- 분리 기능 -->
-<div class="sec" id="splitSec" style="display:none">
+<div class="sec" id="splitSec" hidden>
   <div class="sec-hdr"><span class="sec-title">EPUB 분리</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="txt-hint-sm">변환된 epub을 N화씩 여러 파일로 나눠요.</div>
@@ -344,7 +344,7 @@
       <div class="dz-sub">파일마다 epub 하나씩 생성 · 파일명에서 제목/작가 자동 인식 · 표지 이미지를 함께 넣어도 이름으로 자동 매핑</div>
     </div>
     <input type="file" id="batchTxtIn" accept=".txt,.jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
-    <div class="reset-bar" id="batchResetBar" style="display:none">
+    <div class="reset-bar" id="batchResetBar" hidden>
       <button class="btn-reset" data-action="resetBatchTxt">✕ TXT 파일 초기화</button>
       <button class="btn-reset" data-action="resetBatchCover">✕ 표지 이미지 초기화</button>
       <button class="btn-reset danger" data-action="resetBatchAll">전체 초기화</button>
@@ -382,7 +382,7 @@
     </div>
   </div>
 </div>
-<div class="sec" id="batchListSec" style="display:none">
+<div class="sec" id="batchListSec" hidden>
   <div class="sec-hdr"><span class="sec-title">변환 목록</span><div class="sec-line"></div></div>
   <div class="card"><div id="batchList"></div></div>
 </div>
@@ -408,13 +408,13 @@
       <div style="font-size:var(--fs-base);color:var(--text2)">수정할 EPUB 파일 드래그하거나 클릭</div>
     </div>
     <input type="file" id="epubIn" accept=".epub" hidden>
-    <div id="epubInfo" style="display:none;margin-top:8px;font-size:var(--fs-sm);color:var(--green)"></div>
-    <div class="reset-bar" id="editResetBar" style="display:none">
+    <div id="epubInfo" hidden></div>
+    <div class="reset-bar" id="editResetBar" hidden>
       <button class="btn-reset" data-action="resetEditEpub">✕ EPUB 파일 초기화</button>
       <button class="btn-reset danger" data-action="resetEditAll">전체 초기화</button>
     </div>
     <!-- 이미지 추출 버튼 (EPUB 로드 후 표시) -->
-    <div id="extractImgBar" style="display:none;margin-top:10px;padding:10px 0 4px;border-top:1px solid var(--border)">
+    <div id="extractImgBar" hidden>
       <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
         <div style="flex:1;min-width:0">
           <div style="font-size:var(--fs-sm);font-weight:600;color:var(--text);margin-bottom:3px">이미지 추출</div>
@@ -422,7 +422,7 @@
         </div>
         <button class="btn btn-blue" id="extractImgBtn" data-action="extractEpubImages">이미지 추출</button>
       </div>
-      <div id="extractImgProgress" style="display:none;margin-top:8px">
+      <div id="extractImgProgress" hidden>
         <div class="prog-bg" style="height:4px"><div class="prog-bar" id="extractProgBar"></div></div>
         <div id="extractProgMsg"></div>
       </div>
@@ -430,7 +430,7 @@
   </div>
 </div>
 <!-- ══ EPUB 직접 편집 (새 기능) ══ -->
-<div class="sec" id="epubDirectEditSec" style="display:none">
+<div class="sec" id="epubDirectEditSec" hidden>
   <div class="sec-hdr"><span class="sec-title">EPUB 직접 편집</span><div class="sec-line"></div></div>
   <div class="card" style="padding:0;overflow:hidden">
     <!-- 탭 -->
@@ -498,10 +498,10 @@
       </div>
 
       <!-- AI 변환 결과 -->
-      <div id="eSmartPatResultBox" style="display:none;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:var(--radius-xs);align-items:center;gap:8px;flex-wrap:wrap">
+      <div id="eSmartPatResultBox" hidden>
         <span style="font-size:var(--fs-xs);color:var(--text2);flex-shrink:0">변환된 정규식:</span>
         <code class="code-accent" id="eSmartPatResult"></code>
-        <span id="eSmartPatAiLabel" style="font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);padding:1px 5px;flex-shrink:0;display:none">AI</span>
+        <span id="eSmartPatAiLabel" hidden>AI</span>
         <button class="btn btn-accent btn-sm u-shrink-0 u-fs-xs u-pad-btn-xs" data-action="applyESmartPat">적용</button>
       </div>
 
@@ -509,7 +509,7 @@
       <div class="pat-helper u-mt-6" id="eTocPatHelper">
         <span style="font-size:var(--fs-xs);color:var(--text2);align-self:center">빠른 선택:</span>
       </div>
-      <div id="eTocPatApplyBar" style="display:none;margin-top:5px;gap:6px;align-items:center">
+      <div id="eTocPatApplyBar" hidden>
         <button class="btn btn-accent btn-sm u-fs-sm u-pad-btn-sm" data-action="applyETocSelectedChips">선택한 패턴 적용</button>
         <span class="txt-meta-sm" id="eTocPatApplyInfo"></span>
       </div>
@@ -526,8 +526,8 @@
         </div>
         <div class="txt-meta-sm" id="eTocDetectLabel"></div>
         <div class="toc-body" id="eTb0"><div class="toc-empty">목차 확인 버튼을 눌러주세요</div></div>
-        <div class="toc-body" id="eTb1" style="display:none"></div>
-        <div class="toc-body" id="eTb2" style="display:none">
+        <div class="toc-body" id="eTb1" hidden></div>
+        <div class="toc-body" id="eTb2" hidden>
           <div style="display:flex;gap:8px;padding:4px 0">
             <input class="inp" id="eTocPatEdit" placeholder="새 정규식 직접 입력">
             <button class="btn btn-accent btn-sm" data-action="applyEPat">적용 후 재확인</button>
@@ -537,7 +537,7 @@
     </div>
 
     <!-- 삽화 추가 탭 -->
-    <div id="editPanel_ill" style="display:none;padding:14px">
+    <div id="editPanel_ill" hidden>
       <div class="u-desc">
         기존 EPUB에 삽화를 추가해요.<br>
         <span class="u-fs-xs">파일명 숫자 = 챕터 인덱스(1-based) · 01_01.jpg = 1번째 챕터 첫 번째 삽화</span>
@@ -558,14 +558,14 @@
           <input type="radio" name="directEditIllMode" value="manual"> 수동 지정
         </label>
       </div>
-      <div id="directEditIllManual" style="display:none;margin-top:8px">
+      <div id="directEditIllManual" hidden>
         <div id="directEditIllManualList"></div>
         <button class="btn btn-ghost btn-sm" data-action="addDirectEditIllRow">＋ 수동 삽화 추가</button>
       </div>
     </div>
 
     <!-- CSS 추가 탭 -->
-    <div id="editPanel_css" style="display:none;padding:14px">
+    <div id="editPanel_css" hidden>
       <div class="u-desc">
         EPUB 스타일시트에 CSS를 추가하거나 교체해요. 기존 CSS를 유지하고 뒤에 덧붙이는 방식이 기본이에요.
       </div>
@@ -595,7 +595,7 @@
     <div class="prog-bg"><div class="prog-bar" id="directEditProgBar"></div></div>
     <div class="prog-msg" id="directEditProgMsg"></div>
   </div>
-  <div class="result" id="directEditResultBox" style="display:none;margin-top:10px">
+  <div class="result" id="directEditResultBox" hidden>
     <h3>편집 완료!</h3>
     <p id="directEditResultMsg"></p>
     <button class="btn btn-green" data-action="downloadDirectEditEpub">⬇ EPUB 다운로드</button>
@@ -614,14 +614,14 @@
   </div>
 </div>
 
-<div class="sec" id="editSec" style="display:none">
+<div class="sec" id="editSec" hidden>
   <div class="sec-hdr"><span class="sec-title">현재 목차 (삽입 위치 선택)</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="u-text2-sm u-mb-6">클릭하면 삽입 위치로 선택돼요. <span style="color:var(--blue)">■ 파란색</span>은 새로 삽입될 챕터예요.</div>
     <div class="ch-list" id="chList"></div>
   </div>
 </div>
-<div class="sec" id="insertSec" style="display:none">
+<div class="sec" id="insertSec" hidden>
   <div class="sec-hdr"><span class="sec-title">삽입할 TXT 파일</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="css-option-row">
@@ -635,7 +635,7 @@
       <div class="dz-sub">여러 파일 가능</div>
     </div>
     <input type="file" id="insTxtIn" accept=".txt" multiple hidden>
-    <div id="insTxtInfo" style="display:none;margin-top:7px;font-size:var(--fs-sm);color:var(--green)"></div>
+    <div id="insTxtInfo" hidden></div>
     <div style="margin-top:10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap">
       <span style="font-size:var(--fs-sm);color:var(--text2);white-space:nowrap">챕터 정규식</span>
       <input class="inp" id="insPattern" placeholder="비워두면 자동 감지 · 아래 버튼 복수 선택 가능" data-input-action="clearChipInsHelper">
@@ -649,14 +649,14 @@
     </div>
   </div>
 </div>
-<div class="sec" id="insTocSec" style="display:none">
+<div class="sec" id="insTocSec" hidden>
   <div class="sec-hdr"><span class="sec-title">삽입할 챕터 선택</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="u-desc-8">중복 화는 체크 해제하세요. <span id="insTocCount"></span></div>
     <!-- 기준 챕터 필터 (TXT 파일 챕터 기준) -->
     <div id="insTocFilterBar">
       <!-- EPUB 마지막 위치 안내 -->
-      <div id="insTocEpubInfo" style="font-size:var(--fs-xs);color:var(--text2);margin-bottom:8px;padding:6px 8px;background:var(--blue-bg);border-radius:var(--radius-xs);display:none">
+      <div id="insTocEpubInfo" hidden>
         📖 <span id="insTocEpubInfoText"></span>
       </div>
       <div style="font-size:var(--fs-xs);font-weight:600;color:var(--text);margin-bottom:6px">TXT 챕터 기준으로 범위 선택</div>
@@ -680,18 +680,18 @@
           title="EPUB에 이미 있는 중복 화를 자동 해제">중복 제외</button>
       </div>
       <!-- 연속성 경고 -->
-      <div id="insTocGapWarn" style="display:none;margin-top:6px;padding:5px 8px;background:var(--yellow-bg);border-radius:var(--radius-xs);font-size:var(--fs-xs);color:var(--yellow);line-height:1.6"></div>
+      <div id="insTocGapWarn" hidden></div>
       <div id="insTocRangeInfo"></div>
     </div>
     <div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">
       <button class="btn btn-ghost btn-sm" data-action="toggleAllInsToc" data-val="true">전체 선택</button>
       <button class="btn btn-ghost btn-sm" data-action="toggleAllInsToc" data-val="false">전체 해제</button>
-      <span id="insTocDupCount" style="font-size:var(--fs-xs);color:var(--accent);align-self:center;display:none"></span>
+      <span id="insTocDupCount" hidden></span>
     </div>
     <div class="ch-list" id="insTocList"></div>
   </div>
 </div>
-<div class="sec" id="insIllSec" style="display:none">
+<div class="sec" id="insIllSec" hidden>
   <div class="sec-hdr"><span class="sec-title">삽화 추가 (선택사항)</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="u-desc-8">
@@ -711,7 +711,7 @@
   </div>
 </div>
 <!-- 삽화 삽입 섹션 -->
-<div class="sec" id="editIllSec" style="display:none">
+<div class="sec" id="editIllSec" hidden>
   <div class="sec-hdr"><span class="sec-title">삽화 삽입 (선택)</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="u-desc-8">
@@ -724,7 +724,7 @@
     </div>
     <input type="file" id="editIllIn" accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif" multiple hidden>
     <div id="editIllTags" class="tags u-mt-8"></div>
-    <div id="editIllOverflowWarn" style="display:none;margin-top:8px;background:var(--yellow-bg);border-left:3px solid var(--accent2);border-radius:0 6px 6px 0;padding:7px 11px;font-size:var(--fs-xs);color:var(--yellow);line-height:1.6"></div>
+    <div id="editIllOverflowWarn" hidden></div>
     <div class="u-mt-10 u-row-wrap-6">
       <span class="u-text2-sm">매핑 방식</span>
       <label class="u-check-label">
@@ -735,7 +735,7 @@
       </label>
     </div>
     <!-- 수동 지정 목록 -->
-    <div id="editIllManual" style="display:none;margin-top:8px">
+    <div id="editIllManual" hidden>
       <div id="editIllManualList"></div>
       <button class="btn btn-ghost btn-sm" data-action="addEditIllRow">＋ 수동 삽화 추가</button>
     </div>
@@ -850,7 +850,7 @@
       <div><label for="optNoiseFilter">잡음 줄 제외</label><small>작가의 말·선작 부탁·공지·URL 줄을 본문에서 빼요</small></div>
       <label class="sw"><input type="checkbox" id="optNoiseFilter" data-input-action="saveCleanupNoise"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
-    <div id="optNoisePanel" class="opt-subpanel" style="display:none">
+    <div id="optNoisePanel" class="opt-subpanel" hidden>
       <label class="opt-check"><input type="checkbox" id="optNoise_author" checked data-input-action="saveExtraSettings"><span>작가의 말·후기 <small>챕터 뒤쪽 절반의 머리줄부터 챕터 끝까지</small></span></label>
       <label class="opt-check"><input type="checkbox" id="optNoise_promo" checked data-input-action="saveExtraSettings"><span>선작·추천·댓글 부탁 <small>120자 이하 줄</small></span></label>
       <label class="opt-check"><input type="checkbox" id="optNoise_url" checked data-input-action="saveExtraSettings"><span>URL·출처 표기 <small>줄 대부분이 주소인 경우</small></span></label>
@@ -919,7 +919,7 @@
           <option value='"Dotum","Noto Sans KR",sans-serif'>돋움체</option>
           <option value='Georgia,serif'>Georgia (영문)</option>
           </optgroup>
-          <option value="__custom__" id="customFontOpt" style="display:none">커스텀 폰트</option>
+          <option value="__custom__" id="customFontOpt" hidden>커스텀 폰트</option>
         </select>
       </div>
       <div class="css-field">
@@ -1024,8 +1024,8 @@
           <div id="cssImportInfo" class="txt-green-sm"></div>
         </div>
         <input type="file" id="cssImportIn" accept=".epub" hidden>
-        <div id="cssImportClasses" class="css-cls-grid" style="margin-top:8px;display:none"></div>
-        <div id="cssImportApplyBar" style="display:none;margin-top:6px;font-size:var(--fs-xs);color:var(--text2)">
+        <div id="cssImportClasses" class="css-cls-grid" hidden></div>
+        <div id="cssImportApplyBar" hidden>
           선택한 클래스를 추가 CSS로 적용해요.
           <button class="btn btn-blue btn-sm" style="margin-left:8px" data-action="applyCssImport">선택 클래스 적용</button>
           <button class="btn btn-ghost btn-sm" style="margin-left:4px" data-action="clearCssImport">취소</button>
@@ -1152,7 +1152,7 @@
         placeholder="AIza..."
         data-input-action="saveApiSettings">
       <button type="button" class="btn btn-ghost btn-sm secret-toggle" data-action="toggleSecret" data-target="geminiApiKey" aria-pressed="false" aria-label="Gemini API 키 보기">보기</button>
-      <span id="geminiKeyStatus" style="font-size:var(--fs-xs);padding:2px 7px;border-radius:var(--radius-xs);white-space:nowrap;display:none"></span>
+      <span id="geminiKeyStatus" hidden></span>
     </div>
     <div class="note-blue">
       💡 <a class="u-link-blue" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>에서 무료 발급 →
@@ -1329,7 +1329,7 @@
   </div>
 </div>
 <!-- ★ EPUB 다운로드 완료 플로팅 바 (변환 완료 후 상시 노출) -->
-<div class="btm btm-dl" id="btmDownload" style="display:none" role="toolbar" aria-label="EPUB 다운로드 바">
+<div class="btm btm-dl" id="btmDownload" role="toolbar" aria-label="EPUB 다운로드 바" hidden>
   <div class="btm-dl-info">
     <span class="btm-dl-icon">📗</span>
     <div class="btm-dl-meta">
@@ -1347,11 +1347,11 @@
   <button class="btm-dl-close" id="btmDlClose" aria-label="다운로드 바 닫기" title="닫기 (변환 결과는 위 카드에서 다시 다운로드 가능)">✕</button>
 </div>
 <!-- 일괄변환 탭 -->
-<div class="btm" id="btmBatch" style="display:none">
+<div class="btm" id="btmBatch" hidden>
   <button class="btn btn-accent" data-action="startBatch">일괄 변환 시작</button>
 </div>
 <!-- EPUB편집 탭 -->
-<div class="btm" id="btmEdit" style="display:none">
+<div class="btm" id="btmEdit" hidden>
   <button class="btn btn-accent" data-action="startEditEpub">EPUB 생성</button>
 </div>
 

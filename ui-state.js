@@ -294,14 +294,14 @@ function switchPage(name){
   const cvBar=document.getElementById('btmConvert');
   if(name==='convert'){
     const hasEpub=typeof S!=='undefined'&&S.epubBlob;
-    if(dlBar) dlBar.style.display=hasEpub?'flex':'none';
-    if(cvBar) cvBar.style.display=hasEpub?'none':'flex';
+    setShown(dlBar,!!hasEpub);
+    setShown(cvBar,!hasEpub);
   } else {
-    if(dlBar) dlBar.style.display='none';
-    if(cvBar) cvBar.style.display='none';
+    setShown(dlBar,false);
+    setShown(cvBar,false);
   }
-  document.getElementById('btmBatch')?.style   && (document.getElementById('btmBatch').style.display=name==='batch'?'flex':'none');
-  document.getElementById('btmEdit')?.style    && (document.getElementById('btmEdit').style.display=name==='edit'?'flex':'none');
+  setShown(document.getElementById('btmBatch'), name==='batch');
+  setShown(document.getElementById('btmEdit'), name==='edit');
 
   if(name==='convert'||name==='batch') updateSettingsSummary();
 
@@ -396,7 +396,7 @@ function _syncChipGroupToggle(){
   wrap.classList.remove('collapsible');
   const overflow=grid.scrollHeight > first.offsetHeight*1.8;
   wrap.classList.toggle('collapsible', overflow);
-  btn.style.display=overflow?'':'none';
+  setShown(btn,overflow);
 }
 if(typeof ResizeObserver!=='undefined'){
   // 스크립트 로드 시점에 요소가 없을 수 있으므로 DOM 준비 후 연결
@@ -491,7 +491,7 @@ function _buildMainPatHelper(){
         _syncPatInput();
         const applyBar=document.getElementById('patApplyBar');
         const applyInfo=document.getElementById('patApplyInfo');
-        if(applyBar){applyBar.style.display=sel.size?'flex':'none';if(applyInfo)applyInfo.textContent=sel.size?sel.size+'개 패턴 선택됨':'';}
+        if(applyBar){setShown(applyBar,sel.size>0);if(applyInfo)applyInfo.textContent=sel.size?sel.size+'개 패턴 선택됨':'';}
       };
       c.appendChild(chip);
     });
@@ -513,7 +513,7 @@ function _buildMainPatHelper(){
       _chipSelected['patHelper'].clear();
       c.querySelectorAll('.pat-chip.active').forEach(el=>el.classList.remove('active'));
       const inp=document.getElementById('pattern');if(inp)inp.value='';
-      const applyBar=document.getElementById('patApplyBar');if(applyBar)applyBar.style.display='none';
+      setShown(document.getElementById('patApplyBar'),false);
       typeof previewToc==='function'&&previewToc();
     };
     c.appendChild(clr);
@@ -534,7 +534,7 @@ function _buildMainPatHelper(){
     try{localStorage.setItem('novelepub_recent_pats',JSON.stringify(_recentPats));}catch(e){}
     // 최근 탭 버튼 표시
     const recentTab=document.getElementById('patCatRecent');
-    if(recentTab) recentTab.style.display='';
+    setShown(recentTab,true);
   }
 
   // ── 카테고리 탭 이벤트 ──
@@ -543,7 +543,7 @@ function _buildMainPatHelper(){
     // 최근 사용이 있으면 탭 표시
     if(_recentPats.length>0){
       const rt=document.getElementById('patCatRecent');
-      if(rt) rt.style.display='';
+      setShown(rt,true);
     }
     tabBar.querySelectorAll('.pat-cat-tab').forEach(btn=>{
       btn.addEventListener('click',()=>{
@@ -755,7 +755,7 @@ function _spawnDropConfetti(container){
       }catch(e){ patEl.style.borderColor='var(--accent)'; patEl.title='정규식 오류: '+e.message; }
       clearChipSelection&&clearChipSelection('patHelper');
       const clearBtn = document.getElementById('patternClearBtn');
-      if(clearBtn) clearBtn.style.display = val ? '' : 'none';
+      setShown(clearBtn,!!val);
     },
     clearChipInsHelper:     ()   => clearChipSelection('insPatHelper'),
     smartPatConvert:        ()   => typeof smartPatConvert==='function'&&smartPatConvert(),
@@ -904,7 +904,7 @@ function setupEventListeners(){
   })();
 
   document.querySelectorAll('input[name="editIllMode"]').forEach(r=>r.addEventListener('change',e=>{
-    document.getElementById('editIllManual').style.display=e.target.value==='manual'?'block':'none';
+    setShown(document.getElementById('editIllManual'), e.target.value==='manual');
   }));
   document.querySelectorAll('input[name="insPos"]').forEach(r=>r.addEventListener('change',()=>{
     if(E.selectedChIdx!==null) typeof selectCh==='function'&&selectCh(E.selectedChIdx);
@@ -1169,7 +1169,7 @@ function setupEventDelegate(){
       }
     }
     const bar = document.getElementById('convertResetBar');
-    if (bar) bar.style.display = (state.txtFiles.length || state.coverFile) ? 'flex' : 'none';
+    setShown(bar, !!(state.txtFiles.length || state.coverFile));
     if(state.tocItems) {
       typeof updateFeedFromToc==='function'&&updateFeedFromToc(state.tocItems);
       updateMiniReader&&updateMiniReader();
@@ -1369,7 +1369,7 @@ window.initUiState = function initUiState(){
         customFontFace = face;
         customFontName = name||'커스텀폰트';
         const opt=document.getElementById('customFontOpt');
-        if(opt){opt.textContent='📁 '+customFontName;opt.style.display='';opt.value='"'+customFontName+'",serif';}
+        if(opt){opt.textContent='📁 '+customFontName;setShown(opt,true);opt.value='"'+customFontName+'",serif';}
       });
     }
   }).catch(()=>{});
@@ -1415,10 +1415,10 @@ function updateFeedFromToc(tocArray){
   if(!feed) return;
   // ★ L-13 FIX: tocArray null/undefined 방어 — 피드 DOM 잔류 방지
   if(!tocArray || !Array.isArray(tocArray)){
-    feed.style.display='none';
+    setShown(feed,false);
     return;
   }
-  feed.style.display='';
+  setShown(feed,true);
   const total=tocArray?tocArray.length:0;
   // ★ FIX-07: getSuspThreshold() 사용 (DOM 슬라이더 실시간 반영)
   const suspThreshold = typeof getSuspThreshold==='function' ? getSuspThreshold() : 50;

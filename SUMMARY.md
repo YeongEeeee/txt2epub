@@ -529,6 +529,26 @@
 - 테스트 358 → 371개 전부 통과 (실제 `StateManager`로 구독 순서 busy → 바 표시(새 이름) → busy 해제 → 숨김 확인 포함)
 - 브라우저 E2E(Chromium, CSP 적용): 변환 중 샘플 25회 모두 버튼 disabled·aria-busy, 완료 후 다운로드 바 표시·파일명 `p17.epub`, 결과 초기화 시 바 숨김·변환 바 복귀, 스트리밍 저장 145조각·바 없음, 콘솔 오류·CSP 위반 0
 
+### Phase 18 — 표시 전환 단일 경로 (hidden 속성)
+
+#### 1) `setShown(el, on)` 헬퍼 (`core.js`)
+- `el.hidden=!on` + 남아 있는 인라인 `display` 제거, 요소가 없으면 아무 일도 하지 않음 (`?.` 가드 대신 헬퍼가 null 처리)
+- 숨김은 기존 `[hidden]{display:none!important}`, 보일 때의 display 값(flex·block·grid)과 나머지 선언은 `style.css` Phase 18 블록의 `#id` 규칙(38개)
+
+#### 2) 전환 대상
+- 처음에 숨어 있던 48개 요소(초기화 바·스마트 패턴 결과·목차 탭·분할 섹션·편집 섹션·하단 일괄/편집/다운로드 바·CSS 가져오기 등)의 인라인 `display:none` → `hidden` 속성
+- 이 요소들을 `style.display`로 켜고 끄던 코드 약 90곳 → `setShown` (parser·settings·ui-state·convert·edit), 보임 판독(`style.display!=='none'`) → `!el.hidden`
+- 같은 함수에서 함께 전환되는 `btmConvert`·`txtFileList`·`tb0`·`eTb0`·`editPanel_toc`도 같은 방식으로 통일
+- `#btmDownload:not([style*="none"])` 선택자 → `:not([hidden])`
+- 정리: `#txtInfo`는 Phase 13부터 의도적으로 숨김인데 `style.display='block'`을 쓰던 무효 코드 제거 (동작 변화 없음)
+
+#### 3) 검증
+- 이전/이후 동등성 (Chromium):
+  - 53개 요소를 각각 보이게 했을 때 계산된 display 값 동일 (데스크톱·모바일)
+  - 사용 흐름 23단계(TXT 로드·목차 탭·패턴 제안·스마트 패턴·잡음 필터·변환·편집 탭 EPUB 로드·하위 탭·삽입 TXT·초기화·일괄·탭 전환)마다 보임/숨김 상태 동일
+  - 기본 상태 15개 화면(라이트·다크·모바일 × 5개 탭) + 모든 숨김 요소를 보이게 한 10개 화면 픽셀 차이 0
+- 테스트 371 → 381개 전부 통과, Phase 16·17 E2E 재실행 정상, 콘솔 오류·CSP 위반 0
+
 ---
 
 ## 개선 30개 적용 결과 (Phase 13~16)
@@ -540,7 +560,7 @@
 | 성능·안정성 | 5/5 | Phase 12(64KB 감지) + Phase 15 |
 | UX/UI | 5/5 | Phase 16 + Phase 12(프록시 자동 재시도) |
 | 보안·인프라 | 5/5 | Phase 12(Worker 허용 목록) + Phase 15 |
-| 유지보수 | 3/5 + 부분 | 인코딩 단일화·테스트 확장 완료, StateManager·인라인 스타일은 점진 2단계(Phase 17)까지, `@ts-check`는 외부 도구 미사용 결정으로 제외 (ESLint는 자체 정적 검사로 대체) |
+| 유지보수 | 3/5 + 부분 | 인코딩 단일화·테스트 확장 완료, StateManager는 점진 2단계(Phase 17), 인라인 스타일은 3단계(Phase 18 — display 토글 hidden 단일화)까지, `@ts-check`는 외부 도구 미사용 결정으로 제외 (ESLint는 자체 정적 검사로 대체) |
 
 ---
 

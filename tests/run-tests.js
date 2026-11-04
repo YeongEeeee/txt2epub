@@ -17,6 +17,7 @@
  *  10. Phase 15: 스트리밍 저장 출력·Worker 재사용·API 키·인라인 핸들러 제거·CSP·innerHTML 정적 검사
  *  11. Phase 16: 앱 설치(manifest·아이콘·파일 열기)·접근성·작업 복원·기기 미리보기·StateManager 구독·유틸리티 클래스
  *  12. Phase 17: StateManager 구독 2단계(변환 진행·결과 → 버튼·다운로드 바)·인라인 style 2단계
+ *  13. Phase 18: 표시 전환 = hidden 속성 단일 경로(setShown) — 인라인 display:none 제거
  */
 'use strict';
 const fs   = require('fs');
@@ -723,7 +724,7 @@ async function main(){
     const dec = vm.runInContext('_decodeFromAB', D);
     check('[인코딩] 직접 지정(strict)은 UTF-8 자동 보정을 건너뜀', (await dec(eucAB, 'utf-8', true)).includes('\ufffd') && (await dec(eucAB, 'utf-8', false)).startsWith('가나다'));
     check('[인코딩] Worker 디코딩도 strict 전달', /decodeViaWorker\(ab, enc, _encOverride\.has\(key\)\)/.test(conv) && /decodeText\(payload\.buffer, enc2, payload\.strict===true\)/.test(read('worker.js')));
-    check('[UI] 파일 목록 hidden 속성 해제 (이전: [hidden]{display:none!important}로 목록이 보이지 않음)', /listWrap\.hidden=false/.test(conv));
+    check('[UI] 파일 목록 hidden 속성 해제 (이전: [hidden]{display:none!important}로 목록이 보이지 않음)', /setShown\(listWrap,true\);/.test(conv));   // ★ Phase 18: hidden 속성 해제는 setShown 단일 경로
     check('[인코딩] 직접 지정이 자동 감지보다 우선', /let enc = _encOverride\.get\(key\) \|\| _encCacheGet\(file\);/.test(conv) && /function setTxtEncoding\(file, enc\)/.test(conv) && /const ov=_encOverride\.get\(_fileKey\(file\)\);\n  if\(ov\) return ov;/.test(conv));
   }
 
@@ -920,7 +921,7 @@ async function main(){
     const iName = conv.indexOf('S.epubName=streamed?'), iBlob = conv.indexOf('S.epubBlob=blob;');
     check('[상태] 파일명(S.epubName)을 먼저 정한 뒤 S.epubBlob 설정', iName > 0 && iBlob > iName && iBlob - iName < 300);
     check('[상태] 결과 초기화는 S.epubBlob=null 한 곳에서 (바 직접 조작 없음)', /function _resetConvertResultUi\(\)\{[\s\S]{0,140}S\.epubBlob=null; S\.epubName='';/.test(conv) &&
-      !/function _resetConvertResultUi\(\)\{[\s\S]{0,400}btmDownload/.test(conv));
+      !/btmDownload|btmConvert/.test(extract(conv, '_resetConvertResultUi')));
     // 구독 동작 — 실제 StateManager로 epubBlob·converting 변화 → 콜백 순서 확인
     {
       const calls = [];
@@ -948,6 +949,42 @@ async function main(){
     check('[스타일] Phase 17 #id 규칙의 id는 모두 index.html에 1개씩 존재', p17Ids.length > 0 && p17Ids.every(id => (html.match(new RegExp('\\sid="' + id + '"', 'g')) || []).length === 1));
     check('[스타일] Phase 17 블록에 하드코딩 색상 없음 (CSS 변수만)', !/#[0-9a-fA-F]{3,8}\b(?![\w-]*\{)|rgba?\(|hsla?\(/.test(p17.replace(/^#[\w-]+\{/gm, '{')));
     check('[스타일] 한 태그에 class 속성 중복 없음 (2단계 후)', !/<[a-z][^>]*\sclass="[^"]*"[^>]*\sclass="/i.test(html));
+  }
+
+  // ── 13. Phase 18 — 표시 전환 = hidden 속성 (setShown) ──
+  {
+    const read = readRoot;
+    const html = read('index.html'), core = read('core.js'), css = read('style.css');
+    const jsFiles = ['parser.js', 'core.js', 'settings.js', 'cover-search.js', 'convert.js', 'edit.js', 'ui-state.js', 'main.js'];
+    const allJs = jsFiles.map(read).join('\n');
+    // 13-1. 헬퍼 동작 — hidden 토글 + 남은 인라인 display 정리 + 요소 없음 안전
+    const H = sandbox('core.js', ['setShown']);
+    const mk = disp => { const st = { display: disp, removeProperty(k){ if(k === 'display') this.display = ''; } }; return { hidden: false, style: st }; };
+    const e1 = mk('flex'); const r1 = H.setShown(e1, false);
+    const e2 = mk(''); e2.hidden = true; const r2 = H.setShown(e2, 1);
+    check('[표시] setShown: hidden 토글·인라인 display 제거·반환값·null 안전', r1 === false && e1.hidden === true && e1.style.display === '' &&
+      r2 === true && e2.hidden === false && H.setShown(null, true) === false && H.setShown(undefined, false) === false);
+    // 13-2. 마크업 — 인라인 display:none 없음, 숨김은 hidden 속성
+    const styleTags = [...html.matchAll(/<[a-zA-Z][a-zA-Z0-9]*\b[^<>]*\sstyle="([^"]*)"[^<>]*>/g)];
+    check('[표시] index.html 인라인 display:none 0개 (style 속성 120 → 72 이하)', !styleTags.some(m => /display:\s*none/.test(m[1])) && styleTags.length <= 72, `style 속성 ${styleTags.length}개`);
+    const hiddenIds = [...html.matchAll(/<[a-zA-Z][^<>]*\sid="([\w-]+)"[^<>]*\shidden[\s>/]/g)].map(m => m[1]);
+    check('[표시] 처음에 숨는 요소 48곳 이상이 hidden 속성', hiddenIds.length >= 48, `hidden ${hiddenIds.length}개`);
+    // 13-3. JS — hidden 요소를 style.display로 직접 전환하지 않음
+    const direct = hiddenIds.filter(id => new RegExp(`getElementById\\(['"]${id}['"]\\)[^;\\n]{0,40}\\.style\\.display`).test(allJs));
+    check('[표시] hidden 요소를 getElementById(...).style.display로 전환하는 코드 없음', direct.length === 0, direct.join(','));
+    const dynIds = [...allJs.matchAll(/setShown\(document\.getElementById\('([\w-]+)'\)/g)].map(m => m[1]);
+    check('[표시] setShown(getElementById(id))의 id는 모두 index.html에 존재', dynIds.length >= 15 && dynIds.every(id => html.includes(`id="${id}"`)), dynIds.filter(id => !html.includes(`id="${id}"`)).join(','));
+    check('[표시] 보임 여부 판독도 hidden 기준 (편집 패널·원본 텍스트 탭)', /!document\.getElementById\('editPanel_'\+t\)\?\.hidden/.test(allJs) && /if\(tb1&&!tb1\.hidden\)\{/.test(allJs) && !/style\.display(?:!==|===)'none'/.test(read('edit.js')));
+    check('[표시] 탭형 전환(목차 탭·편집 목차 탭·편집 하위 탭·하단 바)도 setShown', /setShown\(document\.getElementById\('tb'\+i\), i===n\)/.test(allJs) && /setShown\(el,i===n\);/.test(read('edit.js')) &&
+      /setShown\(panel,active\);/.test(read('edit.js')) && /setShown\(document\.getElementById\('btmBatch'\), name==='batch'\);/.test(read('ui-state.js')));
+    // 13-4. CSS — 보일 때의 display 값과 선택자 정리
+    const p18 = css.slice(css.indexOf('★ Phase 18:'));
+    check('[표시] [hidden]{display:none!important} 유지 + Phase 18 #id 규칙(보일 때 flex·block·grid)', /\[hidden\]\{display:none!important\}/.test(css) && css.includes('★ Phase 18:') &&
+      ['#btmDownload{display:flex', '#convertResetBar{display:flex', '#cssImportClasses{display:grid', '#splitSec{display:block', '#txtFileList{display:block'].every(r => p18.includes(r)));
+    const p18Ids = [...p18.matchAll(/^#([\w-]+)\{/gm)].map(m => m[1]);
+    check('[표시] Phase 18 #id 규칙 대상은 모두 1개씩 존재·하드코딩 색상 없음', p18Ids.length >= 35 && p18Ids.every(id => (html.match(new RegExp(`\\sid="${id}"`, 'g')) || []).length === 1) &&
+      !/#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(/.test(p18.replace(/^#[\w-]+\{/gm, '{')));
+    check('[표시] 인라인 style 값에 의존하던 선택자([style*="none"]) 제거', !/\[style\*=/.test(css));
   }
 
   if(UPDATE){

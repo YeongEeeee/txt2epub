@@ -294,6 +294,17 @@ const EventBus = (() => {
 })();
 
 // ─────────────────────────────────────────
+// ★ Phase 18: 표시 전환 단일 경로 — hidden 속성으로 숨기고, 보일 때의 display 값(flex·grid 등)은 style.css #id 규칙이 담당
+//   [hidden]{display:none!important}와 함께 동작 → 인라인 style.display 토글 대체 (요소가 없으면 아무 일도 하지 않음)
+// ─────────────────────────────────────────
+function setShown(el, on){
+  if(!el) return false;
+  el.hidden = !on;
+  if(el.style?.display) el.style.removeProperty('display');   // 이전 방식으로 남은 인라인 값 정리
+  return !!on;
+}
+
+// ─────────────────────────────────────────
 // Layer 2 · StateManager
 // 탭별 독립 상태 컨테이너 + 변경 감지
 // ─────────────────────────────────────────

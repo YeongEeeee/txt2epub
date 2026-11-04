@@ -101,7 +101,7 @@ function _syncReaderProfileDesc(){
 function _syncNoisePanel(){
   const on=document.getElementById('optNoiseFilter')?.checked===true;
   const panel=document.getElementById('optNoisePanel');
-  if(panel) panel.style.display=on?'':'none';
+  setShown(panel,on);
 }
 
 // ★ API 키 저장/로드 (Gemini, Naver)
@@ -254,7 +254,7 @@ async function handleCssImportEpub(files){
 
     _cssImportSelected.clear();
     const grid=document.getElementById('cssImportClasses');
-    grid.style.display='grid';
+    setShown(grid,true);
     grid.innerHTML='';
     all.forEach(item=>{
       const card=document.createElement('div');
@@ -270,7 +270,7 @@ async function handleCssImportEpub(files){
         card.classList.toggle('sel');
         if(card.classList.contains('sel')) _cssImportSelected.add(item);
         else _cssImportSelected.delete(item);
-        document.getElementById('cssImportApplyBar').style.display=_cssImportSelected.size?'block':'none';
+        setShown(document.getElementById('cssImportApplyBar'),_cssImportSelected.size>0);
       };
       grid.appendChild(card);
     });
@@ -292,15 +292,15 @@ function applyCssImport(){
   if(extraEl) extraEl.value=(existing?existing+'\n\n':'')+newCss;
   _cssImportSelected.clear();
   document.querySelectorAll('.css-cls-card.sel').forEach(c=>c.classList.remove('sel'));
-  document.getElementById('cssImportApplyBar').style.display='none';
+  setShown(document.getElementById('cssImportApplyBar'),false);
   saveCssSettings();
   Toast.success(`✅ ${count}개 클래스가 "추가 CSS" 영역에 추가됐어요.`);
 }
 function clearCssImport(){
   _cssImportSelected.clear();
-  document.getElementById('cssImportClasses').style.display='none';
+  setShown(document.getElementById('cssImportClasses'),false);
   document.getElementById('cssImportClasses').innerHTML='';
-  document.getElementById('cssImportApplyBar').style.display='none';
+  setShown(document.getElementById('cssImportApplyBar'),false);
   document.getElementById('cssImportInfo').textContent='';
   document.getElementById('cssImportDrop').className='dz';
 }
@@ -658,7 +658,7 @@ function smartPatConvert(){
   if(_smartPatAbort) _smartPatAbort.abort();
   if(!include){
     const box=document.getElementById('smartPatResultBox');
-    if(box) box.style.display='none';
+    setShown(box,false);
     return;
   }
   _smartPatTimer=setTimeout(()=>_runSmartPat(include,exclude), 600);
@@ -679,11 +679,11 @@ async function _runSmartPat(include, exclude){
 
   if(apiKey){
     // ── Gemini API 호출 ──
-    resultBox.style.display='flex';
+    setShown(resultBox,true);
     resultBox.style.borderColor='var(--border)';
     resultEl.textContent='⏳ AI 변환 중...';
     applyBtn.style.display='none';
-    if(aiLabel) aiLabel.style.display='none';
+    setShown(aiLabel,false);
 
     // ★ Phase 12: 이 요청이 취소됐거나 더 새 요청으로 대체됐으면 결과를 화면에 쓰지 않음
     //   (이전: AbortController를 만들기만 하고 fetch에 넘기지 않아 늦게 도착한 옛 응답이 새 결과를 덮어씀)
@@ -695,7 +695,7 @@ async function _runSmartPat(include, exclude){
         resultEl.textContent=rx;
         resultBox.style.borderColor='var(--accent)';
         applyBtn.style.display='';
-        if(aiLabel) aiLabel.style.display='';
+        setShown(aiLabel,true);
       } else {
         resultEl.textContent='(AI가 정규식을 생성하지 못했어요 — 다시 시도하거나 직접 입력)';
         resultBox.style.borderColor='var(--border)';
@@ -716,11 +716,11 @@ async function _runSmartPat(include, exclude){
         );
         _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
       } else if(msg.includes('API 키가 올바르지 않아요')){
-        resultBox.style.display='flex';
+        setShown(resultBox,true);
         resultBox.style.borderColor='var(--accent)';
         resultEl.textContent='⚠ '+msg;
         applyBtn.style.display='none';
-        if(aiLabel) aiLabel.style.display='none';
+        setShown(aiLabel,false);
       } else {
         // 네트워크 오류 등 → 로컬 fallback
         _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
@@ -734,8 +734,8 @@ async function _runSmartPat(include, exclude){
 
 function _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel){
   const rx=guessPatternFromExample(include);
-  resultBox.style.display='flex';
-  if(aiLabel) aiLabel.style.display='none';
+  setShown(resultBox,true);
+  setShown(aiLabel,false);
   if(rx){
     resultEl.textContent=rx;
     resultBox.style.borderColor='var(--accent)';
@@ -950,7 +950,7 @@ function applySmartPat(){
   clearChipSelection('patHelper');
   document.getElementById('smartPatInput').value='';
   document.getElementById('smartPatExclude').value='';
-  document.getElementById('smartPatResultBox').style.display='none';
+  setShown(document.getElementById('smartPatResultBox'),false);
   previewToc();
 }
 
@@ -1515,7 +1515,7 @@ async function handleCustomFont(files){
   SettingsDB.set('customFontFace', customFontFace).catch(()=>{});
   SettingsDB.set('customFontName', customFontName).catch(()=>{});
   const opt=document.getElementById('customFontOpt');
-  if(opt){opt.textContent='📁 '+fontName;opt.style.display='';opt.value='"'+fontName+'",serif';}
+  if(opt){opt.textContent='📁 '+fontName;setShown(opt,true);opt.value='"'+fontName+'",serif';}
   const cfEl=document.getElementById('cssFont');if(cfEl)cfEl.value='"'+fontName+'",serif';
   const fontInfoEl=document.getElementById('fontInfo');if(fontInfoEl)fontInfoEl.textContent='✅ '+f.name+' ('+(ab.byteLength/1024).toFixed(0)+'KB)';
   const fontDropEl=document.getElementById('fontDrop');if(fontDropEl)fontDropEl.classList.add('ok');

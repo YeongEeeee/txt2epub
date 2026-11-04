@@ -556,7 +556,7 @@ function handleTxt(files, append=false){
     txtDz.addEventListener('animationend', ()=>txtDz.classList.remove('accept-flash'), { once: true });
   }
   const resetBar=document.getElementById('convertResetBar');
-  if(resetBar) resetBar.style.display='flex';
+  setShown(resetBar,true);
   // ★ UX-PD: Progressive Disclosure — 패턴 영역을 파일 로드 후 선명하게 전환
   document.getElementById('patSection')?.classList.remove('is-idle');
   _chaptersCache=null; // 캐시 무효화
@@ -723,11 +723,12 @@ function renderTxtFileList(){
   scheduleSessionSave();   // ★ Phase 16: 순서 변경·개별 제거도 작업 복원에 반영
 
   // 기존 info 영역 간단 요약
-  if(infoEl){ infoEl.style.display='block'; infoEl.textContent='✅ '+files.length+'개 파일 선택됨'; }
+  // ★ Phase 18: txtInfo는 hidden 유지(아래 주석) — 이전의 style.display='block'은 [hidden] 규칙에 막혀 효과가 없던 코드라 제거
+  if(infoEl) infoEl.textContent='✅ '+files.length+'개 파일 선택됨';
   // ★ Phase 13: index.html의 hidden 속성 + style.css [hidden]{display:none!important} 때문에
   //   style.display='block'이 무시되어 파일 목록(순서 변경·개별 제거·정렬·인코딩 선택)이 한 번도 보이지 않던 문제
   //   (txtInfo 요약은 목록 머리의 'N개 · 드래그로 순서 변경'과 중복이라 숨김 유지)
-  if(listWrap){ listWrap.hidden=false; listWrap.style.display='block'; }
+  setShown(listWrap,true);
   if(countEl) countEl.textContent=files.length+'개 · 드래그로 순서 변경';
 
   listEl.innerHTML='';
@@ -1737,7 +1738,7 @@ async function startConvert(){
       name:S.epubName,
       blob   // ★ Phase 15: 스트리밍 저장이면 null — 기록만 남고 파일은 사용자가 고른 위치에 있음
     }).catch(err=>console.warn('[history] 저장 실패:', err));
-    const _splitSec=document.getElementById('splitSec'); if(_splitSec) _splitSec.style.display='block';
+    setShown(document.getElementById('splitSec'),true);
     const _resBox = _progResultEl || document.getElementById('resultBox');
     if(_resBox){
       _resBox.classList.add('show');
@@ -2081,7 +2082,7 @@ async function startSplit(){
   const coverFile=S.coverFile;
   const listEl=document.getElementById('splitList');
   listEl.innerHTML='<div style="font-size:var(--fs-sm);color:var(--text2);grid-column:1/-1">분리 중...</div>';
-  document.getElementById('splitSec').style.display='block';
+  setShown(document.getElementById('splitSec'),true);
 
   // N화 단위 분리 — '서문'은 화수에 세지 않되 첫 파트 앞에 붙여 보존 (★ 이전: 서문 내용이 분리본에서 사라짐)
   const preface=_previewChapters.filter(([h])=>h==='서문');
@@ -2162,13 +2163,13 @@ function _resetConvertResultUi(){
   S.epubBlob=null; S.epubName='';
   _previewChapters=[];
   document.getElementById('resultBox')?.classList.remove('show');
-  const sp=document.getElementById('splitSec'); if(sp) sp.style.display='none';
+  setShown(document.getElementById('splitSec'),false);
 }
 
 // ★ Phase 17: 변환 결과가 사라지면(새 파일·초기화) 다운로드 바를 숨기고 변환 바로 복귀 — S.epubBlob 구독에서 호출
 function _hideEpubDownloadBar(){
-  const dl=document.getElementById('btmDownload'); if(dl) dl.style.display='none';
-  const cv=document.getElementById('btmConvert'); if(cv&&document.getElementById('page-convert')?.offsetParent!==null) cv.style.display='flex';
+  setShown(document.getElementById('btmDownload'),false);
+  const cv=document.getElementById('btmConvert'); if(cv&&document.getElementById('page-convert')?.offsetParent!==null) setShown(cv,true);
 }
 
 function _showEpubDownloadBar(epubName){
@@ -2181,8 +2182,8 @@ function _showEpubDownloadBar(epubName){
   if(nameEl) nameEl.textContent=epubName||'output.epub';
 
   // 변환 바를 숨기고 다운로드 바 표시
-  if(convertBar) convertBar.style.display='none';
-  bar.style.display='flex';
+  setShown(convertBar,false);
+  setShown(bar,true);
 
   // pulse 애니메이션 1회
   bar.classList.remove('pulse');
@@ -2195,8 +2196,8 @@ function _showEpubDownloadBar(epubName){
     const newClose=closeBtn.cloneNode(true);
     closeBtn.parentNode.replaceChild(newClose, closeBtn);
     newClose.addEventListener('click',()=>{
-      bar.style.display='none';
-      if(convertBar) convertBar.style.display='flex';
+      setShown(bar,false);
+      setShown(convertBar,true);
     });
   }
 }
@@ -2607,10 +2608,10 @@ function handleBatchTxt(files){
   const dz=document.getElementById('batchTxtDrop');
   dz.classList.add('ok');
   dz.querySelector('.dz-text').textContent='✅ '+txts.length+'개 파일 선택됨';
-  document.getElementById('batchResetBar').style.display='flex';
+  setShown(document.getElementById('batchResetBar'),true);
   renderBatchList();
   const _listSec=document.getElementById('batchListSec');
-  if(_listSec) _listSec.style.display='block';
+  setShown(_listSec,true);
   if(imgs.length) handleBatchCover(imgs);
 }
 
@@ -3266,7 +3267,7 @@ async function resetAll(){
   document.getElementById('coverDz')?.classList.remove('ok'); // className 덮어쓰기 금지 — dz-compact 유지
   const _ct=document.getElementById('coverThumb'); if(_ct) _ct.innerHTML=COVER_THUMB_EMPTY_HTML;
   document.getElementById('coverName').textContent='';
-  document.getElementById('txtInfo').style.display='none';
+  setShown(document.getElementById('txtInfo'),false);
   document.getElementById('illTags').innerHTML='';
   document.getElementById('manualIlls').innerHTML='';
   ['title','author','series','seriesIdx','pattern'].forEach(id=>{ const el=document.getElementById(id); if(el) el.value=''; });
@@ -3279,8 +3280,8 @@ function resetBatchTxt(){
   const dz=document.getElementById('batchTxtDrop');
   dz.className='dz';dz.querySelector('.dz-text').textContent='TXT 파일 여러 개 드래그하거나 클릭';
   document.getElementById('batchList').innerHTML='';
-  document.getElementById('batchListSec').style.display='none';
-  if(!Object.keys(B.coverMap).length&&!B.urlCoverFile) document.getElementById('batchResetBar').style.display='none';
+  setShown(document.getElementById('batchListSec'),false);
+  if(!Object.keys(B.coverMap).length&&!B.urlCoverFile) setShown(document.getElementById('batchResetBar'),false);
 }
 function resetBatchCover(){
   _bStore.set({coverMap:{},urlCoverFile:null});
@@ -3294,7 +3295,7 @@ async function resetBatchAll(){
   resetBatchTxt();resetBatchCover();
   _bStore.set({batchSplit:{enabled:false,template:'{N}화'}});   // ★ v3: 전역 간격 분할 토글도 해제
   _syncBatchSplitControls();
-  document.getElementById('batchResetBar').style.display='none';
+  setShown(document.getElementById('batchResetBar'),false);
   ['batchProgWrap','batchResultBox','batchErrBox'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.classList.remove('show');
   });
@@ -3305,12 +3306,12 @@ function resetEditEpub(){
   _eStore.set({epubFile:null,epubZip:null,chapters:[],spineOrder:[],selectedChIdx:null,insTxtFiles:[],insTxtChapters:[],resultBlob:null,resultName:''});
   _eiStore.set({files:[],manualRows:0});
   document.getElementById('epubDrop').className='epub-drop';
-  document.getElementById('epubInfo').style.display='none';
+  setShown(document.getElementById('epubInfo'),false);
   document.getElementById('epubInfo').textContent='';
-  const eb=document.getElementById('extractImgBar');if(eb)eb.style.display='none';
-  const ep=document.getElementById('extractImgProgress');if(ep)ep.style.display='none';
-  ['editSec','insertSec','editIllSec','insTocSec','insIllSec'].forEach(id=>{const el=document.getElementById(id);if(el)el.style.display='none';});
-  document.getElementById('editResetBar').style.display='none';
+  setShown(document.getElementById('extractImgBar'),false);
+  setShown(document.getElementById('extractImgProgress'),false);
+  ['editSec','insertSec','editIllSec','insTocSec','insIllSec'].forEach(id=>setShown(document.getElementById(id),false));
+  setShown(document.getElementById('editResetBar'),false);
   renderEditIllTags();
   typeof resetDirectEditToc==='function'&&resetDirectEditToc();
 }
@@ -3438,13 +3439,13 @@ function resetConvertTxt(){
   document.getElementById('txtDz').className='dz';
   // ★ UX-PD: 파일 리셋 → 목차 확인·간격 분할 버튼 비활성 표시 (.is-idle)
   document.getElementById('patSection')?.classList.add('is-idle');
-  document.getElementById('txtInfo').style.display='none';
-  const fl=document.getElementById('txtFileList'); if(fl){ fl.style.display='none'; fl.hidden=true; }
+  setShown(document.getElementById('txtInfo'),false);
+  setShown(document.getElementById('txtFileList'),false);
   const sl=document.getElementById('txtSortList'); if(sl) sl.innerHTML='';
   document.getElementById('tocPanel')?.classList.remove('show');
   ['title','author','series','seriesIdx','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-  document.getElementById('convertResetBar').style.display='none';
-  const regexFeed=document.getElementById('regexFeed');if(regexFeed)regexFeed.style.display='none';
+  setShown(document.getElementById('convertResetBar'),false);
+  setShown(document.getElementById('regexFeed'),false);
   // ★ Phase 16: 하단 바는 S.txtFiles=[] 구독 알림으로 갱신
 }
 function resetConvertCover(){
@@ -3483,6 +3484,6 @@ async function resetConvertAll(){
   document.getElementById('illDz').className='dz';
   ['progWrap','resultBox','errBox','splitSec'].forEach(id=>{
     const el=document.getElementById(id);
-    if(el){el.classList.remove('show');if(id==='splitSec')el.style.display='none';}
+    if(el){el.classList.remove('show');if(id==='splitSec')setShown(el,false);}
   });
 }

@@ -1699,12 +1699,12 @@ function renderTocReview(){
   const host=document.getElementById('tocReview');
   if(!host) return;
   const items=S.tocItems||[];
-  if(!items.length){ host.replaceChildren(); host.style.display='none'; return; }
+  if(!items.length){ host.replaceChildren(); setShown(host,false); return; }
   const prev=host.querySelector('details');
   if(prev) _tocReviewOpen=prev.open;
   const rv=buildTocReview(items, getSuspThreshold());
   const total=rv.missing.length+rv.dups.length+rv.short.length+rv.empty.length+rv.long.length;
-  host.style.display='';
+  setShown(host,true);
   const det=document.createElement('details');
   det.className='toc-review'+(total?' has-issues':'');
   det.open=_tocReviewOpen&&total>0;
@@ -2576,7 +2576,7 @@ function applyTocSuggestion(val){
   if(!inp) return;
   inp.value=val||'';   // 빈 값 = 자동 감지로 되돌리기
   const clr=document.getElementById('patternClearBtn');
-  if(clr) clr.style.display=val?'':'none';
+  setShown(clr,!!val);
   typeof previewToc==='function'&&previewToc();
 }
 
@@ -3513,7 +3513,7 @@ function tocTab(n){
   // #tocPanel 내부로 스코프 제한 (전체 문서의 .ttab 오토글 방지)
   const panel=document.getElementById('tocPanel');
   if(panel) panel.querySelectorAll('.ttab').forEach((t,i)=>t.classList.toggle('on',i===n));
-  [0,1,2,3].forEach(i=>{ const el=document.getElementById('tb'+i); if(el) el.style.display=i===n?'':'none'; });
+  [0,1,2,3].forEach(i=>setShown(document.getElementById('tb'+i), i===n));
   if(n===0) _tocVS?.refresh();   // ★ Phase 10: 숨겨진 상태에서 그린 가상 목록을 실제 높이로 다시 계산
   if(n===1) renderTocPreview();
 }

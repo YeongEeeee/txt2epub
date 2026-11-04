@@ -838,8 +838,8 @@ body.modal-open .page-tabs{
 .btm-dl-close:hover{color:var(--accent);background:var(--accent-bg)}
 
 /* 일괄변환/편집 바 */
-#btmDownload:not([style*="none"])~#btmBatch,
-#btmDownload:not([style*="none"])~#btmEdit{}
+#btmDownload:not([hidden])~#btmBatch,
+#btmDownload:not([hidden])~#btmEdit{}
 
 /* ══════════════════════════════════════════════
    [13] 스켈레톤 UI [G.18]
@@ -1414,3 +1414,43 @@ body.modal-open .page-tabs{
 #optPublisher{max-width:180px;font-size:var(--fs-sm)}
 #previewPageInfo{font-size:var(--fs-sm);color:var(--text2);align-self:center}
 #btmConvert{display:flex}
+
+/* ★ Phase 18: 표시 전환 = hidden 속성 (setShown) — 숨김은 [hidden]{display:none!important}, 보일 때의 display·나머지 선언은 아래 #id 규칙 */
+#convertResetBar{display:flex}
+#patternClearBtn{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text2);font-size:var(--fs-base);padding:0;line-height:1}
+#smartPatResultBox{display:flex;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:var(--radius-xs);flex-wrap:wrap}
+#smartPatAiLabel{font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);padding:1px 5px;flex-shrink:0}
+#patApplyBar{display:flex;margin-top:5px}
+#splitSec{display:block}
+#batchResetBar{display:flex}
+#batchListSec{display:block}
+#epubInfo{display:block;margin-top:8px;font-size:var(--fs-sm);color:var(--green)}
+#editResetBar{display:flex}
+#extractImgBar{display:block;margin-top:10px;padding:10px 0 4px;border-top:1px solid var(--border)}
+#extractImgProgress{display:block;margin-top:8px}
+#epubDirectEditSec{display:block}
+#eSmartPatResultBox{display:flex;margin-top:5px;padding:7px 10px;background:var(--bg2);border:1.5px solid var(--accent);border-radius:var(--radius-xs);align-items:center;gap:8px;flex-wrap:wrap}
+#eSmartPatAiLabel{font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);padding:1px 5px;flex-shrink:0}
+#eTocPatApplyBar{display:flex;margin-top:5px;gap:6px;align-items:center}
+#editPanel_ill{display:block;padding:14px}
+#directEditIllManual{display:block;margin-top:8px}
+#editPanel_css{display:block;padding:14px}
+#directEditResultBox{display:block;margin-top:10px}
+#editSec{display:block}
+#insertSec{display:block}
+#insTxtInfo{display:block;margin-top:7px;font-size:var(--fs-sm);color:var(--green)}
+#insTocSec{display:block}
+#insTocEpubInfo{display:block;font-size:var(--fs-xs);color:var(--text2);margin-bottom:8px;padding:6px 8px;background:var(--blue-bg);border-radius:var(--radius-xs)}
+#insTocGapWarn{display:block;margin-top:6px;padding:5px 8px;background:var(--yellow-bg);border-radius:var(--radius-xs);font-size:var(--fs-xs);color:var(--yellow);line-height:1.6}
+#insTocDupCount{font-size:var(--fs-xs);color:var(--accent);align-self:center}
+#editIllSec{display:block}
+#editIllOverflowWarn{display:block;margin-top:8px;background:var(--yellow-bg);border-left:3px solid var(--accent2);border-radius:0 6px 6px 0;padding:7px 11px;font-size:var(--fs-xs);color:var(--yellow);line-height:1.6}
+#editIllManual{display:block;margin-top:8px}
+#cssImportClasses{display:grid;margin-top:8px}
+#cssImportApplyBar{display:block;margin-top:6px;font-size:var(--fs-xs);color:var(--text2)}
+#geminiKeyStatus{font-size:var(--fs-xs);padding:2px 7px;border-radius:var(--radius-xs);white-space:nowrap}
+#btmDownload{display:flex}
+#btmBatch{display:flex}
+#btmEdit{display:flex}
+#txtFileList{display:block}
+#editPanel_toc{display:block}
