@@ -708,6 +708,10 @@ function describeFontSubsetReport(r){
   if(!r) return [];
   const kb=n=>n>=1024*1024?(n/1024/1024).toFixed(1)+'MB':Math.max(1,Math.round(n/1024))+'KB';
   const out=[];
+  if(r.skipped==='unused'){
+    out.push(`커스텀 폰트 "${r.family}"를 쓰는 글꼴 설정이 없어 EPUB에 넣지 않았어요 (${kb(r.from)}) — 설정 > 글꼴에서 "📁 ${r.family}"를 고르면 적용돼요.`);
+    return out;
+  }
   if(r.skipped==='format') out.push(`폰트: ${String(r.kind||'').toUpperCase()||'이'} 형식은 서브셋하지 않고 원본 그대로 넣었어요 (${kb(r.from)}) — TTF·OTF 파일을 쓰면 쓰인 글자만 남겨 줄일 수 있어요.`);
   else if(r.skipped==='license') out.push(`폰트: 폰트에 '서브셋 금지' 표시(OS/2 fsType)가 있어 원본 그대로 넣었어요 (${kb(r.from)}).`);
   else if(r.skipped==='error'){
@@ -814,9 +818,14 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
   // ★ Phase 22: 책에 쓰인 글자만 남김 (설정 '쓰인 글자만 포함' — 기본 켜짐, opts.fontSubset으로 덮어쓰기 가능)
   _lastFontSubsetReport=null;
   const subsetOn  = opts?.fontSubset ?? (typeof document==='undefined'||document.getElementById?.('optFontSubset')?.checked!==false);
+  const cssProbe  = buildCss({fontFace:''});
+  // ★ Phase 23: 커스텀 폰트를 쓰는 규칙(본문 글꼴·추가 CSS)이 없으면 넣지 않음 — 용량만 늘고 적용되지 않음 (리포트로 안내)
+  if(fontData&&!cssProbe.includes(fontData.family)){
+    _lastFontSubsetReport={skipped:'unused', family:fontData.family, from:fontData.ab.byteLength, to:0};
+    fontData=null;
+  }
   if(fontData&&subsetOn){
     onProgress&&onProgress(4, '폰트에서 쓰인 글자만 추리는 중...');
-    const cssProbe=buildCss({fontFace:''});
     const fontTexts=function*(){
       yield title; yield author; yield series; yield cssProbe; yield _epubTemplateText();
       for(const ch of chapters||[]) if(Array.isArray(ch)) for(const part of ch) yield part;

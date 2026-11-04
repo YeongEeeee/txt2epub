@@ -444,13 +444,36 @@ async function fileToAB(file){
 
 // 이미지 변환 함수 — 설정에 따라 JPG 변환 or 원본 유지
 // forCover=true 이면 항상 JPG 변환 (표지는 뷰어 호환성 최우선)
+// ★ Phase 23: 이미지 실제 형식 — 파일 앞부분 바이트(시그니처)로 판별, 모르면 null
+//   표지 검색 결과는 실제 형식과 관계없이 'cover.jpg'(image/jpeg)로 저장되는데, 이전엔 이름만 보고 판단해
+//   PNG·WebP 표지가 그대로 image/jpeg로 들어감 (epubcheck OPF-029, 일부 리더기 표지 미표시)
+async function _sniffImageExt(file){
+  try{
+    const b=new Uint8Array(await file.slice(0,16).arrayBuffer());
+    if(b.length<4) return null;
+    if(b[0]===0xFF&&b[1]===0xD8&&b[2]===0xFF) return 'jpg';
+    if(b[0]===0x89&&b[1]===0x50&&b[2]===0x4E&&b[3]===0x47) return 'png';
+    if(b[0]===0x47&&b[1]===0x49&&b[2]===0x46&&b[3]===0x38) return 'gif';
+    if(b[0]===0x52&&b[1]===0x49&&b[2]===0x46&&b[3]===0x46&&b[8]===0x57&&b[9]===0x45&&b[10]===0x42&&b[11]===0x50) return 'webp';
+    if(b[0]===0x42&&b[1]===0x4D) return 'bmp';
+    if((b[0]===0x49&&b[1]===0x49&&b[2]===0x2A&&b[3]===0x00)||(b[0]===0x4D&&b[1]===0x4D&&b[2]===0x00&&b[3]===0x2A)) return 'tiff';
+    if(b[4]===0x66&&b[5]===0x74&&b[6]===0x79&&b[7]===0x70){   // ISO BMFF 'ftyp'
+      const brand=String.fromCharCode(b[8],b[9],b[10],b[11]);
+      if(/^avi[fs]$/.test(brand)) return 'avif';
+      if(/^(heic|heix|hevc|hevx|mif1|msf1)$/.test(brand)) return 'heic';
+    }
+  }catch(e){}
+  return null;
+}
+
 async function convertImageFile(file, forCover=false){
   try{
     // ★ 이름 없는 Blob(자동 생성 텍스트 표지 등)은 MIME으로 확장자 판별
     //   이전: file.name.split() TypeError → null 반환 → 텍스트 표지가 EPUB에서 누락
     const _name=String(file?.name||'');
     const _MIME_EXT={'image/jpeg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','image/bmp':'bmp','image/avif':'avif','image/tiff':'tiff'};
-    const ext=(_name.includes('.')?_name.split('.').pop():(_MIME_EXT[file?.type]||'')).toLowerCase();
+    // ★ Phase 23: 실제 바이트 형식 우선 → 없으면 이름·MIME (SVG 등 시그니처로 모르는 형식)
+    const ext=((await _sniffImageExt(file))||(_name.includes('.')?_name.split('.').pop():(_MIME_EXT[file?.type]||''))).toLowerCase();
     const supportedAsIs=['jpg','jpeg'];
     const convertable=['png','gif','webp','bmp','tiff','tif','avif','heic','heif'];
 

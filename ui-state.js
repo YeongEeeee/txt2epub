@@ -1368,7 +1368,16 @@ window.initUiState = function initUiState(){
         customFontFace = face;
         customFontName = name||'커스텀폰트';
         const opt=document.getElementById('customFontOpt');
-        if(opt){opt.textContent='📁 '+customFontName;setShown(opt,true);opt.value='"'+customFontName+'",serif';}
+        if(opt){opt.textContent='📁 '+customFontName;setShown(opt,true);opt.value='"'+customFontName+'",serif';
+          // ★ Phase 23: 저장된 글꼴 선택이 커스텀 폰트였으면 이제 선택
+          //   이전: loadCssSettings가 이 옵션 값이 정해지기 전에 복원 → 일치하는 옵션이 없어 기본 글꼴로 돌아감
+          //         → 폰트 파일은 EPUB에 들어가지만 본문 글꼴은 다른 폰트 (용량만 늘고 적용 안 됨)
+          try{
+            const saved=JSON.parse(localStorage.getItem('epub_css')||'{}');
+            const sel=document.getElementById('cssFont');
+            if(sel&&saved.font===opt.value&&sel.value!==opt.value){ sel.value=opt.value; typeof updateCssPreview==='function'&&updateCssPreview(); }
+          }catch(e){}
+        }
       });
     }
   }).catch(()=>{});

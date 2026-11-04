@@ -253,7 +253,7 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
     └── golden.json   — 기대 챕터 목록·감지 패턴·계층 형태
 ```
 
-> **총 코드량: 약 18,600줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 인라인 핸들러 0개 | 회귀 테스트 413개 통과 | epubcheck 0 오류
+> **총 코드량: 약 18,600줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 인라인 핸들러 0개 | 회귀 테스트 419개 통과 | epubcheck 0 오류
 
 ### 상태 관리 (StateManager + Proxy)
 
@@ -478,6 +478,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 23 (6) | 이미지 형식 바이트 판별(PNG·JPEG·WebP·GIF·AVIF)·실제 형식 우선, 글꼴 목록 재생성 시 커스텀 옵션·선택 유지, 로드 경합 복원, 미사용 커스텀 폰트 미포함·경고 문구 |
 | Phase 22 (15) | wasm SRI = 파일 해시, 형식·fsType 판별, cmap(4·12) 읽기, 글자 수집(서로게이트·제어 문자·템플릿 문구), **HarfBuzz 실제 서브셋(TTF·OTF) 쓰인 글자 유지·용량 감소**, 엔진 1회 로드, 서브셋 금지·WOFF2·엔진 실패 → 원본, 리포트 문구, EPUB(`tests/out/22_font_subset.epub`) 문서 글자 ⊂ 폰트, 편집 탭 재서브셋·누락 글자, 연결·설정·CSP |
 | Phase 21 (4) | SW `_plain` 실제 동작(리디렉트 응답 → 새 응답·헤더 유지), 프리캐시·페이지 이동·로컬 저장 모두 `_plain`, 화면 없을 때만 즉시 활성화, CACHE_VERSION 해시에 sw.js 코드 포함 |
 | Phase 20 (8) | JS 마크업 style 속성 0·setAttribute('style')·페이지용 <style> 없음, CSP style-src 'self'+Google Fonts(헤더 = meta, unsafe 없음), Phase 20 클래스 정의 1회·사용 중·하드코딩 색상 없음, 구체적 기존 규칙 위 인라인 값 유지, JS 템플릿 유틸리티 충돌 없음, 템플릿 숨김 요소 hidden+setShown |
@@ -503,7 +504,7 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 | 항목 | 수치 |
 |------|------|
 | 총 줄수 | JS 13,522줄 (+ HTML/CSS 2,600줄) |
-| 회귀 테스트 | 413개 통과 + epubcheck 0 오류 |
+| 회귀 테스트 | 419개 통과 + epubcheck 0 오류 |
 | 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |
@@ -660,6 +661,17 @@ settings.js 구문 오류 수정 (고아 코드 블록 제거)
 ---
 
 ## 🔧 Troubleshooting
+
+### 커스텀 폰트를 올려도 EPUB 본문에 적용되지 않음 (해결됨 — Phase 23)
+**증상**: 폰트 파일은 EPUB에 들어가는데 `body{font-family}`가 'Noto Sans KR' — 용량만 늘고 리더기에서 커스텀 폰트가 보이지 않음. 새로고침하면 고른 글꼴이 첫 항목으로 돌아감.  
+**원인**: `buildFontDropdown()`이 글꼴 목록을 `innerHTML`로 다시 만들며 커스텀 폰트 옵션(`#customFontOpt`)을 지우고, 먼저 복원한 저장 선택도 지움.  
+**해결**: 목록을 다시 만들 때 커스텀 옵션·현재/저장 선택 유지, 비동기 복원 뒤 저장 선택 재적용. 커스텀 폰트를 쓰는 규칙이 없으면 EPUB에 넣지 않고 변환 리포트에 경고.
+
+### 표지가 PNG인데 image/jpeg로 들어감 (해결됨 — Phase 23)
+**증상**: epubcheck `OPF-029` (img_0000.jpg가 image/jpeg와 맞지 않음). 표지 검색으로 고른 표지에서 발생.  
+**원인**: 표지 검색 결과를 실제 형식과 관계없이 `cover.jpg`로 저장, 변환 시 파일 이름만 보고 형식 판단.  
+**해결**: 파일 앞부분 바이트로 실제 형식 판별 → PNG 표지는 의도대로 JPG 변환.
+
 
 ### 두 번째 방문부터 '사이트에 연결할 수 없음 (ERR_FAILED)' (해결됨 — Phase 21)
 **증상**: 첫 방문은 정상, 서비스 워커가 설치된 뒤 다시 열면 `net::ERR_FAILED`.  

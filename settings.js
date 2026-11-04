@@ -503,11 +503,29 @@ const SUPPORTED_FONTS=[
 function buildFontDropdown(){
   const selects=document.querySelectorAll('.font-select-epub, #cssFont');
   if(!selects||!selects.length) return; // guard: DOM 없으면 조용히 반환
+  // ★ Phase 23: 다시 만들 때 선택과 커스텀 폰트 옵션 유지
+  //   이전: innerHTML로 목록을 갈아 끼우며 (1) #customFontOpt가 사라져 올린 폰트를 고를 수 없었고
+  //         (2) 먼저 복원한 저장 선택(loadCssSettings)도 지워져 새로고침마다 첫 항목(Noto Sans KR)으로 돌아감
+  //         → 커스텀 폰트 파일은 EPUB에 들어가는데 본문 글꼴은 Noto Sans KR
+  let savedFont='';
+  try{ savedFont=JSON.parse(localStorage.getItem('epub_css')||'{}').font||''; }catch(e){}
   selects.forEach(sel=>{
     if(!sel) return;
+    const prev=sel.value;
     sel.innerHTML=SUPPORTED_FONTS.map(f=>  // safe-html: SUPPORTED_FONTS 상수 목록
       `<option value="${f.family}">${f.label}</option>`
     ).join('');
+    if(sel.id==='cssFont'){
+      const opt=document.createElement('option');
+      opt.id='customFontOpt';
+      const hasCustom=typeof customFontName!=='undefined'&&customFontName&&typeof customFontFace!=='undefined'&&customFontFace;
+      opt.value=hasCustom?'"'+customFontName+'",serif':'__custom__';
+      opt.textContent=hasCustom?'📁 '+customFontName:'커스텀 폰트';
+      setShown(opt, !!hasCustom);
+      sel.appendChild(opt);
+    }
+    const want=[prev, sel.id==='cssFont'?savedFont:''].find(v=>v&&[...sel.options].some(o=>o.value===v));
+    if(want) sel.value=want;
   });
 }
 

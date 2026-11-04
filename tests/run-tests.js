@@ -22,6 +22,7 @@
  *  15. Phase 20: JS 마크업 style 속성 0 → CSP style-src 'unsafe-inline' 제거
  *  16. Phase 21: SW 페이지 이동 ERR_FAILED 수정 — 리디렉트 응답 정리(_plain)·고장 SW 복구·SW 코드 포함 해시
  *  17. Phase 22: 커스텀 폰트 서브셋 — HarfBuzz WebAssembly 실제 실행(TTF·OTF), 제외·실패 경로, EPUB(22_font_subset.epub), 편집 탭 갱신
+ *  18. Phase 23: 이미지 형식 바이트 판별(.jpg 이름의 PNG 표지), 커스텀 폰트 선택 복원 경합·미사용 폰트 미포함
  */
 'use strict';
 const fs   = require('fs');
@@ -1186,6 +1187,36 @@ async function main(){
       /fsub\.checked=s\.fontSubset!==false;/.test(st) && (ed.match(/await refreshEpubFontSubset\(newZip, E\.epubZip\)\.catch\(\(\)=>null\)/g) || []).length === 2);
     const hdrPolicy = (hdr.match(/Content-Security-Policy:\s*([^\n]+)/) || [])[1] || '', metaPolicy = (html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/) || [])[1] || '';
     check('[서브셋] CSP는 \'wasm-unsafe-eval\'만 추가 (헤더 = meta)', /script-src 'self' 'wasm-unsafe-eval';/.test(hdrPolicy) && /script-src 'self' 'wasm-unsafe-eval';/.test(metaPolicy) && !/'unsafe-(?:eval|inline)'/.test(hdrPolicy + metaPolicy));
+  }
+
+  // ── 18. Phase 23 — 실제 변환 결과에서 발견한 문제 (표지 형식·커스텀 폰트 미적용) ──
+  {
+    const read = readRoot;
+    const conv = read('convert.js'), ui = read('ui-state.js'), eg = read('epub-gen.js');
+    // 18-1. 이미지 형식은 바이트 시그니처로 — 'cover.jpg'(image/jpeg)로 저장된 PNG 표지
+    const SN = sandbox('convert.js', ['_sniffImageExt'], { Blob });
+    const blobOf = bytes => new Blob([Uint8Array.from(bytes)]);
+    const webp = [0x52,0x49,0x46,0x46,1,2,3,4,0x57,0x45,0x42,0x50,0x56,0x50,0x38,0x20];
+    const kinds = await Promise.all([
+      SN._sniffImageExt(blobOf([0x89,0x50,0x4E,0x47,0x0D,0x0A,0x1A,0x0A, ...Array(8).fill(0)])),
+      SN._sniffImageExt(blobOf([0xFF,0xD8,0xFF,0xE0, ...Array(12).fill(0)])),
+      SN._sniffImageExt(blobOf(webp)),
+      SN._sniffImageExt(blobOf([0x47,0x49,0x46,0x38,0x39,0x61, ...Array(10).fill(0)])),
+      SN._sniffImageExt(blobOf([0,0,0,0x1C,0x66,0x74,0x79,0x70,0x61,0x76,0x69,0x66, 0,0,0,0])),
+      SN._sniffImageExt(blobOf([0x3C,0x73,0x76,0x67, ...Array(12).fill(0x20)])),
+    ]);
+    check('[표지] 이미지 형식 바이트 판별 (PNG·JPEG·WebP·GIF·AVIF, 모르면 null)', kinds.join(',') === 'png,jpg,webp,gif,avif,', kinds.join(','));
+    check('[표지] convertImageFile은 실제 형식 우선 → 이름이 .jpg인 PNG 표지도 JPG로 변환', /const ext=\(\(await _sniffImageExt\(file\)\)\|\|\(_name\.includes\('\.'\)/.test(conv) &&
+      conv.indexOf('await _sniffImageExt(file)') < conv.indexOf("if(supportedAsIs.includes(ext)) return {blob:file, ext:'jpg', mt:'image/jpeg'};"));
+    // 18-2. 커스텀 폰트 — 저장된 선택 복원 경합, 쓰는 규칙이 없으면 넣지 않음
+    const stg = read('settings.js');
+    check('[폰트] 글꼴 목록을 다시 만들어도 커스텀 폰트 옵션·현재/저장 선택 유지 (이전: #customFontOpt 삭제 + 새로고침마다 첫 항목)',
+      /opt\.id='customFontOpt';/.test(stg) && /const want=\[prev, sel\.id==='cssFont'\?savedFont:''\]\.find/.test(stg) && /if\(want\) sel\.value=want;/.test(stg));
+    check('[폰트] 페이지 로드 시 커스텀 폰트 옵션 값이 정해진 뒤 저장된 선택 복원', /if\(sel&&saved\.font===opt\.value&&sel\.value!==opt\.value\)\{ sel\.value=opt\.value;/.test(ui));
+    check('[폰트] 커스텀 폰트를 쓰는 CSS 규칙이 없으면 EPUB에 넣지 않음 + 경고', /if\(fontData&&!cssProbe\.includes\(fontData\.family\)\)\{\s*_lastFontSubsetReport=\{skipped:'unused'/.test(eg) &&
+      eg.indexOf("skipped:'unused'") < eg.indexOf('fontData = await _subsetCustomFont(fontData, fontTexts());'));
+    const msg = G('describeFontSubsetReport')({ skipped: 'unused', family: '교보손글씨', from: 12.5 * 1024 * 1024, to: 0 });
+    check('[폰트] 미사용 안내는 경고(⚠)로 표시 — \'폰트:\'로 시작하지 않음, 고를 메뉴 안내', msg.length === 1 && /^커스텀 폰트 "교보손글씨"를 쓰는 글꼴 설정이 없어 EPUB에 넣지 않았어요 \(12\.5MB\) — 설정 > 글꼴에서/.test(msg[0]) && !/^폰트:/.test(msg[0]));
   }
 
   if(UPDATE){
