@@ -908,27 +908,27 @@ function showCorsHelp(inpId, url, thumbId, nameId, mode){
   const overlay=document.createElement('div');
   overlay.style.cssText='position:fixed;inset:0;background:var(--overlay-strong);z-index:600;display:flex;align-items:center;justify-content:center';
   overlay.innerHTML=`
-    <div style="background:var(--panel);border-radius:var(--radius-sm);padding:24px;max-width:440px;width:90vw;box-shadow:var(--shadow-xl)">
-      <h3 style="font-size:var(--fs-base);font-weight:700;margin-bottom:10px">⚠️ 이미지를 직접 가져올 수 없어요</h3>
-      <p style="font-size:var(--fs-sm);color:var(--text2);margin-bottom:14px;line-height:1.7">
+    <div class="modal-card">
+      <h3 class="u-fs-base u-fw-700 u-mb-10">⚠️ 이미지를 직접 가져올 수 없어요</h3>
+      <p class="u-fs-sm u-text2 u-mb-14x u-lh-17">
         이 이미지는 외부 사이트 보안(CORS) 정책으로 직접 가져올 수 없어요.<br>
         아래 방법 중 하나를 사용해주세요.
       </p>
-      <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px">
-        <div style="background:var(--bg2);border-radius:var(--radius-sm);padding:10px;font-size:var(--fs-sm)">
+      <div class="u-col-8 u-mb-16">
+        <div class="tip-card">
           <b>방법 1 (권장)</b> — 구글 이미지에서 이미지를 <b>다운로드</b>한 뒤<br>
           드래그앤드롭으로 표지에 넣기
         </div>
-        <div style="background:var(--bg2);border-radius:var(--radius-sm);padding:10px;font-size:var(--fs-sm)">
+        <div class="tip-card">
           <b>방법 2</b> — 이미지 페이지를 열어서<br>
           이미지를 <b>다른 이름으로 저장</b> 후 드래그앤드롭
         </div>
-        <div style="background:var(--bg2);border-radius:var(--radius-sm);padding:10px;font-size:var(--fs-sm)">
+        <div class="tip-card">
           <b>방법 3</b> — 아래 버튼으로 이미지 페이지 열기 →<br>
           이미지 우클릭 → 다른 이름으로 저장
         </div>
       </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end">
+      <div class="u-flex u-gap-8 u-jc-end">
         <button type="button" class="btn btn-ghost btn-sm" data-cors-close>닫기</button>
         <button type="button" class="btn btn-blue btn-sm" data-cors-open>🔗 이미지 페이지 열기</button>
       </div>
@@ -1156,10 +1156,10 @@ function renderIllTags(){
     const isJpg=['jpg','jpeg'].includes(ext);
     const needsConvert=!isJpg&&willConvert;
     const fmtBadge=isJpg
-      ? `<span style="font-size:var(--fs-xs);background:var(--green-bg);color:var(--green);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">JPG</span>`
+      ? `<span class="tag-xs tone-green u-p-1-4">JPG</span>`
       : needsConvert
-        ? `<span style="font-size:var(--fs-xs);background:var(--yellow-bg);color:var(--yellow);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">${escHtml(ext.toUpperCase())}→JPG</span>`
-        : `<span style="font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);padding:1px 4px;font-weight:700">${escHtml(ext.toUpperCase())}</span>`;
+        ? `<span class="tag-xs tone-yellow u-p-1-4">${escHtml(ext.toUpperCase())}→JPG</span>`
+        : `<span class="tag-xs tone-blue u-p-1-4">${escHtml(ext.toUpperCase())}</span>`;
 
     const t=document.createElement('div');
     t.className='tag';
@@ -1230,14 +1230,14 @@ function addManualIllRow(containerId){
   r.className='mill-row';r.id='mr'+id;
   r.innerHTML=
     '<div class="mill-row-top">'+
-      '<input placeholder="파일명 (예: 16.jpg)" id="mp'+id+'" style="flex:2;min-width:100px" data-input-action="manualIllName" data-id="'+id+'">'+
+      '<input placeholder="파일명 (예: 16.jpg)" id="mp'+id+'" class="u-flex-2 u-minw-100" data-input-action="manualIllName" data-id="'+id+'">'+
       '<button class="btn btn-ghost btn-sm" data-action="browseManual" data-id="'+id+'">찾기</button>'+
-      '<input type="number" placeholder="중심 화 번호" id="mc'+id+'" style="width:90px" min="1" data-input-action="loadIllRange" data-id="'+id+'">'+
+      '<input type="number" placeholder="중심 화 번호" id="mc'+id+'" class="u-w-90" min="1" data-input-action="loadIllRange" data-id="'+id+'">'+
       '<select id="mpos'+id+'"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
-      '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" data-action="removeManualIllRow" data-row-id="mr'+id+'">✕</button>'+
+      '<button class="tone-accent btn btn-sm" data-action="removeManualIllRow" data-row-id="mr'+id+'">✕</button>'+
     '</div>'+
     '<div class="mill-preview" id="mpv'+id+'">'+
-      '<div style="font-size:var(--fs-xs);color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>'+
+      '<div class="u-fs-xs u-text2 u-p-4-2">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>'+
     '</div>';
   c.appendChild(r);
 }
@@ -1272,7 +1272,7 @@ async function loadIllRange(id){
   const chNum=parseInt(document.getElementById('mc'+id).value);
   const pv=document.getElementById('mpv'+id);
   if(!chNum||!S.txtFiles.length){
-    pv.innerHTML='<div style="font-size:var(--fs-xs);color:var(--text2);padding:4px 2px">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>';
+    pv.innerHTML='<div class="u-fs-xs u-text2 u-p-4-2">화 번호를 입력하면 해당 화 ±1화 범위를 보여줘요.</div>';
     pv.classList.remove('show');
     return;
   }
@@ -1284,7 +1284,7 @@ async function loadIllRange(id){
   const centerCi=chapters.findIndex(c=>((c[2]&&c[2].num!=null)?c[2].num:extractChNum(c[0]))===chNum);
 
   if(centerCi<0){
-    pv.innerHTML='<div class="mill-ch-match"><div class="mill-ch-title" style="color:var(--accent)">⚠️ '+chNum+'화를 찾지 못했어요</div>'+  // safe-html: chNum은 parseInt 결과
+    pv.innerHTML='<div class="mill-ch-match"><div class="u-accent mill-ch-title">⚠️ '+chNum+'화를 찾지 못했어요</div>'+  // safe-html: chNum은 parseInt 결과
       '<div class="mill-ch-body">화 번호를 확인하거나 목차 확인을 먼저 실행해주세요.</div></div>';
     pv.classList.add('show');
     return;
@@ -1349,7 +1349,7 @@ function renderIllRangePanel(id, kw, selectedCi){
   // 키워드 검색바
   const kwBar=
     '<div class="mill-kw-bar">'+
-      '<span style="font-size:var(--fs-xs);color:var(--text2);white-space:nowrap">🔍 범위 내 검색:</span>'+
+      '<span class="u-fs-xs u-text2 u-nowrap">🔍 범위 내 검색:</span>'+
       '<input id="mkw'+id+'" placeholder="키워드로 정확한 위치 찾기" value="'+escHtml(kw)+'" '+
              'data-input-action="illKwSearch" data-id="'+id+'">'+
     '</div>'+
@@ -1847,11 +1847,11 @@ function _renderConvertReport(warnings){
   const warnCount=warnings.filter(w=>!isInfo(w)).length;
   const head=warnCount?`⚠ 변환 경고 ${warnCount}건`:'ℹ 변환 정보';
   el.innerHTML =  // safe-html: head는 고정 문구+건수, 항목은 escHtml
-    `<div style="font-size:var(--fs-xs);font-weight:700;color:${warnCount?'var(--accent)':'var(--blue)'};margin-bottom:6px">${head}</div>` +
-    `<div style="display:flex;flex-direction:column;gap:4px;max-height:120px;overflow-y:auto">` +
+    `<div class="u-fs-xs u-fw-700 u-mb-6 ${warnCount?'u-accent':'u-blue'}">${head}</div>` +
+    `<div class="report-list">` +
     warnings.map(w=>isInfo(w)
-      ? `<div style="font-size:var(--fs-xs);color:var(--text2);padding:3px 6px;background:var(--blue-bg);border-radius:var(--radius-xs);border-left:2px solid var(--blue)">ℹ ${escHtml(String(w))}</div>`
-      : `<div style="font-size:var(--fs-xs);color:var(--text2);padding:3px 6px;background:var(--accent-bg);border-radius:var(--radius-xs);border-left:2px solid var(--accent)">⚠ ${escHtml(String(w))}</div>`).join('') +
+      ? `<div class="report-item-info">ℹ ${escHtml(String(w))}</div>`
+      : `<div class="report-item-warn">⚠ ${escHtml(String(w))}</div>`).join('') +
     `</div>`;
 }
 
@@ -1877,10 +1877,10 @@ function _renderProgressSparkline(){
     svgBars += `<rect x="${x}" y="${H-bh}" width="${barW}" height="${bh}" fill="${col}" rx="1" opacity="0.85"><title>${label} (${(dur/1000).toFixed(1)}s)</title></rect>`;
   }
   container.innerHTML =  // safe-html: 막대 SVG는 숫자 좌표로만 생성
-    `<svg width="${W}" height="${H}" style="display:block;margin:6px auto 0" aria-label="단계별 소요시간 스파크라인">
+    `<svg width="${W}" height="${H}" class="u-block u-m-6-auto-0" aria-label="단계별 소요시간 스파크라인">
       <title>변환 단계별 소요시간</title>${svgBars}
     </svg>
-    <div style="font-size:var(--fs-xs);color:var(--text2);margin-top:2px">단계별 소요시간 (총 ${(totalMs/1000).toFixed(1)}초)</div>`;
+    <div class="u-fs-xs u-text2 u-mt-2">단계별 소요시간 (총 ${(totalMs/1000).toFixed(1)}초)</div>`;
   container.style.display = 'block'; // ★ #progressSparkline{display:none} 기본값 대응
 }
 
@@ -1986,7 +1986,7 @@ function showPreview(){
 // ★ EPUB Blob → JSZip 파싱 → 첫 챕터 HTML 렌더링
 async function _renderEpubPreview(blob){
   const body=document.getElementById('previewBody');
-  body.innerHTML='<div style="text-align:center;padding:30px;color:var(--text2)">⏳ EPUB 파싱 중...</div>';
+  body.innerHTML='<div class="u-ta-center u-p-30 u-text2">⏳ EPUB 파싱 중...</div>';
   try{
     const zip=await JSZip.loadAsync(blob);
     // OPF 찾기
@@ -2018,7 +2018,7 @@ async function _renderEpubPreview(blob){
         html+=`<div class="preview-ch">${content}</div>`;
       }
     }
-    body.innerHTML=html||'<div style="padding:20px;color:var(--text2)">미리보기 내용을 불러올 수 없어요.</div>';
+    body.innerHTML=html||'<div class="u-p-20 u-text2">미리보기 내용을 불러올 수 없어요.</div>';
     body.style.fontFamily=_previewFont;
     body.style.lineHeight=_previewLine;
     document.getElementById('previewPageInfo').textContent=
@@ -2049,7 +2049,7 @@ function renderPreview(){
       if(/^[-\u2014]/.test(t)) html+='<p><em>'+escHtml(t)+'</em></p>';
       else html+='<p>'+escHtml(t)+'</p>';
     }
-    if(b.split('\n').length>30) html+='<p style="color:var(--text2);font-size:var(--fs-xs);margin-top:8px">... (이하 생략)</p>';
+    if(b.split('\n').length>30) html+='<p class="u-text2 u-fs-xs u-mt-8">... (이하 생략)</p>';
     html+='</div>';
   }
   body.innerHTML=html;  // safe-html: html은 escHtml로 이스케이프한 문단 조각
@@ -2081,7 +2081,7 @@ async function startSplit(){
   const useItalic=document.getElementById('optItalic')?.checked!==false;
   const coverFile=S.coverFile;
   const listEl=document.getElementById('splitList');
-  listEl.innerHTML='<div style="font-size:var(--fs-sm);color:var(--text2);grid-column:1/-1">분리 중...</div>';
+  listEl.innerHTML='<div class="u-fs-sm u-text2 u-span-all">분리 중...</div>';
   setShown(document.getElementById('splitSec'),true);
 
   // N화 단위 분리 — '서문'은 화수에 세지 않되 첫 파트 앞에 붙여 보존 (★ 이전: 서문 내용이 분리본에서 사라짐)
@@ -2103,9 +2103,9 @@ async function startSplit(){
     const div=document.createElement('div');
     div.className='split-item';
     div.id='spi_'+pi;
-    div.innerHTML='<div style="font-weight:600;margin-bottom:4px">'+escHtml(partTitle)+'</div>'+  // safe-html: pi는 인덱스(숫자)
-      '<div style="font-size:var(--fs-xs);color:var(--text2)">'+escHtml(firstCh)+' ~ '+escHtml(lastCh)+'</div>'+
-      '<div id="sps_'+pi+'" style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px">생성 중...</div>';
+    div.innerHTML='<div class="u-fw-600 u-mb-4">'+escHtml(partTitle)+'</div>'+  // safe-html: pi는 인덱스(숫자)
+      '<div class="txt-meta-sm">'+escHtml(firstCh)+' ~ '+escHtml(lastCh)+'</div>'+
+      '<div id="sps_'+pi+'" class="u-fs-xs u-text2 u-mt-4">생성 중...</div>';
     listEl.appendChild(div);
 
     try{
@@ -2250,15 +2250,15 @@ function renderTocMiniChart(){
     const h=Math.max(2,Math.floor(top/maxLen*(H-4)));
     const x=(2+i*step).toFixed(2);
     // ★ ADD-03: 짧은 챕터(경고), 긴 챕터(파랑), 정상(accent) — 구간에 짧은 화가 하나라도 있으면 경고색
-    const col = Math.min(...lens) < _suspThr ? 'var(--yellow)' : top > 50000 ? 'var(--blue)' : 'var(--accent)';
+    const colCls = Math.min(...lens) < _suspThr ? 'fill-yellow' : top > 50000 ? 'fill-blue' : 'fill-accent';   // ★ Phase 20: 막대 색은 클래스
     // ★ BUG-FIX: data-real-idx에 실제 S.tocItems 인덱스 저장 (enabled 필터 인덱스 ≠ 실제 인덱스)
     const realIdx = S.tocItems.indexOf(grp[0]);
     return `<rect x="${x}" y="${H-h}" width="${bw.toFixed(2)}" height="${h}" rx="1" data-idx="${i}" data-real-idx="${realIdx}"
-      style="fill:${col};cursor:pointer;opacity:.75;transition:opacity .1s"/>`;
+      class="spark-bar ${colCls}"/>`;
   }).join('');
 
   // viewBox + preserveAspectRatio=none: 실제 표시 폭(width:100%)에 막대 전체를 맞춤
-  el.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="display:block;width:100%">${bars}</svg>`;  // safe-html: 막대 SVG는 숫자 좌표로만 생성
+  el.innerHTML=`<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" class="u-block u-w-full">${bars}</svg>`;  // safe-html: 막대 SVG는 숫자 좌표로만 생성
 
   // ★ ADD-03: SVG hover 툴팁
   const svg = el.querySelector('svg');
@@ -2514,10 +2514,10 @@ function _syncBatchModeBadge(i){
   const split=_resolveBatchSplit(i);
   if(badge){
     badge.textContent=split?(split.source==='file'?'간격 '+split.total+'화':'간격 분할(자동)'):'';
-    badge.style.display=split?'':'none';
+    setShown(badge, !!split);
   }
   const clearBtn=document.getElementById('bint_clear_'+i);
-  if(clearBtn) clearBtn.style.display=split?'':'none';
+  setShown(clearBtn, !!split);
   _syncBatchSplitControls();
 }
 
@@ -2682,13 +2682,13 @@ function renderBatchList(){
       ?'<div class="batch-thumb" data-action="batchPickCover" data-idx="'+i+'" title="클릭해서 변경"><img id="bthumb_'+i+'" src=""></div>'
       :'<div class="batch-thumb" data-action="batchPickCover" data-idx="'+i+'" title="표지 지정">+</div>';
     d.innerHTML='<div class="batch-header">'+thumbHtml+  // safe-html: thumbHtml은 고정 마크업(+숫자 id)
-      '<div style="flex:1;min-width:0"><div class="batch-title">'+escHtml(title)+'</div>'+
-      '<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap"><div class="batch-status" id="bst_'+i+'">'+(author?'✒️ '+escHtml(author):'')+'</div>'+
-      '<span id="bmode_'+i+'" style="display:none;font-size:var(--fs-xs);padding:1px 7px;border-radius:var(--radius-sm);white-space:nowrap;background:var(--blue-bg);color:var(--blue);border:1px solid var(--blue)"></span>'+
+      '<div class="u-flex-1 u-minw-0"><div class="batch-title">'+escHtml(title)+'</div>'+
+      '<div class="u-row-wrap-6"><div class="batch-status" id="bst_'+i+'">'+(author?'✒️ '+escHtml(author):'')+'</div>'+
+      '<span id="bmode_'+i+'" class="badge-blue-line" hidden></span>'+
       '<button class="batch-toc-btn" data-action="showBatchToc" data-idx="'+i+'" title="목차 미리보기">📋 목차 확인</button></div>'+
       '</div></div>'+
       '<div class="batch-toc-panel" id="btp_'+i+'"></div>'+
-      '<div class="batch-prog"><div class="batch-prog-bar" id="bpb_'+i+'" style="width:0"></div></div>';
+      '<div class="batch-prog"><div class="u-w-0 batch-prog-bar" id="bpb_'+i+'"></div></div>';
     c.appendChild(d);
     if(cover){const r=new FileReader();r.onload=e=>{const img=document.getElementById('bthumb_'+i);if(img)img.src=e.target.result;};r.readAsDataURL(cover);}
     _syncBatchModeBadge(i);
@@ -2753,7 +2753,7 @@ async function showBatchToc(idx, btn){
       else failMsg=`본편 ${mainCnt}화 감지 (파일명 ${totalCh}화 기준 ${detectedPct.toFixed(1)}% — 오차 5% 초과)`;
 
       panel.innerHTML=
-        '<div style="font-size:var(--fs-xs);color:var(--accent);padding:4px;margin-bottom:6px">'+
+        '<div class="u-fs-xs u-accent u-p-4 u-mb-6">'+
           '⚠️ '+escHtml(failMsg)+' 아래에서 패턴을 선택하거나 간격 분할(N화)을 적용해주세요.'+
         '</div>'+
         buildPatPresetPanel(idx,text,totalCh);
@@ -2763,11 +2763,11 @@ async function showBatchToc(idx, btn){
       const info=document.createElement('div');
       info.style.cssText='font-size:var(--fs-xs);color:var(--text2);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center';
       const exactBadge=exactMatch
-        ?' <span style="font-size:var(--fs-xs);padding:0 6px;border-radius:var(--radius-sm);background:var(--green-bg);color:var(--green);border:1px solid var(--green)">파일명 화수 100% 일치</span>'
+        ?' <span class="badge-green-line">파일명 화수 100% 일치</span>'
         :'';
       info.innerHTML=  // safe-html: pctStr·exactBadge는 숫자·고정 마크업, 패턴 이름은 escHtml
-        `<span>총 <b style="color:var(--accent)">${chapters.length}</b>개 챕터${pctStr}${detectedName?' · '+escHtml(detectedName):''}${exactBadge}</span>`+
-        '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="toggleBatchPreset" data-idx="'+idx+'">✏️ 패턴 변경 · 간격 분할</button>';
+        `<span>총 <b class="u-accent">${chapters.length}</b>개 챕터${pctStr}${detectedName?' · '+escHtml(detectedName):''}${exactBadge}</span>`+
+        '<button class="u-fs-xs btn btn-ghost btn-sm" data-action="toggleBatchPreset" data-idx="'+idx+'">✏️ 패턴 변경 · 간격 분할</button>';
       panel.appendChild(info);
       if(exactPreset) Toast.success(`'${exactPreset.label}' 패턴이 파일명 화수(${totalCh}화)와 정확히 일치해 이 파일에 적용했어요.`,3500);
 
@@ -2799,7 +2799,7 @@ async function showBatchToc(idx, btn){
     btn.textContent='📋 목차 닫기';
     _renderBatchIntervalPreview(idx);   // ★ v3: 원문이 로드됐으니 간격 분할 미리보기 갱신
   }catch(e){
-    panel.innerHTML='<div style="font-size:var(--fs-xs);color:var(--accent)">오류: '+escHtml(e?.message||String(e))+'</div>';
+    panel.innerHTML='<div class="u-fs-xs u-accent">오류: '+escHtml(e?.message||String(e))+'</div>';
     panel.classList.add('show');
     btn.textContent='📋 목차 확인';
   }
@@ -2851,14 +2851,14 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
   }
 
   let html =
-    '<div style="margin-top:6px;padding:8px;background:var(--bg);border-radius:var(--radius-sm);border:1px solid var(--border)">' +
-    '<div style="font-size:var(--fs-sm);font-weight:700;color:var(--text);margin-bottom:8px">📐 챕터 패턴 선택</div>' +
-    '<div style="display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap">' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="batchPresetCheckAll" data-idx="'+idx+'" data-val="true">전체 선택</button>' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="batchPresetCheckAll" data-idx="'+idx+'" data-val="false">전체 해제</button>' +
-      '<button class="btn btn-ghost btn-sm" style="font-size:var(--fs-xs)" data-action="batchPresetAuto" data-idx="'+idx+'">🔍 자동 감지</button>' +
+    '<div class="preset-panel">' +
+    '<div class="u-fs-sm u-fw-700 u-text u-mb-8">📐 챕터 패턴 선택</div>' +
+    '<div class="u-flex u-gap-6 u-mb-8 u-wrap">' +
+      '<button class="u-fs-xs btn btn-ghost btn-sm" data-action="batchPresetCheckAll" data-idx="'+idx+'" data-val="true">전체 선택</button>' +
+      '<button class="u-fs-xs btn btn-ghost btn-sm" data-action="batchPresetCheckAll" data-idx="'+idx+'" data-val="false">전체 해제</button>' +
+      '<button class="u-fs-xs btn btn-ghost btn-sm" data-action="batchPresetAuto" data-idx="'+idx+'">🔍 자동 감지</button>' +
     '</div>' +
-    '<div id="bpck_list_'+idx+'" style="display:flex;flex-direction:column;gap:4px">';
+    '<div id="bpck_list_'+idx+'" class="u-col-4">';
 
   PRESETS.forEach(([label, val, desc])=>{
     const checked = checkedVals.has(val) ? 'checked' : '';
@@ -2866,17 +2866,17 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
     const pct = tc>0 ? (cnt/tc*100).toFixed(0) : null;
     const isExact = tc>0&&cnt===tc;   // ★ v3: 파일명 화수와 정확히 같은 개수
     const pctStr = pct!==null ? ` (${cnt}개 / ${pct}%${isExact?' · 100% 일치':parseFloat(pct)>=80?' ⭐':''})` : (cnt>0?` (${cnt}개)`:'');
-    const goodBg = pct!==null&&parseFloat(pct)>=80 ? 'background:var(--green-bg);border-color:var(--green)' : '';
+    const goodCls = pct!==null&&parseFloat(pct)>=80 ? ' preset-opt-good' : '';
 
     html +=
-      `<label style="display:flex;align-items:flex-start;gap:8px;padding:5px 6px;border-radius:var(--radius-xs);cursor:pointer;border:1px solid var(--border);background:var(--bg2);${goodBg}">` +
-        `<input type="checkbox" class="bpck_${idx}" data-val="${escHtml(val)}" ${checked}` +
-               ` data-input-action="applyBatchPreset" data-idx="${idx}" style="margin-top:2px;flex-shrink:0">` +
-        '<div style="min-width:0;flex:1">' +
-          '<div style="font-size:var(--fs-sm);font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
+      `<label class="preset-opt${goodCls}">` +
+        `<input type="checkbox" class="u-mt-2 u-shrink-0 bpck_${idx}" data-val="${escHtml(val)}" ${checked}` +
+               ` data-input-action="applyBatchPreset" data-idx="${idx}">` +
+        '<div class="u-minw-0 u-flex-1">' +
+          '<div class="u-fs-sm u-fw-600 u-row-wrap-6">' +
             escHtml(label) +
-            `<span style="font-size:var(--fs-xs);color:${parseFloat(pct)>=80?'var(--green)':'var(--accent)'};font-weight:700">${pctStr}</span>` +
-            `<span style="font-size:var(--fs-xs);color:var(--text2);font-weight:400">${escHtml(desc)}</span>` +
+            `<span class="u-fs-xs u-fw-700 ${parseFloat(pct)>=80?'u-green':'u-accent'}">${pctStr}</span>` +
+            `<span class="u-fs-xs u-text2 u-fw-400">${escHtml(desc)}</span>` +
           '</div>' +
         '</div>' +
       '</label>';
@@ -2884,14 +2884,14 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
 
   html +=
     '</div>' +
-    '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">' +
-      '<div style="font-size:var(--fs-xs);font-weight:600;color:var(--text2);margin-bottom:4px">직접 입력 (정규식)</div>' +
-      '<div style="display:flex;gap:6px">' +
-        `<input class="inp" id="bpat_direct_${idx}" placeholder="직접 입력하거나 위에서 선택" ` +
-               `value="${escHtml(curPat)}" style="flex:1;font-size:var(--fs-xs)" data-input-action="applyBatchPreset" data-idx="${idx}">` +
+    '<div class="sec-top-line">' +
+      '<div class="u-fs-xs u-fw-600 u-text2 u-mb-4">직접 입력 (정규식)</div>' +
+      '<div class="u-flex u-gap-6">' +
+        `<input class="u-flex-1 u-fs-xs inp" id="bpat_direct_${idx}" placeholder="직접 입력하거나 위에서 선택" ` +
+               `value="${escHtml(curPat)}" data-input-action="applyBatchPreset" data-idx="${idx}">` +
         `<button class="btn btn-blue btn-sm" data-action="confirmBatchPreset" data-idx="${idx}">✅ 적용</button>` +
       '</div>' +
-      `<div id="bpat_preview_${idx}" style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px">` +
+      `<div id="bpat_preview_${idx}" class="u-fs-xs u-text2 u-mt-4">` +
         (curPat?'현재: '+escHtml(curPat):'(자동 감지)') +
       '</div>' +
     '</div>' +
@@ -2907,15 +2907,15 @@ function _batchIntervalSectionHtml(idx, lines, tc){
   if(!est) est=lines.length?estimateIntervalTotal(lines, B.txtFiles?.[idx]?.name||''):1;
   est=Math.max(1, Math.min(9999, est||1));
   const active=!!_resolveBatchSplit(idx);
-  return '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">' +
-      '<div style="font-size:var(--fs-xs);font-weight:600;color:var(--text2);margin-bottom:4px">간격 분할 (N화)</div>' +
-      '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
-        `<input class="inp" type="number" min="1" max="9999" id="bint_total_${idx}" value="${est}" aria-label="간격 분할 화수" style="width:90px;font-size:var(--fs-xs)">` +
-        '<span style="font-size:var(--fs-xs);color:var(--text2)">화로 균등 분할 (제목 줄이 있으면 그 줄에서 분할)</span>' +
+  return '<div class="sec-top-line">' +
+      '<div class="u-fs-xs u-fw-600 u-text2 u-mb-4">간격 분할 (N화)</div>' +
+      '<div class="u-row-wrap-6">' +
+        `<input class="u-w-90 u-fs-xs inp" type="number" min="1" max="9999" id="bint_total_${idx}" value="${est}" aria-label="간격 분할 화수">` +
+        '<span class="txt-meta-sm">화로 균등 분할 (제목 줄이 있으면 그 줄에서 분할)</span>' +
         `<button class="btn btn-blue btn-sm" data-action="applyBatchInterval" data-idx="${idx}">간격 분할 적용</button>` +
-        `<button class="btn btn-ghost btn-sm" id="bint_clear_${idx}" data-action="clearBatchInterval" data-idx="${idx}" style="display:${active?'':'none'}">↩ 패턴 모드로</button>` +
+        `<button class="btn btn-ghost btn-sm" id="bint_clear_${idx}" data-action="clearBatchInterval" data-idx="${idx}"${active?'':' hidden'}>↩ 패턴 모드로</button>` +
       '</div>' +
-      `<div id="bint_preview_${idx}" style="font-size:var(--fs-xs);color:var(--text2);margin-top:4px">` +
+      `<div id="bint_preview_${idx}" class="u-fs-xs u-text2 u-mt-4">` +
         (active?'간격 분할 적용됨':'패턴 감지 모드로 변환해요.') +
       '</div>' +
     '</div>';

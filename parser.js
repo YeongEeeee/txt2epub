@@ -2322,8 +2322,8 @@ async function previewToc(){
     const dC = ((newChars - _prevChars)/10000).toFixed(1);
     const dNStr = (dN>0?'+':'')+dN+'챕터';
     const dCStr = (parseFloat(dC)>0?'+':'')+dC+'만자';
-    const col = dN>=0?'var(--green)':'var(--accent)';
-    Toast.info(`재감지 완료 — <span style="color:${col};font-weight:600">${dNStr}</span>, <span style="color:${col};font-weight:600">${dCStr}</span>`, 4000);
+    const colCls = dN>=0?'u-green':'u-accent';   // ★ Phase 20: 색은 고정 토큰 클래스 (CSP: style 속성 없음)
+    Toast.info(`재감지 완료 — <span class="u-fw-600 ${colCls}">${dNStr}</span>, <span class="u-fw-600 ${colCls}">${dCStr}</span>`, 4000);
   }
 
   // ★ I8: 연속 짧은 챕터 자동 병합 제안
@@ -2360,14 +2360,14 @@ async function previewToc(){
     document.getElementById('patAdvanced')?.setAttribute('open','');
     const c=document.getElementById('tb0');
     c?.insertAdjacentHTML('beforeend',
-      '<div style="margin-top:12px;padding:12px;background:var(--blue-bg);border-radius:var(--radius-sm);border:1.5px solid var(--blue)">'+
-      '<div style="font-size:var(--fs-sm);font-weight:600;color:var(--blue);margin-bottom:6px">ℹ️ 챕터 패턴을 감지하지 못했어요</div>'+
-      '<div style="font-size:var(--fs-xs);color:var(--text2);line-height:1.7">'+
+      '<div class="info-box-blue">'+
+      '<div class="u-fs-sm u-fw-600 u-blue u-mb-6">ℹ️ 챕터 패턴을 감지하지 못했어요</div>'+
+      '<div class="u-fs-xs u-text2 u-lh-17">'+
         '하지만 <b>텍스트 전체는 그대로 EPUB에 포함</b>돼요.<br>'+
         '목차 없이 변환하면 일정 줄 수 단위로 자동 페이지 분할해 저장해요.<br>'+
         '목차 이동이 필요하면 아래에서 패턴을 직접 입력하거나 간격 분할을 사용하세요.'+
       '</div>'+
-      '<div style="display:flex;gap:8px;margin-top:8px">'+
+      '<div class="u-flex u-gap-8 u-mt-8">'+
         '<button class="btn btn-ghost btn-sm" data-action="tocTab" data-idx="3">패턴 직접 입력</button>'+
         '<button class="btn btn-blue btn-sm" data-action="autoSplitByInterval">간격 분할</button>'+
       '</div>'+
@@ -2406,7 +2406,7 @@ async function previewToc(){
   document.getElementById('tocPanel')?.classList.add('show');
   tocTab(0);
   document.getElementById('tb0')?.insertAdjacentHTML('afterbegin',
-    '<div id="tocDetectLabel" style="font-size:var(--fs-xs);color:var(--text2);margin-bottom:8px;padding:0 4px">'+escHtml(patLabel)+'</div>');
+    '<div id="tocDetectLabel" class="u-fs-xs u-text2 u-mb-8 u-p-0-4">'+escHtml(patLabel)+'</div>');
   refreshDetectedChip();
 
   // ★ 유사 목차 후보 검색 — PAT_PRESETS 전체 점수화 (yield 포함 비동기, 메인 스레드 블로킹 방지)
@@ -2422,10 +2422,10 @@ async function previewToc(){
       ? Math.round(found.length/_fullRawLines.length*100*10)/10
       : 0;
     const safeLevel = matchRate>=5?'안전':matchRate>=1?'보통':'주의';
-    const safeColor = matchRate>=5?'var(--green)':matchRate>=1?'var(--accent)':'var(--red)';
+    const safeColorCls = matchRate>=5?'u-green':matchRate>=1?'u-accent':'u-red';   // ★ Phase 20: 색은 고정 토큰 클래스
     Toast.info(
-      `매칭률 <b style="color:${safeColor}">${matchRate}%</b> — `+
-      `<b style="color:${safeColor}">${safeLevel}</b> · ${found.length}개 목차 감지`,
+      `매칭률 <b class="${safeColorCls}">${matchRate}%</b> — `+
+      `<b class="${safeColorCls}">${safeLevel}</b> · ${found.length}개 목차 감지`,
       3500
     );
   } else {
@@ -2666,20 +2666,20 @@ function showSuspiciousToast(count){
     'box-shadow:var(--shadow-lg);font-family:inherit;'+
     'animation:toastIn .25s ease;max-width:420px;width:90vw';
   el.innerHTML=
-    '<span style="font-size:var(--fs-lg);flex-shrink:0">⚠️</span>'+
-    '<div style="flex:1;min-width:0">'+
-      '<div style="font-size:var(--fs-sm);font-weight:700;color:var(--text);margin-bottom:3px">'+
+    '<span class="u-fs-lg u-shrink-0">⚠️</span>'+
+    '<div class="u-flex-1 u-minw-0">'+
+      '<div class="u-fs-sm u-fw-700 u-text u-mb-3">'+
         '본문 짧음 챕터 <span id="susp-toast-count">'+count+'</span>개 감지</div>'+
-      '<div style="font-size:var(--fs-xs);color:var(--text2);line-height:1.5">'+
+      '<div class="u-fs-xs u-text2 u-lh-15">'+
         '⤵ 병합 버튼으로 다음 챕터와 합치거나 전체 제거할 수 있어요.'+
       '</div>'+
     '</div>'+
-    '<div style="display:flex;flex-direction:column;gap:5px;flex-shrink:0">'+
-      '<button id="susp-remove-all-btn" class="btn btn-sm" '+
-        'style="font-size:var(--fs-xs);background:var(--accent);color:var(--on-accent);border-radius:var(--radius-xs);padding:5px 10px;white-space:nowrap">'+
+    '<div class="u-col-5 u-shrink-0">'+
+      '<button id="susp-remove-all-btn" class="btn-pill-accent btn btn-sm" '+
+        '>'+
         '전체 병합</button>'+
-      '<button id="susp-toast-close" class="btn btn-ghost btn-sm" '+
-        'style="font-size:var(--fs-xs);border-radius:var(--radius-xs);padding:4px 10px">'+
+      '<button id="susp-toast-close" class="u-fs-xs u-r-xs u-pad-btn-xs btn btn-ghost btn-sm" '+
+        '>'+
         '닫기</button>'+
     '</div>';
 
@@ -2781,12 +2781,12 @@ function renderTocItems(){
   const filterBar=document.createElement('div');
   filterBar.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap';
   filterBar.innerHTML=
-    '<input id="toc-search" class="inp" placeholder="🔍 제목 검색..." style="flex:1;min-width:120px;font-size:var(--fs-xs);padding:5px 8px">'+
+    '<input id="toc-search" class="u-flex-1 u-minw-120 u-fs-xs u-p-5-8 inp" placeholder="🔍 제목 검색...">'+
     // ★ 개선 01: 선택 모드 토글 버튼 (항상 노출)
-    '<button class="btn btn-ghost btn-sm" id="toc-select-mode-btn" title="클릭으로 다중 선택 모드 전환 (터치·모바일 친화)" style="font-size:var(--fs-xs);white-space:nowrap">☑ 선택 모드</button>'+
+    '<button class="u-fs-xs u-nowrap btn btn-ghost btn-sm" id="toc-select-mode-btn" title="클릭으로 다중 선택 모드 전환 (터치·모바일 친화)">☑ 선택 모드</button>'+
     // ★ 개선 06: 짧은챕터 자동 선택
-    '<button class="btn btn-ghost btn-sm" id="toc-auto-sel-susp" title="⚠ 짧은챕터 항목 전체 선택" style="font-size:var(--fs-xs);white-space:nowrap;display:none">⚠ 자동 선택</button>'+
-    '<button class="btn btn-ghost btn-sm" data-action="undoToc" title="되돌리기 (최대 10단계)" style="font-size:var(--fs-xs)">↩ Undo</button>';
+    '<button class="btn btn-ghost btn-sm u-fs-xs u-nowrap" id="toc-auto-sel-susp" title="⚠ 짧은챕터 항목 전체 선택" hidden>⚠ 자동 선택</button>'+
+    '<button class="u-fs-xs btn btn-ghost btn-sm" data-action="undoToc" title="되돌리기 (최대 10단계)">↩ Undo</button>';
   c.appendChild(filterBar);
 
   const searchInp=filterBar.querySelector('#toc-search');
@@ -2823,7 +2823,7 @@ function renderTocItems(){
   const autoSelBtn=filterBar.querySelector('#toc-auto-sel-susp');
   function updateAutoSelBtn(){
     const suspCount=S.tocItems.filter(t=>t.suspicious).length;
-    if(autoSelBtn) autoSelBtn.style.display=(suspCount>0&&!_tocFilterQ)?'':'none';
+    setShown(autoSelBtn, suspCount>0&&!_tocFilterQ);
   }
   updateAutoSelBtn();
   autoSelBtn?.addEventListener('click',()=>{
@@ -2846,11 +2846,11 @@ function renderTocItems(){
   const toolbarTop=document.createElement('div');
   toolbarTop.style.cssText='display:flex;align-items:center;gap:8px;flex-wrap:wrap';
   toolbarTop.innerHTML=
-    '<span id="toc-sel-count" style="font-size:var(--fs-xs);color:var(--blue);font-weight:600">0개 선택됨</span>'+
-    '<button class="btn btn-sm" id="toc-merge-btn" style="font-size:var(--fs-xs);padding:3px 10px;background:var(--blue);color:var(--on-accent);border:none;border-radius:var(--radius-xs)">🔗 병합</button>'+
-    '<button class="btn btn-sm" id="toc-sel-clear" style="font-size:var(--fs-xs);padding:3px 8px;background:none;border:1.5px solid var(--blue);color:var(--blue);border-radius:var(--radius-xs)">✕ 해제</button>'+
+    '<span id="toc-sel-count" class="u-fs-xs u-blue u-fw-600">0개 선택됨</span>'+
+    '<button class="btn-blue-fill u-p-3-10 u-bd-none btn btn-sm" id="toc-merge-btn">🔗 병합</button>'+
+    '<button class="btn-blue-line u-pad-btn-xxs btn btn-sm" id="toc-sel-clear">✕ 해제</button>'+
     // ★ 개선 05: 첫 번째 선택 항목으로 스크롤
-    '<button class="btn btn-sm" id="toc-scroll-sel" title="선택한 첫 항목으로 스크롤" style="font-size:var(--fs-xs);padding:3px 7px;background:none;border:1.5px solid var(--blue);color:var(--blue);border-radius:var(--radius-xs)">📍 위치</button>';
+    '<button class="btn-blue-line u-p-3-7 btn btn-sm" id="toc-scroll-sel" title="선택한 첫 항목으로 스크롤">📍 위치</button>';
   toolbar.appendChild(toolbarTop);
 
   // ★ 개선 05: 미니맵 — 선택된 인덱스 나열
@@ -2872,14 +2872,14 @@ function renderTocItems(){
   titleEditArea.id='toc-merge-title-edit';
   titleEditArea.style.cssText='display:none;gap:6px;align-items:center;flex-wrap:wrap';
   titleEditArea.innerHTML=
-    '<span style="font-size:var(--fs-xs);color:var(--blue);font-weight:600;flex-shrink:0">📝 제목:</span>'+
-    '<input id="toc-merge-title-inp" class="inp" style="flex:1;min-width:120px;font-size:var(--fs-xs);padding:3px 7px">'+
-    '<div style="display:flex;gap:4px;flex-shrink:0">'+
-      '<button class="btn btn-sm" id="toc-mtitle-first" title="첫 챕터 제목 사용" style="font-size:var(--fs-xs);padding:2px 6px">첫 제목</button>'+
-      '<button class="btn btn-sm" id="toc-mtitle-range" title="범위 표기 (1~N화)" style="font-size:var(--fs-xs);padding:2px 6px">범위</button>'+
-      '<button class="btn btn-sm" id="toc-mtitle-join" title="이어붙이기" style="font-size:var(--fs-xs);padding:2px 6px">이어붙이기</button>'+
-      '<button class="btn btn-sm" id="toc-mtitle-apply" style="font-size:var(--fs-xs);padding:2px 8px;background:var(--blue);color:var(--on-accent);border-radius:var(--radius-xs)">✓ 적용</button>'+
-      '<button class="btn btn-sm" id="toc-mtitle-close" title="닫기" style="font-size:var(--fs-xs);padding:2px 6px">✕</button>'+
+    '<span class="u-fs-xs u-blue u-fw-600 u-shrink-0">📝 제목:</span>'+
+    '<input id="toc-merge-title-inp" class="u-flex-1 u-minw-120 u-fs-xs u-p-3-7 inp">'+
+    '<div class="u-flex u-gap-4 u-shrink-0">'+
+      '<button class="u-fs-xs u-p-2-6 btn btn-sm" id="toc-mtitle-first" title="첫 챕터 제목 사용">첫 제목</button>'+
+      '<button class="u-fs-xs u-p-2-6 btn btn-sm" id="toc-mtitle-range" title="범위 표기 (1~N화)">범위</button>'+
+      '<button class="u-fs-xs u-p-2-6 btn btn-sm" id="toc-mtitle-join" title="이어붙이기">이어붙이기</button>'+
+      '<button class="btn-blue-fill u-p-2-8 btn btn-sm" id="toc-mtitle-apply">✓ 적용</button>'+
+      '<button class="u-fs-xs u-p-2-6 btn btn-sm" id="toc-mtitle-close" title="닫기">✕</button>'+
     '</div>';
   toolbar.appendChild(titleEditArea);
 
@@ -2895,7 +2895,7 @@ function renderTocItems(){
       const ok=await Toast.confirm(
         '🔍 검색 필터가 활성 상태예요.<br>'+
         '필터된 화면에서 선택된 '+idxs.length+'개를 병합할까요?<br>'+
-        '<span style="color:var(--text2);font-size:var(--fs-xs)">숨겨진 항목은 영향을 받지 않아요.</span>'
+        '<span class="txt-meta-sm">숨겨진 항목은 영향을 받지 않아요.</span>'
       );
       if(!ok) return;
     }
@@ -2986,10 +2986,10 @@ function renderTocItems(){
       const sortedIdxs=[..._selectedIdxs].sort((a,b)=>a-b);
       const labels=sortedIdxs.slice(0,8).map(i=>{
         const t=S.tocItems[i]?.title||'';
-        return '<span style="background:var(--blue);color:var(--on-accent);border-radius:var(--radius-xs);padding:0 4px;margin:1px;display:inline-block">'+
+        return '<span class="sel-chip">'+
           escHtml(t.length>10?t.slice(0,10)+'…':t)+'</span>';
       });
-      const more=n>8?` <span style="color:var(--blue)">+${n-8}개</span>`:'';
+      const more=n>8?` <span class="u-blue">+${n-8}개</span>`:'';
       minimap.innerHTML=labels.join('')+more;
       minimap.style.display='';
     } else {
@@ -3004,14 +3004,14 @@ function renderTocItems(){
       const previews=sortedIdxs.slice(0,5).map(i=>{
         const t=S.tocItems[i];
         const firstLine=_tocItemText(t,200).split('\n').find(l=>l.trim())||'(본문 없음)';
-        return `<div style="border-left:2px solid var(--blue);padding-left:6px;margin:2px 0">
-          <b style="font-size:var(--fs-xs);color:var(--blue)">${escHtml(t?.title||'')}</b>
-          <span style="font-size:var(--fs-xs);opacity:.7"> — ${escHtml(firstLine.slice(0,40))}${firstLine.length>40?'…':''}</span>
+        return `<div class="merge-prev-item">
+          <b class="u-fs-xs u-blue">${escHtml(t?.title||'')}</b>
+          <span class="u-fs-xs u-op-70"> — ${escHtml(firstLine.slice(0,40))}${firstLine.length>40?'…':''}</span>
         </div>`;
       });
-      const morePreview=n>5?`<div style="font-size:var(--fs-xs);color:var(--text2);margin-top:2px">외 ${n-5}개 챕터...</div>`:'';
+      const morePreview=n>5?`<div class="u-fs-xs u-text2 u-mt-2">외 ${n-5}개 챕터...</div>`:'';
       previewPanel.innerHTML=  // safe-html: totalWan은 숫자로 만든 문자열, 제목은 escHtml
-        `<div style="font-weight:600;color:var(--blue);margin-bottom:4px;font-size:var(--fs-xs)">병합하면 <b>${totalWan}</b> 챕터가 됩니다</div>`+
+        `<div class="u-fw-600 u-blue u-mb-4 u-fs-xs">병합하면 <b>${totalWan}</b> 챕터가 됩니다</div>`+
         previews.join('')+morePreview;
       previewPanel.style.display='';
     } else {
@@ -3443,21 +3443,20 @@ function updateTocStat(){
   const longCount = S.tocItems.filter(t=>t.enabled&&(t.bodyLen||0)>50000).length;
 
   // ★ I2: 통계 칩 배지 스타일
-  const chip = (txt,color)=>
-    `<span style="display:inline-flex;align-items:center;font-size:var(--fs-xs);padding:1px 7px;border-radius:99px;white-space:nowrap;background:${color.bg};color:${color.fg};border:1px solid ${color.bd}">${txt}</span>`;
+  // ★ Phase 20: 통계 칩 색은 tone 클래스 (CSP: style 속성 없음) — stat-chip은 테두리 색을 currentColor 대신 tone별로 지정
+  const chip = (txt,tone)=>
+    `<span class="stat-chip chip-${tone}">${txt}</span>`;
 
   const statChips = [
-    chip('총 '+totalWanStr, {bg:'var(--blue-bg)',fg:'var(--blue)',bd:'var(--blue)'}),
-    chip('평균 '+avgChars.toLocaleString()+'자', {bg:'var(--bg2)',fg:'var(--text2)',bd:'var(--border)'}),
-    shortCount>0 ? chip('⚠ 짧은챕터 '+shortCount+'(기준:'+_suspThr+'자)', {bg:'var(--accent-bg)',fg:'var(--accent)',bd:'var(--accent)'}) : '',
-    longCount>0  ? chip('📌 긴챕터 '+longCount,    {bg:'var(--blue-bg)',fg:'var(--blue)',bd:'var(--blue)'}) : '',
+    chip('총 '+totalWanStr, 'blue'),
+    chip('평균 '+avgChars.toLocaleString()+'자', 'muted'),
+    shortCount>0 ? chip('⚠ 짧은챕터 '+shortCount+'(기준:'+_suspThr+'자)', 'accent') : '',
+    longCount>0  ? chip('📌 긴챕터 '+longCount,    'blue') : '',
   ].filter(Boolean).join('');
 
   // ★ I5: 짧은 챕터 배지 클릭 시 스크롤 — 이벤트 위임으로 처리
   const suspBtn=suspCount>0
-    ? '<button class="btn btn-sm" data-action="removeAllSuspicious" '+
-      'style="font-size:var(--fs-xs);background:var(--accent-bg);color:var(--accent);'+
-      'border:1px solid var(--accent);border-radius:var(--radius-xs);display:inline-flex;align-items:center;gap:4px"'+
+    ? '<button class="btn btn-sm btn-accent-line" data-action="removeAllSuspicious"'+
       ' title="본문 짧음 항목을 목차에서 모두 제거합니다">'+
       '<span>⚠</span><span>본문 짧음 '+suspCount+'개 전체 제거</span></button>'
     : '';
@@ -3466,9 +3465,9 @@ function updateTocStat(){
     '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="true">전체 선택</button>'+
     '<button class="btn btn-ghost btn-sm" data-action="toggleAllToc" data-val="false">전체 해제</button>'+
     suspBtn+
-    '<span style="display:flex;gap:4px;align-items:center;margin-left:auto;flex-wrap:wrap">'+
+    '<span class="u-row-wrap-4 u-ml-auto">'+
       statChips+
-      '<span style="font-size:var(--fs-xs);color:var(--text2)">'+total+'개 중 '+active+'개 활성</span>'+
+      '<span class="txt-meta-sm">'+total+'개 중 '+active+'개 활성</span>'+
     '</span>';
 
   // ★ A-04: 변환 탭 버튼 배지
@@ -3576,9 +3575,9 @@ async function renderTocPreview(){
     const div=document.createElement('div');
     div.className='toc-preview-item'+(idx===_previewActiveIdx?' active':'');
     div.innerHTML=  // safe-html: item.line은 줄 번호(숫자), 제목은 escHtml
-      '<div style="display:flex;align-items:center;gap:6px">'+
-      '<span style="font-size:var(--fs-xs);color:var(--text2);min-width:36px">'+item.line+'줄</span>'+
-      '<span style="font-size:var(--fs-sm);font-weight:600;flex:1">'+escHtml(item.title)+'</span>'+
+      '<div class="u-row-6b">'+
+      '<span class="u-fs-xs u-text2 u-minw-36">'+item.line+'줄</span>'+
+      '<span class="u-fs-sm u-fw-600 u-flex-1">'+escHtml(item.title)+'</span>'+
       '</div>'+
       (idx===_previewActiveIdx?'<div class="toc-preview-body" id="tpb_'+idx+'"></div>':'');
     div.onclick=()=>{
@@ -3835,14 +3834,14 @@ function _renderTitleTemplateBar(){
     'display:flex;align-items:center;gap:6px;flex-wrap:wrap;'+
     'padding:6px 8px;background:var(--bg2);border-radius:var(--radius-xs);margin:4px 0 8px;';
   bar.innerHTML=
-    '<span style="font-size:var(--fs-xs);color:var(--text2);flex-shrink:0">📝 제목 일괄:</span>'+
-    '<button class="btn btn-ghost btn-sm" data-tpl="제{N}화" style="font-size:var(--fs-xs)">제{N}화</button>'+
-    '<button class="btn btn-ghost btn-sm" data-tpl="Chapter {N}" style="font-size:var(--fs-xs)">Chapter {N}</button>'+
-    '<button class="btn btn-ghost btn-sm" data-tpl="{N}화" style="font-size:var(--fs-xs)">{N}화</button>'+
-    '<input class="inp" id="title-tpl-custom" placeholder="직접 입력 ({N}=번호)" '+
-      'style="flex:1;min-width:80px;font-size:var(--fs-xs);padding:3px 7px">'+
-    '<button class="btn btn-accent btn-sm" id="title-tpl-apply" style="font-size:var(--fs-xs)">적용</button>'+
-    '<button class="btn btn-ghost btn-sm" id="title-tpl-close" style="font-size:var(--fs-xs);padding:2px 6px">✕</button>';
+    '<span class="u-fs-xs u-text2 u-shrink-0">📝 제목 일괄:</span>'+
+    '<button class="u-fs-xs btn btn-ghost btn-sm" data-tpl="제{N}화">제{N}화</button>'+
+    '<button class="u-fs-xs btn btn-ghost btn-sm" data-tpl="Chapter {N}">Chapter {N}</button>'+
+    '<button class="u-fs-xs btn btn-ghost btn-sm" data-tpl="{N}화">{N}화</button>'+
+    '<input class="u-flex-1 u-minw-80 u-fs-xs u-p-3-7 inp" id="title-tpl-custom" placeholder="직접 입력 ({N}=번호)" '+
+      '>'+
+    '<button class="u-fs-xs btn btn-accent btn-sm" id="title-tpl-apply">적용</button>'+
+    '<button class="u-fs-xs u-p-2-6 btn btn-ghost btn-sm" id="title-tpl-close">✕</button>';
   bar.querySelectorAll('[data-tpl]').forEach(btn=>{
     btn.addEventListener('click',()=>{
       const el=document.getElementById('title-tpl-custom');
@@ -4026,7 +4025,7 @@ async function autoSplitByInterval(hybridMode=false){
   const promptMsg=
     '총 화수를 입력하세요.<br>'+
     `파일 총 줄 수: <b>${totalLines.toLocaleString()}줄</b>  ·  자동 추정: 약 <b>${clampedEstimate}화</b><br>`+
-    (lastTotal>0?`<span style="font-size:var(--fs-xs);color:var(--blue)">마지막 설정: ${lastTotal}화</span>`:'');
+    (lastTotal>0?`<span class="u-fs-xs u-blue">마지막 설정: ${lastTotal}화</span>`:'');
 
   const input=await Toast.prompt(promptMsg, String(suggestVal));
   if(input===null) return; // 취소
@@ -4078,10 +4077,10 @@ async function autoSplitByInterval(hybridMode=false){
   const interval=Math.floor(totalLines/totalChapters);
   const modeLabel=hybridMode?'🔀 하이브리드':'⚡ 간격 분할';
   document.getElementById('tb0')?.insertAdjacentHTML('afterbegin',  // safe-html: 모드 이름은 고정 문구, 나머지는 숫자
-    `<div style="font-size:var(--fs-xs);color:var(--text2);margin-bottom:8px;padding:0 4px">
+    `<div class="u-fs-xs u-text2 u-mb-8 u-p-0-4">
       <span class="toc-auto-badge">${modeLabel} (${interval}줄 간격, ${finalItems.length}화)</span>
-      <span style="margin-left:6px;font-size:var(--fs-xs)">균등도 ${quality.score}% · 평균 ${avgWan}/화</span>
-      <br><span style="color:var(--accent);font-size:var(--fs-xs)">⚠️ 제목이 부정확할 수 있어요. 목차에서 확인 후 수정하세요.</span>
+      <span class="u-ml-6 u-fs-xs">균등도 ${quality.score}% · 평균 ${avgWan}/화</span>
+      <br><span class="u-accent u-fs-xs">⚠️ 제목이 부정확할 수 있어요. 목차에서 확인 후 수정하세요.</span>
     </div>`
   );
 

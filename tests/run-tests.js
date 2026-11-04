@@ -19,6 +19,7 @@
  *  12. Phase 17: StateManager 구독 2단계(변환 진행·결과 → 버튼·다운로드 바)·인라인 style 2단계
  *  13. Phase 18: 표시 전환 = hidden 속성 단일 경로(setShown) — 인라인 display:none 제거
  *  14. Phase 19: index.html 인라인 style 0 — 원자 유틸리티·의미 클래스, 유틸리티 속성 충돌 검사
+ *  15. Phase 20: JS 마크업 style 속성 0 → CSP style-src 'unsafe-inline' 제거
  */
 'use strict';
 const fs   = require('fs');
@@ -531,6 +532,8 @@ async function main(){
   }
 
   const readRoot = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+  // 스타일 블록 범위: 표식부터 다음 '★ Phase' 블록 주석 전까지 (이후 Phase 규칙이 섞이지 않도록)
+  const cssBlock = (css, tag) => { const st = css.indexOf(tag); if(st < 0) return ''; const nx = css.indexOf('/* ★ Phase', st + tag.length); return css.slice(st, nx < 0 ? css.length : nx); };
   // 앱 파일에서 최상위 function/const 선언 하나를 원문 그대로 잘라냄 (DOM 의존 파일을 통째로 로드하지 않기 위함)
   const extract = (src, name) => {
     const m = new RegExp('(?:^|\\n)((?:async\\s+)?function\\s+' + name + '\\s*\\(|const\\s+' + name + '\\s*=)').exec(src);
@@ -941,7 +944,7 @@ async function main(){
     const cnt = {}; styleTags.forEach(m => { cnt[m[1]] = (cnt[m[1]] || 0) + 1; });
     const leftover = styleTags.filter(m => !/display:\s*none/.test(m[1]) && /\sid="[A-Za-z][\w-]*"/.test(m[0]) && cnt[m[1]] === 1);
     check('[스타일] id가 있는 요소의 1회성 style은 모두 #id 규칙으로 (display:none 토글 제외)', leftover.length === 0, leftover.map(m => m[0].slice(0, 60)).join(' / '));
-    const p17 = css.slice(css.indexOf('★ Phase 17: 인라인 style 2단계'));
+    const p17 = cssBlock(css, '★ Phase 17: 인라인 style 2단계');
     const used = new Set([...html.matchAll(/\sclass="([^"]*)"/g)].flatMap(m => m[1].split(/\s+/)));
     const newCls = [...p17.matchAll(/^\.([\w-]+)\{/gm)].map(m => m[1]);
     check('[스타일] Phase 17 새 클래스는 모두 사용 중·정의 1회', newCls.length >= 10 && newCls.every(c => used.has(c)) &&
@@ -979,7 +982,7 @@ async function main(){
     check('[표시] 탭형 전환(목차 탭·편집 목차 탭·편집 하위 탭·하단 바)도 setShown', /setShown\(document\.getElementById\('tb'\+i\), i===n\)/.test(allJs) && /setShown\(el,i===n\);/.test(read('edit.js')) &&
       /setShown\(panel,active\);/.test(read('edit.js')) && /setShown\(document\.getElementById\('btmBatch'\), name==='batch'\);/.test(read('ui-state.js')));
     // 13-4. CSS — 보일 때의 display 값과 선택자 정리
-    const p18 = css.slice(css.indexOf('★ Phase 18:'));
+    const p18 = cssBlock(css, '★ Phase 18:');
     check('[표시] [hidden]{display:none!important} 유지 + Phase 18 #id 규칙(보일 때 flex·block·grid)', /\[hidden\]\{display:none!important\}/.test(css) && css.includes('★ Phase 18:') &&
       ['#btmDownload{display:flex', '#convertResetBar{display:flex', '#cssImportClasses{display:grid', '#splitSec{display:block', '#txtFileList{display:block'].every(r => p18.includes(r)));
     const p18Ids = [...p18.matchAll(/^#([\w-]+)\{/gm)].map(m => m[1]);
@@ -994,7 +997,7 @@ async function main(){
     const html = read('index.html'), css = read('style.css');
     const styleAttrs = (html.match(/\sstyle="/g) || []).length;
     check('[스타일] index.html 인라인 style 속성 0개 (266 → 183 → 120 → 72 → 0, 계산된 스타일·화면 픽셀 동일 확인)', styleAttrs === 0, `style 속성 ${styleAttrs}개`);
-    const p19 = css.slice(css.indexOf('★ Phase 19:'));
+    const p19 = cssBlock(css, '★ Phase 19:');
     const defs = [...p19.matchAll(/^\.([\w-]+)\{([^}]*)\}/gm)];
     const used = new Set([...html.matchAll(/\sclass="([^"]*)"/g)].flatMap(m => m[1].split(/\s+/)));
     check('[스타일] Phase 19 클래스는 모두 사용 중·정의 1회', css.includes('★ Phase 19:') && defs.length >= 50 && defs.every(m => used.has(m[1])) &&
@@ -1010,6 +1013,43 @@ async function main(){
     }
     check('[스타일] 한 요소의 유틸리티 클래스끼리 같은 속성 충돌 없음', clash.length === 0, [...new Set(clash)].slice(0, 6).join(' / '));
     check('[스타일] 한 태그에 class 속성 중복 없음 (4단계 후)', !/<[a-z][^>]*\sclass="[^"]*"[^>]*\sclass="/i.test(html));
+  }
+
+  // ── 15. Phase 20 — JS 마크업 style 속성 0 → CSP style-src 'unsafe-inline' 제거 ──
+  {
+    const read = readRoot;
+    const html = read('index.html'), css = read('style.css'), hdr = read('_headers');
+    const pageJs = ['parser.js', 'convert.js', 'edit.js', 'ui-state.js', 'settings.js', 'cover-search.js', 'core.js', 'main.js'];
+    const src = Object.fromEntries(pageJs.map(f => [f, read(f)]));
+    const allJs = Object.values(src).join('\n');
+    // 15-1. 화면에 들어가는 마크업에 style 속성 없음 (EPUB 파일 내용의 <style>은 페이지가 아니라 ZIP에 기록 — 대상 아님)
+    const styleAttr = pageJs.flatMap(f => [...src[f].matchAll(/\sstyle=\\?["']/g)].map(m => f + ':' + src[f].slice(0, m.index).split('\n').length));
+    check('[CSP] JS가 만드는 마크업에 style 속성 0개 (164 → 0)', styleAttr.length === 0, styleAttr.slice(0, 6).join(' / '));
+    check('[CSP] style 속성을 만드는 다른 경로 없음 (setAttribute(\'style\')·페이지용 <style> 요소)', !/setAttribute\(\s*['"]style['"]/.test(allJs) && !/createElement\(\s*['"]style['"]\s*\)/.test(allJs));
+    // 15-2. CSP — 헤더와 meta가 같고 style-src에 'unsafe-inline' 없음
+    const hdrCsp = (hdr.match(/Content-Security-Policy:\s*([^\n]+)/) || [])[1] || '';
+    const metaCsp = (html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/) || [])[1] || '';
+    const styleSrc = c => (c.match(/style-src ([^;]+)/) || [])[1] || '';
+    check('[CSP] style-src \'self\' + Google Fonts만 (unsafe-inline 없음, 헤더 = meta)', styleSrc(hdrCsp) === "'self' https://fonts.googleapis.com" && styleSrc(metaCsp) === styleSrc(hdrCsp) && !/unsafe/.test(hdrCsp) && !/unsafe/.test(metaCsp));
+    // 15-3. Phase 20 클래스 — 정의 1회·사용 중·하드코딩 색상 없음
+    const p20 = cssBlock(css, '★ Phase 20:');
+    const defs = [...p20.matchAll(/^\.([\w-]+)\{/gm)].map(m => m[1]);
+    const usedIn = c => allJs.includes(c) || html.includes(c) || (/^chip-/.test(c) && allJs.includes(`, '${c.slice(5)}')`));   // chip(txt,'blue') → chip-blue
+    check('[CSP] Phase 20 클래스 정의 1회·모두 사용 중', defs.length >= 80 && defs.every(c => (css.match(new RegExp('(^|\\n)\\.' + c + '\\{', 'g')) || []).length === 1) && defs.every(usedIn),
+      defs.filter(c => !usedIn(c)).join(','));
+    check('[CSP] Phase 20 블록에 하드코딩 색상 없음 (CSS 변수만)', !/#[0-9a-fA-F]{3,8}\b(?![\w-]*[.{ ])|rgba?\(|hsla?\(/.test(p20.replace(/#[\w-]+(?=[.{ \s])/g, '')));
+    // 15-4. 이전 인라인이 이기던 구체적 규칙과의 관계 유지 (검색창·단축키·삽화 행 입력)
+    check('[CSP] 더 구체적인 기존 규칙 위로 이전 인라인 값 유지', ['#toc-search.u-p-5-8{', '#shortcutHelp kbd.kbd-key{', '.mill-row .inp-sm,.mill-row-top .inp-sm{'].every(r => p20.includes(r)));
+    // 15-5. JS 템플릿의 정적 class 조합에서도 유틸리티끼리 같은 속성 충돌 없음
+    const utilDecl = {};
+    for (const m of css.matchAll(/(?:^|\n)\.(u-[\w-]+|txt-meta-sm)\{([^}]*)\}/g)) utilDecl[m[1]] = m[2].split(';').filter(Boolean).map(d => d.split(':')[0].trim());
+    const clash = [];
+    for (const m of allJs.matchAll(/\sclass=\\?"([^"$']*)/g)) { const seen = {};
+      for (const c of m[1].split(/\s+/)) for (const prop of (utilDecl[c] || [])) { if (seen[prop] && seen[prop] !== c) clash.push(`${seen[prop]}+${c}(${prop})`); seen[prop] = c; } }
+    check('[CSP] JS 템플릿 class 조합의 유틸리티 속성 충돌 없음', clash.length === 0, [...new Set(clash)].slice(0, 6).join(' / '));
+    // 15-6. 템플릿에서 숨김으로 만들던 요소는 hidden + setShown
+    check('[CSP] 템플릿의 처음 숨김 요소는 hidden 속성 + setShown 전환', /id="toc-auto-sel-susp"[^>]*\shidden>/.test(src['parser.js']) && /setShown\(autoSelBtn, suspCount>0&&!_tocFilterQ\);/.test(src['parser.js']) &&
+      /id="bmode_'\+i\+'" class="badge-blue-line" hidden>/.test(src['convert.js']) && /\$\{active\?'':' hidden'\}>/.test(src['convert.js']) && /setShown\(document\.getElementById\('eik_'\+id\), m==='keyword'\|\|m==='title'\);/.test(src['edit.js']));
   }
 
   if(UPDATE){

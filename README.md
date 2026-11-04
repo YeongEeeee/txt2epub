@@ -251,7 +251,7 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
     └── golden.json   — 기대 챕터 목록·감지 패턴·계층 형태
 ```
 
-> **총 코드량: 약 18,600줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 인라인 핸들러 0개 | 회귀 테스트 386개 통과 | epubcheck 0 오류
+> **총 코드량: 약 18,600줄** | 구문 오류 0개 | 미정의 참조 0개 | 등록 안 된 data-action 0개 | 인라인 핸들러 0개 | 회귀 테스트 394개 통과 | epubcheck 0 오류
 
 ### 상태 관리 (StateManager + Proxy)
 
@@ -430,7 +430,7 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
 - **서버 업로드 없음**: 모든 파일 처리가 브라우저 내에서 완료
 - **XSS 방지**: Toast confirm/prompt 모두 DOM API (`textContent`) 사용. Toast 메시지는 내부 생성 HTML(I9 delta 배지)에만 `innerHTML` 허용하며 외부 입력은 textContent로 처리
 - **입력 이스케이프**: `escHtml()`, `escAttr()`, `sanitizeLine()` 적용
-- **Content Security Policy**: 인라인 `<script>` 블록 없음 (단, 일부 버튼이 `onclick` 속성을 사용 — 엄격한 CSP를 걸려면 `unsafe-inline` 또는 해당 속성 정리 필요)
+- **Content Security Policy**: `script-src 'self'`·`style-src 'self'`(+Google Fonts) — 인라인 스크립트·`on*` 속성·`style` 속성 모두 없음 (Phase 15: 이벤트 위임, Phase 19~20: style 속성 → 클래스, 동적 값은 CSSOM `el.style.*`). Cloudflare `_headers`와 `<meta>`가 같은 정책
 - **JSZip SRI**: `lib/jszip.min.js`(Phase 15부터 로컬 배포)에 `integrity`(sha512) — 회귀 테스트가 파일 해시 = SRI 일치 확인
 - **CSP (Phase 15)**: `script-src 'self'` — 인라인 스크립트·`on*` 속성 0개(전부 이벤트 위임), Blob Worker는 `worker-src blob:`. Cloudflare `_headers`와 `index.html` meta가 같은 정책
 - **innerHTML 정적 검사 (Phase 15)**: 동적 값은 `escHtml` 등으로 이스케이프하거나 검토 후 `// safe-html: 이유` 주석 — 회귀 테스트가 강제
@@ -475,6 +475,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 20 (8) | JS 마크업 style 속성 0·setAttribute('style')·페이지용 <style> 없음, CSP style-src 'self'+Google Fonts(헤더 = meta, unsafe 없음), Phase 20 클래스 정의 1회·사용 중·하드코딩 색상 없음, 구체적 기존 규칙 위 인라인 값 유지, JS 템플릿 유틸리티 충돌 없음, 템플릿 숨김 요소 hidden+setShown |
 | Phase 19 (5) | index.html 인라인 style 0, Phase 19 클래스 사용·정의 1회·하드코딩 색상 없음, 한 요소의 유틸리티끼리 같은 속성 충돌 없음, class 속성 중복 없음 |
 | Phase 18 (10) | setShown 동작(hidden 토글·인라인 display 정리·null 안전), 인라인 display:none 0·style ≤72, hidden 요소의 style.display 직접 전환 없음, setShown 대상 id 존재, 판독도 hidden 기준, 탭형 전환, 보일 때 display 규칙·하드코딩 색상 없음, [style*=] 선택자 제거 |
 | Phase 17 (13) | S.converting 단일 소스(_convertRunning 제거)·버튼 disabled/aria-busy 구독, 다운로드 바 표시·숨김은 S.epubBlob 구독에서만·파일명 먼저 설정, 실제 StateManager 구독 순서, 인라인 style ≤120·id 1회성 style 잔여 0·새 클래스 사용/정의 1회·#id 대상 존재·하드코딩 색상 없음 |
@@ -497,7 +498,7 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 | 항목 | 수치 |
 |------|------|
 | 총 줄수 | JS 13,522줄 (+ HTML/CSS 2,600줄) |
-| 회귀 테스트 | 386개 통과 + epubcheck 0 오류 |
+| 회귀 테스트 | 394개 통과 + epubcheck 0 오류 |
 | 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |
@@ -643,6 +644,12 @@ settings.js 구문 오류 수정 (고아 코드 블록 제거)
 ├── id 없는 1회성 style 72곳 → 원자 유틸리티 45개(u-gap-8·u-py-4·u-bb 등) + 의미 클래스 16개(rx-guide·note-yellow·sec-caps·edit-tabs-bar 등)
 ├── 변환 스크립트가 클래스 조합 = 원래 선언(속성·값)인지, 같은 속성을 두 클래스가 지정하지 않는지 요소마다 검사
 └── index.html style 속성 72 → 0, 계산된 스타일 546개 속성 × 71개 요소 × 3개 화면 모드 동일 · 25개 화면 픽셀 동일
+↓
+[ Phase 20: CSP style-src 'unsafe-inline' 제거 ]
+├── JS 템플릿 style 속성 164곳 → 클래스 (정적 143곳 자동 변환·선언 일치 검사, 동적 색 → 고정 토큰 클래스, 숨김 → hidden + setShown)
+├── 새 유틸리티 53개 + 의미 클래스 32개 (modal-card·tag-xs·tone-*·stat-chip·chip-*·preset-opt·inp-sm·kbd-key·spark-bar 등)
+├── 인라인이 이기던 더 구체적인 기존 규칙 3곳(#toc-search·#shortcutHelp kbd·.mill-row input)은 범위 지정 규칙으로 이전 값 유지
+└── 사용 흐름 24단계 × 문서 전체 요소 계산된 스타일 이전 = 이후, 엄격 CSP에서 위반 0 → _headers·meta의 style-src에서 'unsafe-inline' 제거
 ```
 
 ---

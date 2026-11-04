@@ -13,7 +13,7 @@
 //     4. 새 SW는 대기(waiting) → main.js 업데이트 배너 → SKIP_WAITING → controllerchange → 새로고침
 //   JSZip은 Phase 15부터 lib/jszip.min.js로 함께 배포 (CDN 불필요 — 첫 방문 직후 오프라인 변환 가능)
 // ════════════════════════════════════════════════
-const CACHE_VERSION = 'h-bc98f3271f5e1abf';
+const CACHE_VERSION = 'h-4b3a8b2565029d03';
 const CACHE_NAME = 'novelepub-' + CACHE_VERSION;
 
 // 해시 대상이자 프리캐시 목록 — 로컬 자원만 ('./'는 index.html과 같은 문서)

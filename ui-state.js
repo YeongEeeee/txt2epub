@@ -664,21 +664,20 @@ function clearChipSelection(helperId){
 function showShortcutHelp(){
   const existing=document.getElementById('shortcutHelp');
   if(existing){existing.remove();return;}
-  const kbdStyle='background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:2px 6px';
   const el=document.createElement('div');
   el.id='shortcutHelp';
   el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:var(--radius);padding:20px 24px;z-index:9999;box-shadow:var(--shadow-xl);font-size:var(--fs-sm);min-width:280px';
-  el.innerHTML='<div style="font-size:var(--fs-base);font-weight:700;margin-bottom:12px;color:var(--text)">⌨️ 단축키</div>'+  // safe-html: kbdStyle은 고정 스타일 문자열
-    '<table style="border-collapse:collapse;width:100%;line-height:2"><tbody>'+
-    '<tr><td style="color:var(--text2);padding-right:16px"><kbd style="'+kbdStyle+'">Ctrl+Space</kbd></td><td>✨ 변환 시작</td></tr>'+
-    '<tr><td><kbd style="'+kbdStyle+'">Ctrl+S</kbd></td><td>⬇ EPUB 다운로드</td></tr>'+
-    '<tr><td><kbd style="'+kbdStyle+'">Ctrl+클릭</kbd></td><td>목차 다중 선택 (병합용)</td></tr>'+
-    '<tr><td><kbd style="'+kbdStyle+'">Shift+클릭</kbd></td><td>목차 범위 선택</td></tr>'+
-    '<tr><td><kbd style="'+kbdStyle+'">드래그 중앙</kbd></td><td>두 챕터 드래그 병합</td></tr>'+
-    '<tr><td><kbd style="'+kbdStyle+'">Ctrl+?</kbd></td><td>이 도움말 열기/닫기</td></tr>'+
-    '<tr><td><kbd style="'+kbdStyle+'">Esc</kbd></td><td>모달 닫기</td></tr>'+
+  el.innerHTML='<div class="u-fs-base u-fw-700 u-mb-12 u-text">⌨️ 단축키</div>'+  // safe-html: kbdStyle은 고정 스타일 문자열
+    '<table class="kbd-table"><tbody>'+
+    '<tr><td class="u-text2 u-pr-16"><kbd class="kbd-key">Ctrl+Space</kbd></td><td>✨ 변환 시작</td></tr>'+
+    '<tr><td><kbd class="kbd-key">Ctrl+S</kbd></td><td>⬇ EPUB 다운로드</td></tr>'+
+    '<tr><td><kbd class="kbd-key">Ctrl+클릭</kbd></td><td>목차 다중 선택 (병합용)</td></tr>'+
+    '<tr><td><kbd class="kbd-key">Shift+클릭</kbd></td><td>목차 범위 선택</td></tr>'+
+    '<tr><td><kbd class="kbd-key">드래그 중앙</kbd></td><td>두 챕터 드래그 병합</td></tr>'+
+    '<tr><td><kbd class="kbd-key">Ctrl+?</kbd></td><td>이 도움말 열기/닫기</td></tr>'+
+    '<tr><td><kbd class="kbd-key">Esc</kbd></td><td>모달 닫기</td></tr>'+
     '</tbody></table>'+
-    '<div style="text-align:right;margin-top:12px"><button class="btn btn-ghost btn-sm" id="shortcutHelpClose">닫기</button></div>';
+    '<div class="u-ta-right u-mt-12"><button class="btn btn-ghost btn-sm" id="shortcutHelpClose">닫기</button></div>';
   document.body.appendChild(el);
   document.getElementById('shortcutHelpClose')?.addEventListener('click',()=>el.remove());
 }

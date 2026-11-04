@@ -191,7 +191,7 @@ async function loadEpub(file){
   if(E.chapters.length>0){
     const lastCh=E.chapters[E.chapters.length-1];
     document.getElementById('insertPos').innerHTML=
-      '📍 <b>'+escHtml(lastCh.title)+'</b> <span style="color:var(--accent)">뒤</span>에 삽입 <span style="font-size:var(--fs-xs);color:var(--text2)">(기본값 - 클릭해서 변경)</span>';
+      '📍 <b>'+escHtml(lastCh.title)+'</b> <span class="u-accent">뒤</span>에 삽입 <span class="txt-meta-sm">(기본값 - 클릭해서 변경)</span>';
   }
 }
 
@@ -362,7 +362,7 @@ function renderChList(){
     d.className='ch-item'+(isSel?' sel':'');
     d.innerHTML='<span class="ch-idx">'+(i+1)+'</span>'+
       '<span class="ch-title">'+escHtml(ch.title)+'</span>'+
-      (isLast?'<span class="ch-badge" style="background:var(--green-bg);color:var(--green)">마지막</span>':
+      (isLast?'<span class="tone-green ch-badge">마지막</span>':
                '<span class="ch-badge badge-existing">기존</span>');
     d.onclick=()=>selectCh(i);
     c.appendChild(d);
@@ -381,7 +381,7 @@ function selectCh(i){
   const ch=E.chapters[i];
   document.getElementById('insertPos').innerHTML=
     '📍 <b>'+escHtml(ch.title)+'</b> '+
-    (pos==='before'?'<span style="color:var(--accent)">앞</span>에':'<span style="color:var(--accent)">뒤</span>에')+' 삽입';
+    (pos==='before'?'<span class="u-accent">앞</span>에':'<span class="u-accent">뒤</span>에')+' 삽입';
 }
 
 async function handleInsTxt(files){
@@ -590,7 +590,7 @@ function _showEpubConnectInfo(){
   textEl.innerHTML=  // safe-html: numText는 escHtml(숫자), 제목은 escHtml
     `현재 EPUB 마지막 챕터: <b>${escHtml(lastCh.title)}</b>${numText} — `+
     `<b>${E.chapters.length}번째</b> 위치<br>`+
-    `<span style="color:var(--accent);font-size:var(--fs-xs)">➡ 아래에서 이 이후 챕터들을 선택해 삽입하세요</span>`;
+    `<span class="u-accent u-fs-xs">➡ 아래에서 이 이후 챕터들을 선택해 삽입하세요</span>`;
   setShown(infoEl,true);
 }
 
@@ -939,19 +939,19 @@ function addEditIllRow(){
   const c=document.getElementById('editIllManualList');
   const r=document.createElement('div');r.className='mill-row';r.id='eir_'+id;
   r.innerHTML=
-    '<input placeholder="파일명 (예: 16.jpg)" id="eif_'+id+'" style="flex:2;min-width:100px">'+
+    '<input placeholder="파일명 (예: 16.jpg)" id="eif_'+id+'" class="u-flex-2 u-minw-100">'+
     '<button class="btn btn-ghost btn-sm" data-action="browseEditIll" data-id="'+id+'">찾기</button>'+
     '<select id="eim_'+id+'" data-input-action="toggleEIM" data-id="'+id+'"><option value="chapter">화 번호</option><option value="keyword">키워드</option><option value="title">챕터 제목 포함</option></select>'+
-    '<input type="number" placeholder="화 번호" id="eic_'+id+'" style="width:78px" min="1">'+
-    '<input placeholder="키워드/제목" id="eik_'+id+'" style="flex:1;min-width:80px;display:none">'+
+    '<input type="number" placeholder="화 번호" id="eic_'+id+'" class="u-w-78" min="1">'+
+    '<input placeholder="키워드/제목" id="eik_'+id+'" class="u-flex-1 u-minw-80" hidden>'+
     '<select id="eip_'+id+'"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
-    '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" data-action="removeEditIllRow" data-row-id="eir_'+id+'">✕</button>';
+    '<button class="tone-accent btn btn-sm" data-action="removeEditIllRow" data-row-id="eir_'+id+'">✕</button>';
   c.appendChild(r);
 }
 function toggleEIM(id){
   const m=document.getElementById('eim_'+id).value;
-  document.getElementById('eic_'+id).style.display=m==='chapter'?'':'none';
-  document.getElementById('eik_'+id).style.display=(m==='keyword'||m==='title')?'':'none';
+  setShown(document.getElementById('eic_'+id), m==='chapter');
+  setShown(document.getElementById('eik_'+id), m==='keyword'||m==='title');
 }
 function browseEditIll(id){
   const inp=document.createElement('input');inp.type='file';inp.accept='.jpg,.jpeg,.png,.gif,.webp,.bmp,.tiff,.tif,.avif';
@@ -1127,7 +1127,7 @@ async function previewEpubToc(){
   const pat=document.getElementById('eTocPattern')?.value.trim();
   const tb0=document.getElementById('eTb0');
   const tb1=document.getElementById('eTb1');
-  tb0.innerHTML='<div style="font-size:var(--fs-sm);color:var(--text2);padding:8px">🔍 감지 중...</div>';
+  tb0.innerHTML='<div class="u-fs-sm u-text2 u-p-8">🔍 감지 중...</div>';
 
   // 원본 텍스트 탭 내용 채우기
   tb1.innerHTML='<pre class="toc-raw">'+
@@ -1137,7 +1137,7 @@ async function previewEpubToc(){
   //   이전: bestPat 단일 패턴 + 원문 그대로 매칭 → 형식이 섞인 EPUB에서 오탐·누락
   const det=detectToc(_epubRawLines,{customPat:pat||'', range:parseChapterRange(E.epubFile?.name||'')});
   if(pat&&det.stats.mode!=='custom'){
-    tb0.innerHTML='<div style="color:var(--accent);padding:8px;font-size:var(--fs-sm)">⚠️ 정규식 오류 — 패턴을 확인해 주세요</div>';
+    tb0.innerHTML='<div class="u-accent u-p-8 u-fs-sm">⚠️ 정규식 오류 — 패턴을 확인해 주세요</div>';
     return;
   }
   const found=det.items.map(it=>({line:it.line,title:it.title,enabled:true}));
@@ -1160,7 +1160,7 @@ function renderETocItems(){
   tb0.innerHTML='';
   const stat=document.createElement('div');
   stat.style.cssText='margin-bottom:6px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
-  stat.innerHTML='<span style="font-size:var(--fs-xs);color:var(--text2)">총 <b>'+_eTocItems.length+'</b>개 감지</span>'+
+  stat.innerHTML='<span class="txt-meta-sm">총 <b>'+_eTocItems.length+'</b>개 감지</span>'+
     '<button class="btn btn-ghost btn-sm" data-action="eToggleAllToc" data-val="true">전체 선택</button>'+
     '<button class="btn btn-ghost btn-sm" data-action="eToggleAllToc" data-val="false">전체 해제</button>';
   tb0.appendChild(stat);
@@ -1265,7 +1265,7 @@ async function _eRunSmartPat(include, exclude){
     if(msg==='quota_exceeded'){
       Toast.warn(
         'Gemini API 할당량 초과 — 내장 변환 로직을 사용해요.<br>'+
-        '<small style="opacity:.8">💡 오류에 <b>limit: 0</b>이 있으면 Google AI Studio 키인지 확인해주세요.<br>'+
+        '<small class="u-op-80">💡 오류에 <b>limit: 0</b>이 있으면 Google AI Studio 키인지 확인해주세요.<br>'+
         'https://aistudio.google.com/app/apikey</small>'
       );
     } else if(msg.includes('API 키가 올바르지 않아요')){
@@ -1418,10 +1418,10 @@ function renderDirectEditIllTags(){
   _directEditIllFiles.forEach((f,i)=>{
     const stem=f.name.replace(/\.[^.]+$/,'');
     const mi=stem.match(/^(\d+)(?:_(\d+))?/);
-    const badge=mi?`<span style="font-size:var(--fs-xs);background:var(--accent-bg);color:var(--accent);border-radius:var(--radius-xs);padding:1px 5px;font-weight:700">${parseInt(mi[1])}번째${mi[2]?'-'+parseInt(mi[2]):''}</span>`:'';
+    const badge=mi?`<span class="tag-xs tone-accent u-p-1-5">${parseInt(mi[1])}번째${mi[2]?'-'+parseInt(mi[2]):''}</span>`:'';
     const t=document.createElement('div');
     t.className='tag';
-    t.innerHTML=`<span style="font-size:var(--fs-xs);max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.name)}</span>${badge}<span class="x" role="button" tabindex="0" aria-label="삽화 제거" data-action="removeDirectEditIll" data-idx="${i}">✕</span>`;  // safe-html: badge는 parseInt 숫자로 만든 마크업, 파일명은 escHtml
+    t.innerHTML=`<span class="u-fs-xs u-maxw-120 u-trunc">${escHtml(f.name)}</span>${badge}<span class="x" role="button" tabindex="0" aria-label="삽화 제거" data-action="removeDirectEditIll" data-idx="${i}">✕</span>`;  // safe-html: badge는 parseInt 숫자로 만든 마크업, 파일명은 escHtml
     c.appendChild(t);
   });
 }
@@ -1433,14 +1433,14 @@ function addDirectEditIllRow(){
   div.className='mill-row'; div.id='deir_'+id;
   div.style.marginBottom='8px';
   div.innerHTML=
-    '<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'+
-    '<select id="deif_'+id+'" style="flex:2;min-width:100px;font-size:var(--fs-sm);padding:5px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-family:inherit">'+
+    '<div class="u-row-wrap-6">'+
+    '<select id="deif_'+id+'" class="inp-sm u-flex-2 u-minw-100 u-ff-inherit">'+
     '<option value="">파일 선택</option>'+
     _directEditIllFiles.map(f=>`<option value="${escHtml(f.name)}">${escHtml(f.name)}</option>`).join('')+
     '</select>'+
-    '<input type="number" id="deich_'+id+'" placeholder="챕터 번호(1-based)" min="1" style="width:130px;font-size:var(--fs-sm);padding:5px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text)">'+
-    '<select id="deip_'+id+'" style="font-size:var(--fs-sm);padding:5px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-family:inherit"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
-    '<button class="btn btn-sm" style="background:var(--accent-bg);color:var(--accent)" data-action="removeDirectIllRow" data-row-id="deir_'+id+'">✕</button>'+
+    '<input type="number" id="deich_'+id+'" placeholder="챕터 번호(1-based)" min="1" class="inp-sm u-w-130">'+
+    '<select id="deip_'+id+'" class="inp-sm u-ff-inherit"><option value="before">챕터 앞</option><option value="after">챕터 뒤</option></select>'+
+    '<button class="tone-accent btn btn-sm" data-action="removeDirectIllRow" data-row-id="deir_'+id+'">✕</button>'+
     '</div>';
   list.appendChild(div);
 }

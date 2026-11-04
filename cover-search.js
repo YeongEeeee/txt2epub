@@ -439,7 +439,7 @@ function runCoverSearch() {
         grid.replaceChildren();
         const errEl = document.createElement('div');
         errEl.className = 'cover-search-empty';
-        errEl.innerHTML = `⚠️ 오류가 발생했습니다.<br><span style="font-size:var(--fs-xs);color:var(--text3)">${escHtml(err.message)}</span>`;
+        errEl.innerHTML = `⚠️ 오류가 발생했습니다.<br><span class="u-fs-xs u-text3">${escHtml(err.message)}</span>`;
         grid.appendChild(errEl);
       }
     });

@@ -564,7 +564,32 @@
 - 테스트 381 → 386개 전부 통과 (유틸리티 속성 충돌 검사 포함), Phase 16·17 E2E 재실행 정상, 콘솔 오류·CSP 위반 0
 
 #### 3) 남은 일
-- JS가 innerHTML로 만드는 마크업에 `style="..."`이 약 165곳 남아 있어 CSP `style-src 'unsafe-inline'`은 아직 필요 (스크립트 실행 경로는 아님)
+- JS가 innerHTML로 만드는 마크업에 `style="..."`이 약 165곳 남아 있어 CSP `style-src 'unsafe-inline'`은 아직 필요 (스크립트 실행 경로는 아님) → Phase 20에서 해결
+
+### Phase 20 — CSP `style-src 'unsafe-inline'` 제거
+
+#### 1) JS가 만드는 마크업의 style 속성 → 클래스 (`parser.js`·`convert.js`·`edit.js`·`ui-state.js`·`settings.js`·`cover-search.js`)
+- 164곳 (정적 146 · 동적 18) — 정적 값은 변환 스크립트(`mig5.py`)가 자동 변환
+  - 기존 유틸리티와 선언이 정확히 같으면 그 클래스, 큰 복합 스타일은 의미 클래스(+보충 유틸리티), 나머지는 단일 선언 유틸리티 조합
+  - 요소마다 클래스 선언 합 = 원래 선언, 같은 속성을 두 클래스가 지정하지 않음을 검사 / 같은 태그의 기존 class 속성에 병합(문자열 조각이 나뉜 태그 33곳 포함)
+- 동적 값: 색은 모두 고정 토큰이라 클래스로 (`u-green`·`u-accent`·`u-red`·`chip-blue/muted/accent`·`fill-yellow/blue/accent`·`preset-opt-good`), 단축키 표 `kbdStyle` → `.kbd-key`
+- 템플릿에서 `display:none`으로 만들던 요소(목차 자동 선택·일괄 분할 배지·간격 분할 해제 버튼·편집 삽화 키워드 칸) → `hidden` 속성 + `setShown`
+- 새 유틸리티 53개 + 의미 클래스 32개 (`modal-card`·`tip-card`·`info-box-blue`·`tag-xs`·`tone-*`·`stat-chip`·`report-list`·`report-item-info/warn`·`badge-*-line`·`preset-panel`·`preset-opt`·`inp-sm`·`kbd-key`·`spark-bar` 등), 값·토큰 그대로
+
+#### 2) 인라인이 이기던 구체적인 규칙 (검증에서 발견)
+- 클래스는 인라인과 달리 더 구체적인 선택자에 질 수 있음 → 문서 전체 계산된 스타일 비교로 3곳 발견, 범위 지정 규칙으로 이전 값 유지
+  - `#toc-search{padding:4px 10px}` 위의 인라인 `padding:5px 8px` → `#toc-search.u-p-5-8`
+  - `#shortcutHelp kbd{padding:2px 7px}` 위의 인라인 → `#shortcutHelp kbd.kbd-key`
+  - `.mill-row input,select{background:var(--panel)}` 위의 인라인 `background:var(--bg)` → `.mill-row .inp-sm`
+
+#### 3) CSP (`_headers`, `index.html` meta)
+- `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com` → `style-src 'self' https://fonts.googleapis.com`
+- 동적 크기·위치(진행 막대 폭, 툴팁 위치, 미니 리더 글꼴 등)는 CSSOM `el.style.*`이라 CSP 대상 아님 — 그대로 동작
+
+#### 4) 검증
+- 사용 흐름 24단계(TXT 로드·재감지·목차 미리보기·다중 선택 병합·제목 일괄·짧은 챕터 토스트·간격 분할 입력·삽화 파일/수동 행/범위·변환 리포트·EPUB 미리보기·CORS 안내·단축키·분할 변환·일괄 목록/목차/패턴 패널·편집 EPUB/삽입/삽화 행/목차 재확인/직접 편집 삽화·설정 프리셋/기록·패턴 없는 TXT 안내)마다 **문서 전체 요소의 계산된 스타일**을 이전/이후 비교 → 위 3곳 수정 후 차이 0 (진행 시간 스파크라인 막대 높이·토스트 소멸 시점은 실행마다 달라지는 값)
+- 엄격 CSP(`'unsafe-inline'` 없음)로 같은 24단계 → `securitypolicyviolation` 0건·페이지 오류 0, Phase 16·17 E2E 재실행 정상
+- 테스트 386 → 394개 전부 통과 (이전 Phase 스타일 검사는 자기 블록 범위만 보도록 정리)
 
 ---
 
@@ -577,7 +602,7 @@
 | 성능·안정성 | 5/5 | Phase 12(64KB 감지) + Phase 15 |
 | UX/UI | 5/5 | Phase 16 + Phase 12(프록시 자동 재시도) |
 | 보안·인프라 | 5/5 | Phase 12(Worker 허용 목록) + Phase 15 |
-| 유지보수 | 3/5 + 부분 | 인코딩 단일화·테스트 확장 완료, StateManager는 점진 2단계(Phase 17), 인라인 스타일은 4단계(Phase 19 — index.html style 속성 0)까지, `@ts-check`는 외부 도구 미사용 결정으로 제외 (ESLint는 자체 정적 검사로 대체) |
+| 유지보수 | 3/5 + 부분 | 인코딩 단일화·테스트 확장 완료, StateManager는 점진 2단계(Phase 17), 인라인 스타일은 Phase 20까지 완료(HTML·JS 마크업 style 속성 0, CSP style-src 'unsafe-inline' 제거), `@ts-check`는 외부 도구 미사용 결정으로 제외 (ESLint는 자체 정적 검사로 대체) |
 
 ---
 

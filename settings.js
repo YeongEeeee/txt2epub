@@ -472,7 +472,7 @@ function renderCssPresetList(){
   const all=[...CSS_PRESET_DEFAULTS,...userPresets];
   container.innerHTML='';
   if(!all.length){
-    container.innerHTML='<span style="font-size:var(--fs-xs);color:var(--text2)">저장된 프리셋 없음</span>';
+    container.innerHTML='<span class="txt-meta-sm">저장된 프리셋 없음</span>';
     return;
   }
   all.forEach((p,idx)=>{
@@ -711,7 +711,7 @@ async function _runSmartPat(include, exclude){
       } else if(msg==='quota_exceeded'){
         Toast.warn(
           'Gemini API 할당량 초과 — 내장 변환 로직을 사용해요.<br>'+
-          '<small style="opacity:.8">💡 Free Tier 일일 한도(1,500회/day) 초과 시 내일 초기화돼요.<br>'+
+          '<small class="u-op-80">💡 Free Tier 일일 한도(1,500회/day) 초과 시 내일 초기화돼요.<br>'+
           '오류 메시지에 <b>limit: 0</b>이 포함되면 Google AI Studio 키인지 확인해주세요.</small>'
         );
         _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
@@ -1176,7 +1176,7 @@ async function renderHistory(){
     ...metas.filter(m=>!_starred[m.key]),
   ];
 
-  c.innerHTML='<div style="text-align:center;padding:12px 0;font-size:var(--fs-xs);color:var(--text2)">⏳ 로딩 중...</div>';
+  c.innerHTML='<div class="u-ta-center u-p-12-0 u-fs-xs u-text2">⏳ 로딩 중...</div>';
   // ★ Phase 10: 존재 여부만 count로 확인 (이전: 기록 20개의 EPUB Blob을 모두 꺼냄)
   const blobExists=await Promise.all(metas.map(m=>idbHas(m.key)));
   c.innerHTML='';
@@ -1188,13 +1188,13 @@ async function renderHistory(){
     const chDiff=cur.chapterCount-prev.chapterCount;
     if(chDiff!==0){
       const sign=chDiff>0?'+':'';
-      const color=chDiff>0?'var(--green)':'var(--accent)';
-      parts.push(`<span style="color:${color};font-weight:600">${sign}${chDiff}화</span>`);
+      const colorCls=chDiff>0?'u-green':'u-accent';   // ★ Phase 20: 색은 고정 토큰 클래스
+      parts.push(`<span class="u-fw-600 ${colorCls}">${sign}${chDiff}화</span>`);
     }
     const sizeDiff=(parseFloat(cur.sizeMB)-parseFloat(prev.sizeMB)).toFixed(1);
     if(Math.abs(parseFloat(sizeDiff))>=0.1){
       const sign=parseFloat(sizeDiff)>0?'+':'';
-      parts.push(`<span style="color:var(--text2)">${sign}${sizeDiff}MB</span>`);
+      parts.push(`<span class="u-text2">${sign}${sizeDiff}MB</span>`);
     }
     if(!parts.length) return '';
     return `<span class="hist-compare-badge" title="이전 변환 대비">${parts.join(' / ')}</span>`;
@@ -1235,12 +1235,12 @@ async function renderHistory(){
     row.innerHTML=  // safe-html: safe* 값은 바로 위에서 escHtml/escAttr 처리
       '<div class="hist-thumb">📚</div>'+
       '<div class="hist-info">'+
-        '<div class="hist-title">'+escHtml(m.title)+(m.author?'<span style="font-weight:400;color:var(--text2);font-size:var(--fs-xs)"> / '+escHtml(m.author)+'</span>':'')+(compareBadge?' '+compareBadge:'')+'</div>'+
+        '<div class="hist-title">'+escHtml(m.title)+(m.author?'<span class="u-fw-400 u-text2 u-fs-xs"> / '+escHtml(m.author)+'</span>':'')+(compareBadge?' '+compareBadge:'')+'</div>'+
         '<div class="hist-meta">'+safeDate+' · '+safeChCount+'화 · '+safeSizeMB+'MB · '+safeElapsed+'초</div>'+
       '</div>'+
       (hasBlob
         ?'<button class="btn btn-green btn-sm" data-action="histDownload" data-key="'+safeKey+'" data-name="'+safeName+'">⬇ 다운로드</button>'
-        :'<span style="font-size:var(--fs-xs);color:var(--text2);white-space:nowrap">파일 없음</span>')+
+        :'<span class="u-fs-xs u-text2 u-nowrap">파일 없음</span>')+
       '<button class="hist-del" data-action="deleteHistory" data-key="'+safeKey+'" title="기록 삭제">✕</button>';
     row.insertBefore(starBtn, row.firstChild);
     c.appendChild(row);
