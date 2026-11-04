@@ -478,6 +478,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 24 | 표지 검색 어댑터 실측 — 리디 `__NEXT_DATA__`·카카오 bff API·네이버 원본 해상도·노벨피아 POST JSON, 병렬 조회 (`tests/cover-health.js` 주간 점검) |
 | Phase 23 (6) | 이미지 형식 바이트 판별(PNG·JPEG·WebP·GIF·AVIF)·실제 형식 우선, 글꼴 목록 재생성 시 커스텀 옵션·선택 유지, 로드 경합 복원, 미사용 커스텀 폰트 미포함·경고 문구 |
 | Phase 22 (15) | wasm SRI = 파일 해시, 형식·fsType 판별, cmap(4·12) 읽기, 글자 수집(서로게이트·제어 문자·템플릿 문구), **HarfBuzz 실제 서브셋(TTF·OTF) 쓰인 글자 유지·용량 감소**, 엔진 1회 로드, 서브셋 금지·WOFF2·엔진 실패 → 원본, 리포트 문구, EPUB(`tests/out/22_font_subset.epub`) 문서 글자 ⊂ 폰트, 편집 탭 재서브셋·누락 글자, 연결·설정·CSP |
 | Phase 21 (4) | SW `_plain` 실제 동작(리디렉트 응답 → 새 응답·헤더 유지), 프리캐시·페이지 이동·로컬 저장 모두 `_plain`, 화면 없을 때만 즉시 활성화, CACHE_VERSION 해시에 sw.js 코드 포함 |
@@ -661,6 +662,11 @@ settings.js 구문 오류 수정 (고아 코드 블록 제거)
 ---
 
 ## 🔧 Troubleshooting
+
+### 표지 온라인 검색 결과가 없거나 엉뚱한 그림만 나옴 (해결됨 — Phase 24)
+**증상**: 리디·카카오 결과 0건, 네이버 표지가 작음, 노벨피아 결과가 메뉴 아이콘·기본 프로필 그림.  
+**원인**: 플랫폼 개편 — 리디는 Next.js JSON, 카카오·노벨피아는 결과를 브라우저에서 그림(HTML에 없음), 네이버는 썸네일 접미사 변경. 노벨피아 가짜 결과가 웹 폴백까지 막음.  
+**해결**: 리디 `__NEXT_DATA__`, 카카오 bff 검색 API, 노벨피아 `POST /proc/novelsearch/` JSON, 네이버 `?type=` 제거. 카카오는 Worker가 bff 요청에 `Referer: https://page.kakao.com/`을 보내야 동작(현재 403 → 빈 결과).
 
 ### 커스텀 폰트를 올려도 EPUB 본문에 적용되지 않음 (해결됨 — Phase 23)
 **증상**: 폰트 파일은 EPUB에 들어가는데 `body{font-family}`가 'Noto Sans KR' — 용량만 늘고 리더기에서 커스텀 폰트가 보이지 않음. 새로고침하면 고른 글꼴이 첫 항목으로 돌아감.  

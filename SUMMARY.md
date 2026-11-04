@@ -658,6 +658,31 @@
 - Chromium: 폰트 업로드 → 선택 = 커스텀, 새로고침 후에도 유지, 변환 시 body = 커스텀 폰트 + 서브셋(184KB → 38KB), 다른 글꼴 선택 시 폰트 미포함 + 경고, 'cover.jpg' 이름의 PNG 표지 → EPUB 표지 JPEG(FF D8 FF), 두 결과 epubcheck 0 오류, 일반 글꼴 선택 새로고침 유지, Phase 16·17 E2E 정상
 - 테스트 413 → 419개 통과
 
+### Phase 24 — 표지 온라인 검색 복구 (플랫폼 개편 대응)
+
+#### 1) 진단 (실서비스에서 어댑터별 실측, 검색어 '전지적 독자 시점')
+| 어댑터 | 수정 전 | 원인 |
+|---|---|---|
+| 리디 | 0건 | Next.js 개편 — `.thumbnail_wrapper` 마크업 소멸, 데이터는 `__NEXT_DATA__` JSON |
+| 카카오페이지 | 0건 | 검색 페이지가 완전 CSR(빈 HTML) — 결과는 bff 검색 API로만 옴 |
+| 네이버 시리즈 | 2건 (79×119) | 썸네일 접미사가 `type=m79`로 바뀌어 고해상도 치환 무효 |
+| 노벨피아 | 6건 **전부 가짜** | 결과를 AJAX로 그려 HTML엔 메뉴·배너뿐 → `none_user.png`·메뉴 SVG를 표지로 반환 |
+| 웹 폴백 | 실행 안 됨 | 노벨피아 가짜 6건 때문에 '결과 3건 이상'으로 집계 |
+- 프록시(Workers)·CSP는 정상 — 모든 플랫폼 HTML이 200으로 도착
+
+#### 2) 수정 (`cover-search.js`)
+- **리디**: `__NEXT_DATA__`에서 `{ title, thumbnail: { xxlarge } }` 객체 수집 (경로 변경에 둔감한 트리 탐색), `#1` 해시 제거 → 480×680
+- **카카오**: bff 검색 API(`/api/gateway/api/v2/search/series`) JSON 파싱, 웹소설 우선, `filename=o1` 원본(720×970) — ⚠️ Workers 경유 시 bff가 403 → Worker가 `Referer: https://page.kakao.com/`을 보내도록 고치면 동작
+- **네이버 시리즈**: `?type=` 제거 → 원본 700×1000, 제목은 img alt
+- **노벨피아**: 사이트 검색 모달이 쓰는 `POST /proc/novelsearch/{검색어}` JSON, `/imagebox/cover/` 표지만 채택 (`_proxyPostJson` 헬퍼 추가)
+- **병렬 조회**: 4개 플랫폼 `Promise.allSettled` — 한 곳이 느려도 전체가 순차 지연되지 않음, 플랫폼별 건수 콘솔 기록
+- `tests/cover-health.js` 표식 갱신 (리디 `__NEXT_DATA__`, 카카오 bff, 노벨피아 POST JSON)
+
+#### 3) 검증
+- 실서비스 페이지에서 새 어댑터 실행: '전지적 독자 시점' 리디 6·네이버 2·노벨피아 6, '나 혼자만 레벨업' 6·5·6, '재벌집 막내아들' 6·6·0 (노벨피아에 없는 작품)
+- 표지 이미지 weserv 경유 로드 확인 (리디 480×679, 네이버 700×1000, 노벨피아 400×600)
+- 테스트 419개 통과, `node --check` 통과
+
 ---
 
 ## 개선 30개 적용 결과 (Phase 13~16)

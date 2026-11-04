@@ -446,38 +446,41 @@ function runCoverSearch() {
 }
 
 // ── 외부 플랫폼 어댑터 종합 스캔 ──
+// ★ Phase 24: 4개 플랫폼 병렬 조회 (Promise.allSettled)
+//   기존 순차 await는 한 플랫폼이 타임아웃(최대 9초×failover)이면 전체가 그만큼 지연됨
+//   결과 순서는 리디 → 카카오 → 네이버 시리즈 → 노벨피아 고정 (병렬이어도 우선순위 유지)
 async function searchAllPlatforms(q) {
   let results = [];
-  // ★ BUG-3/17 FIX: 중단 신호 레퍼런스 캡처 — 각 await 진입 전 중단 체크
-  // _searchAbortCtrl.abort() 호출 시 진행 중인 순차 await를 조기 탈출
+  // ★ BUG-3/17 FIX: 중단 신호 레퍼런스 캡처 — 각 await 진입 후 중단 체크
+  // _searchAbortCtrl.abort() 호출 시 진행 중인 검색 결과를 버리고 조기 탈출
   const _abortRef = _searchAbortCtrl;
   function _aborted(){ return _abortRef && _abortRef.signal && _abortRef.signal.aborted; }
+  if(_aborted()) return [];
 
-  // 1. 플랫폼 다이렉트 패치 스케줄링
-  if(!_aborted()) try {
-    const ridi = await fetchRidiCover(q);
-    if(ridi && ridi.length) results = results.concat(ridi);
-  } catch(e){ if(e && e.name==='AbortError') return []; }
+  // 1. 플랫폼 다이렉트 패치 — 병렬
+  const adapters = [
+    ['ridi',     fetchRidiCover],
+    ['kakao',    fetchKakaoCover],
+    ['naver',    fetchNaverSeriesCover],
+    ['novelpia', fetchNovelpiaCover],
+  ];
+  const settled = await Promise.allSettled(adapters.map(([, fn]) => fn(q)));
+  if(_aborted()) return [];
 
-  if(!_aborted()) try {
-    const kakao = await fetchKakaoCover(q);
-    if(kakao && kakao.length) results = results.concat(kakao);
-  } catch(e){ if(e && e.name==='AbortError') return []; }
-
-  if(!_aborted()) try {
-    const naver = await fetchNaverSeriesCover(q);
-    if(naver && naver.length) results = results.concat(naver);
-  } catch(e){ if(e && e.name==='AbortError') return []; }
-
-  if(!_aborted()) try {
-    const novelpia = await fetchNovelpiaCover(q);
-    if(novelpia && novelpia.length) results = results.concat(novelpia);
-  } catch(e){ if(e && e.name==='AbortError') return []; }
+  const stat = {};
+  settled.forEach((r, i) => {
+    const name = adapters[i][0];
+    const list = (r.status === 'fulfilled' && Array.isArray(r.value)) ? r.value : [];
+    stat[name] = list.length;
+    if(list.length) results = results.concat(list);
+  });
+  console.info('[searchAllPlatforms] 플랫폼별 결과:', stat);
 
   // 2. 통합 웹 검색엔진 폴백 스캔
   if(!_aborted() && results.length < 3) {
     try {
       const web = await fetchWebFallbackCovers(q);
+      if(_aborted()) return [];
       if(web && web.length) results = results.concat(web);
     } catch(e){ if(e && e.name==='AbortError') return []; }
   }
@@ -492,51 +495,74 @@ async function searchAllPlatforms(q) {
 }
 
 // ── 플랫폼별 상세 크롤러 구현체 ──
+
+// ★ Phase 24: 리디 — Next.js 개편으로 .thumbnail_wrapper 마크업 소멸 → __NEXT_DATA__ JSON 파싱
+//   경로 예: props.pageProps.gridData.riGrid.grid.cells[n].cell__SearchBookListWithTab.books[i].book.series
+//   { title, thumbnail: { small, large, xxlarge } } 형태 객체를 트리 전체에서 수집 (경로 변경에 둔감)
+//   표지 URL 끝의 '#1' 같은 해시는 제거, xxlarge(약 480×680) 우선
 async function fetchRidiCover(q) {
   try {
     const html = await proxyFetch(`https://ridibooks.com/search?q=${encodeURIComponent(q)}&adult_exclude=n`);
-    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const doc  = new DOMParser().parseFromString(html, 'text/html');
+    const raw  = doc.getElementById('__NEXT_DATA__')?.textContent;
+    if(!raw) return [];
+    const data = JSON.parse(raw);
+
     const items = [];
-    doc.querySelectorAll('.thumbnail_wrapper').forEach(div => {
-      const img = div.querySelector('img.thumbnail');
-      const titleEl = div.closest('.book_macro_100')?.querySelector('.title_text');
-      if(img) {
-        let src = img.getAttribute('data-src') || img.src || '';
-        if(src.startsWith('//')) src = 'https:' + src;
-        if(isValidImg(src)) {
-          items.push({
-            title: titleEl?.textContent?.trim() || q,
-            image: src.replace('/w=110', '/w=400') // 화질 개선 고해상도 리사이징 업스케일 적용
-          });
+    const seen  = new Set();
+    const walk = (node, depth) => {
+      if(!node || typeof node !== 'object' || depth > 40 || items.length >= 6) return;
+      if(Array.isArray(node)){ node.forEach(n => walk(n, depth + 1)); return; }
+      const th = node.thumbnail;
+      if(th && typeof th === 'object' && typeof node.title === 'string'){
+        const src = (th.xxlarge || th.large || th.small || '').split('#')[0];
+        if(src && !seen.has(src) && isValidImg(src)){
+          seen.add(src);
+          items.push({ title: node.title.trim() || q, image: src });
         }
+        return;
       }
-    });
+      for(const k in node) walk(node[k], depth + 1);
+    };
+    walk(data?.props?.pageProps, 0);
     return items.slice(0, 6);
-  } catch(e) { return []; }
+  } catch(e) {
+    console.warn('[fetchRidiCover] 실패:', e?.message);
+    return [];
+  }
 }
 
+// ★ Phase 24: 카카오페이지 — 검색 페이지가 완전 CSR(빈 HTML)로 바뀜 → bff 검색 API(JSON) 사용
+//   GET https://bff-page.kakao.com/api/gateway/api/v2/search/series?keyword=…&category_uid=0
+//   응답: result.list[] { title, thumbnail(kid), category_uid(11=웹소설, 10=웹툰) }
+//   표지 이미지: https://dn-img-page.kakao.com/download/resource?kid={kid}&filename=o1 (원본 약 720×970)
+//   ⚠️ 현재 Workers 프록시 경유 시 bff가 403을 반환함 — 프록시가 Referer/Origin을 page.kakao.com으로
+//      보내도록 Worker를 고치면 이 어댑터가 그대로 동작. 그 전까지는 빈 배열을 조용히 반환
 async function fetchKakaoCover(q) {
   try {
-    const html = await proxyFetch(`https://page.kakao.com/search/result?keyword=${encodeURIComponent(q)}&categoryUid=11`);
-    const match = html.match(/\\"gId\\":\\"([^\\"]+)\\",\\"title\\":\\"([^\\"]+)\\",.*?\\"backgroundImage\\":\\"([^\\"]+)\\"/g);
-    if(!match) return [];
-    
-    const items = [];
-    match.forEach(m => {
-      const tM = m.match(/\\"title\\":\\"([^\\"]+)\\"/);
-      const iM = m.match(/\\"backgroundImage\\":\\"([^\\"]+)\\"/);
-      if(tM && iM) {
-        let img = iM[1].replace(/\\\\/g, '');
-        if(!img.startsWith('http')) img = 'https:' + img;
-        if(isValidImg(img)) {
-          items.push({ title: tM[1], image: img });
-        }
-      }
-    });
-    return items.slice(0, 6);
-  } catch(e) { return []; }
+    const text = await proxyFetch(
+      `https://bff-page.kakao.com/api/gateway/api/v2/search/series?keyword=${encodeURIComponent(q)}&category_uid=0&sort_type=ACCURACY&page=0&size=25`
+    );
+    const data = JSON.parse(text);
+    const list = Array.isArray(data?.result?.list) ? data.result.list : [];
+    // 웹소설(11) 우선, 그다음 책(16), 웹툰(10) 순
+    const rank = c => (c === 11 ? 0 : c === 16 ? 1 : 2);
+    return list
+      .filter(it => it && typeof it.thumbnail === 'string' && it.thumbnail)
+      .sort((a, b) => rank(a.category_uid) - rank(b.category_uid))
+      .map(it => ({
+        title: (it.title || q).trim(),
+        image: 'https://dn-img-page.kakao.com/download/resource?kid=' + it.thumbnail + '&filename=o1',
+      }))
+      .slice(0, 6);
+  } catch(e) {
+    console.warn('[fetchKakaoCover] 실패:', e?.message);
+    return [];
+  }
 }
 
+// ★ Phase 24: 네이버 시리즈 — 썸네일 접미사가 type=m79(79×119)로 바뀌어 기존 m81_118 치환이 무효
+//   → ?type= 쿼리를 통째로 제거하면 원본(약 700×1000) 반환. 제목은 img alt 우선
 async function fetchNaverSeriesCover(q) {
   try {
     const html = await proxyFetch(`https://series.naver.com/search/search.nhn?t=novel&q=${encodeURIComponent(q)}`);
@@ -544,98 +570,84 @@ async function fetchNaverSeriesCover(q) {
     const items = [];
     doc.querySelectorAll('.lst_list li').forEach(li => {
       const img = li.querySelector('img');
-      const titleEl = li.querySelector('dt a');
-      if(img) {
-        let src = img.src || '';
-        if(isValidImg(src)) {
-          items.push({
-            title: titleEl?.textContent?.trim() || q,
-            image: src.replace('type=m81_118', 'type=m400_600') // 네이버 고해상도 변환
-          });
-        }
-      }
+      const titleEl = li.querySelector('h3 a, dt a');
+      if(!img) return;
+      const src = img.getAttribute('src') || '';
+      if(!isValidImg(src) || src.includes('noimg')) return;
+      items.push({
+        title: (img.getAttribute('alt') || titleEl?.textContent || q).trim(),
+        image: src.split('?')[0], // 원본 해상도
+      });
     });
     return items.slice(0, 6);
-  } catch(e) { return []; }
+  } catch(e) {
+    console.warn('[fetchNaverSeriesCover] 실패:', e?.message);
+    return [];
+  }
 }
 
+// ★ Phase 24: Workers 프록시 POST → JSON (노벨피아 검색 API 전용)
+//   proxyFetch는 GET 전용이라 별도 헬퍼. AbortController 타임아웃 + 토큰 헤더 동일 적용
+async function _proxyPostJson(url, body = '', timeout = 9000) {
+  const base = (typeof CORS_PROXY_URL !== 'undefined'
+    ? CORS_PROXY_URL
+    : 'https://icy-frog-a6c0.tlsxo213.workers.dev/?url=');
+  let encoded;
+  try { encoded = encodeURIComponent(decodeURIComponent(url)); }
+  catch(e) { encoded = encodeURIComponent(url); }
+
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeout);
+  try {
+    const res = await fetch(base + encoded, {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'X-NovelEPUB-Token': (typeof _PROXY_TOKEN !== 'undefined' ? _PROXY_TOKEN : 'novelepub-secure-token'),
+        'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      },
+      body,
+    });
+    if(!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// ★ Phase 24: 노벨피아 — /proc/search_all·/search/novel 은 이제 결과를 AJAX로 그려서
+//   HTML에는 메뉴·배너 이미지만 남음 (기존 어댑터가 none_user.png·메뉴 SVG를 '표지'로 6건 반환 →
+//   결과 3건 이상으로 집계되어 웹 폴백까지 막던 원인)
+//   → 사이트 자체 검색 모달이 쓰는 POST /proc/novelsearch/{검색어} JSON 사용
+//   응답: data.search_result[] { novel_name, novel_thumb, novel_thumb_all('/imagebox/cover/…_ori.file') }
 async function fetchNovelpiaCover(q) {
   // ★ 노벨피아 이미지 URL → weserv 래핑 헬퍼
-  // 노벨피아 CDN(front-img.novelpia.com 등)은 Hotlinking 방지벽이 강력하므로
+  // 노벨피아 CDN(images.novelpia.com)은 Hotlinking 방지벽이 강력하므로
   // 검색 결과 생성 단계에서부터 weserv URL로 변환하여 화면 표시/다운로드 일원화
   function wrapNovelpia(src) {
     if(!src) return '';
-    // // 프로토콜 상대경로 정규화
     const abs = src.startsWith('//') ? 'https:' + src
-               : src.startsWith('/')  ? 'https://novelpia.com' + src
+               : src.startsWith('/')  ? 'https://images.novelpia.com' + src
                : src;
     if(!abs.startsWith('http')) return '';
-    // 이미 weserv URL이면 그대로
     if(abs.startsWith('https://images.weserv.nl')) return abs;
     return 'https://images.weserv.nl/?url=' + encodeURIComponent(abs) + '&output=jpg&q=92';
   }
 
-  // ── 경로 1: 노벨피아 검색 API ──
   try {
-    const html = await proxyFetch(
-      `https://novelpia.com/proc/search_all?search_word=${encodeURIComponent(q)}`
-    );
-    const doc   = new DOMParser().parseFromString(html, 'text/html');
+    const json = await _proxyPostJson('https://novelpia.com/proc/novelsearch/' + encodeURIComponent(q));
+    const list = Array.isArray(json?.data?.search_result) ? json.data.search_result : [];
     const items = [];
-
-    // 셀렉터 다중 시도: .novel-box → .search-result-item → 전체 img 폴백
-    const boxes = doc.querySelectorAll('.novel-box, .search-result-item, [class*="novel-item"]');
-
-    if(boxes.length > 0){
-      boxes.forEach(box => {
-        const imgEl   = box.querySelector('img');
-        const titleEl = box.querySelector('.novel-title, .title, h3, h4, strong');
-        const rawSrc  = imgEl?.getAttribute('src') || imgEl?.getAttribute('data-src') || '';
-        // 고화질 치환: /35/ → /300/, /50/ → /300/
-        const hiResSrc = rawSrc.replace(/\/(?:35|50|100)\//, '/300/');
-        const weservSrc = wrapNovelpia(hiResSrc);
-        if(weservSrc){
-          items.push({
-            title: titleEl?.textContent?.trim() || q,
-            image: weservSrc,
-          });
-        }
-      });
-    }
-
-    // 경로 1 성공
-    if(items.length > 0) return items.slice(0, 6);
-  } catch(e) {
-    console.warn('[fetchNovelpiaCover] API 실패:', e.message);
-  }
-
-  // ── 경로 2: 노벨피아 웹 검색 HTML 파싱 폴백 ──
-  try {
-    const html = await proxyFetch(
-      `https://novelpia.com/search/novel?search_string=${encodeURIComponent(q)}`
-    );
-    const doc   = new DOMParser().parseFromString(html, 'text/html');
-    const items = [];
-
-    // 전체 img 태그에서 노벨피아 CDN 도메인 이미지만 추출
-    doc.querySelectorAll('img').forEach(imgEl => {
-      const rawSrc = imgEl.getAttribute('src') || imgEl.getAttribute('data-src') || '';
-      const abs    = rawSrc.startsWith('//') ? 'https:' + rawSrc : rawSrc;
-      // 노벨피아 이미지 도메인 필터
-      const isNovelpiaImg = abs.includes('novelpia.com') || abs.includes('novel-img');
-      if(!isNovelpiaImg || abs.includes('icon') || abs.includes('logo')) return;
-      const hiResSrc  = abs.replace(/\/(?:35|50|100)\//, '/300/');
-      const weservSrc = wrapNovelpia(hiResSrc);
-      if(weservSrc){
-        items.push({
-          title: imgEl.alt || q,
-          image: weservSrc,
-        });
-      }
+    list.forEach(n => {
+      const src = n?.novel_thumb_all || n?.novel_thumb || '';
+      // 표지 미등록 작품·레이아웃 이미지 제외
+      if(!src || !/\/(?:imagebox|novel_cover|cover)\//i.test(src)) return;
+      const weservSrc = wrapNovelpia(src);
+      if(weservSrc) items.push({ title: (n.novel_name || q).trim(), image: weservSrc });
     });
-
     return items.slice(0, 6);
   } catch(e) {
+    console.warn('[fetchNovelpiaCover] 실패:', e?.message);
     return [];
   }
 }

@@ -16,14 +16,19 @@ const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML,
 
 // adapter: cover-search.js 함수 이름 / marker: 어댑터가 파싱에 쓰는 표식
 const CHECKS = [
+  // ★ Phase 24: 리디 Next.js 개편 — __NEXT_DATA__ 안 { title, thumbnail: { xxlarge } } 객체
   { adapter: 'fetchRidiCover',        url: q => `https://ridibooks.com/search?q=${encodeURIComponent(q)}&adult_exclude=n`,
-    marker: /thumbnail_wrapper|class="[^"]*\bthumbnail\b/, need: 'img.thumbnail / .thumbnail_wrapper' },
-  { adapter: 'fetchKakaoCover',       url: q => `https://page.kakao.com/search/result?keyword=${encodeURIComponent(q)}&categoryUid=11`,
-    marker: /backgroundImage/, need: '"backgroundImage" (검색 결과 JSON)' },
+    marker: /__NEXT_DATA__[\s\S]*"thumbnail":\{[^}]*"xxlarge"/, need: '__NEXT_DATA__ … "thumbnail":{…"xxlarge"}' },
+  // ★ Phase 24: 카카오페이지 CSR 전환 — bff 검색 API JSON (Workers 경유 시 403일 수 있음 → ⚠️ 처리)
+  { adapter: 'fetchKakaoCover',       url: q => `https://bff-page.kakao.com/api/gateway/api/v2/search/series?keyword=${encodeURIComponent(q)}&category_uid=0&sort_type=ACCURACY&page=0&size=25`,
+    headers: { Referer: 'https://page.kakao.com/' },
+    marker: /"list":\[/, need: '"result":{"list":[…]} (bff 검색 API)' },
   { adapter: 'fetchNaverSeriesCover', url: q => `https://series.naver.com/search/search.nhn?t=novel&q=${encodeURIComponent(q)}`,
-    marker: /lst_list/, need: '.lst_list li img' },
-  { adapter: 'fetchNovelpiaCover',    url: q => `https://novelpia.com/proc/search_all?search_word=${encodeURIComponent(q)}`,
-    marker: /novel-box|search-result-item|novel-item/, need: '.novel-box / .search-result-item / [class*=novel-item]' },
+    marker: /lst_list[\s\S]*pstatic\.net/, need: '.lst_list li img (pstatic.net)' },
+  // ★ Phase 24: 노벨피아 — POST /proc/novelsearch/{검색어} JSON
+  { adapter: 'fetchNovelpiaCover',    url: q => `https://novelpia.com/proc/novelsearch/${encodeURIComponent(q)}`,
+    method: 'POST', body: '', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+    marker: /"search_result"/, need: '"data":{"search_result":[…]}' },
   { adapter: 'fetchWebFallbackCovers', url: q => `https://html.duckduckgo.com/html/?q=${encodeURIComponent(q + ' 소설 표지')}`,
     marker: /<img[^>]+src=/i, need: 'img[src]' },
 ];
@@ -32,7 +37,13 @@ async function check(c){
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 15000);
   try{
-    const res = await fetch(c.url(QUERY), { headers: { 'User-Agent': UA, 'Accept-Language': 'ko-KR,ko;q=0.9' }, signal: ctrl.signal, redirect: 'follow' });
+    const res = await fetch(c.url(QUERY), {
+      method: c.method || 'GET',
+      body: c.method === 'POST' ? (c.body || '') : undefined,
+      headers: { 'User-Agent': UA, 'Accept-Language': 'ko-KR,ko;q=0.9', ...(c.headers || {}) },
+      signal: ctrl.signal,
+      redirect: 'follow',
+    });
     const text = await res.text();
     if(res.status === 403 || res.status === 429 || res.status >= 500) return { ...c, state: 'skip', detail: 'HTTP ' + res.status };
     if(!res.ok) return { ...c, state: 'fail', detail: 'HTTP ' + res.status };
