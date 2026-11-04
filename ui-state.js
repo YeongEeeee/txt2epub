@@ -173,7 +173,8 @@ function updateMiniReader(){
 // ── 설정 요약 ──
 function updateSettingsSummary(){
   const font=document.getElementById('cssFont');
-  const fontName=font&&font.options&&font.options[font.selectedIndex]?font.options[font.selectedIndex].text.split(' ')[0]:'Noto Serif';
+  // ★ Phase 27: 커스텀 폰트('📁 이름')는 아이콘만 남던 문제 → 아이콘을 떼고 이름 표시
+  const fontName=font&&font.options&&font.options[font.selectedIndex]?(font.options[font.selectedIndex].text.replace(/^📁\s*/,'').split(' ')[0]||'커스텀'):'Noto Serif';
   const line=document.getElementById('cssLine')?.value||'1.9';
   const size=document.getElementById('cssFontSize')?.value||'1em';
   const italic=document.getElementById('optItalic')?.checked;
@@ -199,7 +200,37 @@ function updateSettingsSummary(){
   [document.getElementById('settingsSummary'), document.getElementById('batchSettingSummary')].forEach(el=>{
     if(el) el.innerHTML=chipHtml;  // safe-html: chipHtml은 badge()에서 escHtml 처리
   });
+  typeof syncConvFont==='function'&&syncConvFont();
   updateMiniReader&&updateMiniReader();
+}
+
+// ── ★ Phase 27: 변환 화면 폰트 선택 (#convFont) ──
+//   기준 값은 설정 > CSS 커스터마이징의 #cssFont 하나 (epub-gen·미리보기·저장이 모두 이 값을 읽음)
+//   #convFont는 #cssFont의 옵션(optgroup·커스텀 폰트 '📁 이름' 포함)을 복제한 거울 — id는 제거해 중복 방지
+function syncConvFont(){
+  const src=document.getElementById('cssFont');
+  const dst=document.getElementById('convFont');
+  if(!src||!dst) return;
+  const clones=[...src.children].map(n=>{
+    const c=n.cloneNode(true);
+    c.removeAttribute?.('id');
+    c.querySelectorAll?.('[id]').forEach(e=>e.removeAttribute('id'));
+    return c;
+  });
+  dst.replaceChildren(...clones);
+  dst.value=src.value;
+}
+
+// 변환 화면에서 고른 폰트 → #cssFont에 반영 후 설정 화면에서 바꾼 것과 같은 저장·미리보기 경로
+function pickConvFont(el){
+  const src=document.getElementById('cssFont');
+  if(!src||!el||![...src.options].some(o=>o.value===el.value)) return;
+  src.value=el.value;
+  typeof updateFontPreview==='function'&&updateFontPreview();
+  typeof saveUserPrefs==='function'&&saveUserPrefs();
+  typeof saveCssSettings==='function'&&saveCssSettings();
+  typeof updateCssPreview==='function'&&updateCssPreview();
+  typeof updateSettingsSummary==='function'&&updateSettingsSummary();
 }
 
 // ── 하단 바 파일 상태 업데이트 ──
@@ -788,6 +819,8 @@ function _spawnDropConfetti(container){
     saveReaderProfile: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof _syncReaderProfileDesc==='function'&&_syncReaderProfileDesc(); typeof updateCssPreview==='function'&&updateCssPreview(); },
     // ★ Phase 13: 잡음 줄 제외 토글 — 저장 + 세부 항목 표시 전환
     saveCleanupNoise: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof _syncNoisePanel==='function'&&_syncNoisePanel(); },
+    // ★ Phase 27: 변환 화면 폰트 선택 → #cssFont 반영
+    pickConvFont: (el) => { typeof pickConvFont==='function'&&pickConvFont(el); },
     // ★ Phase 26: 이전 작업 복원 확인 토글 — 저장 + 끄면 저장된 작업 삭제
     saveSessionRestore: () => { typeof onSessionRestoreToggle==='function'&&onSessionRestoreToggle(); },
     saveExtraSettingsRenderIll: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof renderIllTags==='function'&&renderIllTags(); },
@@ -1379,6 +1412,8 @@ window.initUiState = function initUiState(){
             const sel=document.getElementById('cssFont');
             if(sel&&saved.font===opt.value&&sel.value!==opt.value){ sel.value=opt.value; typeof updateCssPreview==='function'&&updateCssPreview(); }
           }catch(e){}
+          // ★ Phase 27: 변환 화면 폰트 목록에도 커스텀 폰트 반영
+          typeof updateSettingsSummary==='function'&&updateSettingsSummary();
         }
       });
     }

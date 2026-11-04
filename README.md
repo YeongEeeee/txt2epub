@@ -478,6 +478,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 27 (5) | 변환 화면 폰트 선택 상자, 커스텀 폰트 업로드는 설정에만, `#cssFont` 목록 복제·id 제거·값 동기화, 선택 → `#cssFont` 반영·저장, 목록 재생성·요약 갱신 때 동기화 |
 | Phase 26 (4) | '이전 작업 이어서 하기 묻기' 설정 토글(기본 켜짐)·저장/복원, 끄면 확인 팝업·자동 저장 생략 + 저장 작업 삭제, 토글 액션 연결 |
 | Phase 25 (6) | 줄바꿈 정규화 — CR 단독·CRLF·혼합 → LF, LF 원문 유지, `fileToText`·`readFileSlice` 출구 정규화, CR 단독 EUC-KR 슬라이스 줄 동기화 |
 | Phase 24 | 표지 검색 어댑터 실측 — 리디 `__NEXT_DATA__`·카카오 bff API·네이버 원본 해상도·노벨피아 POST JSON, 병렬 조회 (`tests/cover-health.js` 주간 점검) |

@@ -628,6 +628,14 @@ async function main(){
     check('[작업복원] 끄면 확인 팝업·자동 저장 생략', /if\(!_sessionRestoreEnabled\(\)\)\{ SettingsDB\.remove\(_SESSION_KEY\)/.test(convSR) && /if\(!_sessionRestoreEnabled\(\)\) return;/.test(convSR));
     check('[작업복원] 토글 액션 연결', /saveSessionRestore: \(\) => \{ typeof onSessionRestoreToggle==='function'&&onSessionRestoreToggle\(\); \}/.test(uiSR) && /function onSessionRestoreToggle\(\)/.test(convSR));
 
+    // 7-3d. ★ Phase 27: 변환 화면 폰트 선택 — #cssFont 거울
+    const htmlCF = read('index.html'), uiCF = read('ui-state.js'), setCF = read('settings.js');
+    check('[변환폰트] 변환 화면 선택 상자 존재', /<select id="convFont" class="opt-select u-flex-1" data-input-action="pickConvFont"><\/select>/.test(htmlCF) && htmlCF.indexOf('id="convFont"') < htmlCF.indexOf('id="page-settings"'));
+    check('[변환폰트] 커스텀 폰트 업로드는 설정에만', (htmlCF.match(/id="fontDrop"/g) || []).length === 1 && htmlCF.indexOf('id="fontDrop"') > htmlCF.indexOf('id="page-settings"'));
+    check('[변환폰트] 목록 복제·id 제거·값 동기화', /function syncConvFont\(\)/.test(uiCF) && /removeAttribute\?\.\('id'\)/.test(uiCF) && /dst\.value=src\.value;/.test(uiCF));
+    check('[변환폰트] 선택 → #cssFont 반영 + 저장', /src\.value=el\.value;[\s\S]{0,200}saveUserPrefs\(\)[\s\S]{0,120}saveCssSettings\(\)/.test(uiCF) && /pickConvFont: \(el\) =>/.test(uiCF));
+    check('[변환폰트] 목록 재생성·요약 갱신 때 동기화', /typeof syncConvFont==='function'&&syncConvFont\(\);\n\}/.test(setCF) && /typeof syncConvFont==='function'&&syncConvFont\(\);\n  updateMiniReader/.test(uiCF));
+
     // 7-4. URL 표지 — 기존 쿼리 보존·http(s)만 허용·inline onclick 주입 제거
     const bust = vm.runInContext('_withCacheBust', C1)('https://img.cdn.com/a.jpg?type=w500');
     check('[URL표지] 캐시 우회 쿼리가 기존 쿼리를 깨지 않음', bust.split('?').length === 2 && bust.includes('type=w500') && /[&]_nvt=\d+/.test(bust));
@@ -1238,7 +1246,7 @@ async function main(){
     check('[폰트] 커스텀 폰트를 쓰는 CSS 규칙이 없으면 EPUB에 넣지 않음 + 경고', /if\(fontData&&!cssProbe\.includes\(fontData\.family\)\)\{\s*_lastFontSubsetReport=\{skipped:'unused'/.test(eg) &&
       eg.indexOf("skipped:'unused'") < eg.indexOf('fontData = await _subsetCustomFont(fontData, fontTexts());'));
     const msg = G('describeFontSubsetReport')({ skipped: 'unused', family: '교보손글씨', from: 12.5 * 1024 * 1024, to: 0 });
-    check('[폰트] 미사용 안내는 경고(⚠)로 표시 — \'폰트:\'로 시작하지 않음, 고를 메뉴 안내', msg.length === 1 && /^커스텀 폰트 "교보손글씨"를 쓰는 글꼴 설정이 없어 EPUB에 넣지 않았어요 \(12\.5MB\) — 설정 > 글꼴에서/.test(msg[0]) && !/^폰트:/.test(msg[0]));
+    check('[폰트] 미사용 안내는 경고(⚠)로 표시 — \'폰트:\'로 시작하지 않음, 고를 메뉴 안내', msg.length === 1 && /^커스텀 폰트 "교보손글씨"를 쓰는 글꼴 설정이 없어 EPUB에 넣지 않았어요 \(12\.5MB\) — 변환 탭 '변환 옵션 · 스타일'의 폰트/.test(msg[0]) && !/^폰트:/.test(msg[0]));
   }
 
   if(UPDATE){

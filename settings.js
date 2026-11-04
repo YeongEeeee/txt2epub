@@ -531,6 +531,8 @@ function buildFontDropdown(){
     const want=[prev, sel.id==='cssFont'?savedFont:''].find(v=>v&&[...sel.options].some(o=>o.value===v));
     if(want) sel.value=want;
   });
+  // ★ Phase 27: 변환 화면 폰트 선택(#convFont)도 새 목록으로
+  typeof syncConvFont==='function'&&syncConvFont();
 }
 
 // 폰트 미리보기 업데이트

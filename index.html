@@ -251,6 +251,11 @@
       <!-- 왼쪽: 배지 요약 -->
       <div>
         <div class="sec-caps">현재 설정</div>
+        <!-- ★ Phase 27: 변환 화면 폰트 선택 — 설정 > CSS 커스터마이징의 #cssFont와 같은 값 (목록은 #cssFont 복제, 커스텀 폰트 포함) -->
+        <div class="row u-mb-8">
+          <label class="txt-label-bold" for="convFont">폰트</label>
+          <select id="convFont" class="opt-select u-flex-1" data-input-action="pickConvFont"></select>
+        </div>
         <div id="settingsSummary" class="opt-summary-grid"></div>
         <button class="btn btn-blue u-mt-10 u-shrink-0 u-fs-sm" data-action="switchPage" data-page="settings">설정 열기</button>
       </div>

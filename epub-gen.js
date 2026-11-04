@@ -709,7 +709,7 @@ function describeFontSubsetReport(r){
   const kb=n=>n>=1024*1024?(n/1024/1024).toFixed(1)+'MB':Math.max(1,Math.round(n/1024))+'KB';
   const out=[];
   if(r.skipped==='unused'){
-    out.push(`커스텀 폰트 "${r.family}"를 쓰는 글꼴 설정이 없어 EPUB에 넣지 않았어요 (${kb(r.from)}) — 설정 > 글꼴에서 "📁 ${r.family}"를 고르면 적용돼요.`);
+    out.push(`커스텀 폰트 "${r.family}"를 쓰는 글꼴 설정이 없어 EPUB에 넣지 않았어요 (${kb(r.from)}) — 변환 탭 '변환 옵션 · 스타일'의 폰트(또는 설정 > CSS 커스터마이징)에서 "📁 ${r.family}"를 고르면 적용돼요.`);
     return out;
   }
   if(r.skipped==='format') out.push(`폰트: ${String(r.kind||'').toUpperCase()||'이'} 형식은 서브셋하지 않고 원본 그대로 넣었어요 (${kb(r.from)}) — TTF·OTF 파일을 쓰면 쓰인 글자만 남겨 줄일 수 있어요.`);
