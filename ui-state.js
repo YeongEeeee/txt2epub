@@ -101,6 +101,9 @@ function setReaderDevice(dev){
     _READER_DEVICES.filter(Boolean).forEach(k=>preview.classList.remove('dev-'+k));
     if(d) preview.classList.add('dev-'+d);
   }
+  // ★ Phase 34: EPUB 미리보기 창의 기기 틀도 같은 상태
+  const pvDev=document.getElementById('previewDevice');
+  if(pvDev){ _READER_DEVICES.filter(Boolean).forEach(k=>pvDev.classList.remove('dev-'+k)); if(d) pvDev.classList.add('dev-'+d); }
   document.querySelectorAll('.reader-device-btn').forEach(b=>{
     const on=(b.dataset.device||'')===d;
     b.classList.toggle('on', on);
@@ -881,6 +884,8 @@ function _spawnDropConfetti(container){
     saveCleanupNoise: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof _syncNoisePanel==='function'&&_syncNoisePanel(); },
     // ★ Phase 27: 변환 화면 폰트 선택 → #cssFont 반영
     pickConvFont: (el) => { typeof pickConvFont==='function'&&pickConvFont(el); },
+    // ★ Phase 34: EPUB 미리보기 — 문서 고르기
+    previewPickDoc: (el) => { typeof previewShowDoc==='function'&&previewShowDoc(parseInt(el.value,10)||0); },
     // ★ Phase 26: 이전 작업 복원 확인 토글 — 저장 + 끄면 저장된 작업 삭제
     saveSessionRestore: () => { typeof onSessionRestoreToggle==='function'&&onSessionRestoreToggle(); },
     saveExtraSettingsRenderIll: () => { typeof saveExtraSettings==='function'&&saveExtraSettings(); typeof renderIllTags==='function'&&renderIllTags(); },
@@ -1258,6 +1263,7 @@ function setupEventDelegate(){
     setShown(bar, !!(state.txtFiles.length || state.coverFile));
     if(state.tocItems) {
       typeof updateFeedFromToc==='function'&&updateFeedFromToc(state.tocItems);
+      typeof scheduleCleanupDiff==='function'&&scheduleCleanupDiff();   // ★ Phase 34: 목차가 바뀌면 전후 비교도 (펼쳐져 있을 때만)
       updateMiniReader&&updateMiniReader();
     }
   });

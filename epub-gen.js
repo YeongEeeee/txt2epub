@@ -976,3 +976,271 @@ async function launchEpubWorker({ title, author, chapters, coverFile, illMap=[],
 async function buildEpub(params, onProgress, opts={}){
   return launchEpubWorker(params, onProgress, opts);
 }
+
+// ══════════════════════════════════════════════════════════════════════
+// ★ Phase 34: EPUB 구조 검사 (앱 안) — 만든 파일을 다시 열어 '구조'만 확인
+//   EPUBCheck 전체를 대신하지 않는다: 패키지(OCF)·OPF·manifest/spine·nav·XML 형식·내부 참조만 본다.
+//   (CSS 문법·접근성 규칙·리더기별 렌더링은 범위 밖 — CI의 EPUBCheck가 담당)
+//   DOM 비의존: XML 형식 검사는 opts.parseXml(text)→오류 문자열|null 을 받고, 없으면 _xmlWellFormedLite 사용
+//   → tests/run-tests.js가 Node에서 실제 생성 EPUB·일부러 망가뜨린 EPUB으로 직접 검사
+// ══════════════════════════════════════════════════════════════════════
+
+// 가벼운 XML 형식 검사 — 태그 짝·중첩·속성 따옴표·엔티티·루트 1개 (DTD 내부 부분집합은 미지원)
+function _xmlWellFormedLite(text){
+  const s=String(text||'');
+  const stack=[]; let roots=0, i=0;
+  const ENT=/^&(?:lt|gt|amp|quot|apos|#\d+|#x[0-9a-fA-F]+);/;
+  const textOk=t=>{ let k=t.indexOf('&'); while(k>=0){ if(!ENT.test(t.slice(k,k+12))) return '잘못된 엔티티 '+t.slice(k,k+10); k=t.indexOf('&',k+1); } return t.indexOf('<')>=0?'이스케이프 안 된 <':null; };
+  while(i<s.length){
+    const lt=s.indexOf('<',i);
+    const txt=lt<0?s.slice(i):s.slice(i,lt);
+    if(txt.trim()){ if(!stack.length) return '루트 밖 글자'; const e=textOk(txt); if(e) return e; }
+    if(lt<0) break;
+    if(s.startsWith('<!--',lt)){ const e=s.indexOf('-->',lt+4); if(e<0) return '닫히지 않은 주석'; i=e+3; continue; }
+    if(s.startsWith('<![CDATA[',lt)){ const e=s.indexOf(']]>',lt); if(e<0) return '닫히지 않은 CDATA'; i=e+3; continue; }
+    if(s.startsWith('<?',lt)){ const e=s.indexOf('?>',lt); if(e<0) return '닫히지 않은 처리 명령'; i=e+2; continue; }
+    if(s.startsWith('<!',lt)){ const e=s.indexOf('>',lt); if(e<0) return '닫히지 않은 선언'; i=e+1; continue; }
+    const gt=s.indexOf('>',lt); if(gt<0) return '닫히지 않은 태그';
+    let tag=s.slice(lt+1,gt);
+    // 속성 값 안의 '>' 처리 — 따옴표 짝이 맞을 때까지 확장
+    let q=(tag.match(/"/g)||[]).length%2||(tag.match(/'/g)||[]).length%2, end=gt;
+    while(q){ const n=s.indexOf('>',end+1); if(n<0) return '닫히지 않은 속성 값'; end=n; tag=s.slice(lt+1,end); q=(tag.match(/"/g)||[]).length%2||(tag.match(/'/g)||[]).length%2; }
+    i=end+1;
+    if(tag[0]==='/'){
+      const name=tag.slice(1).trim();
+      if(stack.pop()!==name) return '짝이 맞지 않는 닫는 태그 </'+name+'>';
+      continue;
+    }
+    const self=/\/\s*$/.test(tag);
+    const m=tag.match(/^([A-Za-z_][\w.:-]*)([\s\S]*?)\/?\s*$/);
+    if(!m) return '잘못된 태그 <'+tag.slice(0,20);
+    const attrs=m[2].trim();
+    if(attrs){
+      const rest=attrs.replace(/([A-Za-z_][\w.:-]*)\s*=\s*("[^"<]*"|'[^'<]*')\s*/g,(all,n,v)=>{ return textOk(v.slice(1,-1).replace(/</g,''))?'\u0000':''; });
+      if(rest.trim()) return '잘못된 속성 <'+m[1]+' '+attrs.slice(0,30);
+      const names=[...attrs.matchAll(/([A-Za-z_][\w.:-]*)\s*=/g)].map(x=>x[1]);
+      if(new Set(names).size!==names.length) return '중복 속성 <'+m[1]+'>';
+    }
+    if(!stack.length){ roots++; if(roots>1) return '루트 요소가 2개 이상'; }
+    if(!self) stack.push(m[1]);
+  }
+  if(stack.length) return '닫히지 않은 요소 <'+stack[stack.length-1]+'>';
+  if(!roots) return '루트 요소 없음';
+  return null;
+}
+
+// 브라우저: DOMParser(엄격) · Node(테스트): 가벼운 검사
+function _xmlParseErrorDefault(text){
+  if(typeof DOMParser==='function'){
+    const doc=new DOMParser().parseFromString(String(text||''),'application/xml');
+    const pe=doc.getElementsByTagName('parsererror')[0];
+    return pe?(pe.textContent||'XML 오류').replace(/\s+/g,' ').slice(0,120):null;
+  }
+  return _xmlWellFormedLite(text);
+}
+
+// zip 경로 정규화 (상대 경로 → zip 안 절대 경로, %인코딩 해제, ./·../ 처리)
+function _epubResolve(base, href){
+  let h=String(href||'').split('#')[0];
+  try{ h=decodeURIComponent(h); }catch(e){}
+  const parts=(base?base.replace(/[^/]*$/,''):'').split('/').filter(Boolean);
+  for(const p of h.split('/')){
+    if(!p||p==='.') continue;
+    if(p==='..') parts.pop(); else parts.push(p);
+  }
+  return parts.join('/');
+}
+
+const _EPUB_MT_BY_EXT={
+  xhtml:['application/xhtml+xml'], html:['application/xhtml+xml'], css:['text/css'], ncx:['application/x-dtbncx+xml'],
+  jpg:['image/jpeg'], jpeg:['image/jpeg'], png:['image/png'], gif:['image/gif'], webp:['image/webp'], svg:['image/svg+xml'],
+  ttf:['font/ttf','application/font-sfnt','application/x-font-ttf','application/x-font-truetype'],
+  otf:['font/otf','application/font-sfnt','application/vnd.ms-opentype','application/x-font-opentype'],
+  woff:['font/woff','application/font-woff'], woff2:['font/woff2'],
+};
+
+// zip: JSZip 인스턴스 · head: 파일 앞부분 바이트(Uint8Array, 64바이트 이상 — mimetype 헤더 검사)
+// 반환: {checks:[{id,label,ok,issues:[]}], passed, total, files, xhtml, ms}
+async function validateEpubZip(zip, head, opts={}){
+  const t0=Date.now();
+  const parseErr=opts.parseXml||_xmlParseErrorDefault;
+  const yieldFn=opts.yieldFn||(typeof yieldToMain==='function'?yieldToMain:null);
+  const checks=[];
+  const add=(id,label,issues)=>checks.push({id,label,ok:!issues.length,issues:issues.slice(0,8),count:issues.length});
+  const names=Object.keys(zip.files).filter(n=>!zip.files[n].dir);
+  const has=n=>!!zip.files[n]&&!zip.files[n].dir;
+  const read=n=>has(n)?zip.file(n).async('string'):Promise.resolve(null);
+
+  // 1. mimetype — 첫 항목·압축 안 함·내용·추가 필드 없음 (OCF 3.3)
+  {
+    const iss=[];
+    const u8=head instanceof Uint8Array?head:new Uint8Array(head||[]);
+    const sig=u8.length>=38&&u8[0]===0x50&&u8[1]===0x4b&&u8[2]===3&&u8[3]===4;
+    if(!sig) iss.push('ZIP 로컬 헤더가 아님');
+    else{
+      const method=u8[8]|(u8[9]<<8), nlen=u8[26]|(u8[27]<<8), xlen=u8[28]|(u8[29]<<8);
+      const fname=String.fromCharCode(...u8.slice(30,30+nlen));
+      if(fname!=='mimetype') iss.push('첫 항목이 mimetype이 아님 ('+fname+')');
+      if(method!==0) iss.push('mimetype이 압축됨 (방식 '+method+')');
+      if(xlen!==0) iss.push('mimetype 헤더에 추가 필드 '+xlen+'바이트');
+    }
+    const mt=await read('mimetype');
+    if(mt!=='application/epub+zip') iss.push('mimetype 내용: '+JSON.stringify(mt));
+    add('mimetype','mimetype (첫 항목·무압축·내용)',iss);
+  }
+  // 2. container.xml → OPF 경로
+  let opfPath=null;
+  {
+    const iss=[];
+    const c=await read('META-INF/container.xml');
+    if(c==null) iss.push('META-INF/container.xml 없음');
+    else{
+      const e=parseErr(c); if(e) iss.push('container.xml XML 오류: '+e);
+      if(!/xmlns="urn:oasis:names:tc:opendocument:xmlns:container"/.test(c)) iss.push('container 네임스페이스가 OCF 표준값이 아님');
+      const m=c.match(/<rootfile\b[^>]*full-path="([^"]+)"[^>]*>/);
+      if(!m) iss.push('rootfile full-path 없음');
+      else{
+        opfPath=m[1];
+        if(!/media-type="application\/oebps-package\+xml"/.test(m[0])) iss.push('rootfile media-type이 application/oebps-package+xml이 아님');
+        if(!has(opfPath)) iss.push('OPF 파일 없음: '+opfPath);
+      }
+    }
+    add('container','container.xml → 패키지 문서',iss);
+  }
+  const opf=opfPath?await read(opfPath):null;
+  // 3. OPF 형식·필수 메타
+  const manifest=new Map();  // id → {href, path, mt, props}
+  {
+    const iss=[];
+    if(opf==null) iss.push('패키지 문서를 읽을 수 없음');
+    else{
+      const e=parseErr(opf); if(e) iss.push('OPF XML 오류: '+e);
+      const pkg=opf.match(/<package\b[^>]*>/)?.[0]||'';
+      if(!/version="3\.0"/.test(pkg)) iss.push('package version이 3.0이 아님');
+      const uidRef=pkg.match(/unique-identifier="([^"]+)"/)?.[1];
+      const idEl=uidRef?opf.match(new RegExp('<dc:identifier\\b[^>]*id="'+uidRef.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+'"[^>]*>([^<]*)</dc:identifier>')):null;
+      if(!uidRef) iss.push('package unique-identifier 없음');
+      else if(!idEl||!idEl[1].trim()) iss.push('unique-identifier가 가리키는 dc:identifier 없음');
+      if(!/<dc:title\b[^>]*>[^<]*\S[^<]*<\/dc:title>/.test(opf)) iss.push('dc:title 없음');
+      if(!/<dc:language\b[^>]*>[^<]*\S[^<]*<\/dc:language>/.test(opf)) iss.push('dc:language 없음');
+      const mod=opf.match(/<meta\b[^>]*property="dcterms:modified"[^>]*>([^<]*)<\/meta>/);
+      if(!mod) iss.push('dcterms:modified 없음');
+      else if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(mod[1].trim())) iss.push('dcterms:modified 형식: '+mod[1]);
+      for(const it of opf.matchAll(/<item\b[^>]*>/g)){
+        const a=n=>it[0].match(new RegExp('\\b'+n+'="([^"]*)"'))?.[1];
+        const id=a('id'), href=a('href');
+        if(!id||href==null){ iss.push('id·href 없는 item'); continue; }
+        if(manifest.has(id)) iss.push('중복 id: '+id);
+        manifest.set(id,{href, path:_epubResolve(opfPath,href), mt:a('media-type')||'', props:(a('properties')||'').split(/\s+/).filter(Boolean)});
+      }
+      if(!manifest.size) iss.push('manifest가 비어 있음');
+    }
+    add('opf','패키지 문서 형식·필수 메타 (identifier·title·language·modified)',iss);
+  }
+  // 4. manifest ↔ 실제 파일
+  {
+    const iss=[], listed=new Set();
+    for(const [id,it] of manifest){
+      if(listed.has(it.path)) iss.push('같은 파일이 두 번 등록: '+it.href);
+      listed.add(it.path);
+      if(!has(it.path)) iss.push('manifest에 있으나 파일 없음: '+it.href+' ('+id+')');
+    }
+    for(const n of names){
+      if(n==='mimetype'||n.startsWith('META-INF/')||n===opfPath) continue;
+      if(!listed.has(n)) iss.push('파일이 manifest에 없음: '+n);
+    }
+    add('manifest','manifest와 실제 파일 일치 (누락·미등록·중복)',iss);
+  }
+  // 5. media-type ↔ 확장자
+  {
+    const iss=[];
+    for(const [id,it] of manifest){
+      const ext=(it.path.match(/\.([^./]+)$/)?.[1]||'').toLowerCase();
+      const ok=_EPUB_MT_BY_EXT[ext];
+      if(!ok) iss.push('알 수 없는 확장자: '+it.href);
+      else if(!ok.includes(it.mt)) iss.push(it.href+' → '+(it.mt||'(없음)')+' (기대: '+ok[0]+')');
+    }
+    add('mediatype','media-type과 확장자 일치',iss);
+  }
+  // 6. spine
+  {
+    const iss=[];
+    const spine=opf?.match(/<spine\b[^>]*>([\s\S]*?)<\/spine>/);
+    if(!spine) iss.push('spine 없음');
+    else{
+      const refs=[...spine[1].matchAll(/<itemref\b[^>]*idref="([^"]+)"/g)].map(m=>m[1]);
+      if(!refs.length) iss.push('spine이 비어 있음');
+      const seen=new Set();
+      for(const r of refs){
+        if(seen.has(r)) iss.push('spine 중복: '+r); seen.add(r);
+        const it=manifest.get(r);
+        if(!it) iss.push('spine idref가 manifest에 없음: '+r);
+        else if(it.mt!=='application/xhtml+xml') iss.push('spine 항목이 XHTML이 아님: '+it.href);
+      }
+      const toc=spine[0].match(/<spine\b[^>]*\btoc="([^"]+)"/)?.[1];
+      if(toc&&manifest.get(toc)?.mt!=='application/x-dtbncx+xml') iss.push('spine toc가 NCX를 가리키지 않음: '+toc);
+    }
+    add('spine','spine (읽기 순서) 항목',iss);
+  }
+  // 7. nav
+  let navPath=null, navText=null;
+  {
+    const iss=[];
+    const navs=[...manifest.values()].filter(it=>it.props.includes('nav'));
+    if(navs.length!==1) iss.push('properties="nav" 항목이 '+navs.length+'개 (1개여야 함)');
+    else{
+      navPath=navs[0].path; navText=await read(navPath);
+      if(navText==null) iss.push('nav 문서 없음');
+      else if(!/<nav\b[^>]*epub:type="toc"/.test(navText)) iss.push('nav 문서에 epub:type="toc" 없음');
+      else if(!/<nav\b[^>]*epub:type="toc"[\s\S]*?<a\b[^>]*href=/.test(navText)) iss.push('목차(nav toc)에 링크가 없음');
+    }
+    const covers=[...manifest.values()].filter(it=>it.props.includes('cover-image'));
+    if(covers.length>1) iss.push('cover-image 항목이 '+covers.length+'개');
+    for(const c of covers) if(!/^image\//.test(c.mt)) iss.push('cover-image가 이미지가 아님: '+c.href);
+    add('nav','목차 문서(nav)·표지 이미지 지정',iss);
+  }
+  // 8. XML 형식 (XHTML·nav·NCX 전부) + 9. 내부 참조 (img·link·a href·CSS url)
+  const wfIss=[], refIss=[], idsByPath=new Map(), navTargets=[];
+  let xhtmlCount=0, k=0;
+  for(const [id,it] of manifest){
+    const isX=it.mt==='application/xhtml+xml', isN=it.mt==='application/x-dtbncx+xml', isC=it.mt==='text/css';
+    if(!isX&&!isN&&!isC) continue;
+    const t=await read(it.path); if(t==null) continue;
+    if(isX||isN){
+      xhtmlCount++;
+      const e=parseErr(t); if(e) wfIss.push(it.href+': '+e);
+      idsByPath.set(it.path,new Set([...t.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1])));
+      const attrRx=isN?/<content\b[^>]*\bsrc="([^"]*)"/g:/<(?:img|link|a|image|script|audio|video|source)\b[^>]*?\s(?:src|href|xlink:href)="([^"]*)"/g;
+      for(const m of t.matchAll(attrRx)){
+        const ref=m[1];
+        if(!ref||/^(?:[a-z][a-z0-9+.-]*:|#)/i.test(ref)) { if(ref&&ref[0]==='#') navTargets.push([it.path,ref.slice(1),it.href]); continue; }
+        const p=_epubResolve(it.path,ref);
+        if(!has(p)) refIss.push(it.href+' → '+ref+' (파일 없음)');
+        else if(ref.includes('#')&&(it.path===navPath||isN)) navTargets.push([p,ref.split('#')[1],it.href]);
+      }
+    }else{
+      for(const m of t.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/g)){
+        const ref=m[1].trim(); if(/^(?:data|https?):/i.test(ref)) continue;
+        if(!has(_epubResolve(it.path,ref))) refIss.push(it.href+' → url('+ref+') (파일 없음)');
+      }
+    }
+    if(yieldFn&&++k%25===0) await yieldFn();   // 25문서마다 양보 — CPU 4배에서도 한 덩어리 50ms 안팎
+  }
+  for(const [p,frag,from] of navTargets){
+    const ids=idsByPath.get(p);
+    if(ids&&!ids.has(frag)) refIss.push(from+' → #'+frag+' (id 없음)');
+  }
+  add('xml','XHTML·nav·NCX XML 형식 ('+xhtmlCount+'개 문서)',wfIss);
+  add('refs','내부 참조 (이미지·링크·스타일·목차 위치)',refIss);
+
+  const passed=checks.filter(c=>c.ok).length;
+  return {checks, passed, total:checks.length, files:names.length, xhtml:xhtmlCount, ms:Date.now()-t0};
+}
+
+// Blob → 검사 (브라우저 — 변환 직후 convert.js가 호출)
+async function validateEpubBlob(blob, opts={}){
+  if(!blob||typeof JSZip==='undefined') return null;
+  const head=new Uint8Array(await blob.slice(0,128).arrayBuffer());
+  const zip=await JSZip.loadAsync(blob);
+  return validateEpubZip(zip, head, opts);
+}
