@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!-- ★ Phase 15: CSP — _headers(Cloudflare Pages)와 같은 정책 (frame-ancestors는 헤더에서만 적용) -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; style-src 'self' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https: data: blob:; manifest-src 'self'; media-src 'self' blob: data:; object-src 'none'; base-uri 'self'; form-action 'self'">
-  <title>📚 NovelEPUB — TXT to EPUB3 변환기</title>
+  <title>NovelEPUB — TXT to EPUB3 변환기</title>
   <!-- ★ Phase 16: 앱 설치(PWA) — 설치하면 .txt 파일을 NovelEPUB으로 바로 열 수 있음 (file_handlers) -->
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#c8503c">
@@ -24,6 +24,27 @@
   <script src="lib/jszip.min.js" integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==" crossorigin="anonymous" defer></script>
 </head>
 <body>
+<!-- ★ Phase 32: 아이콘 단일 출처 — 선형 SVG 스프라이트 (Lucide 계열 경로, ISC 라이선스). 사용: <svg class="ico"><use href="#i-이름"/></svg> · JS는 core.js icon(이름) -->
+<svg xmlns="http://www.w3.org/2000/svg" class="ico-sprite" hidden aria-hidden="true">
+  <symbol id="i-download" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></symbol>
+  <symbol id="i-upload" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></symbol>
+  <symbol id="i-inbox" viewBox="0 0 24 24"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></symbol>
+  <symbol id="i-scissors" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/></symbol>
+  <symbol id="i-image" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.09-3.09a2 2 0 0 0-2.82 0L6 21"/></symbol>
+  <symbol id="i-package" viewBox="0 0 24 24"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></symbol>
+  <symbol id="i-check-circle" viewBox="0 0 24 24"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></symbol>
+  <symbol id="i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></symbol>
+  <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><circle cx="13.5" cy="6.5" r="1"/><circle cx="17.5" cy="10.5" r="1"/><circle cx="8.5" cy="7.5" r="1"/><circle cx="6.5" cy="12.5" r="1"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.93 0 1.65-.75 1.65-1.69 0-.44-.18-.84-.44-1.13-.29-.29-.44-.65-.44-1.13a1.64 1.64 0 0 1 1.67-1.67h2c3.05 0 5.55-2.5 5.55-5.55C21.97 6.01 17.46 2 12 2z"/></symbol>
+</svg>
 <!-- 헤더 -->
 <div class="hdr">
   <div class="hdr-title">
@@ -31,7 +52,7 @@
     <span>NovelEPUB</span><span class="hdr-sub">TXT → EPUB3 변환기</span>
   </div>
   <div class="hdr-right">
-    <button class="ibtn" id="themeBtn" data-action="toggleTheme" aria-label="테마 전환" title="라이트/다크 전환"><span class="ibtn-icon">🌙</span></button>
+    <button class="ibtn" id="themeBtn" data-action="toggleTheme" aria-label="테마 전환" title="라이트/다크 전환"><span class="ibtn-icon"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-moon"/></svg></span></button>
     <button class="ibtn" data-action="resetAll" aria-label="전체 초기화" title="전체 초기화"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 3 3 9 9 9"/></svg></button>
   </div>
 </div>
@@ -182,7 +203,7 @@
       </div>
       <div class="regex-feed-list" id="regexFeedList" tabindex="0" role="region" aria-label="챕터 감지 결과 목록">
         <div class="regex-feed-empty">
-          <div class="regex-feed-empty-icon">📄</div>
+          <div class="regex-feed-empty-icon"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-file"/></svg></div>
           목차 확인 후 표시됩니다
         </div>
       </div>
@@ -195,7 +216,7 @@
 
     <!-- ★ 목차 편집 상태 배너 -->
     <div class="toc-edit-banner" id="tocEditBanner">
-      <span>✏️</span>
+      <span><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-pencil"/></svg></span>
       <span id="tocEditBannerText">목차 편집됨</span>
       <span class="u-ml-auto u-fs-xs u-op-70">편집 내용이 EPUB에 반영돼요</span>
     </div>
@@ -207,7 +228,7 @@
         <button class="ttab" data-action="tocTab" data-idx="3">정규식 수정</button>
         <!-- ★ 단축키 힌트 -->
         <span id="tocShortcutHint" class="txt-meta-sm"
-              title="Ctrl+클릭: 다중 선택 | Shift+클릭: 범위 선택 | 드래그 중앙: 병합 | ☑ 선택 모드: 터치 친화" data-shortcut-append="convert,download">
+              title="Ctrl+클릭: 다중 선택 | Shift+클릭: 범위 선택 | 드래그 중앙: 병합 | 선택 모드: 터치 친화" data-shortcut-append="convert,download">
           Shift=범위선택 · 드래그중앙=병합
         </span>
       </div>
@@ -215,7 +236,7 @@
       <!-- ★ Phase 13: 변환 전 검수 리포트 (누락 화수·중복·빈/짧은/긴 챕터 — 항목 클릭 시 목차 위치로 이동) -->
       <div id="tocReview" class="toc-review-host" hidden></div>
       <div id="tocMiniChart" title="챕터별 글자수 분포 — 클릭해서 해당 챕터로 이동"></div>
-      <div class="toc-body" id="tb0"><div class="toc-empty"><div class="toc-empty-icon">📄</div><p>파일을 업로드하면<br>이곳에 목차가 생성됩니다</p></div></div>
+      <div class="toc-body" id="tb0"><div class="toc-empty"><div class="toc-empty-icon"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-file"/></svg></div><p>파일을 업로드하면<br>이곳에 목차가 생성됩니다</p></div></div>
       <div class="toc-body" id="tb1" hidden>
         <div id="tocPreviewList"></div>
       </div>
@@ -244,7 +265,7 @@
             <tr><td class="cell-key">영문</td><td class="cell-val">영문 그대로, 끝에 i 플래그로 대소문자 무시</td><td class="cell-code">^chapter\s*\d+</td></tr>
           </table>
           <div class="note-yellow">
-            💡 <strong>이 파일 패턴 예시</strong>: <code class="u-accent">^\[\s*.+\.txt\s*\]\s*$</code> → <code class="u-text2">[ 0001_어떤 길은 나를 통했다.txt ]</code> 형식 인식<br>
+            <strong>이 파일 패턴 예시</strong>: <code class="u-accent">^\[\s*.+\.txt\s*\]\s*$</code> → <code class="u-text2">[ 0001_어떤 길은 나를 통했다.txt ]</code> 형식 인식<br>
             혼합 예: <code class="u-accent">^(?:\[\s*.+\.txt\s*\]|\d+화).*$</code> → 두 패턴 동시 지원
           </div>
         </div>
@@ -304,15 +325,15 @@
 <!-- ★ 진행 단계 스텝 인디케이터 -->
 <div class="prog-wrap" id="progWrap">
   <div class="prog-steps">
-    <div class="prog-step" id="pstep0"><div class="prog-step-dot">📂</div><div class="prog-step-label">파일 읽기</div></div>
+    <div class="prog-step" id="pstep0"><div class="prog-step-dot"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-folder"/></svg></div><div class="prog-step-label">파일 읽기</div></div>
     <div class="prog-step-line" id="pline0"></div>
-    <div class="prog-step" id="pstep1"><div class="prog-step-dot">✂️</div><div class="prog-step-label">챕터 분리</div></div>
+    <div class="prog-step" id="pstep1"><div class="prog-step-dot"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-scissors"/></svg></div><div class="prog-step-label">챕터 분리</div></div>
     <div class="prog-step-line" id="pline1"></div>
-    <div class="prog-step" id="pstep2"><div class="prog-step-dot">🖼</div><div class="prog-step-label">이미지</div></div>
+    <div class="prog-step" id="pstep2"><div class="prog-step-dot"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-image"/></svg></div><div class="prog-step-label">이미지</div></div>
     <div class="prog-step-line" id="pline2"></div>
-    <div class="prog-step" id="pstep3"><div class="prog-step-dot">📦</div><div class="prog-step-label">EPUB 빌드</div></div>
+    <div class="prog-step" id="pstep3"><div class="prog-step-dot"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-package"/></svg></div><div class="prog-step-label">EPUB 빌드</div></div>
     <div class="prog-step-line" id="pline3"></div>
-    <div class="prog-step" id="pstep4"><div class="prog-step-dot">✅</div><div class="prog-step-label">완료</div></div>
+    <div class="prog-step" id="pstep4"><div class="prog-step-dot"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-check"/></svg></div><div class="prog-step-label">완료</div></div>
   </div>
   <div class="prog-bg"><div class="prog-bar" id="progBar" role="progressbar" aria-label="변환 진행률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"></div></div>
   <div class="prog-msg" id="progMsg"></div>
@@ -323,11 +344,11 @@
   <div id="resultStats"></div>
   <p id="resultMsg"></p>
   <!-- ★ 단계별 소요시간 스파크라인 (_renderProgressSparkline) / 변환 경고 리포트 (_renderConvertReport) -->
-  <div id="progressSparkline" class="progress-sparkline"></div>
-  <div id="convertReport" role="status" aria-live="polite"></div>
+  <div id="progressSparkline" class="progress-sparkline" hidden></div>
+  <div id="convertReport" role="status" aria-live="polite" hidden></div>
   <div class="flex-row u-jc-center u-wrap">
     <button class="btn btn-blue" data-action="showPreview">미리보기</button>
-    <button class="btn btn-green" data-action="downloadEpub">⬇ EPUB 다운로드</button>
+    <button class="btn btn-green" data-action="downloadEpub"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-download"/></svg> EPUB 다운로드</button>
   </div>
 </div>
 <div class="err-box" id="errBox"></div>
@@ -406,7 +427,7 @@
 <div class="result" id="batchResultBox">
   <h3>일괄 변환 완료!</h3>
   <p id="batchResultMsg"></p>
-  <button class="btn btn-green" data-action="downloadBatchZip">⬇ ZIP 다운로드</button>
+  <button class="btn btn-green" data-action="downloadBatchZip"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-download"/></svg> ZIP 다운로드</button>
 </div>
 <div class="err-box" id="batchErrBox"></div>
 </div><!-- /page-batch -->
@@ -417,7 +438,7 @@
   <div class="sec-hdr"><span class="sec-title">기존 EPUB 불러오기</span><div class="sec-line"></div></div>
   <div class="card">
     <div class="epub-drop" id="epubDrop">
-      <div class="empty-emoji">📖</div>
+      <div class="empty-emoji"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-book"/></svg></div>
       <div class="u-fs-base u-text2">수정할 EPUB 파일 드래그하거나 클릭</div>
     </div>
     <input type="file" id="epubIn" accept=".epub" hidden>
@@ -611,7 +632,7 @@
   <div class="result" id="directEditResultBox" hidden>
     <h3>편집 완료!</h3>
     <p id="directEditResultMsg"></p>
-    <button class="btn btn-green" data-action="downloadDirectEditEpub">⬇ EPUB 다운로드</button>
+    <button class="btn btn-green" data-action="downloadDirectEditEpub"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-download"/></svg> EPUB 다운로드</button>
   </div>
   <div class="err-box" id="directEditErrBox"></div>
 </div>
@@ -670,7 +691,7 @@
     <div id="insTocFilterBar">
       <!-- EPUB 마지막 위치 안내 -->
       <div id="insTocEpubInfo" hidden>
-        📖 <span id="insTocEpubInfoText"></span>
+        <span id="insTocEpubInfoText"></span>
       </div>
       <div class="mini-head-strong">TXT 챕터 기준으로 범위 선택</div>
       <div class="u-row-wrap-6">
@@ -762,7 +783,7 @@
 <div class="result" id="editResultBox">
   <h3>완료!</h3>
   <p id="editResultMsg"></p>
-  <button class="btn btn-green" data-action="downloadEditEpub">⬇ EPUB 다운로드</button>
+  <button class="btn btn-green" data-action="downloadEditEpub"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-download"/></svg> EPUB 다운로드</button>
 </div>
 <div class="err-box" id="editErrBox"></div>
 </div><!-- /page-edit -->
@@ -807,7 +828,7 @@
 <div class="sec-hdr"><span class="sec-title">짧은 챕터 기준</span><div class="sec-line"></div></div>
 <div class="card">
   <div class="u-desc">
-    목차에서 <strong>오감지 경고(본문 짧음 ⚠)</strong>를 표시할 글자 수 기준입니다.<br>
+    목차에서 <strong>오감지 경고(본문 짧음 <svg class="ico" aria-hidden="true" focusable="false"><use href="#i-alert"/></svg>)</strong>를 표시할 글자 수 기준입니다.<br>
     <span class="u-accent u-fs-xs">슬라이더를 드래그하면 목차가 즉시 재계산돼요.</span>
   </div>
   <div class="susp-slider-wrap">
@@ -818,7 +839,7 @@
     <span id="suspThresholdVal" class="susp-slider-val">50자</span>
   </div>
   <div class="susp-slider-hint">
-    💡 <strong>예시:</strong> 50자 기준 → 50자 미만 챕터에 ⚠ 배지 표시 · 변경 즉시 목차 재계산<br>
+    <strong>예시:</strong> 50자 기준 → 50자 미만 챕터에 <svg class="ico" aria-hidden="true" focusable="false"><use href="#i-alert"/></svg> 배지 표시 · 변경 즉시 목차 재계산<br>
     권장: 짧은 연재(50~100자) · 긴 소설(200~500자) · 단편(10~30자)
   </div>
 </div>
@@ -1048,7 +1069,7 @@
     <!-- ★ 설정 프리셋 — 마스터 컨트롤 바 -->
     <div class="preset-master-bar">
       <div class="preset-master-hdr">
-        <span class="preset-master-icon" aria-hidden="true">🎨</span>
+        <span class="preset-master-icon" aria-hidden="true"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-palette"/></svg></span>
         <span class="preset-master-title">설정 프리셋</span>
         <span class="preset-master-desc">현재 CSS·변환 설정 전체를 저장·불러와요</span>
         <button class="btn btn-ghost btn-sm preset-master-save-btn" data-action="saveCurrentAsPreset">현재 설정 저장</button>
@@ -1183,7 +1204,7 @@
       <span id="geminiKeyStatus" hidden></span>
     </div>
     <div class="note-blue">
-      💡 <a class="u-link-blue" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>에서 무료 발급 →
+      <a class="u-link-blue" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>에서 무료 발급 →
       키는 정규식을 만들 때 Google API로만 전송돼요 (요청 헤더, 주소에 남지 않음).
     </div>
   </div>
@@ -1205,7 +1226,7 @@
       <button type="button" class="btn btn-ghost btn-sm secret-toggle" data-action="toggleSecret" data-target="naverClientSecret" aria-pressed="false" aria-label="네이버 Client Secret 보기">보기</button>
     </div>
     <div class="note-blue">
-      💡 <a class="u-link-blue" href="https://developers.naver.com/apps/#/register" target="_blank">네이버 개발자 센터</a>에서 애플리케이션 등록 → <b>검색 (책)</b> API 사용 신청 → Client ID/Secret 발급<br>
+      <a class="u-link-blue" href="https://developers.naver.com/apps/#/register" target="_blank">네이버 개발자 센터</a>에서 애플리케이션 등록 → <b>검색 (책)</b> API 사용 신청 → Client ID/Secret 발급<br>
       키는 이 기기의 localStorage에만 저장되며 외부로 전송되지 않아요.
     </div>
     <div class="sec-divider">
@@ -1229,8 +1250,8 @@
     </div>
     <div class="settings-io-bar">
       <label>설정 파일 (.json)</label>
-      <button class="btn btn-blue btn-sm" data-action="exportSettings">⬇ 내보내기</button>
-      <button class="btn btn-ghost btn-sm" data-action="importSettingsBtn">⬆ 가져오기</button>
+      <button class="btn btn-blue btn-sm" data-action="exportSettings"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-download"/></svg> 내보내기</button>
+      <button class="btn btn-ghost btn-sm" data-action="importSettingsBtn"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-upload"/></svg> 가져오기</button>
       <input type="file" id="settingsImportIn" accept=".json" hidden>
     </div>
   </div>
@@ -1269,9 +1290,9 @@
     <div class="modal-body" id="previewBody"></div>
     <div class="modal-footer">
       <span id="previewPageInfo"></span>
-      <button class="btn btn-ghost btn-sm" data-action="previewNav" data-dir="-1">◀ 이전</button>
-      <button class="btn btn-ghost btn-sm" data-action="previewNav" data-dir="1">다음 ▶</button>
-      <button class="btn btn-green btn-sm" data-action="downloadEpub">⬇ 다운로드</button>
+      <button class="btn btn-ghost btn-sm" data-action="previewNav" data-dir="-1">‹ 이전</button>
+      <button class="btn btn-ghost btn-sm" data-action="previewNav" data-dir="1">다음 ›</button>
+      <button class="btn btn-green btn-sm" data-action="downloadEpub"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-download"/></svg> 다운로드</button>
     </div>
   </div>
 </div>
@@ -1359,14 +1380,14 @@
 <!-- ★ EPUB 다운로드 완료 플로팅 바 (변환 완료 후 상시 노출) -->
 <div class="btm btm-dl" id="btmDownload" role="toolbar" aria-label="EPUB 다운로드 바" hidden>
   <div class="btm-dl-info">
-    <span class="btm-dl-icon">📗</span>
+    <span class="btm-dl-icon"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-book"/></svg></span>
     <div class="btm-dl-meta">
       <span class="btm-dl-label">변환 완료</span>
       <span class="btm-dl-name" id="btmDlName">output.epub</span>
     </div>
   </div>
   <button class="btn btn-green btm-dl-btn" id="btmDlBtn" data-action="downloadEpub" data-shortcut="download">
-    ⬇ EPUB 다운로드
+    <svg class="ico" aria-hidden="true" focusable="false"><use href="#i-download"/></svg> EPUB 다운로드
   </button>
   <div class="btm-hint u-shrink-0" data-shortcut-kbd="download"></div>
   <button class="btm-dl-close" id="btmDlClose" aria-label="다운로드 바 닫기" title="닫기 (변환 결과는 위 카드에서 다시 다운로드 가능)">✕</button>

@@ -303,10 +303,10 @@ async function handleCssImportEpub(files){
       };
       grid.appendChild(card);
     });
-    document.getElementById('cssImportInfo').textContent=`✅ ${all.length}개 클래스 발견 — 추가할 클래스를 선택하세요`;
-    if(!all.length) document.getElementById('cssImportInfo').textContent='⚠️ 유용한 CSS 클래스를 찾지 못했어요';
+    document.getElementById('cssImportInfo').textContent=`${all.length}개 클래스 발견 — 추가할 클래스를 선택하세요`;
+    if(!all.length) document.getElementById('cssImportInfo').textContent='유용한 CSS 클래스를 찾지 못했어요';
   }catch(e){
-    info.textContent='❌ 오류: '+e.message;
+    info.textContent='오류: '+e.message;
   }
 }
 
@@ -323,7 +323,7 @@ function applyCssImport(){
   document.querySelectorAll('.css-cls-card.sel').forEach(c=>c.classList.remove('sel'));
   setShown(document.getElementById('cssImportApplyBar'),false);
   saveCssSettings();
-  Toast.success(`✅ ${count}개 클래스가 "추가 CSS" 영역에 추가됐어요.`);
+  Toast.success(`${count}개 클래스가 "추가 CSS" 영역에 추가됐어요.`);
 }
 function clearCssImport(){
   _cssImportSelected.clear();
@@ -552,7 +552,7 @@ function buildFontDropdown(){
       opt.id='customFontOpt';
       const hasCustom=typeof customFontName!=='undefined'&&customFontName&&typeof customFontFace!=='undefined'&&customFontFace;
       opt.value=hasCustom?'"'+customFontName+'",serif':'__custom__';
-      opt.textContent=hasCustom?'📁 '+customFontName:'커스텀 폰트';
+      opt.textContent=hasCustom?customFontName:'커스텀 폰트';
       setShown(opt, !!hasCustom);
       sel.appendChild(opt);
     }
@@ -683,8 +683,7 @@ function loadUserPrefs(){
     // ── 다크모드 ──
     if(p.dark===true){
       document.documentElement.dataset.theme='dark';
-      const btn=document.getElementById('themeBtn');
-      if(btn) btn.textContent='☀️';
+      typeof _setThemeIcon==='function'&&_setThemeIcon(document.getElementById('themeBtn'),'dark');
     }
 
     // ── 토글 옵션 ──
@@ -736,9 +735,9 @@ async function _runSmartPat(include, exclude){
   if(apiKey){
     // ── Gemini API 호출 ──
     setShown(resultBox,true);
-    resultBox.style.borderColor='var(--border)';
-    resultEl.textContent='⏳ AI 변환 중...';
-    applyBtn.style.display='none';
+    resultBox.classList.add('is-empty');
+    resultEl.textContent='AI 변환 중...';
+    setShown(applyBtn,false);
     setShown(aiLabel,false);
 
     // ★ Phase 12: 이 요청이 취소됐거나 더 새 요청으로 대체됐으면 결과를 화면에 쓰지 않음
@@ -749,13 +748,13 @@ async function _runSmartPat(include, exclude){
       if(isStale()) return;
       if(rx){
         resultEl.textContent=rx;
-        resultBox.style.borderColor='var(--accent)';
-        applyBtn.style.display='';
+        resultBox.classList.remove('is-empty');
+        setShown(applyBtn,true);
         setShown(aiLabel,true);
       } else {
         resultEl.textContent='(AI가 정규식을 생성하지 못했어요 — 다시 시도하거나 직접 입력)';
-        resultBox.style.borderColor='var(--border)';
-        applyBtn.style.display='none';
+        resultBox.classList.add('is-empty');
+        setShown(applyBtn,false);
       }
     }catch(e){
       if(e?.name==='AbortError'||isStale()) return;
@@ -767,15 +766,15 @@ async function _runSmartPat(include, exclude){
       } else if(msg==='quota_exceeded'){
         Toast.warn(
           'Gemini API 할당량 초과 — 내장 변환 로직을 사용해요.<br>'+
-          '<small class="u-op-80">💡 Free Tier 일일 한도(1,500회/day) 초과 시 내일 초기화돼요.<br>'+
+          '<small class="u-op-80">Free Tier 일일 한도(1,500회/day) 초과 시 내일 초기화돼요.<br>'+
           '오류 메시지에 <b>limit: 0</b>이 포함되면 Google AI Studio 키인지 확인해주세요.</small>'
         );
         _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel);
       } else if(msg.includes('API 키가 올바르지 않아요')){
         setShown(resultBox,true);
-        resultBox.style.borderColor='var(--accent)';
-        resultEl.textContent='⚠ '+msg;
-        applyBtn.style.display='none';
+        resultBox.classList.remove('is-empty');
+        resultEl.textContent=msg;
+        setShown(applyBtn,false);
         setShown(aiLabel,false);
       } else {
         // 네트워크 오류 등 → 로컬 fallback
@@ -794,12 +793,12 @@ function _applyLocalPattern(include, resultBox, resultEl, applyBtn, aiLabel){
   setShown(aiLabel,false);
   if(rx){
     resultEl.textContent=rx;
-    resultBox.style.borderColor='var(--accent)';
-    applyBtn.style.display='';
+    resultBox.classList.remove('is-empty');
+    setShown(applyBtn,true);
   } else {
     resultEl.textContent='(인식 불가 — 정규식 수정 탭에서 직접 입력)';
-    resultBox.style.borderColor='var(--border)';
-    applyBtn.style.display='none';
+    resultBox.classList.add('is-empty');
+    setShown(applyBtn,false);
   }
 }
 
@@ -937,7 +936,7 @@ async function _geminiRequest(url, body, modelId, maxRetries=2, apiKey='', signa
       (errBody?.error?.details||[]).some(d=>d?.reason==='API_KEY_INVALID'));
     if(status===401||status===403||isKeyInvalid){
       const hint=errMsg.includes('free_tier')||violations.some(v=>v.quotaId?.includes('FreeTier'))
-        ? '\n\n💡 hint: limit:0 오류는 Google AI Studio 키(AIza...)가 아닌\n   Google Cloud API 키를 사용하면 발생해요.\n   https://aistudio.google.com/app/apikey 에서 발급한 키를 사용해주세요.'
+        ? '\n\nhint: limit:0 오류는 Google AI Studio 키(AIza...)가 아닌\n   Google Cloud API 키를 사용하면 발생해요.\n   https://aistudio.google.com/app/apikey 에서 발급한 키를 사용해주세요.'
         : '';
       return {ok:false,fatal:true,msg:'API 키가 올바르지 않아요.'+hint};
     }
@@ -1212,7 +1211,7 @@ async function renderHistory(){
   const c=document.getElementById('histList'); if(!c) return;
   let metas=loadHistMetas();
   if(!metas.length){
-    c.innerHTML='<div class="hist-empty">📭 아직 변환 기록이 없어요.<br>TXT→EPUB 탭에서 변환하면 여기에 저장돼요.</div>';
+    c.innerHTML='<div class="hist-empty">'+icon('inbox')+' 아직 변환 기록이 없어요.<br>TXT→EPUB 탭에서 변환하면 여기에 저장돼요.</div>';
     return;
   }
 
@@ -1232,7 +1231,7 @@ async function renderHistory(){
     ...metas.filter(m=>!_starred[m.key]),
   ];
 
-  c.innerHTML='<div class="u-ta-center u-p-12-0 u-fs-xs u-text2">⏳ 로딩 중...</div>';
+  c.innerHTML='<div class="u-ta-center u-p-12-0 u-fs-xs u-text2">로딩 중...</div>';
   // ★ Phase 10: 존재 여부만 count로 확인 (이전: 기록 20개의 EPUB Blob을 모두 꺼냄)
   const blobExists=await Promise.all(metas.map(m=>idbHas(m.key)));
   c.innerHTML='';
@@ -1289,13 +1288,13 @@ async function renderHistory(){
     const safeName       = escAttr(String(m.name||''));
     // compareBadge는 내부 로직이 생성한 HTML — 이미 escHtml 처리된 상태
     row.innerHTML=  // safe-html: safe* 값은 바로 위에서 escHtml/escAttr 처리
-      '<div class="hist-thumb">📚</div>'+
+      '<div class="hist-thumb">'+icon('book')+'</div>'+
       '<div class="hist-info">'+
         '<div class="hist-title">'+escHtml(m.title)+(m.author?'<span class="u-fw-400 u-text2 u-fs-xs"> / '+escHtml(m.author)+'</span>':'')+(compareBadge?' '+compareBadge:'')+'</div>'+
         '<div class="hist-meta">'+safeDate+' · '+safeChCount+'화 · '+safeSizeMB+'MB · '+safeElapsed+'초</div>'+
       '</div>'+
       (hasBlob
-        ?'<button class="btn btn-green btn-sm" data-action="histDownload" data-key="'+safeKey+'" data-name="'+safeName+'">⬇ 다운로드</button>'
+        ?'<button class="btn btn-green btn-sm" data-action="histDownload" data-key="'+safeKey+'" data-name="'+safeName+'">'+icon('download')+' 다운로드</button>'
         :'<span class="u-fs-xs u-text2 u-nowrap">파일 없음</span>')+
       '<button class="hist-del" data-action="deleteHistory" data-key="'+safeKey+'" title="기록 삭제">✕</button>';
     row.insertBefore(starBtn, row.firstChild);
@@ -1308,7 +1307,7 @@ async function histDownload(key,name){
     document.querySelectorAll('.hist-item').forEach(row=>{
       if(row.innerHTML.includes(key)){
         const btn=row.querySelector('.btn-green');
-        if(btn){btn.textContent='❌ 파일 없음';btn.disabled=true;}
+        if(btn){btn.textContent='파일 없음';btn.disabled=true;}
       }
     });
     return;
@@ -1494,9 +1493,9 @@ function _sendConvertNotif(title, chapterCount){
     if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
     // ★ BUG-20 수정: visibilityState + hasFocus() 모두 체크
     if(document.visibilityState === 'visible' && document.hasFocus()) return;
-    new Notification('📚 NovelEPUB 변환 완료', {
+    new Notification('NovelEPUB 변환 완료', {
       body: `"${title}" (${chapterCount}화) EPUB 생성 완료`,
-      icon: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><text y="26" font-size="28">📚</text></svg>',
+      icon: 'icons/icon-192.png',   // ★ Phase 32: 이모지 그림 대신 앱 아이콘
     });
   }catch(e){}
 }
@@ -1571,9 +1570,9 @@ async function handleCustomFont(files){
   SettingsDB.set('customFontFace', customFontFace).catch(()=>{});
   SettingsDB.set('customFontName', customFontName).catch(()=>{});
   const opt=document.getElementById('customFontOpt');
-  if(opt){opt.textContent='📁 '+fontName;setShown(opt,true);opt.value='"'+fontName+'",serif';}
+  if(opt){opt.textContent=fontName;setShown(opt,true);opt.value='"'+fontName+'",serif';}
   const cfEl=document.getElementById('cssFont');if(cfEl)cfEl.value='"'+fontName+'",serif';
-  const fontInfoEl=document.getElementById('fontInfo');if(fontInfoEl)fontInfoEl.textContent='✅ '+f.name+' ('+(ab.byteLength/1024).toFixed(0)+'KB)';
+  const fontInfoEl=document.getElementById('fontInfo');if(fontInfoEl)fontInfoEl.textContent=f.name+' ('+(ab.byteLength/1024).toFixed(0)+'KB)';
   const fontDropEl=document.getElementById('fontDrop');if(fontDropEl)fontDropEl.classList.add('ok');
   typeof updateCssPreview==='function'&&updateCssPreview();
   typeof saveCssSettings==='function'&&saveCssSettings();

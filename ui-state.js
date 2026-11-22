@@ -31,15 +31,18 @@ function toggleTheme(){
   d.setAttribute('data-theme',next);
   const _tb=document.getElementById('themeBtn');
   if(_tb){
-    const iconSpan=_tb.querySelector('.ibtn-icon');
-    if(iconSpan){
-      _tb.classList.add('theme-anim');
-      setTimeout(()=>{ iconSpan.textContent=isDark?'🌙':'☀️'; _tb.classList.remove('theme-anim'); },250);
-    } else {
-      _tb.textContent=isDark?'🌙':'☀️';
-    }
+    _tb.classList.add('theme-anim');
+    setTimeout(()=>{ _setThemeIcon(_tb,next); _tb.classList.remove('theme-anim'); },250);
   }
   try{ localStorage.setItem('novelepub_theme',next); }catch(e){}
+}
+
+// ★ Phase 32: 테마 버튼 아이콘 단일 경로 — 다크면 해(라이트로 전환), 라이트면 달 (이모지 대신 선형 아이콘)
+function _setThemeIcon(btn, theme){
+  if(!btn) return;
+  let span=btn.querySelector('.ibtn-icon');
+  if(!span){ span=document.createElement('span'); span.className='ibtn-icon'; btn.replaceChildren(span); }
+  span.innerHTML=icon(theme==='dark'?'sun':'moon');   // safe-html: icon()은 고정 SVG 마크업
 }
 
 function initTheme(){
@@ -49,24 +52,14 @@ function initTheme(){
     theme=window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light';
   }
   document.documentElement.setAttribute('data-theme',theme);
-  const btn=document.getElementById('themeBtn');
-  if(btn){
-    const icon=btn.querySelector('.ibtn-icon');
-    const emoji=theme==='dark'?'☀️':'🌙';
-    if(icon) icon.textContent=emoji; else btn.textContent=emoji;
-  }
+  _setThemeIcon(document.getElementById('themeBtn'), theme);
   window.matchMedia('(prefers-color-scheme:dark)').addEventListener('change',e=>{
     try{
       const saved=localStorage.getItem('novelepub_theme');
       if(!saved){
         const t=e.matches?'dark':'light';
         document.documentElement.setAttribute('data-theme',t);
-        const b=document.getElementById('themeBtn');
-        if(b){
-          const ic=b.querySelector('.ibtn-icon');
-          const em=t==='dark'?'☀️':'🌙';
-          if(ic) ic.textContent=em; else b.textContent=em;
-        }
+        _setThemeIcon(document.getElementById('themeBtn'), t);
       }
     }catch(ex){}
   });
@@ -94,13 +87,8 @@ function updateCssPreview(){
   p.style.cssText=`font-family:${font};line-height:${line};font-size:${size};padding:${paddingVal};${textColor?'color:'+textColor+';':''}${bgColor?'background:'+bgColor+';':''}text-align:${align};border-radius:var(--radius-sm)`;
   const te=_el('cssPreviewTitle');
   if(te){
-    te.style.textAlign=titleStyle==='left'?'left':'center';
-    te.style.borderBottom=titleStyle==='underline'?'2px solid currentColor':'none';
-    te.style.paddingBottom=titleStyle==='underline'?'6px':'0';
-    te.style.border=titleStyle==='box'?'1.5px solid currentColor':'none';
-    te.style.padding=titleStyle==='box'?'4px 14px':'0';
-    te.style.borderRadius=titleStyle==='box'?'5px':'0';
-    te.style.display='block';
+    // ★ Phase 32: 제목 꾸밈 6속성 인라인 대입 → data-title-style + style.css #cssPreviewTitle[data-title-style]
+    te.dataset.titleStyle=titleStyle||'center';
   }
 }
 
@@ -174,7 +162,7 @@ function updateMiniReader(){
 function updateSettingsSummary(){
   const font=document.getElementById('cssFont');
   // ★ Phase 27: 커스텀 폰트('📁 이름')는 아이콘만 남던 문제 → 아이콘을 떼고 이름 표시
-  const fontName=font&&font.options&&font.options[font.selectedIndex]?(font.options[font.selectedIndex].text.replace(/^📁\s*/,'').split(' ')[0]||'커스텀'):'Noto Serif';
+  const fontName=font&&font.options&&font.options[font.selectedIndex]?(font.options[font.selectedIndex].text.split(' ')[0]||'커스텀'):'Noto Serif';
   const line=document.getElementById('cssLine')?.value||'1.9';
   const size=document.getElementById('cssFontSize')?.value||'1em';
   const italic=document.getElementById('optItalic')?.checked;
@@ -371,7 +359,7 @@ function createVirtualScroll(container, lines, lineHeight=18, visibleBuffer=60){
   if(!lines||!lines.length) return {destroy:()=>{}};
   const ITEM_H = lineHeight;
   let totalH   = lines.length * ITEM_H;
-  container.style.cssText = 'position:relative;overflow-y:auto;height:320px';
+  container.classList.add('js-uistate-container');
   const spacer = document.createElement('div');
   spacer.style.cssText = 'position:absolute;top:0;left:0;width:1px;height:'+totalH+'px;pointer-events:none';
   container.appendChild(spacer);
@@ -462,7 +450,7 @@ function _buildMainPatHelper(){
   const c=document.getElementById('patHelper');
   if(!c) return;
   c.innerHTML='';
-  c.style.cssText='margin-top:4px';
+  c.classList.add('js-uistate-c');
 
   // 최근 사용 패턴 (localStorage)
   let _recentPats=[];
@@ -483,13 +471,13 @@ function _buildMainPatHelper(){
       detChip.id='chip_detected';
       const src=S._detectedPat.source;
       const isSel=_chipSelected['patHelper'].has(src);
-      detChip.textContent=(isSel?'✅ ':'🔍 ')+'자동감지: '+S._detectedName;
+      detChip.textContent='자동감지: '+S._detectedName;
       detChip.title='목차 확인에서 자동 감지된 패턴 — 클릭해서 선택/해제';
       if(isSel) detChip.classList.add('active');
       detChip.onclick=()=>{
         const sel=_chipSelected['patHelper'];
-        if(sel.has(src)){sel.delete(src);detChip.classList.remove('active');detChip.textContent='🔍 자동감지: '+S._detectedName;}
-        else{sel.add(src);detChip.classList.add('active');detChip.textContent='✅ 자동감지: '+S._detectedName;}
+        if(sel.has(src)){sel.delete(src);detChip.classList.remove('active');detChip.textContent='자동감지: '+S._detectedName;}
+        else{sel.add(src);detChip.classList.add('active');detChip.textContent='자동감지: '+S._detectedName;}
         _syncPatInput(); typeof previewToc==='function'&&previewToc();
       };
       c.appendChild(detChip);
@@ -513,7 +501,7 @@ function _buildMainPatHelper(){
         try{
           const detSrc=S._detectedPat.source;
           const core=p.val.replace(/^\^/,'').replace(/\$$/,'').split('|')[0].slice(0,8);
-          if(core&&detSrc.includes(core)){chip.style.borderStyle='dashed';chip.title+=' (감지 패턴에 포함됨)';}
+          if(core&&detSrc.includes(core)){chip.classList.add('is-in-detected');chip.title+=' (감지 패턴에 포함됨)';}
         }catch(e){}
       }
       chip.onclick=()=>{
@@ -530,7 +518,7 @@ function _buildMainPatHelper(){
 
     if(presets.length===0){
       const empty=document.createElement('span');
-      empty.style.cssText='font-size:var(--fs-xs);color:var(--text3);padding:4px 0';
+      empty.classList.add('js-uistate-empty');
       empty.textContent=cat==='recent'?'아직 사용한 패턴이 없어요':'패턴 없음';
       c.appendChild(empty);
     }
@@ -539,7 +527,7 @@ function _buildMainPatHelper(){
     const clr=document.createElement('span');
     clr.className='pat-chip';
     clr.textContent='✕ 초기화';
-    clr.style.cssText='opacity:.55;margin-left:4px';
+    clr.classList.add('js-uistate-clr');
     clr.title='선택 해제 및 입력 초기화';
     clr.onclick=()=>{
       _chipSelected['patHelper'].clear();
@@ -598,7 +586,7 @@ function _buildLegacyChips(id){
   const targetInput=id==='insPatHelper'?'insPattern':'eTocPatEdit';
   c.innerHTML='';
   const hint=document.createElement('span');
-  hint.style.cssText='font-size:var(--fs-xs);color:var(--text2);align-self:center;margin-right:2px';
+  hint.classList.add('js-uistate-hint');
   hint.textContent='빠른 선택:';
   c.appendChild(hint);
 
@@ -623,7 +611,7 @@ function _buildLegacyChips(id){
   const clr=document.createElement('span');
   clr.className='pat-chip';
   clr.textContent='✕ 초기화';
-  clr.style.opacity='.6';
+  clr.classList.add('pat-chip-clear');
   clr.onclick=()=>{
     _chipSelected[id].clear();
     c.querySelectorAll('.pat-chip.active').forEach(el=>el.classList.remove('active'));
@@ -642,9 +630,8 @@ function refreshDetectedChip(){
   const chip=document.getElementById('chip_detected');
   if(!chip) return;
   const hasDet=S._detectedPat&&S._detectedName;
-  chip.textContent=hasDet?'✅ 감지됨: '+S._detectedName:'⬜ 감지 없음';
-  chip.style.opacity=hasDet?'1':'0.4';
-  chip.style.cursor=hasDet?'pointer':'default';
+  chip.textContent=hasDet?'감지됨: '+S._detectedName:'감지 없음';
+  chip.classList.toggle('is-off',!hasDet);   // ★ Phase 32: 인라인 opacity·cursor → .pat-chip.is-off
   chip.title=hasDet?'현재 자동 감지된 패턴을 선택에 추가':'아직 목차 확인을 실행하지 않았어요';
   if(hasDet){
     const src=S._detectedPat.source;
@@ -748,7 +735,7 @@ function showShortcutHelp(){
   if(existing){existing.remove();return;}
   const el=document.createElement('div');
   el.id='shortcutHelp';
-  el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:var(--radius);padding:20px 24px;z-index:9999;box-shadow:var(--shadow-xl);font-size:var(--fs-sm);min-width:280px';
+  el.classList.add('js-uistate-el');
   // ★ Phase 30: 키보드 행은 SHORTCUTS 표에서 생성 (마우스 조작 행만 고정)
   const rows=[
     ...SHORTCUTS.map(s=>[shortcutText(s.id), s.label]),
@@ -757,7 +744,7 @@ function showShortcutHelp(){
     ['드래그 중앙', '두 챕터 드래그 병합'],
     ['Esc', '모달 닫기'],
   ];
-  el.innerHTML='<div class="u-fs-base u-fw-700 u-mb-12 u-text">⌨️ 단축키</div>'+  // safe-html: 행 텍스트는 escHtml 처리, 나머지는 고정 마크업
+  el.innerHTML='<div class="u-fs-base u-fw-700 u-mb-12 u-text">단축키</div>'+  // safe-html: 행 텍스트는 escHtml 처리, 나머지는 고정 마크업
     '<table class="kbd-table"><tbody>'+
     rows.map(([k,l],i)=>`<tr><td${i===0?' class="u-text2 u-pr-16"':''}><kbd class="kbd-key">${escHtml(k)}</kbd></td><td>${escHtml(l)}</td></tr>`).join('')+
     '</tbody></table>'+
@@ -848,14 +835,14 @@ function _spawnDropConfetti(container){
       const val = el.value.trim();
       const patEl = document.getElementById('pattern');
       if(!patEl) return;
-      if(!val){ patEl.style.borderColor=''; patEl.title=''; return; }
+      if(!val){ delete patEl.dataset.check; patEl.title=''; return; }
       try{
         const rx = new RegExp(val,'i');
         const lines = typeof _fullRawLines!=='undefined'&&_fullRawLines ? _fullRawLines : [];
         const cnt = lines.filter(l=>l.trim()&&rx.test(l.trim())).length;
-        if(cnt===0){ patEl.style.borderColor='var(--accent2)'; patEl.title='유효한 정규식이지만 현재 파일에서 매칭 0건'; }
-        else { patEl.style.borderColor='var(--green)'; patEl.title=`매칭 ${cnt.toLocaleString()}건 발견`; }
-      }catch(e){ patEl.style.borderColor='var(--accent)'; patEl.title='정규식 오류: '+e.message; }
+        if(cnt===0){ patEl.dataset.check='zero'; patEl.title='유효한 정규식이지만 현재 파일에서 매칭 0건'; }
+        else { patEl.dataset.check='ok'; patEl.title=`매칭 ${cnt.toLocaleString()}건 발견`; }
+      }catch(e){ patEl.dataset.check='error'; patEl.title='정규식 오류: '+e.message; }
       clearChipSelection&&clearChipSelection('patHelper');
       const clearBtn = document.getElementById('patternClearBtn');
       setShown(clearBtn,!!val);
@@ -991,8 +978,8 @@ function setupEventListeners(){
     const txtFiles=[...files].filter(f=>f.name.toLowerCase().endsWith('.txt')||f.type==='text/plain');
     const imgFiles=[...files].filter(f=>/\.(jpg|jpeg|png|gif|webp|bmp|tiff|tif|avif)$/i.test(f.name)||f.type.startsWith('image/'));
     // ★ TXT와 이미지를 함께 붙여넣으면 이미지는 파일명 유사도 기반 표지 자동 매칭으로 전달
-    if(txtFiles.length){ e.preventDefault(); typeof handleTxt==='function'&&handleTxt([...txtFiles, ...imgFiles], S.txtFiles.length>0); Toast.info(`📋 TXT ${txtFiles.length}개 파일 붙여넣기됨`); }
-    else if(imgFiles.length){ e.preventDefault(); typeof handleIll==='function'&&handleIll(imgFiles); Toast.info(`📋 이미지 ${imgFiles.length}개 파일 붙여넣기됨`); }
+    if(txtFiles.length){ e.preventDefault(); typeof handleTxt==='function'&&handleTxt([...txtFiles, ...imgFiles], S.txtFiles.length>0); Toast.info(`TXT ${txtFiles.length}개 파일 붙여넣기됨`); }
+    else if(imgFiles.length){ e.preventDefault(); typeof handleIll==='function'&&handleIll(imgFiles); Toast.info(`이미지 ${imgFiles.length}개 파일 붙여넣기됨`); }
   });
 
   // ★ UI-07: 표지 썸네일 3D 틸트 효과
@@ -1468,7 +1455,7 @@ window.initUiState = function initUiState(){
         customFontFace = face;
         customFontName = name||'커스텀폰트';
         const opt=document.getElementById('customFontOpt');
-        if(opt){opt.textContent='📁 '+customFontName;setShown(opt,true);opt.value='"'+customFontName+'",serif';
+        if(opt){opt.textContent=customFontName;setShown(opt,true);opt.value='"'+customFontName+'",serif';
           // ★ Phase 23: 저장된 글꼴 선택이 커스텀 폰트였으면 이제 선택
           //   이전: loadCssSettings가 이 옵션 값이 정해지기 전에 복원 → 일치하는 옵션이 없어 기본 글꼴로 돌아감
           //         → 폰트 파일은 EPUB에 들어가지만 본문 글꼴은 다른 폰트 (용량만 늘고 적용 안 됨)
@@ -1554,19 +1541,19 @@ function updateFeedFromToc(tocArray){
       const chars = ch.bodyLen||0;
       const isShort=chars>0&&chars<suspThreshold;
       const badgeCls='feed-item-badge'+(isShort?' short':chars>0?' ok':'');
-      const badgeTxt=chars>0?(isShort?`⚠ ${chars}자`:`${chars.toLocaleString()}자`):'';
+      const badgeTxt=chars>0?(isShort?`${chars}자`:`${chars.toLocaleString()}자`):'';
       const prev=(typeof _tocItemText==='function'?_tocItemText(ch,120):'').replace(/\n/g,' ').slice(0,60);
       const titleSafe=(ch.title||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const prevSafe=prev.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       return `<div class="feed-item"><span class="feed-item-num">${i+1}</span><div class="feed-item-body"><div class="feed-item-title">${titleSafe}</div>${prevSafe?`<div class="feed-item-preview">${prevSafe}…</div>`:''}</div>${badgeTxt?`<span class="${badgeCls}">${badgeTxt}</span>`:''}</div>`;
     }).join('');
   }else if(list){
-    list.innerHTML='<div class="regex-feed-empty"><div class="regex-feed-empty-icon">📄</div>패턴을 입력하거나 목차 확인을 눌러주세요</div>';
+    list.innerHTML='<div class="regex-feed-empty"><div class="regex-feed-empty-icon">'+icon('file')+'</div>패턴을 입력하거나 목차 확인을 눌러주세요</div>';
   }
   if(stat){
     // ★ 총글자수 · 평균 글자수 표시
     const charInfo = total > 0 ? `${totalCharsStr} · 평균 ${avgChars.toLocaleString()}자` : '';
-    const shortInfo = shortCount > 0 ? ` · ⚠ 짧은챕터 ${shortCount}개(기준:${suspThreshold}자)` : '';
+    const shortInfo = shortCount > 0 ? ` · 짧은챕터 ${shortCount}개(기준:${suspThreshold}자)` : '';
     if(total>8){
       stat.textContent = `1–8 / ${total}개 · ${charInfo}${shortInfo}`;
     } else if(total>0){

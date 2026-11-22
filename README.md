@@ -514,6 +514,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 32 (16) | UI 정제 3단계(디자인 축소) — CSS 규칙 안 색상·반경·그림자 리터럴 0, 무한 애니메이션 ≤1, 화면 이모지 0, `.style` 대입 ≤80·cssText ≤10, SVG 스프라이트 1개·`icon()` 이름표 = 심볼 = 사용처, `icon()` aria-hidden·모르는 이름 빈 문자열, Toast 아이콘, 테마 아이콘 `_setThemeIcon` 단일 경로, JS가 붙이는 `js-` 클래스 = CSS 정의, `style.display` 대입 0(setShown), 처음 숨김 영역 마크업 hidden, 상태 스타일 클래스·속성화(패턴 검사·선택 모드·간격 분할·hover), 흐림 대신 text3(요약 칩 OFF·간격 분할) |
 | Phase 31 (12) | UI 정제 2단계(성능) — 스크립트 순서 유지·`theme-boot.js` 외 전부 defer, `theme-boot.js`는 `<head>`·프리캐시·다크/포레스트만 적용·이상값/저장소 오류 무시, 목차 확인 래퍼(감지 중 표시 → 다음 화면 → 실행 → finally 해제), `_afterNextPaint` 숨겨진 탭에서도 진행, 결과 계산과 렌더링 사이 양보·최신 요청 확인, 유사 후보 전처리 1만 줄마다 양보, 감지 Worker 기준 2만 줄, 첫 화면부터 패턴 버튼 비활성 |
 | Phase 30 (19) | UI 정제 1단계 — `index.html` 클래스 전부 `style.css`에 정의, 토큰 명도 대비 4.5:1 이상(라이트·다크 × 기본·인디고·포레스트 스킨), 마크업에 단축키 문자열 하드코딩 없음·keydown은 `SHORTCUTS` 표로 판별·표기 요소가 표 참조, `<main>` 랜드마크, 드롭존 이름 = 보이는 글자, 설정 입력·선택 상자 이름, 라벨 for, 스크롤 영역 키보드 접근, 프리셋 목록 listitem·키보드 실행, 표지 썸네일 img alt 7곳, 비활성 패턴 버튼 `disabled`(setPatIdle 단일 경로), 슬라이더·작은 선택 상자 24px |
 | Phase 29 (27) | 핵심 5종 프리셋 컴파일·ReDoS 가드·예시 감지/본문 불일치, 결합 정규식 분리 = buildCombinedPat 역변환(매칭 동일)·쪼개지 않는 경우, 엄격 모드 대사·서술문·상태창·종결 표식·번호 목록·연도·금액 제외, 부 리셋 후 1 재인식, 붙은 숫자 줄 빈 줄 검사, 엄격 끔 = 빈 줄만 해제, 종류 분류(kw·vol·side), lineIndex 중복 제거·통계·요약 문구, 숫자 시퀀스(첫 1~20·+5)·파일명 범위 기준점, Worker 동등성(엄격 켬/끔), 상태·토글·구독·저장·호출부 옵션 |
@@ -548,15 +549,18 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 | 항목 | 수치 |
 |------|------|
 | 총 줄수 | JS 16,562줄 (+ HTML/CSS 3,052줄) — Phase 30 기준 |
-| 회귀 테스트 | 510개 통과 (Phase 31 기준) + CI epubcheck |
+| 회귀 테스트 | 526개 통과 (Phase 32 기준) + CI epubcheck |
 | 접근성 (axe-core, WCAG 2.2 AA 규칙) | 위반 0 — 5개 탭 × 라이트/다크 × 스킨 3종, 변환 완료 상태 (`tests/measure-runtime.js`) · 이전 기준선 라이트 64·다크 56 |
 | 명도 대비 | 토큰 조합 전부 4.5:1 이상 — 라이트/다크 × 스킨 3종 (`tests/measure-design.js`) |
 | 첫 화면 (Lighthouse 모바일, 로컬·구글 폰트 차단, 3회) | 성능 95~96 · FCP 약 2.25s — Phase 30은 63~68 · 5.1~6.0s (Phase 31: 스크립트 defer) |
-| 목차 확인 반응 (2,000화, INP 근사 5회 중앙값) | CPU 1배 104ms · CPU 4배 152ms — 기준선 200ms · 584ms (Phase 31) |
+| 목차 확인 반응 (2,000화, INP 근사 5회 중앙값) | CPU 1배 40ms · CPU 4배 104ms (Phase 32 측정) — 기준선 200ms · 584ms, Phase 31 88ms · 144ms (같은 세션) |
 | 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |
-| 하드코딩 색상 | 규칙 안 색상 리터럴 고유 36종 / 48회 (토큰 정의부 제외, `tests/measure-design.js`) — 이전 표기 '0개'는 측정과 달라 정정, UI 정제 3단계에서 토큰으로 대체 예정 |
+| 하드코딩 색상·반경·그림자 | 규칙 안 리터럴 0 — 모두 토큰 (`tests/measure-design.js`, Phase 32) · 보정 계산 기준선 색 18종/22회 · 반경 4종 · 그림자 33종 |
+| 움직임 | 무한 반복 애니메이션 1개(진행 막대 광택) — 기준선 11개 (Phase 32) |
+| 화면 아이콘 | 이모지 0 → SVG 스프라이트 18종(`index.html` 첫머리, `icon()` in core.js) — 기준선 화면 이모지 218자 (Phase 32) |
+| JS 인라인 스타일 | `.style` 대입 66곳(진행률·좌표·사용자 글꼴/색·일시 상태만) — 기준선 242곳 (Phase 32) |
 | 네트워크 회복력 | 프록시 실패 시 Direct Fetch 자동 폴백 구조 |
 | 캔버스 무결성 | 외부 표지를 Blob → Object URL로 받아 캔버스에 그림 (Tainted Canvas `SecurityError` 회피 구조) |
 | 타임아웃 보호 | fileToText 30초, splitChapters 2분, 프록시 네트워크 8초 제한 |
