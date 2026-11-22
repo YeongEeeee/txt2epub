@@ -2425,7 +2425,43 @@ async function getCachedChapters(){
 // 📋 Module: TocPreview (목차 감지·미리보기·드래그)
 // ══════════════════════════════════════════
 let _previewTocSeq=0;
+// ★ Phase 31: 목차 확인 — 클릭 직후 '감지 중' 표시를 먼저 그린 뒤 감지 시작 (INP)
+//   측정(2,000화·CPU 4배): 클릭 → 다음 화면까지 약 680ms. 그중 566ms가 텍스트 로드·감지·목차 렌더링이
+//   클릭과 같은 작업 안에서 이어진 시간이라, 그동안 버튼을 눌렀는지조차 화면에 보이지 않았음
+let _tocBusyCount=0;
+function _setTocBusy(on){
+  _tocBusyCount=Math.max(0,_tocBusyCount+(on?1:-1));
+  const busy=_tocBusyCount>0;
+  // 글자는 바꾸지 않고 aria-busy만 — '감지 중…' 표시는 style.css가 버튼 폭 그대로 덧그림
+  //   (글자를 바꾸면 버튼 폭이 달라져 감지가 끝날 때 옆 버튼이 밀림 → 측정: CLS 0.001)
+  document.querySelectorAll('button[data-action="previewToc"]')?.forEach(b=>{
+    if(busy) b.setAttribute('aria-busy','true');
+    else b.removeAttribute('aria-busy');
+  });
+}
+// 다음 화면이 실제로 그려진 뒤 이어서 실행 — 탭이 숨겨져 rAF가 멈춰도 100ms 뒤에는 진행
+function _afterNextPaint(){
+  return new Promise(resolve=>{
+    let done=false;
+    const go=()=>{ if(!done){ done=true; resolve(); } };
+    setTimeout(go,100);
+    if(typeof requestAnimationFrame==='function'&&!document.hidden) requestAnimationFrame(()=>setTimeout(go,0));
+    else setTimeout(go,0);
+  });
+}
 async function previewToc(){
+  // 파일 없음·간격 분할 모드는 즉시 끝나므로 바로 실행
+  if(!S.txtFiles.length||_getAutoSplitActive()) return _previewTocRun();
+  _setTocBusy(true);
+  try{
+    await _afterNextPaint();
+    return await _previewTocRun();
+  }finally{
+    _setTocBusy(false);
+  }
+}
+
+async function _previewTocRun(){
   if(!S.txtFiles.length){Toast.warn('TXT 파일을 먼저 선택해주세요.');return;}
   // ★ Phase 10: 연속 호출(패턴 칩 연타 등) 시 늦게 끝난 이전 감지 결과가 최신 결과를 덮어쓰지 않도록
   const seq=++_previewTocSeq;
@@ -2524,6 +2560,10 @@ async function previewToc(){
   // ★ I9: 재감지 전 통계 저장 (delta 비교용)
   const _prevTotal = S.tocItems.length;
   const _prevChars = S.tocItems.reduce((s,t)=>s+(t.bodyLen||0),0);
+
+  // ★ Phase 31: 결과 계산과 목차 화면 갱신을 서로 다른 작업으로 나눔 (긴 작업 하나 → 둘, 사이에 입력 처리)
+  if(typeof yieldToMain==='function') await yieldToMain();
+  if(seq!==_previewTocSeq) return;
 
   S.tocItems=found;
   renderTocItems();
@@ -2690,11 +2730,16 @@ async function rankTocCandidates(lines, topN=4){
   const n=lines.length;
   const pre=new Array(n), blank=new Array(n);
   let nonEmpty=0;
+  // ★ Phase 31: 목차 화면이 먼저 그려지도록 시작 전 양보 + 줄 전처리도 1만 줄마다 양보
+  //   (이전: 8.6만 줄 전처리가 목차 렌더링과 같은 긴 작업 안에서 실행됨)
+  const canYield=typeof yieldToMain==='function';
+  if(canYield) await yieldToMain();
   for(let i=0;i<n;i++){
     const raw=lines[i]||'';
     blank[i]=!raw.trim();
     if(!blank[i]) nonEmpty++;
     pre[i]=(!blank[i]&&raw.length<=120)?preprocessLine(raw):'';
+    if(canYield&&i%10000===9999) await yieldToMain();
   }
   const isWrapped=i=>(blank[i-1]===true||blank[i-2]===true)&&(blank[i+1]===true||blank[i+2]===true);
 

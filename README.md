@@ -243,6 +243,7 @@ index.html      — 단일 페이지 SPA 마크업 (1,302줄)
 ├── cover-search.js — 표지 검색 모달, 플랫폼 링크, 이미지 크롭 및 .file 가드 (924줄)
 ├── epub-gen.js — EPUB3 생성 엔진, Blob Worker 격리(parser.js 렌더링 함수 toString 이식), 계층 nav/ncx (564줄)
 ├── main.js     — 부트스트랩: JSZip 로드 가드, 필수 심볼 점검, SW 등록·업데이트 배너
+├── theme-boot.js — 저장된 테마·스킨을 첫 화면 전에 적용 (<head> 동기, 나머지 스크립트는 모두 defer) — Phase 31
 ├── worker.js   — 5MB+ 파일 인코딩 감지·디코딩 전담 Web Worker (129줄, 챕터 파싱 없음)
 ├── sw.js       — Service Worker: 버전 단위 원자적 캐시 (CACHE_VERSION = 자산 해시, `npm run stamp`)
 ├── lib/jszip.min.js — JSZip 3.10.1 로컬 배포 (CDN 파일과 동일, SRI 고정) — Phase 15
@@ -513,6 +514,7 @@ npm run test:update  # 패턴 감지를 '의도적으로' 바꿨을 때만 golde
 | EPUB 구조 | `container.xml` 네임스페이스, `dcterms:modified`, 출판사·시리즈 메타, nav/ncx 중첩·빈 제목 없음·playOrder, 표지·삽화 |
 | 배포·보안 정적 검사 | SW 프리캐시가 `index.html`의 로컬 자원 전부 포함, 캐시 버전은 `sw.js` 한 곳, 외부 Cache-first는 정적 자원만, 전역 단축키 핸들러 1개, 제목이 들어가는 툴팁·Toast의 HTML 정화 |
 | v3 이식 (16) | `[N] 제목`·`N - 제목`·`N: 제목`·`제N막` × 빈 줄 유무 30화 + 본문 잡음 오탐 0, 전각 공백 제목, 간격 분할(제목 줄 정렬·템플릿·Zero-Loss·첫 화 1줄·단조 증가·경계 케이스·화수 추정) |
+| Phase 31 (12) | UI 정제 2단계(성능) — 스크립트 순서 유지·`theme-boot.js` 외 전부 defer, `theme-boot.js`는 `<head>`·프리캐시·다크/포레스트만 적용·이상값/저장소 오류 무시, 목차 확인 래퍼(감지 중 표시 → 다음 화면 → 실행 → finally 해제), `_afterNextPaint` 숨겨진 탭에서도 진행, 결과 계산과 렌더링 사이 양보·최신 요청 확인, 유사 후보 전처리 1만 줄마다 양보, 감지 Worker 기준 2만 줄, 첫 화면부터 패턴 버튼 비활성 |
 | Phase 30 (19) | UI 정제 1단계 — `index.html` 클래스 전부 `style.css`에 정의, 토큰 명도 대비 4.5:1 이상(라이트·다크 × 기본·인디고·포레스트 스킨), 마크업에 단축키 문자열 하드코딩 없음·keydown은 `SHORTCUTS` 표로 판별·표기 요소가 표 참조, `<main>` 랜드마크, 드롭존 이름 = 보이는 글자, 설정 입력·선택 상자 이름, 라벨 for, 스크롤 영역 키보드 접근, 프리셋 목록 listitem·키보드 실행, 표지 썸네일 img alt 7곳, 비활성 패턴 버튼 `disabled`(setPatIdle 단일 경로), 슬라이더·작은 선택 상자 24px |
 | Phase 29 (27) | 핵심 5종 프리셋 컴파일·ReDoS 가드·예시 감지/본문 불일치, 결합 정규식 분리 = buildCombinedPat 역변환(매칭 동일)·쪼개지 않는 경우, 엄격 모드 대사·서술문·상태창·종결 표식·번호 목록·연도·금액 제외, 부 리셋 후 1 재인식, 붙은 숫자 줄 빈 줄 검사, 엄격 끔 = 빈 줄만 해제, 종류 분류(kw·vol·side), lineIndex 중복 제거·통계·요약 문구, 숫자 시퀀스(첫 1~20·+5)·파일명 범위 기준점, Worker 동등성(엄격 켬/끔), 상태·토글·구독·저장·호출부 옵션 |
 | Phase 28 (17) | 설정 초기화 범위(시작 시 복원 원본·스킨·커스텀 폰트, 기록·프리셋·API 키 유지), 이미지 추출 표지 포함·manifest 속성 순서 무관, 일괄 패턴 4개 결합 정규식 유효·감지·오탐 0(두 경로)·체크/직접 입력 구분·깨진 결합 제거, 간격 분할 lineTitle·splitText 보관·모드 무관 경계·패널 유지·캐시 무효화·일괄 공용 옵션·화수 입력창 기본값·CSS 변수 |
@@ -546,9 +548,11 @@ GitHub Actions(`.github/workflows/test.yml`)가 `main` push와 PR마다 위 검�
 | 항목 | 수치 |
 |------|------|
 | 총 줄수 | JS 16,562줄 (+ HTML/CSS 3,052줄) — Phase 30 기준 |
-| 회귀 테스트 | 498개 통과 (Phase 30 기준) + CI epubcheck |
+| 회귀 테스트 | 510개 통과 (Phase 31 기준) + CI epubcheck |
 | 접근성 (axe-core, WCAG 2.2 AA 규칙) | 위반 0 — 5개 탭 × 라이트/다크 × 스킨 3종, 변환 완료 상태 (`tests/measure-runtime.js`) · 이전 기준선 라이트 64·다크 56 |
 | 명도 대비 | 토큰 조합 전부 4.5:1 이상 — 라이트/다크 × 스킨 3종 (`tests/measure-design.js`) |
+| 첫 화면 (Lighthouse 모바일, 로컬·구글 폰트 차단, 3회) | 성능 95~96 · FCP 약 2.25s — Phase 30은 63~68 · 5.1~6.0s (Phase 31: 스크립트 defer) |
+| 목차 확인 반응 (2,000화, INP 근사 5회 중앙값) | CPU 1배 104ms · CPU 4배 152ms — 기준선 200ms · 584ms (Phase 31) |
 | 죽은 코드 | ESLint `no-unused-vars`/`no-undef` + 연결 검사 스크립트로 전수 정리 (Phase 6), 미사용 CSS 규칙 71·키프레임 10·토큰 4 제거 (Phase 7) |
 | 구문 오류 | 0개 (`node --check` 전 파일 통과) |
 | 중복 ID | 0개 |

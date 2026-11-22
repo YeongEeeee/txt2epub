@@ -26,6 +26,7 @@
  *  19. Phase 28: 설정 초기화 범위·이미지 추출 표지·일괄 패턴 다중 선택·간격 분할 목차 제목 방식
  *  20. Phase 29: 선택 정규식 3단계 파이프라인(후보 추출·오탐 필터·문맥/번호 연속성)·핵심 5종 프리셋·엄격 검증 토글
  *  21. Phase 30 (UI 정제 1단계): 미정의 클래스 0 · 단축키 단일 출처 · 토큰 대비 4.5:1 · 라벨·이름·랜드마크·표지 alt
+ *  22. Phase 31 (UI 정제 2단계 — 성능): 스크립트 defer·순서 · 테마 선적용(theme-boot.js) · 목차 확인 화면 선반영 · 감지 Worker 기준 · 첫 화면 비활성 상태
  */
 'use strict';
 const fs   = require('fs');
@@ -1440,6 +1441,57 @@ async function main(){
       && !/classList\.(add|remove)\('is-idle'\)/.test(conv + ui) && /#patSection\.is-idle \.pat-actions\{pointer-events:none\}/.test(css));
     // 21-6. 터치 영역 24px
     check('[정제1] 슬라이더·작은 선택 상자 24px', /\.css-slider\{[^}]*height:24px/.test(css) && /\.pad-slider\{[^}]*height:24px/.test(css) && /\.inp-xs\{[^}]*min-height:24px/.test(css));
+  }
+
+  // ── 22. Phase 31 (UI 정제 2단계 — 성능) ──
+  {
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const html = read('index.html'), parser = read('parser.js'), conv = read('convert.js'), sw = read('sw.js');
+    const bootExists = fs.existsSync(path.join(ROOT, 'theme-boot.js'));
+    const boot = bootExists ? read('theme-boot.js') : '';
+    check('[정제2] theme-boot.js 파일 있음', bootExists);
+    // 22-1. 스크립트: theme-boot.js만 동기(head), 나머지는 defer + 원래 실행 순서 유지
+    const tags = [...html.matchAll(/<script src="([^"]+)"([^>]*)><\/script>/g)].map(m => ({ src: m[1], attrs: m[2] }));
+    const order = tags.map(t => t.src);
+    check('[정제2] 스크립트 순서 유지', JSON.stringify(order) === JSON.stringify(['theme-boot.js', 'lib/jszip.min.js', 'parser.js', 'epub-gen.js', 'core.js', 'settings.js', 'cover-search.js', 'convert.js', 'edit.js', 'ui-state.js', 'main.js']), order.join(','));
+    check('[정제2] theme-boot.js 외 전부 defer', tags.filter(t => t.src !== 'theme-boot.js').every(t => /\bdefer\b/.test(t.attrs)) && !/\bdefer\b/.test(tags[0].attrs));
+    const head = html.slice(0, html.indexOf('</head>'));
+    check('[정제2] theme-boot.js는 <head>, style.css 뒤', head.indexOf('<script src="theme-boot.js">') > head.indexOf('href="style.css"') && head.includes('<script src="theme-boot.js">'));
+    check('[정제2] theme-boot.js SW 프리캐시', /'\.\/theme-boot\.js'/.test(sw));
+    // 22-2. theme-boot 동작: 허용값만 적용, 저장소 오류에도 예외 없음
+    const runBoot = store => {
+      if (!bootExists) return {};
+      const attrs = {};
+      const ctx = { document: { documentElement: { setAttribute: (k, v) => { attrs[k] = v; } } },
+        localStorage: { getItem: k => { if (store === 'throw') throw new Error('denied'); return store[k] ?? null; } } };
+      vm.runInNewContext(boot, ctx);
+      return attrs;
+    };
+    const a1 = runBoot({ novelepub_theme: 'dark', novelepub_skin: 'forest' });
+    const a2 = runBoot({ novelepub_theme: '<x>', novelepub_skin: 'terracotta' });
+    let threw = false; try { runBoot('throw'); } catch (e) { threw = true; }
+    check('[정제2] theme-boot: 다크·포레스트 적용 / 이상값·기본 스킨 무시 / 저장소 오류 무시',
+      a1['data-theme'] === 'dark' && a1['data-skin'] === 'forest' && !('data-theme' in a2) && !('data-skin' in a2) && !threw, JSON.stringify({ a1, a2, threw }));
+    // 22-3. 목차 확인: 감지 중 표시 → 다음 화면 → 감지 (finally로 표시 해제)
+    check('[정제2] previewToc 래퍼: 표시 → 다음 화면 → 실행 → 해제',
+      /async function previewToc\(\)\{[\s\S]{0,200}return _previewTocRun\(\);\s*_setTocBusy\(true\);\s*try\{\s*await _afterNextPaint\(\);\s*return await _previewTocRun\(\);\s*\}finally\{\s*_setTocBusy\(false\);/.test(parser)
+      && /async function _previewTocRun\(\)\{/.test(parser));
+    // _afterNextPaint: rAF가 없거나 탭이 숨겨져도 반드시 끝남
+    const anpSrc = (parser.match(/function _afterNextPaint\(\)\{[\s\S]*?\n\}/) || [''])[0];
+    const anpCtx = { document: { hidden: true }, setTimeout, Promise };
+    let anpDone = false;
+    if (anpSrc) {
+      vm.runInNewContext(anpSrc + '\nthis.f=_afterNextPaint;', anpCtx);
+      anpDone = await Promise.race([anpCtx.f().then(() => true), new Promise(r => setTimeout(() => r(false), 500))]);
+    }
+    check('[정제2] _afterNextPaint: 숨겨진 탭·rAF 없음에서도 진행', anpSrc.length > 0 && anpDone === true);
+    check('[정제2] 감지 결과 계산과 목차 렌더링 사이 양보 + 최신 요청 확인',
+      /await yieldToMain\(\);\s*if\(seq!==_previewTocSeq\) return;\s*S\.tocItems=found;\s*renderTocItems\(\);/.test(parser));
+    check('[정제2] 유사 목차 후보: 시작 전·1만 줄마다 양보', /if\(canYield\) await yieldToMain\(\);\s*for\(let i=0;i<n;i\+\+\)\{[\s\S]{0,260}if\(canYield&&i%10000===9999\) await yieldToMain\(\);/.test(parser));
+    check('[정제2] 감지 Worker 기준 2만 줄', /const DETECT_WORKER_MIN_LINES=20000;/.test(conv) && /lines\.length<DETECT_WORKER_MIN_LINES/.test(conv) && !/lines\.length<100000\|\|typeof Worker/.test(conv));
+    // 22-4. 스크립트 실행 전 첫 화면 = 초기화 후 상태 (파일 없음 → 패턴 버튼 비활성)
+    check('[정제2] 첫 화면부터 패턴 버튼 비활성', /<div class="meta-block is-idle" id="patSection">/.test(html)
+      && /data-action="previewToc" disabled>목차 확인<\/button><button class="btn btn-ghost btn-sm" data-action="autoSplitByInterval" disabled>/.test(html));
   }
 
   if(UPDATE){

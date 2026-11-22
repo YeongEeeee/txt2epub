@@ -17,9 +17,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Nanum+Gothic:wght@400;700&family=Nanum+Myeongjo:wght@400;700&family=Noto+Sans+KR:wght@300;400;500;700&family=Noto+Serif+KR:wght@300;400;500;700&family=Gowun+Batang:wght@400;700&display=swap" rel="stylesheet">
   <!-- ② 레이아웃 & 테마 -->
   <link rel="stylesheet" href="style.css">
+  <!-- ★ Phase 31: 저장된 테마·스킨을 첫 화면 전에 적용 (동기 · 다른 스크립트는 모두 defer) -->
+  <script src="theme-boot.js"></script>
   <!-- ③ JSZip (EPUB 패키징) — ★ Phase 10: SRI 무결성 검증 (CDN 변조 시 실행 차단) · sw.js는 같은 파일을 CORS로 캐시 -->
   <!-- ★ Phase 15: JSZip 3.10.1 로컬 배포 (CDN 파일과 동일 — 같은 SRI 해시). 첫 방문 직후에도 오프라인 변환 가능 -->
-  <script src="lib/jszip.min.js" integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==" crossorigin="anonymous"></script>
+  <script src="lib/jszip.min.js" integrity="sha512-XMVd28F1oH/O71fzwBnV7HucLxVwtxf26XV8P4wPk26EDxuGZ91N8bsOttmnomcCD3CS5ZMRL50H0GgOHvegtg==" crossorigin="anonymous" defer></script>
 </head>
 <body>
 <!-- 헤더 -->
@@ -114,7 +116,7 @@
       </div>
     </div>
     <!-- ② 장/화 분할 규칙 블록 (#patSection: 파일 로드 전 흐리게 표시 — Progressive Disclosure) -->
-    <div class="meta-block" id="patSection">
+    <div class="meta-block is-idle" id="patSection"><!-- Phase 31: 첫 화면(스크립트 실행 전)부터 비활성 상태 — 파일 로드 시 setPatIdle(false) -->
       <div class="meta-block-title">장/화 분할 규칙</div>
     <div class="row">
       <span class="lbl">챕터 정규식</span>
@@ -123,7 +125,7 @@
         <button id="patternClearBtn" aria-label="패턴 입력 지우기" title="입력 지우기" hidden>✕</button>
       </div>
       <div class="pat-actions">
-        <button class="btn btn-blue btn-sm" data-action="previewToc">목차 확인</button><button class="btn btn-ghost btn-sm" data-action="autoSplitByInterval">간격 분할</button>
+        <button class="btn btn-blue btn-sm" data-action="previewToc" disabled>목차 확인</button><button class="btn btn-ghost btn-sm" data-action="autoSplitByInterval" disabled>간격 분할</button>
       </div>
     </div>
     <!-- ★ 고급 패턴 도구: 자동 감지가 실패했을 때만 필요 → 기본 접힘 (감지 실패 시 parser.js previewToc가 자동으로 펼침) -->
@@ -1378,22 +1380,24 @@
   <button class="btn btn-accent" data-action="startEditEpub">EPUB 생성</button>
 </div>
 
+<!-- ★ Phase 31: 모든 스크립트 defer — HTML을 끝까지 읽고 첫 화면을 그린 뒤 적힌 순서대로 실행 (DOMContentLoaded 직전)
+     측정: Lighthouse 모바일에서 스크립트가 렌더 차단 리소스로 잡혔음 (parser.js 221KB 등) -->
 <!-- ④ 파싱/목차 모듈 (parser.js) -->
-  <script src="parser.js"></script>
+  <script src="parser.js" defer></script>
   <!-- ⑤ EPUB3 생성 엔진 (epub-gen.js) -->
-  <script src="epub-gen.js"></script>
+  <script src="epub-gen.js" defer></script>
   <!-- ⑥ 아키텍처 레이어: Toast/EventBus/StateManager/SettingsDB/EventDelegate/상태 프록시 -->
-  <script src="core.js"></script>
+  <script src="core.js" defer></script>
   <!-- ⑦ 설정/프리셋/폰트/히스토리/알림/텍스트표지 -->
-  <script src="settings.js"></script>
+  <script src="settings.js" defer></script>
   <!-- ⑧ 표지 검색 모달 (플랫폼 어댑터 + 프록시) -->
-  <script src="cover-search.js"></script>
+  <script src="cover-search.js" defer></script>
   <!-- ⑨ 변환 탭/배치 탭/파일 핸들러/진행률/미리보기/Worker -->
-  <script src="convert.js"></script>
+  <script src="convert.js" defer></script>
   <!-- ⑩ EPUB 편집 탭/삽화 삽입/직접 편집 -->
-  <script src="edit.js"></script>
+  <script src="edit.js" defer></script>
   <!-- ⑪ UI 상태/이벤트 바인딩/테마/드래그드롭/초기화 -->
-  <script src="ui-state.js"></script>
+  <script src="ui-state.js" defer></script>
   <!-- ⑫ 통합 진입점 오케스트레이터 (SW 등록 · 전역 가드 · 탭 복원) -->
-  <script src="main.js"></script>
+  <script src="main.js" defer></script>
 </html>

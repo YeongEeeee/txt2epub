@@ -3336,12 +3336,16 @@ async function splitChaptersAsync(raw, customPat, onProgress, opts={}){
   });
 }
 
+// ★ Phase 31: 목차 확인 감지를 Worker로 넘기는 기준 10만 → 2만 줄
+//   측정(2,000화 약 8.6만 줄·CPU 4배): 메인 스레드 감지 약 190ms가 목차 확인 직후 긴 작업의 가장 큰 덩어리였음
+//   Worker 결과 = 메인 스레드 결과는 회귀 테스트(Worker 동등성)가 보장
+const DETECT_WORKER_MIN_LINES=20000;
 /**
- * ★ Phase 10: 미리보기용 목차 감지 — 10만 줄 이상은 파싱 Worker에서 (메인 스레드 멈춤 방지)
+ * ★ Phase 10: 미리보기용 목차 감지 — DETECT_WORKER_MIN_LINES 이상은 파싱 Worker에서 (메인 스레드 멈춤 방지)
  * @returns {Promise<object|null>} detectToc 결과 · 사용자 중단 시 null
  */
 async function detectTocAsync(lines, text, opts={}){
-  if(!Array.isArray(lines)||lines.length<100000||typeof Worker==='undefined') return detectToc(lines, opts);
+  if(!Array.isArray(lines)||lines.length<DETECT_WORKER_MIN_LINES||typeof Worker==='undefined') return detectToc(lines, opts);
   return new Promise(resolve=>{
     const id=++_workerIdCounter;
     const fallback=()=>{ try{ resolve(detectToc(lines, opts)); }catch(e){ resolve(null); } };
