@@ -748,6 +748,36 @@
 - Chromium: 초기화 → Noto Sans KR·1.9·terracotta·커스텀 폰트 없음, 프리셋 유지 / 표지만 있는 EPUB → `표지.jpg`, 삽화 추가본 → `표지.jpg`+`삽화.jpg` / 일괄 `N화`+`Chapter N`+`프롤로그` 결합 → 11챕터, 다시 열어도 체크 3개 유지 / 변환 탭 12화 분할 → 패널 표시 → N화 → 제{N}화 → EPUB 목차 `제1화…제12화` → 본문 줄 복귀 → Undo / 일괄 간격 분할 '본문 줄 그대로'·'제{N}화' 각각 EPUB 반영, 페이지 오류·CSP 위반 0
 - 테스트 434 → 452개 통과
 
+### Phase 29 — 선택 정규식 3단계 목차 파이프라인 · 핵심 5종 프리셋
+
+#### 1) 문제
+- 칩 여러 개·직접 입력 정규식은 `buildCombinedPat` 결합 정규식 하나로 매칭 + 번호 목록만 제외 → 본문 서술문(`3 명의 병사가 달려왔다.`)·연도(`2026`)·대사(`"1화 봤어?"`)·상태창(`【레벨이 올랐습니다】`)·`-끝-`이 목차로 들어옴
+
+#### 2) 파이프라인 (`parser.js` 🧪 Module: TocPipeline — Worker 이식)
+| 단계 | 함수 | 내용 |
+|---|---|---|
+| 분리 | `_splitCombinedPattern` | `^(?:(?:A$)\|(?:B$))` → 개별 정규식 (최상위 대안만, 이스케이프·문자 클래스 무시 / 감싸지 않음·빈 대안·역참조·문법 오류면 원문 1개) |
+| ① 후보 추출 | `runTocPipeline` | 원본 lineIndex 보존, OR 매칭, `Map` 키 = lineIndex로 중복 제거, 패턴별 매칭 수 집계, 150자 초과 줄 미검사 |
+| ② 오탐 필터 | `_tocPipelineRules` | 45자 초과(`[ 파일명.txt ]` 예외) · 따옴표 시작/끝(낫표 허용) · 서술 종결어미+부호 · 번호 목록 · 장식 줄 안쪽 서술형/종결 표식 |
+| ③-A 빈 줄 | 엄격 모드 | `trim().length===0`, 문서 처음/끝 예외 — 일반 한쪽 이상 / 숫자만·단서 없는 장식 줄 위아래 모두 |
+| ③-B 번호 흐름 | 항상 | 숫자만 제목: `prevNum < n ≤ prevNum+5`, 첫 목차 1~20, 부·권·Part·Book·외전·특외 확정 후 `prevNum=null`, 파일명 범위 시작값으로 기준점 |
+| 확정 | `_tocLineInfo`·`_tocPipelineNum` | 종류 분류(kw·vol·side·ch), 번호 추출(`Chapter Two`→2, `<제1장. 부활>`→1) |
+
+- `detectToc(lines,{customPat|customPats, strictContext})` — 사용자 패턴 분기 교체, `stats.pipeline`(후보·단계별 제외 수) 추가, `describeTocDetection` 요약에 표시
+- `getTocStrictContext()` — `S.tocStrictContext` → 저장값 → 기본 true (메인 스레드 전용, Worker에는 값만 전달)
+
+#### 3) 핵심 5종 프리셋 (`core.js` `PAT_PRESETS` cat `core`, 칩 기본 탭)
+한국어 회차/장 · 영문 챕터 · 프롤로그/외전/특외 · 장식 기호 챕터 · 숫자 단독/부제 — 요청 정규식을 기반으로 꼬리 상한 고정(ReDoS), `[특외] 평화로운 일상`처럼 괄호 뒤 제목 허용, `10장의 카드`·`1.5배`·`Part of` 불일치, 로마자 제외
+
+#### 4) UI · 상태
+- `index.html` `#patAdvanced`에 **엄격한 문맥 검증** 토글(`#optStrictTocCtx`, `data-input-action="toggleStrictTocCtx"`, 인라인 style 없음), 칩 탭 `핵심 5종` 추가·기본 선택
+- `core.js` `_sStore.tocStrictContext:true` · `ui-state.js` 핸들러(상태 변경 → 저장 → 캐시 무효화 → 편집 없으면 재감지, 편집 있으면 안내) + `_sStore.subscribe`로 체크박스 동기화 · 초기 칩 탭 = 마크업 `on` 탭
+- `settings.js` `epub_extra.strictTocCtx` 저장/복원 · `convert.js` 변환·일괄(미리보기·정확 프리셋·변환) 호출부와 `getCachedChapters` 캐시 키에 같은 옵션
+
+#### 5) 검증
+- 테스트 452 → 479개 통과 (Phase 29 27개 추가), 골든·실전형 정확도 5종 변화 없음(자동 감지 경로 무변경), `npm run stamp`로 SW 캐시 버전 갱신
+- 브라우저 실조작 검증은 이번 세션에서 실행하지 못함 — 배포 전 변환 탭에서 칩 선택 → 목차 확인 → 토글 끔/켬 확인 권장
+
 ---
 
 ## 개선 30개 적용 결과 (Phase 13~16)

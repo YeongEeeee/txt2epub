@@ -1647,6 +1647,7 @@ async function startConvert(){
         fileBreaks,
         range:rangeForFiles(sorted.map(f=>f.name)),
         mergeParts:document.getElementById('optMergeParts')?.checked===true,
+        strictContext:typeof getTocStrictContext==='function'?getTocStrictContext():true,
       };
       setProgress(18,'② 목차 패턴 감지 중...');
       await yieldToMain();
@@ -2495,7 +2496,7 @@ function _findExactPreset(lines, totalCh){
       let raw=0;
       for(const l of lines){ const t=String(l||'').trim(); if(t&&t.length<=150&&rx.test(t)) raw++; }
       if(raw<totalCh) continue;
-      const det=detectToc(lines,{customPat:val});
+      const det=detectToc(lines,{customPat:val, strictContext:typeof getTocStrictContext==='function'?getTocStrictContext():true});
       if(det?.stats?.mode==='custom'&&det.stats.main===totalCh) return {label, val};
     }catch(e){}
   }
@@ -2806,7 +2807,8 @@ async function showBatchToc(idx, btn){
     // ★ Phase 8: 실제 일괄 변환(splitChapters)과 같은 detectToc 사용 — 확인 패널 = 변환 결과
     //   이전: bestPat 단일 패턴 + 자동 감지 정규식을 파일별 '지정 패턴'으로 저장 → 변환 때 새 엔진을 우회
     const mergeParts=document.getElementById('optMergeParts')?.checked===true;
-    let det=detectToc(allLines,{customPat:pat, range:parseChapterRange(file.name), mergeParts});
+    const strictContext=typeof getTocStrictContext==='function'?getTocStrictContext():true;
+    let det=detectToc(allLines,{customPat:pat, range:parseChapterRange(file.name), mergeParts, strictContext});
     // ★ v3 이식: 자동 감지가 파일명 화수와 5% 넘게 어긋나면 화수가 정확히 같은 프리셋을 찾아 이 파일 패턴으로 채택
     //   (이 패턴은 B.patterns에 저장 → 실제 변환도 같은 결과)
     let exactPreset=null;
@@ -2814,7 +2816,7 @@ async function showBatchToc(idx, btn){
       exactPreset=_findExactPreset(allLines, totalCh);
       if(exactPreset){
         B.patterns[idx]=exactPreset.val;
-        det=detectToc(allLines,{customPat:exactPreset.val, range:parseChapterRange(file.name), mergeParts});
+        det=detectToc(allLines,{customPat:exactPreset.val, range:parseChapterRange(file.name), mergeParts, strictContext});
       }
     }
     const exactMatch=totalCh>0&&det.stats.main===totalCh;
@@ -3166,6 +3168,7 @@ async function startBatch(){
           chapters=splitChapters(raw,pattern,{
             range:parseChapterRange(f.name),
             mergeParts:document.getElementById('optMergeParts')?.checked===true,
+            strictContext:typeof getTocStrictContext==='function'?getTocStrictContext():true,
           });
         }
         // ★ Phase 13: 설정 탭 '본문 정리'를 일괄 변환에도 적용 (이전: 문단 정합 옵션이 일괄 변환에는 전달되지 않음)

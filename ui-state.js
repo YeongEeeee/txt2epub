@@ -469,7 +469,8 @@ function _buildMainPatHelper(){
   try{ _recentPats=JSON.parse(localStorage.getItem('novelepub_recent_pats')||'[]'); }catch(e){}
 
   // 현재 활성 카테고리
-  let _activeCat='popular';
+  // ★ 초기 카테고리 = 마크업에서 'on'인 탭 (기본: 핵심 5종)
+  let _activeCat=document.querySelector('#patCatTabs .pat-cat-tab.on')?.dataset?.cat||'popular';
 
   function renderChips(cat){
     _activeCat=cat;
@@ -586,7 +587,7 @@ function _buildMainPatHelper(){
   }
 
   // 초기 렌더
-  renderChips('popular');
+  renderChips(_activeCat);
   // chip_detected 갱신을 위한 refreshDetectedChip 호환
   window._renderMainPatChips=()=>renderChips(_activeCat);
 }
@@ -769,6 +770,26 @@ function _spawnDropConfetti(container){
 // ── data-input-action 인풋 이벤트 위임 ──
 (function setupInputDelegate(){
   const _inputHandlers = {
+    // ★ 엄격한 문맥 검증 — 상태(StateManager)만 바꾸고 체크박스는 구독이 동기화
+    //   목차가 손대지 않은 상태면 즉시 재감지, 편집(제목 수정·비활성·병합)이 있으면 덮어쓰지 않고 안내만
+    toggleStrictTocCtx: (el) => {
+      if(typeof S==='undefined'||!S) return;
+      const next=!!el?.checked;
+      if(S.tocStrictContext===next) return;
+      S.tocStrictContext=next;
+      typeof saveExtraSettings==='function'&&saveExtraSettings();
+      typeof _chaptersCache!=='undefined'&&(_chaptersCache=null);
+      typeof _chaptersCacheKey!=='undefined'&&(_chaptersCacheKey='');
+      const pat=(document.getElementById('pattern')?.value||'').trim();
+      const items=S.tocItems||[];
+      if(!pat||!items.length||window._autoSplitActive) return;
+      const edited=items.some(t=>t.enabled===false||t._isMerged||(t.originalTitle&&t.title!==t.originalTitle));
+      if(edited){
+        typeof Toast!=='undefined'&&Toast.info('목차를 편집한 상태라 그대로 두었어요. <b>목차 확인</b>을 누르면 새 기준으로 다시 감지해요.',3500);
+        return;
+      }
+      typeof previewToc==='function'&&previewToc();
+    },
     previewCoverUrlConvert: () => typeof previewCoverUrl==='function'&&previewCoverUrl('coverUrlInp','coverThumb','coverName','convert'),
     previewCoverUrlBatch:   () => typeof previewCoverUrl==='function'&&previewCoverUrl('batchCoverUrlInp',null,null,'batch'),
     patternValidate: (el) => {
@@ -1201,6 +1222,11 @@ function setupEventDelegate(){
         btn.disabled = !!state.converting;
         if (state.converting) btn.setAttribute('aria-busy','true'); else btn.removeAttribute('aria-busy');
       }
+    }
+    // ★ 엄격한 문맥 검증 상태 → 체크박스 (상태가 단일 기준)
+    if (state.tocStrictContext !== prev?.tocStrictContext) {
+      const sc = document.getElementById('optStrictTocCtx');
+      if (sc && sc.checked !== (state.tocStrictContext !== false)) sc.checked = state.tocStrictContext !== false;
     }
     const bar = document.getElementById('convertResetBar');
     setShown(bar, !!(state.txtFiles.length || state.coverFile));

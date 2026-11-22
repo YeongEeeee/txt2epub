@@ -73,6 +73,10 @@ function saveExtraSettings(){
       fontSubset:document.getElementById('optFontSubset')?.checked!==false,
       // ★ Phase 26: 시작 시 이전 작업 복원 확인 (기본 켜짐)
       sessionRestore:document.getElementById('optSessionRestore')?.checked!==false,
+      // ★ 선택 정규식 파이프라인 엄격한 문맥 검증 (상태값 기준, 기본 켜짐)
+      strictTocCtx:(typeof S!=='undefined'&&S&&typeof S.tocStrictContext==='boolean')
+        ? S.tocStrictContext
+        : document.getElementById('optStrictTocCtx')?.checked!==false,
     }));
   }catch(e){}
 }
@@ -159,6 +163,11 @@ function loadExtraSettings(){
     if(s.darkCover!=null){ const _elDC=document.getElementById('optDarkCover'); if(_elDC) _elDC.checked=s.darkCover; }
     if(s.autoPreview2!=null){ const _elAP=document.getElementById('optAutoPreview'); if(_elAP) _elAP.checked=s.autoPreview2; }
     if(s.mergeParts!=null){ const _elMP=document.getElementById('optMergeParts'); if(_elMP) _elMP.checked=s.mergeParts; }
+    // ★ 엄격한 문맥 검증: 상태(S.tocStrictContext) 복원 → 체크박스 동기화
+    if(typeof s.strictTocCtx==='boolean'){
+      if(typeof S!=='undefined'&&S) S.tocStrictContext=s.strictTocCtx;
+      const _elSC=document.getElementById('optStrictTocCtx'); if(_elSC) _elSC.checked=s.strictTocCtx;
+    }
     if(s.showLineNum!=null){ const _elSL=document.getElementById('optShowLineNum'); if(_elSL) _elSL.checked=s.showLineNum; }
     if(s.italic!=null){ const _elIt=document.getElementById('optItalic'); if(_elIt) _elIt.checked=s.italic; }
     if(s.indent!=null){ const _elIn=document.getElementById('optIndent'); if(_elIn) _elIn.checked=s.indent; }

@@ -8,6 +8,7 @@
 //   sortKey, smartSortFiles, extractFileNum
 //   PATS, checkTitleWaPattern, checkNDotPattern, bestPat
 //   splitChapters, extractChNum
+//   detectToc, runTocPipeline, getTocStrictContext (사용자 선택 정규식 3단계 파이프라인)
 //   buildChaptersFromTocItems, getCachedChapters
 //   previewToc, showSuspiciousToast, autoSplitByInterval
 // ════════════════════════════════════════════════
@@ -1183,10 +1184,197 @@ function _detectAuto(lines, infos, p, pre){
   return chain;
 }
 
+// ══════════════════════════════════════════
+// 🧪 Module: TocPipeline — 선택한 정규식(사용자 패턴) 3단계 목차 추출
+// ══════════════════════════════════════════
+// 자동 감지(번호 사슬 DP)와 달리 사용자가 칩으로 고르거나 직접 입력한 정규식을 쓰는 경로.
+// 정규식만 믿으면 본문 속 '3 명의 병사가 달려왔다.', '2026', '"1화 봤어?"', '【레벨이 올랐습니다】'까지 목차가 됨 →
+//   ① 후보 추출 : 줄 단위(원본 lineIndex 보존) · 선택 정규식 중 하나라도 맞으면(OR) 후보 · 같은 줄은 1번만 수집
+//   ② 오탐 필터 : 45자 초과 · 따옴표 대사 · 서술 종결어미('다.' '요.' '까?') · 번호 목록 · 장식 줄 속 문장/종결 표식('-끝-')
+//   ③ 문맥 검증 : 앞뒤 빈 줄 차등 검사(엄격 모드) + 숫자만 제목의 번호 연속성(prevNum) 검사(항상)
+// ★ DOM 의존 없음 — buildParserWorkerSource()로 Worker에 이식 (상수는 함수 안에 두어 직렬화 문제 없음)
+
+// 결합 정규식 → 개별 정규식 배열 (buildCombinedPat · _combineBatchPresets의 역변환)
+//   '^(?:(?:A$)|(?:B$))' → ['^(?:(?:A$))', '^(?:(?:B$))']  — 최상위 대안 분리는 OR 의미를 그대로 보존
+//   전체를 감싸는 (?: … ) 가 아니거나, 역참조·빈 대안·문법 오류가 있으면 쪼개지 않고 원문 1개로 반환
+function _splitCombinedPattern(src){
+  const s=String(src||'').trim();
+  if(!s) return [];
+  if(/\\[1-9]|\\k</.test(s)) return [s];
+  const anchored=s.charAt(0)==='^';
+  const body=anchored?s.slice(1):s;
+  if(body.slice(0,3)!=='(?:'||body.charAt(body.length-1)!==')') return [s];
+  const parts=[];
+  let depth=0, inClass=false, start=3;
+  for(let i=0;i<body.length;i++){
+    const ch=body[i];
+    if(ch==='\\'){ i++; continue; }
+    if(inClass){ if(ch===']') inClass=false; continue; }
+    if(ch==='['){ inClass=true; continue; }
+    if(ch==='('){ depth++; continue; }
+    if(ch===')'){
+      depth--;
+      if(depth===0&&i!==body.length-1) return [s];   // 바깥 그룹이 중간에 닫힘 → 전체를 감싸지 않음
+      continue;
+    }
+    if(ch==='|'&&depth===1){ parts.push(body.slice(start,i)); start=i+1; }
+  }
+  if(depth!==0||inClass) return [s];
+  parts.push(body.slice(start, body.length-1));
+  if(parts.length<2) return [s];
+  const out=[];
+  for(const part of parts){
+    if(!part.trim()) return [s];   // 빈 대안('A||B')은 모든 줄과 맞음 → 원래 의미 유지
+    const one=(anchored?'^':'')+'(?:'+part+')';
+    try{ new RegExp(one,'i'); }catch(e){ return [s]; }
+    out.push(one);
+  }
+  return out;
+}
+
+// 파이프라인 규칙 (Worker 이식을 위해 함수 안에서 생성)
+function _tocPipelineRules(){
+  const ENG_NUM={one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12};
+  return {
+    maxLen:45,                                  // ② 공백 포함 45자 초과 = 본문 문장
+    firstMax:20,                                // ③-B 첫 '숫자만' 목차 허용 범위 1~20
+    maxStep:5,                                  // ③-B 직전 번호 대비 허용 증가폭
+    // 다중 TXT 병합 구분자 '[ 0001_제목.txt ]' — 기계가 넣은 줄이라 길이 제한 예외
+    fileSep:/^\[\s*[^\]]+\.txt\s*\]$/i,
+    // 대사·인용: 따옴표로 시작하거나 끝남 (「」『』⌜⌟ 등 챕터 장식용 낫표는 허용 — 목록에 없음)
+    quote:/^["'“”‘’]|["'“”‘’]$/,
+    // 서술·대사 종결어미 + 문장부호: '…했다.' '그래요.' '정말일까?' '하지!' '좋네.' '그렇군.' '그렇구나.'
+    ending:/(?:다|요|까|지|네|군|구나|죠|니|냐)\s*(?:[.!?。！？…~]|\.{2,})+\s*$/,
+    // 장식 기호로 시작하는 줄 (<…> […] 【…】 『…』 「…」 *** ### === --- 등)
+    decorOpen:/^[<\[(【『「〈《≪*#=~─━·\-]/,
+    decorStrip:/^[\s<\[(【『「〈《≪*#=~─━·\-]+|[\s>\])】』」〉》≫*#=~─━·\-]+$/g,
+    // 장식 안쪽이 서술형으로 끝남 → 상태창·시스템 메시지 ('【레벨이 올랐습니다】')
+    decorEnding:/(?:다|요|까|죠|네|군)$/,
+    // 장식 안쪽이 종결 표식 → 챕터 끝 표시 ('-끝-' '[완]' '*to be continued*')
+    endMark:/^(?:끝|완|완결|fin|end|the\s*end|계속|to\s*be\s*continued|다음\s*화에\s*계속)$/i,
+    // 장식 안쪽의 챕터 단서 (숫자·한자 수사·특수 챕터 키워드)
+    cue:/\d|[一二三四五六七八九十]|프롤로그|에필로그|인터미션|인터루드|막간|외전|특외|번외|작가의\s*말|후기|서장|종장|prologue|epilogue|intermission|interlude|chapter|part|book|episode/i,
+    pureNum:/^\d{1,5}$/,
+    // 시퀀스 리셋 키워드 — 부·권·Part·Book·외전·특외가 든 목차 다음은 다시 1부터 허용
+    reset:/\d\s*(?:부|권)(?![가-힣])|^[\s<\[(【『「〈《]*(?:제\s*)?[일이삼사오육칠팔구십]\s*(?:부|권)(?![가-힣])|^[\s<\[(【『「〈《]*(?:part|book|vol(?:ume)?)(?![a-z])|외전|특외|번외|side\s*story/i,
+    engNumRx:/^[\s<\[(【『「〈《]*(?:chapter|chap\.?|part|section|book|episode|ep\.?)\s+(one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)(?![a-z])/i,
+    engNum:ENG_NUM,
+    // 번호 없는 외전 계열 ('[특외] 평화로운 일상' '특별 외전') → kind 'side' (_tocLineInfo가 모르는 '특외' 포함)
+    sideHead:/^(?:(?:특별|단편)\s*)?외전|^특외|^번외/,
+  };
+}
+
+// 후보 형태: 'num'(숫자만) | 'decor'(장식 기호 시작) | 'text'(일반 텍스트 혼합)
+function _tocPipelineShape(t, R){
+  if(R.pureNum.test(t)) return 'num';
+  if(R.decorOpen.test(t)) return 'decor';
+  return 'text';
+}
+
+// 목차 줄 → 번호 (제3장 → 3 · Chapter Two → 2 · <제1장. 부활> → 1 · 3 → 3)
+function _tocPipelineNum(t, info, R){
+  if(info&&info.num!=null) return info.num;
+  const m=t.match(R.engNumRx);
+  if(m) return R.engNum[m[1].toLowerCase()]||null;
+  const d=t.replace(R.decorStrip,'').match(/^(?:제\s*)?(\d{1,5})(?!\d)/);
+  return d?parseInt(d[1],10):null;
+}
+
+/**
+ * runTocPipeline — 사용자 선택 정규식 3단계 목차 추출
+ * @param {string[]} lines 원문 줄 배열 (인덱스 = 원본 lineIndex)
+ * @param {RegExp[]} rxs 선택한 정규식들 (OR 조건)
+ * @param {{strict?:boolean, range?:{start,end,total}|null, fams?:Array}} opts
+ *   strict(기본 true): ③-A 앞뒤 빈 줄 검사. 끄면 빈 줄 없이 붙은 원고도 통과 (③-B 번호 연속성은 항상 적용)
+ *   range: 파일명 화수 범위('101-200') — 있으면 번호 기준점을 range.start-1로 시작
+ * @returns {{items:{line,title,num,kind,fam}[], stats:object}}
+ */
+function runTocPipeline(lines, rxs, opts={}){
+  const R=_tocPipelineRules();
+  const fams=opts.fams||_tocFamilies();
+  const strict=opts.strict!==false;
+  const list=(Array.isArray(rxs)?rxs:[]).filter(Boolean);
+  const total=lines.length;
+  const stats={
+    patterns:list.length, perPattern:list.map(()=>0), candidates:0, filtered:0, strict,
+    rejected:{length:0, quote:0, ending:0, list:0, decor:0, blank:0, sequence:0},
+  };
+
+  // ── ① 후보 추출: lineIndex 키 Map — 여러 정규식에 겹쳐 맞아도 한 번만 수집 (삽입 순서 = 줄 순서)
+  const cands=new Map();
+  for(let i=0;i<total;i++){
+    const raw=String(lines[i]==null?'':lines[i]);
+    // 제목은 짧음 — 150자 넘는 본문 줄은 사용자 정규식에 넣지 않음 (실행 후 시간을 재는 가드로는 폭주를 못 끊으므로 길이 상한이 실질적 ReDoS 방어)
+    if(raw.length>150) continue;
+    const t=raw.trim();
+    if(!t) continue;
+    for(let k=0;k<list.length;k++){
+      if(!_matchHeading(list[k], raw)) continue;
+      stats.perPattern[k]++;
+      const c=cands.get(i);
+      if(c) c.by.push(k);
+      else cands.set(i, {lineIndex:i, text:t.replace(/　/g,' ').replace(/\s{2,}/g,' '), by:[k]});
+    }
+  }
+  stats.candidates=cands.size;
+
+  // ── ② 소설 특화 오탐 방지 필터 (Negative Filter)
+  const passed=[];
+  for(const c of cands.values()){
+    const t=c.text;
+    const shape=_tocPipelineShape(t, R);
+    if(t.length>R.maxLen&&!R.fileSep.test(t)){ stats.rejected.length++; continue; }
+    if(R.quote.test(t)){ stats.rejected.quote++; continue; }
+    if(R.ending.test(t)){ stats.rejected.ending++; continue; }
+    if(_isListItemLine(lines, c.lineIndex)){ stats.rejected.list++; continue; }
+    let hasCue=true;
+    if(shape==='decor'){
+      const inner=t.replace(R.decorStrip,'');
+      hasCue=R.cue.test(inner);
+      if(!inner||R.endMark.test(inner)||R.decorEnding.test(inner)){ stats.rejected.decor++; continue; }
+    }
+    passed.push({lineIndex:c.lineIndex, text:t, shape, hasCue});
+  }
+  stats.filtered=passed.length;
+
+  // ── ③ 문맥(Context) 및 번호 연속성 검증
+  // 빈 줄 = 공백 제거 후 길이 0 / 문서 첫 줄 위·마지막 줄 아래는 빈 줄로 간주(예외 허용)
+  const blank=k=>k<0||k>=total||String(lines[k]==null?'':lines[k]).trim().length===0;
+  const items=[];
+  let prevNum=opts.range&&Number.isFinite(opts.range.start)&&opts.range.start>1?opts.range.start-1:null;
+  for(const c of passed){
+    const i=c.lineIndex;
+    // A. 앞뒤 여백 차등 검증 — 숫자만·단서 없는 장식 줄은 위아래 모두 빈 줄, 그 외는 최소 한쪽
+    if(strict){
+      const up=blank(i-1), down=blank(i+1);
+      const needBoth=c.shape==='num'||(c.shape==='decor'&&!c.hasCue);
+      if(needBoth?!(up&&down):!(up||down)){ stats.rejected.blank++; continue; }
+    }
+    // B. 숫자만 제목의 번호 연속성 — 직전 확정 번호보다 크고 +5 이내 / 첫 목차는 1~20
+    if(c.shape==='num'){
+      const n=parseInt(c.text,10);
+      const ok=prevNum==null?(n>=1&&n<=R.firstMax):(n>prevNum&&n-prevNum<=R.maxStep);
+      if(!ok){ stats.rejected.sequence++; continue; }
+    }
+    // 확정 — 종류·번호 기록 후 시퀀스 기준(prevNum) 갱신
+    const info=_tocLineInfo(c.text, fams);
+    let kind=info&&info.kind!=='ch'?info.kind:'ch';
+    let num=kind==='ch'?_tocPipelineNum(c.text, info, R):(info?info.num:null);
+    if(kind==='ch'&&R.sideHead.test(c.text.replace(R.decorStrip,''))){ kind='side'; const sm=c.text.match(/(\d{1,4})/); num=sm?parseInt(sm[1],10):null; }
+    items.push({line:i+1, title:c.text, num:num!=null?num:null, kind, fam:'입력'});
+    if(kind==='vol'||kind==='side'||R.reset.test(c.text)) prevNum=null;   // 부·권·외전 다음은 다시 1부터
+    else if(kind==='ch'&&num!=null) prevNum=num;
+  }
+  return {items, stats};
+}
+
 /**
  * detectToc — 줄 배열에서 목차 감지 (미리보기·변환·Worker 공통 단일 진입점)
  * @param {string[]} lines
- * @param {{customPat?:string, range?:{start,end,total}, fileBreaks?:{line:number,name:string}[], mergeParts?:boolean}} opts
+ * @param {{customPat?:string, customPats?:string[], strictContext?:boolean, range?:{start,end,total}, fileBreaks?:{line:number,name:string}[], mergeParts?:boolean}} opts
+ *   customPat     결합 정규식 문자열 — 최상위 대안은 개별 정규식으로 분리(_splitCombinedPattern)해 3단계 파이프라인 적용
+ *   customPats    개별 정규식 배열 (있으면 customPat보다 우선)
+ *   strictContext 사용자 패턴 경로의 앞뒤 빈 줄 검사 (기본 true — 설정: getTocStrictContext)
  * @returns {{items:{line,title,num,kind,fam,autoSplit?}[], dropLines:number[], rx:RegExp|null, name:string, stats:object}}
  *   items.line은 1-based, dropLines는 본문에서 뺄 0-based 줄(두 줄 제목의 부제·반복 머리줄·합친 분할 제목)
  */
@@ -1196,22 +1384,24 @@ function detectToc(lines, opts={}){
   const infos=[];
   for(let i=0;i<lines.length;i++){ const info=_tocLineInfo(lines[i], fams); if(info) infos.push([i,info]); }
   const drop=new Set();
-  let items=[], mode='auto', chain=[], customRx=null;
+  let items=[], mode='auto', chain=[], customRx=null, pipeStats=null;
 
-  if(opts.customPat&&String(opts.customPat).trim()){
-    // ── 사용자 정의 패턴: 사용자가 지정한 형식을 신뢰 (번호 목록만 제외) + 제목다운 키워드 줄
-    const {rx}=parseCustomPattern(String(opts.customPat).trim(), lines.slice(0,500).join('\n'));
-    if(rx){
-      customRx=rx; mode='custom';
-      for(let i=0;i<lines.length;i++){
-        // ★ Phase 10: 제목은 짧음 — 150자 넘는 본문 줄은 사용자 정규식에 넣지 않음
-        //   (_safeRegexTest는 실행이 끝난 뒤 시간을 재므로 폭주를 끊을 수 없음 → 입력 길이 상한이 실질적 ReDoS 방어)
-        if(String(lines[i]||'').length>150) continue;
-        if(_matchHeading(rx,lines[i])&&!_isListItemLine(lines,i)){
-          const info=_tocLineInfo(lines[i],fams);
-          items.push({line:i+1, title:String(lines[i]).trim().replace(/\s{2,}/g,' '), num:info&&info.kind==='ch'?info.num:null, kind:'ch', fam:'입력'});
-        }
-      }
+  // ── 사용자 정의 패턴 (칩 복수 선택·직접 입력): 3단계 파이프라인 (후보 추출 → 오탐 필터 → 문맥·번호 연속성)
+  //   이전: 결합 정규식 하나로 매칭 + 번호 목록만 제외 → '3 명의 병사가…다.', 연도 '2026', 대사 줄까지 목차로 들어옴
+  const patSrcs=Array.isArray(opts.customPats)&&opts.customPats.length
+    ? opts.customPats.map(p=>String(p==null?'':p).trim()).filter(Boolean)
+    : (opts.customPat&&String(opts.customPat).trim()?_splitCombinedPattern(String(opts.customPat).trim()):[]);
+  if(patSrcs.length){
+    const sample=lines.slice(0,500).join('\n');
+    const rxs=[];
+    for(const src of patSrcs){ const {rx}=parseCustomPattern(src, sample); if(rx) rxs.push(rx); }
+    if(rxs.length){
+      mode='custom';
+      if(rxs.length===1) customRx=rxs[0];
+      else{ try{ customRx=new RegExp(rxs.map(r=>'(?:'+r.source+')').join('|'),'i'); }catch(e){ customRx=rxs[0]; } }
+      const pipe=runTocPipeline(lines, rxs, {strict:opts.strictContext!==false, range, fams});
+      items=pipe.items;
+      pipeStats=pipe.stats;
     }
   }
   if(mode==='auto'){
@@ -1343,7 +1533,7 @@ function detectToc(lines, opts={}){
     (Object.keys(famCnt).length>1?'복합('+famStr+')':(famStr||'감지 없음'));
   return {
     items, dropLines:[...drop].sort((a,b)=>a-b), rx, name,
-    stats:{mode, main:mainDistinct, extra, families:famCnt, range, errorRate:err, variant:chain._variant||null},
+    stats:{mode, main:mainDistinct, extra, families:famCnt, range, errorRate:err, variant:chain._variant||null, pipeline:pipeStats},
   };
 }
 
@@ -1351,6 +1541,14 @@ function detectToc(lines, opts={}){
 function describeTocDetection(det){
   const s=det.stats;
   let t=(s.mode==='custom'?'입력 패턴':'자동 감지')+': '+det.name+' — 본편 '+s.main+'화'+(s.extra?' + 기타 '+s.extra+'개':'');
+  // 사용자 패턴 파이프라인: 후보 수·단계별 제외 사유 ('입력 패턴 3개: 본편 120화 — 후보 131줄 중 제외 문장형 6 · 빈 줄 3 · 번호 흐름 2')
+  if(s.mode==='custom'&&s.pipeline){
+    const p=s.pipeline;
+    const LABEL={length:'45자 초과', quote:'대사', ending:'문장형', list:'번호 목록', decor:'장식 문장', blank:'빈 줄', sequence:'번호 흐름'};
+    const rej=Object.keys(LABEL).filter(k=>p.rejected[k]>0).map(k=>LABEL[k]+' '+p.rejected[k]).join(' · ');
+    t='입력 패턴'+(p.patterns>1?' '+p.patterns+'개':'')+': 본편 '+s.main+'화'+(s.extra?' + 기타 '+s.extra+'개':'')+
+      ' — 후보 '+p.candidates+'줄'+(rej?' 중 제외 '+rej:'')+(p.strict?'':' · 빈 줄 검사 끔');
+  }
   if(s.range){
     const pct=(s.errorRate*100);
     t+=' · 파일명 기준 '+s.range.total+'화 대비 '+(pct>=0?'+':'')+pct.toFixed(1)+'%';
@@ -1738,10 +1936,23 @@ function renderTocReview(){
   host.replaceChildren(det);
 }
 
+// ★ 엄격한 문맥 검증(사용자 패턴 파이프라인 ③-A 앞뒤 빈 줄 검사) 현재 값
+//   단일 기준 = StateManager convert 스토어(S.tocStrictContext) · 체크박스(#optStrictTocCtx)는 구독으로 동기화
+//   스토어가 아직 없을 때(초기화 전·테스트)만 저장값(epub_extra.strictTocCtx) → 기본 true
+// ★ 메인 스레드 전용 — Worker에는 값만 opts.strictContext로 전달
+function getTocStrictContext(){
+  try{ if(typeof S!=='undefined'&&S&&typeof S.tocStrictContext==='boolean') return S.tocStrictContext; }catch(e){}
+  try{
+    const s=JSON.parse(localStorage.getItem('epub_extra')||'{}');
+    if(typeof s.strictTocCtx==='boolean') return s.strictTocCtx;
+  }catch(e){}
+  return true;
+}
+
 // splitChapters: 동기 함수. 대용량은 splitChaptersAsync(Worker) 권장
 // ★ Phase 8: 패턴 하나(bestPat)로 줄을 자르던 방식 → detectToc(복합 패턴·번호 사슬·화수 보정) + assembleChapters
 //   미리보기(previewToc)와 같은 감지 함수를 쓰므로 "미리보기에 보이는 목차 = 변환 결과"
-// opts: {mergeShortLines, onProgress, range, fileBreaks, mergeParts}
+// opts: {mergeShortLines, onProgress, range, fileBreaks, mergeParts, strictContext}
 function splitChapters(raw, customPat, opts={}){
   const {mergeShortLines=false, onProgress=null}=opts;
 
@@ -1761,7 +1972,7 @@ function splitChapters(raw, customPat, opts={}){
   onProgress&&onProgress(15,'② 목차 감지 중...');
   const lines=raw.split('\n');
   raw=null; // ★ 메모리 정리
-  const det=detectToc(lines,{customPat, range:opts.range||null, fileBreaks:opts.fileBreaks||null, mergeParts:!!opts.mergeParts});
+  const det=detectToc(lines,{customPat, range:opts.range||null, fileBreaks:opts.fileBreaks||null, mergeParts:!!opts.mergeParts, strictContext:opts.strictContext!==false});
   if(customPat&&det.stats.mode!=='custom'&&typeof Toast!=='undefined') Toast.warn('⚠️ 정규식 오류 — 자동 감지로 진행해요');
   onProgress&&onProgress(70,'② 챕터 조립 중... ('+det.items.length+'개)');
   const chapters=det.items.length?assembleChapters(lines, det.items, det.dropLines):fallbackPageSplit(lines);
@@ -1888,6 +2099,8 @@ function buildParserWorkerSource(){
     _safeRegexTest, parseCustomPattern,
     // TocEngine (Phase 8)
     _parseNumToken, _tocFamilies, _tocLineInfo, _tocWeight, _tocChain, _tocCandidates, _detectAuto, detectToc,
+    // TocPipeline (사용자 선택 정규식 3단계)
+    _splitCombinedPattern, _tocPipelineRules, _tocPipelineShape, _tocPipelineNum, runTocPipeline,
     _mergeShortLineArray, assembleChapters, fallbackPageSplit, splitChapters,
   ];
   const rxLit=rx=>'new RegExp('+JSON.stringify(rx.source)+','+JSON.stringify(rx.flags)+')';
@@ -2167,7 +2380,7 @@ async function getCachedChapters(){
   // ★ 캐시 키 정교화: 파일명+크기+최종수정시간+패턴+설정 해시
   const pat=document.getElementById('pattern')?.value.trim()||'';
   const optItalic = document.getElementById('optItalic')?.checked??true;
-  const settingHash = `${optItalic}:${optMerge}:${document.getElementById('optMergeParts')?.checked===true}:${JSON.stringify(cleanOpts)}`;
+  const settingHash = `${optItalic}:${optMerge}:${document.getElementById('optMergeParts')?.checked===true}:${getTocStrictContext()}:${JSON.stringify(cleanOpts)}`;
   const fileHash = S.txtFiles
     .map(f=>`${f.name}:${f.size}:${f.lastModified||0}`)
     .join('|');
@@ -2194,6 +2407,7 @@ async function getCachedChapters(){
         fileBreaks,
         range:rangeForFiles(sorted.map(f=>f.name)),
         mergeParts:document.getElementById('optMergeParts')?.checked===true,
+        strictContext:getTocStrictContext(),
       });
       _chaptersCache=applyTextCleanup(chs, cleanOpts).chapters;
       _chaptersCacheKey=cacheKey;
@@ -2286,6 +2500,7 @@ async function previewToc(){
     customPat:pat, fileBreaks,
     range:rangeForFiles(S.txtFiles.map(f=>f.name)),
     mergeParts:document.getElementById('optMergeParts')?.checked===true,
+    strictContext:getTocStrictContext(),
   };
   const det=typeof detectTocAsync==='function'?await detectTocAsync(lines, text, detOpts):detectToc(lines, detOpts);
   if(!det||seq!==_previewTocSeq) return;

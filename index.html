@@ -148,7 +148,8 @@
     <div class="chip-group-wrap" id="chipGroupWrap">
       <!-- ★ 카테고리 탭 바 -->
       <div class="pat-cat-tabs" id="patCatTabs">
-        <button class="pat-cat-tab on" data-cat="popular">자주 쓰는</button>
+        <button class="pat-cat-tab on" data-cat="core">핵심 5종</button>
+        <button class="pat-cat-tab" data-cat="popular">자주 쓰는</button>
         <button class="pat-cat-tab" data-cat="kor">한국어</button>
         <button class="pat-cat-tab" data-cat="eng">영문/숫자</button>
         <button class="pat-cat-tab" data-cat="special">특수형식</button>
@@ -162,6 +163,11 @@
     <div id="patApplyBar" class="flex-row" hidden>
       <button class="btn btn-accent btn-sm u-fs-sm u-pad-btn-sm" data-action="applySelectedChips">선택한 패턴 적용</button>
       <span id="patApplyInfo" class="txt-meta-sm"></span>
+    </div>
+    <!-- ★ 선택 정규식 파이프라인 ③-A: 앞뒤 빈 줄 검사 (상태: S.tocStrictContext · ui-state.js toggleStrictTocCtx) -->
+    <div class="toggle-row u-py-6">
+      <div><label for="optStrictTocCtx">엄격한 문맥 검증</label><small>선택한 패턴 결과를 앞뒤 빈 줄로 한 번 더 걸러요 (숫자만 제목은 위아래 모두 빈 줄). 빈 줄 없이 붙어 있는 원고는 끄세요 — 숫자만 제목의 번호 흐름 검사는 항상 적용</small></div>
+      <label class="sw"><input type="checkbox" id="optStrictTocCtx" checked data-input-action="toggleStrictTocCtx"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="hint">혼합 패턴 예시: <code>^(소설명 \d+|\d+화|\d+$)</code> · <code>[ 파일명.txt ]</code> 형식: <code>^\[\s*.+\.txt\s*\]\s*$</code> · 정규식 문법은 목차 패널의 <strong>정규식 수정</strong> 탭 참고</div>
     </details>

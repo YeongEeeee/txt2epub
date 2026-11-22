@@ -24,6 +24,7 @@
  *  17. Phase 22: 커스텀 폰트 서브셋 — HarfBuzz WebAssembly 실제 실행(TTF·OTF), 제외·실패 경로, EPUB(22_font_subset.epub), 편집 탭 갱신
  *  18. Phase 23: 이미지 형식 바이트 판별(.jpg 이름의 PNG 표지), 커스텀 폰트 선택 복원 경합·미사용 폰트 미포함
  *  19. Phase 28: 설정 초기화 범위·이미지 추출 표지·일괄 패턴 다중 선택·간격 분할 목차 제목 방식
+ *  20. Phase 29: 선택 정규식 3단계 파이프라인(후보 추출·오탐 필터·문맥/번호 연속성)·핵심 5종 프리셋·엄격 검증 토글
  */
 'use strict';
 const fs   = require('fs');
@@ -1299,6 +1300,100 @@ async function main(){
     check('[간격목차] 화수 입력창: 추천값이 입력칸에 채워짐·서식 태그 렌더링',
       /Toast\.prompt\(promptMsg, '화수', String\(suggestVal\)\)/.test(parser) && /function prompt\(msg, placeholder = '', defaultVal = ''\)[\s\S]{0,1500}p\.innerHTML = _sanitizeHtml\(msg\);/.test(read('core.js')));
     check('[간격목차] 패널 스타일은 CSS 변수만 사용', /\.split-title-bar\{/.test(css) && !/\.split-title-[a-z-]+\{[^}]*#[0-9a-fA-F]{3,6}/.test(css));
+  }
+
+  // ── 20. Phase 29 — 선택 정규식 3단계 파이프라인 (후보 추출 → 오탐 필터 → 문맥·번호 연속성) · 핵심 5종 프리셋 · 엄격 검증 토글 ──
+  {
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const coreSrc = read('core.js'), ui = read('ui-state.js'), conv = read('convert.js'), parser = read('parser.js'), html = read('index.html'), st = read('settings.js');
+    const detect = G('detectToc'), splitPat = G('_splitCombinedPattern'), pcp = G('parseCustomPattern'), describe = G('describeTocDetection');
+    // 20-1. 핵심 5종 프리셋: 컴파일·ReDoS 가드 통과·예시 매칭·본문 불일치
+    const pc = { console }; vm.createContext(pc);
+    const ps = coreSrc.indexOf('const PAT_PRESETS = [');
+    vm.runInContext(coreSrc.slice(ps, coreSrc.indexOf('\n];', ps) + 3) + '\nthis.P=PAT_PRESETS;', pc);
+    const core = pc.P.filter(x => x.cat === 'core');
+    check('[파이프라인] 핵심 5종 프리셋 (core 카테고리)', core.length === 5, core.map(x => x.label).join(','));
+    const ex = {
+      '한국어 회차/장': [['제1장 시작', '12화. 각성', '제 3 부', '2권 - 귀환'], ['10장의 카드를 뽑았다.', '3부작이었다', '제1화는']],
+      '영문 챕터': [['Chapter 1', 'Part 2: The End', 'CHAPTER TWO', 'Ch.3'], ['Part of the plan', 'Chapters 3']],
+      '프롤로그/외전/특외': [['프롤로그', '특별 외전 1', '특외. 그 후의 이야기', '외전 2 - 일상'], ['프롤로그는 끝났다', '후기를 남겼다']],
+      '장식 기호 챕터': [['<제1장. 부활>', '[특외] 평화로운 일상', '*** 3화 ***'], ['그는 [검]을 들었다']],
+      '숫자 단독/부제': [['01', '1. 붉은 달', '12 - 재회'], ['2026년 여름', '12,000원', '1.5배']],
+    };
+    for(const c of core){
+      const r = pcp(c.val, '제1화\n본문');
+      const [hit, miss] = ex[c.label] || [[], []];
+      check(`[파이프라인] 프리셋 '${c.label}' 유효·가드 통과·예시 감지·본문 불일치`,
+        !!r.rx && hit.every(h => r.rx.test(h)) && miss.every(m => !r.rx.test(m)), r.error || '');
+    }
+    // 20-2. 결합 정규식 분리 = buildCombinedPat 역변환 (OR 의미 보존)
+    const cU = sandbox('ui-state.js', ['buildCombinedPat']);
+    const comb = vm.runInContext('buildCombinedPat', cU)(new Set(core.map(c => c.val)));
+    const parts = splitPat(comb);
+    const probe = ['제1장 시작', 'Chapter 1', '프롤로그', '<제1장. 부활>', '01', '그는 걸었다.', '2026년'];
+    const rxAll = new RegExp(comb, 'i'), rxParts = parts.map(x => new RegExp(x, 'i'));
+    check('[파이프라인] 결합 정규식 → 개별 5개 분리, 매칭 결과 동일', parts.length === 5 && probe.every(l => rxAll.test(l) === rxParts.some(r => r.test(l))), JSON.stringify(parts));
+    check('[파이프라인] 감싸지 않은 정규식·빈 대안·역참조는 쪼개지 않음',
+      splitPat('^(소설명 \\d+|\\d+화|\\d+$)').length === 1 && splitPat('^(?:a|)').length === 1 && splitPat('^(?:(a)\\1|b)').length === 1 && splitPat('').length === 0);
+    // 20-3. 3단계 필터 — 소설 본문 노이즈
+    const novel = [
+      '프롤로그', '', '본문 시작이다.', '',
+      '1', '', '그는 걸었다.', '2026', '그 해 겨울이었다.', '',
+      '2', '', '"1화 봤어?"', '3 명의 병사가 달려왔다.', '', '【레벨이 올랐습니다】', '', '-끝-', '',
+      '3', '', '본문.', '1. 사과', '2. 배', '',
+      '500', '', '본문 노이즈.', '',
+      '제2부', '', '1', '', '다시 시작했다.', '',
+      '2', '본문이 바로 붙음', '',
+      '<제3장. 부활>', '', '본문', '',
+      '[특외] 평화로운 일상', '본문 바로', '',
+      '*** 3화 ***', '', '본문', '',
+    ];
+    const pats = core.map(c => c.val);
+    const on = detect(novel, { customPats: pats }), off = detect(novel, { customPats: pats, strictContext: false });
+    const titles = d => d.items.map(it => it.title);
+    const T_ON = titles(on);
+    check('[파이프라인] 엄격 모드: 대사·서술문·상태창·종결 표식·번호 목록·연도·금액 제외',
+      !T_ON.some(t => ['"1화 봤어?"', '3 명의 병사가 달려왔다.', '【레벨이 올랐습니다】', '-끝-', '1. 사과', '2. 배', '2026', '500'].includes(t)), T_ON.join(' | '));
+    check('[파이프라인] 엄격 모드: 프롤로그·숫자 1~3·제2부·부 리셋 후 1·장식 챕터 확정',
+      ['프롤로그', '1', '2', '3', '제2부', '<제3장. 부활>', '[특외] 평화로운 일상', '*** 3화 ***'].every(t => T_ON.includes(t)) &&
+      on.items.filter(it => it.title === '1').length === 2, T_ON.join(' | '));
+    check('[파이프라인] 엄격 모드: 아래가 본문으로 붙은 숫자만 줄은 제외 (위아래 모두 빈 줄 필요)', !on.items.some(it => it.line === 36) && novel[35] === '2');
+    check('[파이프라인] 엄격 끄면 빈 줄 검사만 해제 — 붙은 숫자 줄 인정, 연도·금액은 번호 흐름으로 계속 제외',
+      off.items.some(it => it.line === 36 && it.title === '2') && !titles(off).includes('2026') && !titles(off).includes('500'));
+    check('[파이프라인] 종류 분류: 프롤로그=kw · 제2부=vol · 특외=side', on.items.find(it => it.title === '프롤로그')?.kind === 'kw' &&
+      on.items.find(it => it.title === '제2부')?.kind === 'vol' && on.items.find(it => it.title === '[특외] 평화로운 일상')?.kind === 'side');
+    const pp = on.stats.pipeline;
+    check('[파이프라인] 통계: 패턴별 매칭 합 ≥ 후보(lineIndex 중복 제거) · 단계별 제외 사유',
+      pp && pp.patterns === 5 && pp.perPattern.reduce((a, b) => a + b, 0) >= pp.candidates && pp.rejected.sequence >= 1 && pp.rejected.ending >= 1 && pp.rejected.blank >= 1, JSON.stringify(pp));
+    check('[파이프라인] 요약 문구에 후보·제외 사유 표시', /^입력 패턴 5개: 본편 \d+화.* — 후보 \d+줄 중 제외 .*번호 흐름/.test(describe(on)) && /빈 줄 검사 끔$/.test(describe(off)), describe(on));
+    // 20-4. 번호 연속성 — 첫 목차 1~20, 큰 숫자 시작 제외, 파일명 범위로 기준점
+    const seq = ['', '2026', '', '본문', '', '1', '', '본문', '', '2', '', '본문', '', '9', '', '본문', '', '3', '', '본문', ''];
+    const sq = detect(seq, { customPat: '^\\d+$' }).items.map(it => it.title);
+    check('[파이프라인] 숫자만: 2026 시작 제외 · +5 초과 점프(9) 제외 · 1→2→3 확정', JSON.stringify(sq) === JSON.stringify(['1', '2', '3']), JSON.stringify(sq));
+    const r2 = detect(['', '101', '', '본문', '', '102', '', '본문', ''], { customPat: '^\\d+$', range: { start: 101, end: 200, total: 100 } });
+    check('[파이프라인] 파일명 범위(101-200)면 101부터 인정', r2.items.length === 2, JSON.stringify(r2.items));
+    // 20-5. 같은 줄이 여러 정규식에 맞아도 1번만 수집
+    const dup = detect(['', '제1화 시작', '', '본문', '', '제2화 끝', '', '본문'], { customPats: ['^제\\s*\\d+화', '^.*\\d+화.*$', pats[0]] });
+    check('[파이프라인] 중복 매칭 줄은 lineIndex 기준 1회', dup.items.length === 2 && dup.stats.pipeline.perPattern.every(n => n === 2) && dup.stats.pipeline.candidates === 2);
+    // 20-6. Worker 동등성 (결합 패턴 문자열 + 엄격 옵션 — 직렬화된 파이프라인 함수 동일 동작)
+    {
+      const raw = novel.join('\n');
+      for(const strictContext of [true, false]){
+        const w = await runWorker(workerSrc, { type: 'SPLIT', id: 29, payload: { raw, customPat: comb, opts: { strictContext } } });
+        check(`[파이프라인] Worker 결과 = 메인 스레드 (엄격 ${strictContext ? '켬' : '끔'})`, w.last.type === 'DONE' && eq(w.last.result, splitChapters(raw, comb, { strictContext })));
+      }
+    }
+    // 20-7. UI·상태 연결 (StateManager 단일 기준)
+    check('[파이프라인] 상태값 tocStrictContext (convert 스토어 기본 true)', /tocStrictContext:true\s+\/\/ ★ 선택 정규식 파이프라인/.test(coreSrc));
+    check('[파이프라인] 토글 마크업: 체크박스·data-input-action·인라인 스타일 없음',
+      /<input type="checkbox" id="optStrictTocCtx" checked data-input-action="toggleStrictTocCtx">/.test(html) && !/optStrictTocCtx[^>]*style=/.test(html));
+    check('[파이프라인] 핵심 5종 탭이 기본 탭 · 초기 렌더가 마크업 탭을 따름',
+      /<button class="pat-cat-tab on" data-cat="core">핵심 5종<\/button>/.test(html) && /renderChips\(_activeCat\);/.test(ui) && !/renderChips\('popular'\);/.test(ui));
+    check('[파이프라인] 토글 핸들러: 상태 변경·저장·편집 보호 후 재감지', /toggleStrictTocCtx: \(el\) => \{[\s\S]{0,400}S\.tocStrictContext=next;[\s\S]{0,700}if\(edited\)\{[\s\S]{0,300}previewToc\(\);/.test(ui));
+    check('[파이프라인] 상태 → 체크박스 구독 동기화', /state\.tocStrictContext !== prev\?\.tocStrictContext/.test(ui));
+    check('[파이프라인] 저장·복원 (epub_extra.strictTocCtx)', /strictTocCtx:\(typeof S!=='undefined'/.test(st) && /S\.tocStrictContext=s\.strictTocCtx;/.test(st));
+    check('[파이프라인] 변환·일괄·미리보기·캐시 키 모두 같은 옵션',
+      (conv.match(/strictContext/g) || []).length >= 5 && /strictContext:getTocStrictContext\(\),\n  \};/.test(parser) && /\$\{getTocStrictContext\(\)\}:\$\{JSON\.stringify\(cleanOpts\)\}/.test(parser));
   }
 
   if(UPDATE){
