@@ -28,6 +28,7 @@
  *  21. Phase 30 (UI 정제 1단계): 미정의 클래스 0 · 단축키 단일 출처 · 토큰 대비 4.5:1 · 라벨·이름·랜드마크·표지 alt
  *  22. Phase 31 (UI 정제 2단계 — 성능): 스크립트 defer·순서 · 테마 선적용(theme-boot.js) · 목차 확인 화면 선반영 · 감지 Worker 기준 · 첫 화면 비활성 상태
  *  23. Phase 32 (UI 정제 3단계 — 디자인 축소): CSS 리터럴 0 · 무한 애니메이션 1 · 화면 이모지 0 → SVG 아이콘 · JS 인라인 스타일 → 클래스·hidden
+ *  24. Phase 33 (UI 정제 4단계 — 정보 구조): 기본 경로만 펼침(분할 규칙·목차 편집·삽화 접기) · 데스크톱 2단 · 레이아웃 이동 방지
  */
 'use strict';
 const fs   = require('fs');
@@ -1542,6 +1543,59 @@ async function main(){
     const ssb = (parser.match(/function _syncSplitBtn\(state\)\{[\s\S]*?\n\}/) || [''])[0];
     check('[정제3] 간격 분할 버튼: 인라인 opacity 없음', ssb.length > 0 && !/style\.opacity/.test(ssb) && /btn\.dataset\.split=/.test(ssb));
     check('[정제3] 요약 칩 OFF: opacity 대신 text3', /\.opt-badge\.off\{color:var\(--text3\)\}/.test(css) && !/\.opt-badge\.off\{[^}]*opacity/.test(css));
+  }
+
+  // ── 24. Phase 33 (UI 정제 4단계 — 정보 구조) ──
+  {
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const html = read('index.html'), css = read('style.css'), parser = read('parser.js'), ui = read('ui-state.js'), conv = read('convert.js');
+    const conv0 = html.slice(html.indexOf('<div id="page-convert"'), html.indexOf('<!-- /page-convert -->'));
+    const pos = s => conv0.indexOf(s);
+    const between = (a, b, x) => { const i = pos(a), j = conv0.indexOf(b, i), k = conv0.indexOf(x, i); return i >= 0 && j > i && k > i && k < j; };
+    // 24-1. 기본 경로만 펼침: 파일 → 제목·작가 → 감지 결과 → (표지·글꼴) — 나머지는 접힌 details
+    check('[정제4] 감지 결과(#regexFeed)는 처음부터 자리 잡음 · 분할 규칙보다 위', /<div class="regex-feed" id="regexFeed">/.test(html) && pos('id="regexFeed"') > 0 && pos('id="regexFeed"') < pos('id="patRuleBox"'));
+    check('[정제4] 정규식 입력·목차 확인·간격 분할·패턴 직접 지정은 #patRuleBox 안 (기본 접힘)',
+      /<details class="adv-box" id="patRuleBox">/.test(html) && ['id="pattern"', 'data-action="autoSplitByInterval"', 'id="patAdvanced"', 'id="optStrictTocCtx"'].every(x => between('id="patRuleBox"', '<!-- /장화 분할 규칙 블록 -->', x)));
+    check('[정제4] 목차 편집 패널은 #tocEditBox 안 (기본 접힘) · 머리에 검수 요약',
+      /<details class="adv-box toc-edit-box" id="tocEditBox">/.test(html) && between('id="tocEditBox"', '</details>', 'id="tocPanel"') && /id="tocReviewBadge" class="toc-review-badge" hidden/.test(html)
+      && /badge\.textContent=total\?\('확인할 항목 '\+total\+'건'\):'검수 이상 없음'/.test(parser));
+    check('[정제4] 삽화는 접히는 섹션(#illBox) — 섹션 머리가 summary', /<details class="sec sec-fold" id="illBox">\s*<summary class="sec-hdr">/.test(html) && between('id="illBox"', '</details>', 'id="illDz"'));
+    check('[정제4] 표지·글꼴·미리보기는 #convertSide 한 묶음 — 장/화 뒤, 삽화 앞 (모바일 순서)',
+      ['id="coverThumb"', 'id="coverUrlInp"', 'id="convFont"', 'id="miniReaderPreview"'].every(x => between('id="convertSide"', '<!-- /cv-side -->', x))
+      && pos('id="patSection"') < pos('id="convertSide"') && pos('id="convertSide"') < pos('id="illBox"') && !/id="coverThumb"[\s\S]*id="txtDz"/.test(conv0));
+    // 24-2. 펼치는 경로: 사용자가 목차를 보려 할 때만 — 자동 감지는 접힌 채
+    check('[정제4] previewToc 클릭(EventDelegate)만 목차 패널을 펼침 · 파일 로드 자동 감지는 펼치지 않음',
+      /previewToc:\s*\(\)\s*=>\s*\{\s*typeof openTocEditor==='function'&&openTocEditor\(\);/.test(ui) && !/openTocEditor/.test(conv));
+    check('[정제4] 목차 항목으로 이동·감지 실패도 펼침', /function tocScrollToIndex\(i\)\{\n  if\(!_tocVS\|\|i==null\|\|!S\.tocItems\[i\]\) return;\n  openTocEditor\(\);/.test(parser)
+      && /getElementById\('patRuleBox'\)\?\.setAttribute\('open',''\);\n    document\.getElementById\('patAdvanced'\)\?\.setAttribute\('open',''\);\n    openTocEditor\(\);/.test(parser));
+    // openTocEditor 동작: 접혀 있으면 펼치고 가상 목록을 한 번 다시 그림 · 이미 열려 있으면 아무것도 안 함 · 요소 없으면 안전
+    const oteSrc = (parser.match(/function openTocEditor\(\)\{[\s\S]*?\n\}/) || [''])[0];
+    let oteOk = false;
+    if (oteSrc) {
+      const box = { open: false }; let refreshed = 0; let present = true;
+      const ctx = { document: { getElementById: id => (present && id === 'tocEditBox') ? box : null }, _tocVS: { refresh: () => refreshed++ } };
+      vm.runInNewContext(oteSrc + '\nthis.f=openTocEditor;', ctx);
+      ctx.f(); const a = box.open === true && refreshed === 1;
+      ctx.f(); const b = refreshed === 1;
+      present = false; let c = true; try { ctx.f(); } catch (e) { c = false; }
+      oteOk = a && b && c;
+    }
+    check('[정제4] openTocEditor(): 펼침 + 목록 다시 그리기 1회 · 이미 열림이면 무동작 · 요소 없으면 안전', oteOk);
+    check('[정제4] summary로 직접 펼쳐도 목록 다시 그림 (테스트 VM 안전 가드)', /if\(typeof document!=='undefined'\) document\.getElementById\('tocEditBox'\)\?\.addEventListener\('toggle',e=>\{ if\(e\.target\?\.open\) _tocVS\?\.refresh\?\.\(\); \}\);/.test(parser));
+    check('[정제4] 목차 되돌리기 단축키는 패널이 펼쳐져 있을 때만', /id:'undoToc'[\s\S]{0,300}getElementById\('tocEditBox'\)\?\.open!==false/.test(ui));
+    check('[정제4] 파일 1개면 정렬 단추 숨김', /listWrap\?\.classList\.toggle\('is-single',files\.length<2\)/.test(conv)
+      && /\.file-list-wrap\.is-single \[data-action="sortTxtAuto"\],\.file-list-wrap\.is-single \[data-action="sortTxtAlpha"\]\{display:none\}/.test(css));
+    // 24-3. 데스크톱 2단 — 머리·탭·하단 바는 넓은 폭 고정, 본문은 변환 탭만 넓힘
+    const mq = (css.match(/@media \(min-width:1100px\)\{[\s\S]*?\n\}/) || [''])[0];
+    check('[정제4] 1100px 이상: 변환 탭 2단 그리드 · 오른쪽 열 고정(sticky)',
+      /#page-convert\.page\.on\{display:grid;grid-template-columns:minmax\(0,1fr\) var\(--side-w\)/.test(mq) && /#page-convert > \.cv-side\{grid-column:2;[^}]*position:sticky/.test(mq) && /\.wrap:has\(> #page-convert\.on\)\{max-width:var\(--content-max-wide\)\}/.test(mq));
+    check('[정제4] 머리·탭 줄·하단 바는 --chrome-max (탭을 바꿔도 위치 고정)', (css.match(/calc\(\(100% - var\(--chrome-max\)\)\/2 \+ 16px\)/g) || []).length === 2
+      && /\.btm-inner\{flex:1;max-width:var\(--chrome-max\)/.test(css) && /:root\{--chrome-max:var\(--content-max-wide\)\}/.test(mq));
+    // 24-4. 레이아웃 이동 방지 (첫 화면 안으로 올라온 영역들)
+    check('[정제4] 레이아웃 이동 방지: 감지 목록 높이 고정 · 파일 전 목차 상자 숨김 · 요약 칩 자리 · 드롭존 높이 즉시 · 빈 미리보기 줄 자리',
+      /\.regex-feed-list\{max-height:220px;min-height:var\(--feed-min-h\)/.test(css) && /#patSection\.is-idle ~ \.toc-edit-box\{display:none\}/.test(css)
+      && /\.cv-side \.opt-summary-grid\{min-height:var\(--summary-min-h\)/.test(mq) && /\.dz\.ok\{[^}]*transition:border-color var\(--dur-fast\),background var\(--dur-fast\)\}/.test(css)
+      && /<div class="feed-item-preview">\$\{prevSafe\?prevSafe\+'…':'&nbsp;'\}<\/div>/.test(ui));
   }
   if(UPDATE){
     fs.writeFileSync(GOLDEN, JSON.stringify(golden, null, 2) + '\n', 'utf8');

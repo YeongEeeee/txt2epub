@@ -1897,12 +1897,18 @@ function renderTocReview(){
   const host=document.getElementById('tocReview');
   if(!host) return;
   const items=S.tocItems||[];
-  if(!items.length){ host.replaceChildren(); setShown(host,false); return; }
+  const badge=document.getElementById('tocReviewBadge');   // ★ Phase 33: 패널이 접혀 있어도 검수 결과는 머리에 보이게
+  if(!items.length){ host.replaceChildren(); setShown(host,false); setShown(badge,false); return; }
   const prev=host.querySelector('details');
   if(prev) _tocReviewOpen=prev.open;
   const rv=buildTocReview(items, getSuspThreshold());
   const total=rv.missing.length+rv.dups.length+rv.short.length+rv.empty.length+rv.long.length;
   setShown(host,true);
+  if(badge){
+    badge.textContent=total?('확인할 항목 '+total+'건'):'검수 이상 없음';
+    badge.classList.toggle('has-issues',total>0);
+    setShown(badge,true);
+  }
   const det=document.createElement('details');
   det.className='toc-review'+(total?' has-issues':'');
   det.open=_tocReviewOpen&&total>0;
@@ -2612,7 +2618,10 @@ async function _previewTocRun(){
   // 감지 실패 시 안내 메시지
   if(!found.length){
     // ★ 접혀 있던 고급 패턴 도구(#patAdvanced)를 자동으로 펼쳐 바로 지정할 수 있게
+    //   Phase 33: 바깥 '분할 규칙 바꾸기'(#patRuleBox)와 목차 패널(안내 문구 표시)도 함께 펼침
+    document.getElementById('patRuleBox')?.setAttribute('open','');
     document.getElementById('patAdvanced')?.setAttribute('open','');
+    openTocEditor();
     const c=document.getElementById('tb0');
     c?.insertAdjacentHTML('beforeend',
       '<div class="info-box-blue">'+
@@ -3638,8 +3647,19 @@ function _createTocVirtualList(scroller, host, buildRow){
 }
 
 // 목차 목록에서 특정 항목으로 스크롤 + 잠깐 강조 (차트·짧은 챕터 칩·선택 위치 버튼 공용)
+// ★ Phase 33: 목차 편집 패널(#tocEditBox)은 기본 접힘 — 사용자가 목차를 보려는 동작(목차 확인·전체 보기·
+//   항목으로 이동·감지 실패)에서만 펼침. 접혀 있던 동안 그린 가상 목록은 높이 0 기준이라 펼칠 때 다시 그림
+function openTocEditor(){
+  const box=document.getElementById('tocEditBox');
+  if(!box||box.open) return;
+  box.open=true;
+  _tocVS?.refresh?.();
+}
+// 사용자가 summary를 직접 눌러 펼친 경우도 다시 그림 (스크립트는 defer — DOM 준비된 뒤 실행)
+if(typeof document!=='undefined') document.getElementById('tocEditBox')?.addEventListener('toggle',e=>{ if(e.target?.open) _tocVS?.refresh?.(); });
 function tocScrollToIndex(i){
   if(!_tocVS||i==null||!S.tocItems[i]) return;
+  openTocEditor();
   if(!_tocVS.isVisibleIdx(i)){
     // 검색 필터에 가려진 항목이면 필터 해제 후 이동
     _tocFilterQ='';

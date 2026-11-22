@@ -94,26 +94,6 @@
       <button class="btn-reset" data-action="resetConvertCover">✕ 표지 이미지 초기화</button>
       <button class="btn-reset danger" data-action="resetConvertAll">전체 초기화</button>
     </div>
-    <div class="u-h-12"></div>
-    <div class="cover-wrap">
-      <div class="cover-thumb" id="coverThumb" title="클릭해서 표지 변경">
-        <span class="cover-thumb-empty"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>표지</span></span>
-      </div>
-      <div class="cover-right">
-        <div class="cover-label">표지 <span class="txt-meta-sm">· 없으면 제목으로 자동 생성</span></div>
-        <div class="dz dz-compact" id="coverDz">
-          <span class="txt-label">이미지 선택 또는 끌어놓기</span>
-          <span class="txt-meta-sm">JPG · PNG · WebP</span>
-        </div>
-        <div id="coverName" class="txt-green-sm"></div>
-        <input type="file" id="coverIn" accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.avif" hidden>
-        <div class="cover-url-row">
-          <button class="btn-search" data-action="openCoverModal" data-mode="convert" title="네이버·리디·카카오페이지·노벨피아에서 동시 검색">온라인 검색</button>
-          <input class="cover-url-inp" id="coverUrlInp" placeholder="또는 이미지 URL" aria-label="표지 이미지 URL" data-input-action="previewCoverUrlConvert">
-          <button class="btn-search" data-action="applyCoverUrl" data-inp="coverUrlInp" data-thumb="coverThumb" data-name="coverName" data-mode="convert">적용</button>
-        </div>
-      </div>
-    </div>
   </div>
 </div>
 <div class="sec">
@@ -139,6 +119,28 @@
     <!-- ② 장/화 분할 규칙 블록 (#patSection: 파일 로드 전 흐리게 표시 — Progressive Disclosure) -->
     <div class="meta-block is-idle" id="patSection"><!-- Phase 31: 첫 화면(스크립트 실행 전)부터 비활성 상태 — 파일 로드 시 setPatIdle(false) -->
       <div class="meta-block-title">장/화 분할 규칙</div>
+    <!-- ③ 실시간 피드백 피드 -->
+    <!-- ★ Phase 33: 파일 전부터 자리를 잡아 둠(빈 안내) — 파일을 넣을 때 이 상자가 새로 생기며 아래를 크게 미는 레이아웃 이동 방지 -->
+    <div class="regex-feed" id="regexFeed">
+      <div class="regex-feed-hdr">
+        <div class="regex-feed-title">챕터 감지 결과</div>
+        <span class="detect-badge zero" id="detectBadge">감지 전</span>
+      </div>
+      <div class="regex-feed-list" id="regexFeedList" tabindex="0" role="region" aria-label="챕터 감지 결과 목록">
+        <div class="regex-feed-empty">
+          <div class="regex-feed-empty-icon"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-file"/></svg></div>
+          파일을 넣으면 챕터 감지 결과가 여기에 표시돼요
+        </div>
+      </div>
+      <div class="regex-feed-footer">
+        <span class="regex-feed-footer-stat" id="regexFeedStat"></span>
+        <button class="btn btn-ghost btn-sm u-fs-xs u-pad-btn-xxs" data-action="previewToc">목차 패널에서 전체 보기</button>
+      </div>
+    </div>
+    <!-- ★ Phase 33: 자동 감지가 기본 경로 — 정규식 입력·간격 분할·패턴 직접 지정은 접어 둠
+         (감지 실패 시 parser.js가 #patRuleBox·#patAdvanced를 함께 펼침) -->
+    <details class="adv-box" id="patRuleBox">
+      <summary>분할 규칙 바꾸기 <span class="txt-meta-sm">정규식 · 간격 분할 · 패턴 직접 지정</span></summary>
     <div class="row">
       <span class="lbl">챕터 정규식</span>
       <div class="pat-input-wrap">
@@ -194,24 +196,7 @@
     </div>
     <div class="hint">혼합 패턴 예시: <code>^(소설명 \d+|\d+화|\d+$)</code> · <code>[ 파일명.txt ]</code> 형식: <code>^\[\s*.+\.txt\s*\]\s*$</code> · 정규식 문법은 목차 패널의 <strong>정규식 수정</strong> 탭 참고</div>
     </details>
-
-    <!-- ③ 실시간 피드백 피드 -->
-    <div class="regex-feed" id="regexFeed" hidden>
-      <div class="regex-feed-hdr">
-        <div class="regex-feed-title">챕터 감지 결과</div>
-        <span class="detect-badge zero" id="detectBadge">감지 전</span>
-      </div>
-      <div class="regex-feed-list" id="regexFeedList" tabindex="0" role="region" aria-label="챕터 감지 결과 목록">
-        <div class="regex-feed-empty">
-          <div class="regex-feed-empty-icon"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-file"/></svg></div>
-          목차 확인 후 표시됩니다
-        </div>
-      </div>
-      <div class="regex-feed-footer">
-        <span class="regex-feed-footer-stat" id="regexFeedStat"></span>
-        <button class="btn btn-ghost btn-sm u-fs-xs u-pad-btn-xxs" data-action="previewToc">목차 패널에서 전체 보기</button>
-      </div>
-    </div>
+    </details>
     </div><!-- /장화 분할 규칙 블록 -->
 
     <!-- ★ 목차 편집 상태 배너 -->
@@ -220,6 +205,9 @@
       <span id="tocEditBannerText">목차 편집됨</span>
       <span class="u-ml-auto u-fs-xs u-op-70">편집 내용이 EPUB에 반영돼요</span>
     </div>
+    <!-- ★ Phase 33: 목차 편집 패널은 접어 둠 — '목차 확인'·'전체 보기' 클릭 또는 감지 실패 시 ui-state openTocEditor()가 펼침 -->
+    <details class="adv-box toc-edit-box" id="tocEditBox">
+      <summary>목차 편집 · 검수 <span class="txt-meta-sm">제목 수정 · 병합 · 누락 확인 · 원본 대조</span><span id="tocReviewBadge" class="toc-review-badge" hidden></span></summary>
     <div class="toc-panel" id="tocPanel">
       <div class="toc-tabs">
         <button class="ttab on" data-action="tocTab" data-idx="0">감지된 목차</button>
@@ -271,6 +259,33 @@
         </div>
       </div>
     </div>
+    </details>
+  </div>
+</div>
+<!-- ★ Phase 33: 표지·글꼴·미리보기 = '결과물이 어떻게 보이나' 묶음 — 데스크톱(1100px 이상)에선 오른쪽 고정 열,
+     모바일에선 장/화 아래 (표지는 없어도 제목으로 자동 생성되므로 기본 경로 뒤) -->
+<div class="cv-side" id="convertSide">
+<div class="sec">
+  <div class="sec-hdr"><span class="sec-title">표지</span><span class="txt-meta-sm">없으면 제목으로 자동 생성</span><div class="sec-line"></div></div>
+  <div class="card">
+    <div class="cover-wrap">
+      <div class="cover-thumb" id="coverThumb" title="클릭해서 표지 변경">
+        <span class="cover-thumb-empty"><svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span>표지</span></span>
+      </div>
+      <div class="cover-right">
+        <div class="dz dz-compact" id="coverDz">
+          <span class="txt-label">이미지 선택 또는 끌어놓기</span>
+          <span class="txt-meta-sm">JPG · PNG · WebP</span>
+        </div>
+        <div id="coverName" class="txt-green-sm"></div>
+        <input type="file" id="coverIn" accept=".jpg,.jpeg,.png,.webp,.bmp,.tiff,.tif,.avif" hidden>
+        <div class="cover-url-row">
+          <button class="btn-search" data-action="openCoverModal" data-mode="convert" title="네이버·리디·카카오페이지·노벨피아에서 동시 검색">온라인 검색</button>
+          <input class="cover-url-inp" id="coverUrlInp" placeholder="또는 이미지 URL" aria-label="표지 이미지 URL" data-input-action="previewCoverUrlConvert">
+          <button class="btn-search" data-action="applyCoverUrl" data-inp="coverUrlInp" data-thumb="coverThumb" data-name="coverName" data-mode="convert">적용</button>
+        </div>
+      </div>
+    </div>
   </div>
 </div>
 <div class="sec">
@@ -307,8 +322,10 @@
     </div>
   </div>
 </div>
-<div class="sec">
-  <div class="sec-hdr"><span class="sec-title">삽화 설정</span><div class="sec-line"></div></div>
+</div><!-- /cv-side -->
+<!-- ★ Phase 33: 삽화는 선택 기능 — 섹션 머리가 접기 단추 -->
+<details class="sec sec-fold" id="illBox">
+  <summary class="sec-hdr"><span class="sec-title">삽화 설정</span><span class="txt-meta-sm">선택 · 16.jpg → 16화 앞</span><div class="sec-line"></div></summary>
   <div class="card">
     <div class="dz" id="illDz">
       <svg class="dz-icon" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -321,7 +338,7 @@
     <div id="manualIlls"></div>
     <button class="btn btn-ghost btn-sm" data-action="addManualIll">＋ 수동 삽화 추가</button>
   </div>
-</div>
+</details>
 <!-- ★ 진행 단계 스텝 인디케이터 -->
 <div class="prog-wrap" id="progWrap">
   <div class="prog-steps">
