@@ -45,7 +45,9 @@ const uniq = a => [...new Set(a)];
 function stripTokenBlocks(src){
   return src.replace(/(:root(?::not\([^)]*\))?|\[data-theme=dark\])\s*\{[^{}]*\}/g, '');
 }
-const cssUsage = stripTokenBlocks(cssNoComment);
+// ★ Phase 32 보정: 스킨 블록([data-skin=…]{--accent:…})처럼 :root 밖에서 토큰만 정의하는 선언도 '정의'로 제외
+//   (기준선의 '규칙 안 색상 리터럴 36종'에는 이런 토큰 정의가 섞여 있었음)
+const cssUsage = stripTokenBlocks(cssNoComment).replace(/(?<=[;{\s])--[\w-]+\s*:[^;}]*;?/g, '');
 
 function usageValues(prop){
   const re = new RegExp('(?:^|[;{\\s])' + prop + '\\s*:\\s*([^;}]+)', 'g');
@@ -58,13 +60,16 @@ function usageValues(prop){
 const fontSizes    = usageValues('font-size');
 const fontSizeLit  = fontSizes.filter(v => !/^var\(/.test(v));
 const radii        = usageValues('border-radius');
-const radiusLit    = radii.filter(v => !/^var\(/.test(v) && v !== 'inherit' && v !== '0');
+// ★ Phase 32: 토큰만으로 조합한 값(예: 0 var(--radius-xs) var(--radius-xs) 0, calc(var(--radius-sm)*3))은 리터럴이 아님
+//   — var(...)를 지운 뒤 남은 부분에 단위 있는 숫자(px·%·em…)나 색이 있을 때만 리터럴
+const hasRawDim = v => /\d*\.?\d+(px|%|em|rem|vh|vw)\b|#[0-9a-f]{3,8}\b|rgba?\(/i.test(v.replace(/var\(--[\w-]+\)/g, ''));
+const radiusLit    = radii.filter(v => v !== 'inherit' && v !== '0' && hasRawDim(v));
 const shadows      = usageValues('box-shadow');
-const shadowLit    = shadows.filter(v => !/^var\([^)]*\)$/.test(v) && v !== 'none');
+const shadowLit    = shadows.filter(v => v !== 'none' && hasRawDim(v));
 
 // 색상 리터럴: 토큰 블록 밖(사용처)에서 직접 쓴 #hex / rgb() / rgba() / hsl()
 const colorLitRe = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)|hsla?\([^)]*\)/g;
-const colorLitUsage = cssUsage.match(colorLitRe) || [];
+const colorLitUsage = (cssUsage.replace(/@keyframes[^{]*\{(?:[^{}]*\{[^{}]*\})*[^{}]*\}/g, '').match(colorLitRe)) || [];
 const colorLitAll   = cssNoComment.match(colorLitRe) || [];
 
 const keyframes     = (cssNoComment.match(/@keyframes\s+([\w-]+)/g) || []).map(s => s.replace(/@keyframes\s+/, ''));
@@ -79,14 +84,30 @@ const inlineHandlerHtml = (html.match(/\son[a-z]+\s*=\s*["']/g) || []).length;
 // 이모지: Extended_Pictographic (숫자·# 등 키캡 기본 문자는 제외됨)
 const htmlText = html.replace(/<script[\s\S]*?<\/script>/g, '').replace(/<style[\s\S]*?<\/style>/g, '');
 const emojiHtml = (htmlText.match(/\p{Extended_Pictographic}/gu) || []).length;
+// ★ Phase 32: 화면에 보이는 이모지만 — 주석과 챕터 감지 정규식 데이터(◆●▶★♠ 같은 기호 문자 클래스)는 제외
+const htmlVisible = htmlText.replace(/<!--[\s\S]*?-->/g, '').replace(/<option[^>]*>[^<]*★[^<]*<\/option>/g, m => m.replace(/★/g, ''));
+const emojiHtmlUi = (htmlVisible.match(/\p{Extended_Pictographic}/gu) || []).length;
+function uiEmojiCount(src){
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter(l => !/^\s*\/\//.test(l) && !/console\.\w+\(/.test(l)).map(l => l.replace(/\s\/\/ .*$/, '')).join('\n')
+    .replace(/\^\[[^\]\n]*\]/g, '')          // 정규식 '^[◆●…]' 문자 클래스
+    .replace(/\[[^\]\n]*\]\$/g, '')           // '[…★☆]$' 문장 끝 문자 클래스
+    .replace(/val:'[^'\n]*'/g, '')             // 프리셋 정규식 문자열
+    .replace(/=\s*\/(?![\/*])[^\n]*\/[gimsuy]*\s*;/g, '=RX;');   // const _RX_… = /…/; 정규식 리터럴
+  return (code.replace(/⌘/g, '').match(/\p{Extended_Pictographic}/gu) || []).length;   // ⌘는 macOS 키 이름 표기
+}
 
 // ── 3. JS ──
 const jsStats = {};
 for(const [f, src] of Object.entries(js)){
   jsStats[f] = {
     markupStyleAttr: (src.match(/<[a-z][^<>]*\sstyle\s*=\s*\\?["']/gi) || []).length,
-    styleAssign:     (src.match(/\.style\.[a-zA-Z]+\s*=(?!=)/g) || []).length + (src.match(/\.style\.cssText\s*=/g) || []).length,
+    // ★ Phase 32 보정: 이전 식은 cssText를 두 번 셌음 (.style.<속성> 패턴에 이미 포함)
+    styleAssign:     (src.match(/\.style\.[a-zA-Z]+\s*=(?!=)/g) || []).length,
+    styleCssText:    (src.match(/\.style\.cssText\s*=/g) || []).length,
     emoji:           (src.match(/\p{Extended_Pictographic}/gu) || []).length,
+    emojiUi:         uiEmojiCount(src),
   };
 }
 
@@ -183,6 +204,7 @@ const result = {
     inlineStyleAttrs: inlineStyleHtml,
     inlineEventHandlers: inlineHandlerHtml,
     emojiChars: emojiHtml,
+    emojiCharsUi: emojiHtmlUi,
     classesUsed: htmlClasses.length,
     undefinedClasses,
   },
@@ -211,7 +233,9 @@ for(const a of c.infiniteAnimations) lines.push(`      ∞ ${a}`);
 lines.push(`  backdrop-filter 규칙 ${c.backdropFilterRules}개`);
 lines.push(`  @media: ${c.mediaQueries.join(' · ')}`);
 lines.push('── index.html ──');
-lines.push(`  인라인 style ${h.inlineStyleAttrs} · 인라인 on* 핸들러 ${h.inlineEventHandlers} · 이모지 ${h.emojiChars}자 · 클래스 ${h.classesUsed}종`);
+lines.push(`  인라인 style ${h.inlineStyleAttrs} · 인라인 on* 핸들러 ${h.inlineEventHandlers} · 이모지 ${h.emojiChars}자 (화면 ${h.emojiCharsUi}자) · 클래스 ${h.classesUsed}종`);
+const uiJs = Object.values(result.js).reduce((n, s) => n + s.emojiUi, 0);
+lines.push(`  화면 이모지 합계 (주석·감지 정규식 제외): HTML ${h.emojiCharsUi} + JS ${uiJs} = ${h.emojiCharsUi + uiJs}자`);
 lines.push(`  style.css에 정의 없는 클래스 ${h.undefinedClasses.length}종: ${h.undefinedClasses.join(' ')}`);
 lines.push('── JS ──');
 for(const [f, s] of Object.entries(result.js)) lines.push(`  ${f.padEnd(16)} 마크업 style= ${s.markupStyleAttr} · .style 직접 대입 ${s.styleAssign} · 이모지 ${s.emoji}`);

@@ -143,27 +143,15 @@ window.addEventListener('error', function(e) {
 
     const banner = document.createElement('div');
     banner.id = '_swUpdateBanner';
-    banner.style.cssText = [
-      'position:fixed', 'bottom:80px', 'left:50%', 'transform:translateX(-50%)',
-      'background:var(--panel)', 'border:1.5px solid var(--accent)',
-      'border-radius:var(--radius-sm)', 'padding:10px 16px',
-      'box-shadow:var(--shadow-lg)',
-      'z-index:99997', 'display:flex', 'align-items:center', 'gap:10px',
-      'font-size:var(--fs-base)', 'color:var(--text)', 'white-space:nowrap',
-      'animation:fadeUp .3s ease',
-    ].join(';');
+    banner.classList.add('js-main-banner');
     // textContent 사용 — XSS 방어
     const msgSpan = document.createElement('span');
-    msgSpan.textContent = '🔄 새 버전이 준비됐어요.';
+    msgSpan.textContent = '새 버전이 준비됐어요.';
     banner.appendChild(msgSpan);
 
     const updateBtn = document.createElement('button');
     updateBtn.textContent = '지금 업데이트';
-    updateBtn.style.cssText = [
-      'background:var(--accent)', 'color:var(--on-accent)', 'border:none',
-      'border-radius:var(--radius-xs)', 'padding:4px 10px', 'cursor:pointer',
-      'font-size:var(--fs-sm)', 'font-weight:600',
-    ].join(';');
+    updateBtn.classList.add('js-main-updateBtn');
     updateBtn.addEventListener('click', function () {
       // ★ Phase 9: SKIP_WAITING은 '대기 중인 새 SW'에 보내야 한다.
       //   이전에는 이미 활성인 controller에 보내 아무 일도 일어나지 않았음.
@@ -177,10 +165,7 @@ window.addEventListener('error', function(e) {
 
     const closeBtn = document.createElement('button');
     closeBtn.textContent = '✕';
-    closeBtn.style.cssText = [
-      'background:none', 'border:none', 'cursor:pointer',
-      'color:var(--text2)', 'font-size:var(--fs-base)', 'padding:0 2px',
-    ].join(';');
+    closeBtn.classList.add('js-main-closeBtn');
     closeBtn.addEventListener('click', function () { banner.remove(); });
 
     banner.appendChild(updateBtn);
@@ -270,11 +255,7 @@ document.addEventListener('DOMContentLoaded', function _mainInit() {
         // 그래도 없으면 로드 실패 — 사용자에게 안내
         console.error('[main.js] core.js 로드 실패. 스크립트 순서를 확인하세요.');
         const errBanner = document.createElement('div');
-        errBanner.style.cssText = [
-          'position:fixed','top:0','left:0','right:0',
-          'background:var(--red)','color:var(--on-accent)','padding:10px 16px',
-          'font-size:var(--fs-base)','z-index:99999','text-align:center',
-        ].join(';');
+        errBanner.classList.add('js-main-errBanner');
         errBanner.textContent = '초기화 오류: 핵심 모듈 로드 실패. 페이지를 새로고침해 주세요.';
         document.body?.appendChild(errBanner);
         return;
@@ -400,8 +381,8 @@ function _runMainInit() {
     console.info(
       '%c[NovelEPUB] 초기화 완료%c\n' +
       '  window._autoSplitActive: ' + window._autoSplitActive + '\n' +
-      '  JSZip: ' + (typeof JSZip !== 'undefined' ? 'OK' : '❌ 미로드') + '\n' +
-      '  Toast: ' + (typeof Toast !== 'undefined' ? 'OK' : '❌ 미로드') + '\n' +
+      '  JSZip: ' + (typeof JSZip !== 'undefined' ? 'OK' : '미로드') + '\n' +
+      '  Toast: ' + (typeof Toast !== 'undefined' ? 'OK' : '미로드') + '\n' +
       '  ServiceWorker: ' + ('serviceWorker' in navigator ? 'OK' : '미지원'),
       'color:#4a90d9;font-weight:bold',
       'color:inherit'

@@ -363,7 +363,7 @@ function openCoverSearchModal(mode='convert') {
     if(grid){
       grid.replaceChildren();
       const hint = document.createElement('div');
-      hint.style.cssText = 'text-align:center;padding:40px 0;color:var(--text2);font-size:var(--fs-base)';
+      hint.classList.add('js-coversearch-hint');
       hint.innerHTML = '소설 제목을 입력하고 검색하면<br>네이버·리디·카카오페이지·노벨피아·구글에서 동시 검색해요';
       grid.appendChild(hint);
     }
@@ -426,7 +426,7 @@ function runCoverSearch() {
           grid.replaceChildren();
           const emptyEl = document.createElement('div');
           emptyEl.className = 'cover-search-empty';
-          emptyEl.innerHTML = '🔍 검색 결과가 없습니다.<br>다른 단어로 다시 시도해 보세요.';
+          emptyEl.innerHTML = '검색 결과가 없습니다.<br>다른 단어로 다시 시도해 보세요.';
           grid.appendChild(emptyEl);
         }
         return;
@@ -439,7 +439,7 @@ function runCoverSearch() {
         grid.replaceChildren();
         const errEl = document.createElement('div');
         errEl.className = 'cover-search-empty';
-        errEl.innerHTML = `⚠️ 오류가 발생했습니다.<br><span class="u-fs-xs u-text3">${escHtml(err.message)}</span>`;
+        errEl.innerHTML = `오류가 발생했습니다.<br><span class="u-fs-xs u-text3">${escHtml(err.message)}</span>`;
         grid.appendChild(errEl);
       }
     });
@@ -717,22 +717,14 @@ function renderCoverSearchResults(items) {
     const card = document.createElement('div');
     card.className = 'cover-search-card';
     // ★ 카드 레이아웃 고정: flex column + 너비 고정으로 격자 붕괴 방지
-    card.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;cursor:pointer;padding:8px;border-radius:var(--radius-sm);border:1.5px solid var(--border);background:var(--bg2);transition:border-color .15s';
+    card.classList.add('js-coversearch-card');
 
     // ★ 이미지 크기 고정: 표지 표준 1:1.43 배율 (120×171px)
     // object-fit:cover → 종횡비 무관하게 잘라맞춤, 크기 불일치로 인한 UI 붕괴 방지
     const img = document.createElement('img');
     img.alt   = item.title;
     img.loading = 'lazy';
-    img.style.cssText = [
-      'width:120px',
-      'height:171px',
-      'object-fit:cover',
-      'border-radius:var(--radius-xs)',
-      'background-color:var(--border)',
-      'display:block',
-      'flex-shrink:0',
-    ].join(';');
+    img.classList.add('js-coversearch-img');
     img.src = thumbUrl;
     img.onerror = function(){
       if(!this.dataset.fallback){
@@ -742,32 +734,24 @@ function renderCoverSearchResults(items) {
     };
 
     const info = document.createElement('div');
-    info.style.cssText = 'width:120px;text-align:center';
+    info.classList.add('js-coversearch-info');
 
     const titleDiv = document.createElement('div');
     titleDiv.className = 'cover-search-card-title';
-    titleDiv.style.cssText = 'font-size:var(--fs-xs);line-height:1.4;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-all';
+    titleDiv.classList.add('js-coversearch-titleDiv');
     titleDiv.textContent = item.title;  // textContent: XSS 방어
 
     info.appendChild(titleDiv);
     card.appendChild(img);
     card.appendChild(info);
 
-    // ★ hover 테두리 강조 (CSS 변수 사용)
-    card.addEventListener('mouseenter', () => { card.style.borderColor = 'var(--accent)'; });
-    card.addEventListener('mouseleave', () => {
-      if(!card.classList.contains('selected')) card.style.borderColor = 'var(--border)';
-    });
+    // ★ hover·선택 테두리 강조는 style.css(.js-coversearch-card:hover / .selected)가 담당 — Phase 32
 
     // ★ 클릭: thumbUrl(weserv) 전달 → _fetchImgBlob 1순위에서 즉시 성공
     card.addEventListener('click', () => {
       grid.querySelectorAll('.cover-search-card')
-          .forEach(c => {
-            c.classList.remove('selected');
-            c.style.borderColor = 'var(--border)';
-          });
+          .forEach(c => c.classList.remove('selected'));
       card.classList.add('selected');
-      card.style.borderColor = 'var(--accent)';
       selectSearchedCover(thumbUrl);
     });
 
@@ -820,7 +804,7 @@ async function selectSearchedCover(imgUrl) {
         }
         document.getElementById('coverDz')?.classList.add('ok');
         const coverName = document.getElementById('coverName');
-        if(coverName) coverName.textContent = '✅ 검색 표지 적용';
+        if(coverName) coverName.textContent = '검색 표지 적용';
       }
     } else {
       // ── batch 탭 경로 ──
@@ -845,7 +829,7 @@ async function selectSearchedCover(imgUrl) {
     console.error('[selectSearchedCover]', err);
     // ★ 3단계: RecoverableError 분기 — 전체 스크립트 프리징 없이 Toast로 안전 우회
     if(typeof RecoverableError !== 'undefined' && err instanceof RecoverableError){
-      Toast.warn('⚠️ 표지 처리 중 복구 가능한 오류: ' + err.message);
+      Toast.warn('표지 처리 중 복구 가능한 오류: ' + err.message);
     } else {
       Toast.error(err.message || '표지 수집 중 예외 가드가 작동했습니다.');
     }

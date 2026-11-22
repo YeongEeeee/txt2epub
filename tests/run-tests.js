@@ -27,6 +27,7 @@
  *  20. Phase 29: 선택 정규식 3단계 파이프라인(후보 추출·오탐 필터·문맥/번호 연속성)·핵심 5종 프리셋·엄격 검증 토글
  *  21. Phase 30 (UI 정제 1단계): 미정의 클래스 0 · 단축키 단일 출처 · 토큰 대비 4.5:1 · 라벨·이름·랜드마크·표지 alt
  *  22. Phase 31 (UI 정제 2단계 — 성능): 스크립트 defer·순서 · 테마 선적용(theme-boot.js) · 목차 확인 화면 선반영 · 감지 Worker 기준 · 첫 화면 비활성 상태
+ *  23. Phase 32 (UI 정제 3단계 — 디자인 축소): CSS 리터럴 0 · 무한 애니메이션 1 · 화면 이모지 0 → SVG 아이콘 · JS 인라인 스타일 → 클래스·hidden
  */
 'use strict';
 const fs   = require('fs');
@@ -1432,7 +1433,7 @@ async function main(){
       /img\.src=dataUrl; img\.alt='표지 미리보기';/.test(conv),
       /img\.src=objUrl; img\.alt='표지 미리보기'; img\.dataset\.blobUrl=objUrl;/.test(conv),
       /<img id="bthumb_'\+i\+'" src="" alt="표지">/.test(conv),
-      /img\.alt='표지';img\.style\.cssText/.test(conv),
+      /img\.alt='표지';img\.classList\.add\('js-convert-img'\)/.test(conv),   // Phase 32: cssText → 클래스
       /img\.alt = '표지 미리보기';\n\s*img\.dataset\.blobUrl = objUrl;/.test(cs),
     ];
     check('[정제1] 표지 썸네일 img 7곳 alt', altSites.every(Boolean), JSON.stringify(altSites));
@@ -1494,6 +1495,54 @@ async function main(){
       && /data-action="previewToc" disabled>목차 확인<\/button><button class="btn btn-ghost btn-sm" data-action="autoSplitByInterval" disabled>/.test(html));
   }
 
+
+  // ── 23. Phase 32 (UI 정제 3단계 — 디자인 축소) ──
+  {
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const html = read('index.html'), css = read('style.css'), core = read('core.js'), ui = read('ui-state.js'), parser = read('parser.js');
+    const jsFiles = ['parser.js', 'epub-gen.js', 'core.js', 'settings.js', 'cover-search.js', 'convert.js', 'edit.js', 'ui-state.js', 'main.js'];
+    const allJs = jsFiles.map(read).join('\n');
+    // 23-1. 정적 지표 — tests/measure-design.js와 같은 계산 (기준선 dfd847b: 색 22회·반경 4종·그림자 33종·무한 11·화면 이모지 218·cssText 73)
+    let m = null;
+    try { m = JSON.parse(require('child_process').execFileSync(process.execPath, [path.join(ROOT, 'tests/measure-design.js'), '--json'], { encoding: 'utf8' })); } catch (e) { m = null; }
+    const js = m ? Object.values(m.js) : [];
+    const sum = k => js.reduce((a, v) => a + (v[k] || 0), 0);
+    check('[정제3] CSS 규칙 안 색상·반경·그림자 리터럴 0 (토큰만)', !!m && m.css.colorLiteralOccurrencesInRules === 0 && m.css.uniqueRadiusLiterals.length === 0 && m.css.uniqueShadowLiterals === 0,
+      m ? `색 ${m.css.colorLiteralOccurrencesInRules} · 반경 ${m.css.uniqueRadiusLiterals.join(',')} · 그림자 ${m.css.uniqueShadowLiterals}` : '측정 실패');
+    check('[정제3] 무한 반복 애니메이션 1개 이하 (진행 막대 광택만)', !!m && m.css.infiniteAnimationDecls <= 1, m ? m.css.infiniteAnimations.join(' / ') : '');
+    check('[정제3] 화면에 보이는 이모지 0 (HTML·JS)', !!m && m.html.emojiCharsUi === 0 && sum('emojiUi') === 0, m ? `HTML ${m.html.emojiCharsUi} · JS ${sum('emojiUi')}` : '');
+    check('[정제3] JS 인라인 스타일 대입 80곳 이하 · cssText 10곳 이하 (동적 값만)', !!m && sum('styleAssign') <= 80 && sum('styleCssText') <= 10, m ? `${sum('styleAssign')} · cssText ${sum('styleCssText')}` : '');
+    // 23-2. 아이콘: 스프라이트 정의 = icon() 이름표 = 실제 사용처
+    const symbols = new Set([...html.matchAll(/<symbol id="i-([\w-]+)"/g)].map(x => x[1]));
+    const names = new Set(((core.match(/const ICON_NAMES=new Set\(\[([^\]]*)\]\)/) || ['', ''])[1].match(/'([\w-]+)'/g) || []).map(x => x.slice(1, -1)));
+    check('[정제3] SVG 스프라이트 1개 (body 첫 자식, 숨김)', /<body[^>]*>\s*(?:<!--[^]*?-->\s*)?<svg xmlns="http:\/\/www\.w3\.org\/2000\/svg" class="ico-sprite" hidden aria-hidden="true">/.test(html) && (html.match(/class="ico-sprite"/g) || []).length === 1);
+    check('[정제3] icon() 이름표 = 스프라이트 심볼', names.size >= 10 && [...names].every(n => symbols.has(n)) && [...symbols].every(n => names.has(n)), [...names].filter(n => !symbols.has(n)).join(','));
+    const usedHtml = [...html.matchAll(/<use href="#i-([\w-]+)"/g)].map(x => x[1]);
+    const usedJs = [...allJs.matchAll(/\bicon\('([\w-]+)'/g)].map(x => x[1]);
+    check('[정제3] 사용 중인 아이콘이 모두 정의됨', usedHtml.length > 0 && usedJs.length > 0 && [...usedHtml, ...usedJs].every(n => symbols.has(n)), [...usedHtml, ...usedJs].filter(n => !symbols.has(n)).join(','));
+    // icon() 동작: 장식용(aria-hidden) · 모르는 이름은 빈 문자열
+    const iconSrc = (core.match(/const ICON_NAMES=[^\n]*\nfunction icon\([\s\S]*?\n\}/) || [''])[0];
+    const ictx = {};
+    if (iconSrc) vm.runInNewContext(iconSrc + '\nthis.icon=icon;', ictx);
+    check('[정제3] icon(): aria-hidden SVG · 모르는 이름은 빈 문자열', !!ictx.icon && /^<svg class="ico" aria-hidden="true" focusable="false"><use href="#i-alert"\/><\/svg>$/.test(ictx.icon('alert')) && ictx.icon('nope') === '' && /class="ico big"/.test(ictx.icon('book', 'big')));
+    check('[정제3] Toast 종류별 아이콘이 모두 정의됨', /const icons = \{ info:'info', success:'check-circle', error:'x-circle', warn:'alert' \}/.test(core) && ['info', 'check-circle', 'x-circle', 'alert'].every(n => symbols.has(n)));
+    check('[정제3] 테마 버튼 아이콘은 _setThemeIcon 한 곳에서', /function _setThemeIcon\(btn, ?theme\)/.test(ui) && (ui.match(/_setThemeIcon\(/g) || []).length >= 4 && !/ibtn-icon[^\n]*textContent\s*=/.test(allJs));
+    // 23-3. JS 인라인 스타일 → 클래스: 추가하는 js- 클래스는 CSS에 정의, 정의한 js- 클래스는 사용
+    const addedJs = new Set([...allJs.matchAll(/classList\.add\('(js-[\w-]+)'\)/g)].map(x => x[1]));
+    const definedJs = new Set([...css.matchAll(/\.(js-[\w-]+)\.\1\{|#[\w-]+\.(js-[\w-]+)\{/g)].map(x => x[1] || x[2]));
+    check('[정제3] JS가 붙이는 js- 클래스 = CSS 정의', addedJs.size >= 50 && [...addedJs].every(c => definedJs.has(c)) && [...definedJs].every(c => addedJs.has(c)),
+      [...addedJs].filter(c => !definedJs.has(c)).concat([...definedJs].filter(c => !addedJs.has(c)).map(c => '미사용 ' + c)).slice(0, 6).join(','));
+    check('[정제3] 표시 전환은 setShown(hidden) — style.display 대입 0', !/\.style\.display\s*=(?!=)/.test(allJs));
+    check('[정제3] 처음 숨김인 영역은 마크업 hidden + 보일 때 display는 CSS', /<div id="progressSparkline" class="progress-sparkline" hidden>/.test(html) && /<div id="convertReport" role="status" aria-live="polite" hidden>/.test(html)
+      && /#convertReport\{display:block;/.test(css) && /\.progress-sparkline\{display:block;/.test(css));
+    check('[정제3] 상태 스타일은 클래스·속성으로 (패턴 검사·선택 모드·간격 분할·hover)',
+      /#pattern\[data-check="ok"\]\{border-color:var\(--green\)\}/.test(css) && /#toc-select-mode-btn\.is-on\{/.test(css) && /\.btn\[data-split="patternFound"\]:not\(:disabled\)\{color:var\(--text3\)\}/.test(css)
+      && !/addEventListener\('mouse(enter|leave)',\s*\(\)\s*=>\s*\{\s*\w+\.style\./.test(allJs));
+    // 23-4. 흐림(opacity)으로 글자를 낮추면 대비 4.5:1 미달 — 평면 배경에서 axe가 잡아낸 2곳
+    const ssb = (parser.match(/function _syncSplitBtn\(state\)\{[\s\S]*?\n\}/) || [''])[0];
+    check('[정제3] 간격 분할 버튼: 인라인 opacity 없음', ssb.length > 0 && !/style\.opacity/.test(ssb) && /btn\.dataset\.split=/.test(ssb));
+    check('[정제3] 요약 칩 OFF: opacity 대신 text3', /\.opt-badge\.off\{color:var\(--text3\)\}/.test(css) && !/\.opt-badge\.off\{[^}]*opacity/.test(css));
+  }
   if(UPDATE){
     fs.writeFileSync(GOLDEN, JSON.stringify(golden, null, 2) + '\n', 'utf8');
     console.log(`golden.json 갱신: ${fixtures.length}개 픽스처`);

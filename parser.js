@@ -1908,7 +1908,7 @@ function renderTocReview(){
   det.open=_tocReviewOpen&&total>0;
   det.addEventListener('toggle',()=>{ _tocReviewOpen=det.open; });
   const sum=document.createElement('summary');
-  sum.textContent=total?('🔎 변환 전 검수 — 확인할 항목 '+total+'건'):'✅ 변환 전 검수 — 누락·중복·짧은 챕터 없음';
+  sum.textContent=total?('변환 전 검수 — 확인할 항목 '+total+'건'):'변환 전 검수 — 누락·중복·짧은 챕터 없음';
   det.appendChild(sum);
   const title=i=>String(items[i]?.title||'').slice(0,40);
   const group=(label, entries)=>{
@@ -1973,7 +1973,7 @@ function splitChapters(raw, customPat, opts={}){
   const lines=raw.split('\n');
   raw=null; // ★ 메모리 정리
   const det=detectToc(lines,{customPat, range:opts.range||null, fileBreaks:opts.fileBreaks||null, mergeParts:!!opts.mergeParts, strictContext:opts.strictContext!==false});
-  if(customPat&&det.stats.mode!=='custom'&&typeof Toast!=='undefined') Toast.warn('⚠️ 정규식 오류 — 자동 감지로 진행해요');
+  if(customPat&&det.stats.mode!=='custom'&&typeof Toast!=='undefined') Toast.warn('정규식 오류 — 자동 감지로 진행해요');
   onProgress&&onProgress(70,'② 챕터 조립 중... ('+det.items.length+'개)');
   const chapters=det.items.length?assembleChapters(lines, det.items, det.dropLines):fallbackPageSplit(lines);
   onProgress&&onProgress(92,'② 챕터 분리 완료');
@@ -1990,7 +1990,7 @@ function _warnIndexJump(chapters){
   const jump=_checkIndexJump(chapters);
   if(jump.jumps.length>0&&typeof Toast!=='undefined'){
     const warn=jump.jumps.slice(0,3).map(j=>`${j.from}→${j.to}(+${j.gap})`).join(', ');
-    Toast.warn(`⚠️ 화수 도약 감지: ${warn} — 중간에 누락된 화가 있을 수 있어요.`,5000);
+    Toast.warn(`화수 도약 감지: ${warn} — 중간에 누락된 화가 있을 수 있어요.`,5000);
   }
 }
 
@@ -2487,7 +2487,7 @@ async function _previewTocRun(){
     }
     // ★ 간격 분할 활성 상태 — 재분할 버튼 표시
     _syncSplitBtn('active');
-    Toast.info('⚡ 간격 분할 모드 활성 — 패턴 감지를 건너뜁니다.', 2500);
+    Toast.info('간격 분할 모드 활성 — 패턴 감지를 건너뜁니다.', 2500);
     return; // ← 여기서 완전 종료, 아래 패턴 분석 코드 실행 안 됨
   }
 
@@ -2502,11 +2502,11 @@ async function _previewTocRun(){
         // #10: 입력 칸 흔들기 애니메이션
         const patEl=document.getElementById('pattern');
         if(patEl){
-          patEl.style.animation='shakeInput .4s ease';
-          patEl.style.boxShadow='0 0 0 2px var(--accent)';
-          setTimeout(()=>{ patEl.style.animation=''; patEl.style.boxShadow=''; },500);
+          patEl.classList.remove('is-shake'); void patEl.offsetWidth;   // 연속 오류에도 다시 흔들리도록 재시작
+          patEl.classList.add('is-shake');
+          setTimeout(()=>patEl.classList.remove('is-shake'),500);
         }
-        Toast.warn('⚠️ 정규식 오류: '+(error||'패턴 불가'));
+        Toast.warn('정규식 오류: '+(error||'패턴 불가'));
         return;
       }
     }
@@ -2542,7 +2542,7 @@ async function _previewTocRun(){
   if(!det||seq!==_previewTocSeq) return;
   text=null;
   _fullRawLines=lines;
-  if(pat&&det.stats.mode!=='custom') Toast.warn('⚠️ 정규식 오류 — 자동 감지 결과를 보여드려요');
+  if(pat&&det.stats.mode!=='custom') Toast.warn('정규식 오류 — 자동 감지 결과를 보여드려요');
   S._detectedPat=det.rx; S._detectedName=det.rx?det.name:'';
   _tocDropLines=det.dropLines;
   found=det.items.map(it=>({line:it.line, title:it.title, num:it.num, kind:it.kind, autoSplit:!!it.autoSplit}));
@@ -2616,7 +2616,7 @@ async function _previewTocRun(){
     const c=document.getElementById('tb0');
     c?.insertAdjacentHTML('beforeend',
       '<div class="info-box-blue">'+
-      '<div class="u-fs-sm u-fw-600 u-blue u-mb-6">ℹ️ 챕터 패턴을 감지하지 못했어요</div>'+
+      '<div class="u-fs-sm u-fw-600 u-blue u-mb-6">챕터 패턴을 감지하지 못했어요</div>'+
       '<div class="u-fs-xs u-text2 u-lh-17">'+
         '하지만 <b>텍스트 전체는 그대로 EPUB에 포함</b>돼요.<br>'+
         '목차 없이 변환하면 일정 줄 수 단위로 자동 페이지 분할해 저장해요.<br>'+
@@ -2645,7 +2645,7 @@ async function _previewTocRun(){
       if(_fullRawLines.length>2000){
         const btn=document.createElement('button');
         btn.className='btn btn-ghost btn-sm';
-        btn.style.cssText='margin:8px 0;width:100%;font-size:var(--fs-xs)';
+        btn.classList.add('js-parser-btn');
         btn.textContent=`▼ 나머지 ${(_fullRawLines.length-2000).toLocaleString()}줄 더 보기`;
         btn.onclick=()=>{
           pre.textContent=_fullRawLines.map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');
@@ -2705,8 +2705,8 @@ function _renderHybridSuggestBtn(foundCount){
   const btn=document.createElement('button');
   btn.id='hybrid-suggest-btn';
   btn.className='btn btn-blue btn-sm';
-  btn.style.cssText='font-size:var(--fs-xs);margin-top:6px;display:block';
-  btn.textContent='🔀 간격 분할로 보완하기';
+  btn.classList.add('js-parser-btn2');
+  btn.textContent='간격 분할로 보완하기';
   btn.title='감지 결과가 부족한 구간을 간격 분할로 자동 채웁니다 (하이브리드 모드)';
   btn.addEventListener('click', ()=>autoSplitByInterval(true));
   document.getElementById('tb0')?.insertAdjacentElement('beforebegin', btn);
@@ -2811,7 +2811,7 @@ async function renderTocSuggest(found){
   const autoChip=document.createElement('button');
   autoChip.type='button';
   autoChip.className='pat-chip toc-suggest-chip'+(curPat?'':' detected');
-  autoChip.textContent=(curPat?'':'✅ ')+'자동 감지 · 본편 '+mainCnt+'개'+devStr(mainCnt);
+  autoChip.textContent='자동 감지 · 본편 '+mainCnt+'개'+devStr(mainCnt);
   autoChip.title='여러 제목 형식을 함께 찾고 화 번호 흐름으로 걸러낸 결과';
   autoChip.addEventListener('click',()=>applyTocSuggestion(''));
   bar.appendChild(autoChip);
@@ -2821,7 +2821,7 @@ async function renderTocSuggest(found){
     const chip=document.createElement('button');
     chip.type='button';
     chip.className='pat-chip toc-suggest-chip'+(isApplied?' detected':'');
-    chip.textContent=(isApplied?'✅ ':'')+c.label+' · '+c.cnt+'개'+devStr(c.cnt);
+    chip.textContent=c.label+' · '+c.cnt+'개'+devStr(c.cnt);
     const sample=String(lines[c.first]||'').trim().slice(0,40);
     chip.title=(c.desc?c.desc+' — ':'')+'단일 패턴 · 연속성 '+Math.round(c.seqW*100)+'% · 첫 매칭 '+(c.first+1)+'행: '+sample;
     chip.addEventListener('click',()=>applyTocSuggestion(c.val));
@@ -2853,46 +2853,41 @@ function applyTocSuggestion(val){
 function _syncSplitBtn(state){
   const btn=document.querySelector('button[data-action="autoSplitByInterval"]');
   if(!btn) return;
+  // ★ Phase 32: 상태별 흐림·색을 인라인 style 대신 data-split 속성 + style.css 규칙으로 표현
+  //   (이전 opacity .55는 대비 2.7:1 — 흐림 대신 text3 색으로 낮춤)
+  btn.style?.removeProperty?.('opacity');
+  btn.style?.removeProperty?.('pointer-events');
+  btn.style?.removeProperty?.('color');
   switch(state){
     case 'nofile':
       btn.disabled=true;
-      btn.style.opacity='0.35';
-      btn.style.pointerEvents='none';
-      btn.style.color='';
+      btn.dataset.split='nofile';
       btn.textContent='간격 분할';
-      btn.title='TXT 파일을 먼저 추가해주세요';
+      btn.title='';
       break;
     case 'active':
       btn.disabled=false;
-      btn.style.opacity='0.85';
-      btn.style.pointerEvents='';
-      btn.style.color='';
+      btn.dataset.split='active';
       btn.textContent='재분할';
       btn.title='간격 분할 활성 — 클릭해서 재분할';
       break;
     case 'patternFound':
       // ★ disabled 절대 금지 — 패턴이 감지돼도 사용자는 간격 분할 선택 가능
       btn.disabled=false;
-      btn.style.opacity='0.55';
-      btn.style.pointerEvents='';
-      btn.style.color='';
+      btn.dataset.split='patternFound';
       btn.textContent='간격 분할';
       btn.title='패턴 감지 성공 — 원하면 간격 분할도 사용 가능합니다';
       break;
     case 'patternMissing':
       btn.disabled=false;
-      btn.style.opacity='1';
-      btn.style.pointerEvents='';
-      btn.style.color='var(--blue)';
+      btn.dataset.split='patternMissing';
       btn.textContent='간격 분할';
       btn.title='패턴 감지 실패 — 줄 간격으로 자동 분할';
       break;
     case 'reset':
     default:
       btn.disabled=false;
-      btn.style.opacity='1';
-      btn.style.pointerEvents='';
-      btn.style.color='';
+      btn.dataset.split='reset';
       btn.textContent='간격 분할';
       btn.title='';
       break;
@@ -2907,8 +2902,7 @@ function _activateSplitBtnOnFileLoad(){
   if(btn.disabled){
     // 일단 활성화 — previewToc 완료 후 patternFound/patternMissing으로 재조정됨
     btn.disabled=false;
-    btn.style.pointerEvents='';
-    btn.style.opacity='0.8';
+    btn.dataset.split='loaded';   // ★ Phase 32: 인라인 opacity .8 → 속성 (style.css)
   }
 }
 
@@ -2919,19 +2913,14 @@ function showSuspiciousToast(count){
 
   const el=document.createElement('div');
   el.id='susp-toast';
-  el.style.cssText=
-    'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);z-index:9000;'+
-    'background:var(--panel);border:1.5px solid var(--accent2);border-radius:var(--radius-sm);'+
-    'padding:12px 18px;display:flex;align-items:center;gap:12px;'+
-    'box-shadow:var(--shadow-lg);font-family:inherit;'+
-    'animation:toastIn .25s ease;max-width:420px;width:90vw';
+  el.classList.add('js-parser-el');
   el.innerHTML=
-    '<span class="u-fs-lg u-shrink-0">⚠️</span>'+
+    '<span class="u-fs-lg u-shrink-0">'+icon('alert')+'</span>'+
     '<div class="u-flex-1 u-minw-0">'+
       '<div class="u-fs-sm u-fw-700 u-text u-mb-3">'+
         '본문 짧음 챕터 <span id="susp-toast-count">'+count+'</span>개 감지</div>'+
       '<div class="u-fs-xs u-text2 u-lh-15">'+
-        '⤵ 병합 버튼으로 다음 챕터와 합치거나 전체 제거할 수 있어요.'+
+        '병합 버튼으로 다음 챕터와 합치거나 전체 제거할 수 있어요.'+
       '</div>'+
     '</div>'+
     '<div class="u-col-5 u-shrink-0">'+
@@ -3031,7 +3020,7 @@ function renderTocItems(){
   c.replaceChildren();
   // ★ L-06: 전체 재렌더 시 내보내기 버튼 플래그 초기화 (updateTocStat에서 재생성)
   _tocExportBtnCreated=false;
-  if(!S.tocItems.length){c.innerHTML='<div class="toc-empty">⚠️ 챕터가 감지되지 않았습니다.</div>';return;}
+  if(!S.tocItems.length){c.innerHTML='<div class="toc-empty">챕터가 감지되지 않았습니다.</div>';return;}
   // 글자수·짧은 챕터 표시는 원문 줄 범위로 다시 계산 (병합·분리·Undo 후에도 출력과 같은 기준)
   _recalcTocStats(S.tocItems);
   // ★ Phase 28: 간격 분할 중이면 분할 목차 패널(제목 방식 선택·분할 지점 미리보기)을 매번 다시 붙임
@@ -3043,14 +3032,14 @@ function renderTocItems(){
 
   // ══ 검색/필터 바 ══
   const filterBar=document.createElement('div');
-  filterBar.style.cssText='display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap';
+  filterBar.classList.add('js-parser-filterBar');
   filterBar.innerHTML=
-    '<input id="toc-search" class="u-flex-1 u-minw-120 u-fs-xs u-p-5-8 inp" placeholder="🔍 제목 검색...">'+
+    '<input id="toc-search" class="u-flex-1 u-minw-120 u-fs-xs u-p-5-8 inp" placeholder="제목 검색...">'+
     // ★ 개선 01: 선택 모드 토글 버튼 (항상 노출)
-    '<button class="u-fs-xs u-nowrap btn btn-ghost btn-sm" id="toc-select-mode-btn" title="클릭으로 다중 선택 모드 전환 (터치·모바일 친화)">☑ 선택 모드</button>'+
+    '<button class="u-fs-xs u-nowrap btn btn-ghost btn-sm" id="toc-select-mode-btn" title="클릭으로 다중 선택 모드 전환 (터치·모바일 친화)">선택 모드</button>'+
     // ★ 개선 06: 짧은챕터 자동 선택
-    '<button class="btn btn-ghost btn-sm u-fs-xs u-nowrap" id="toc-auto-sel-susp" title="⚠ 짧은챕터 항목 전체 선택" hidden>⚠ 자동 선택</button>'+
-    '<button class="u-fs-xs btn btn-ghost btn-sm" data-action="undoToc" title="되돌리기 (최대 10단계)">↩ Undo</button>';
+    '<button class="btn btn-ghost btn-sm u-fs-xs u-nowrap" id="toc-auto-sel-susp" title="짧은챕터 항목 전체 선택" hidden>자동 선택</button>'+
+    '<button class="u-fs-xs btn btn-ghost btn-sm" data-action="undoToc" title="되돌리기 (최대 10단계)">Undo</button>';
   c.appendChild(filterBar);
 
   const searchInp=filterBar.querySelector('#toc-search');
@@ -3066,9 +3055,7 @@ function renderTocItems(){
   const selectModeBtn=filterBar.querySelector('#toc-select-mode-btn');
   const paintSelectMode=()=>{
     if(!selectModeBtn) return;
-    selectModeBtn.style.background=_tocSelectModeOn?'var(--blue)':'';
-    selectModeBtn.style.color=_tocSelectModeOn?'var(--on-accent)':'';
-    selectModeBtn.style.borderColor=_tocSelectModeOn?'var(--blue)':'';
+    selectModeBtn.classList.toggle('is-on',!!_tocSelectModeOn);   // ★ Phase 32: 인라인 3속성 → #toc-select-mode-btn.is-on
     selectModeBtn.title=_tocSelectModeOn?'선택 모드 ON — 클릭만으로 선택됩니다 (다시 클릭해서 해제)':'선택 모드 OFF';
   };
   paintSelectMode();
@@ -3103,40 +3090,39 @@ function renderTocItems(){
   // ══ 병합 툴바 (★ 개선 03·05·07 포함) ══
   const toolbar=document.createElement('div');
   toolbar.id='toc-merge-bar';
-  toolbar.style.cssText='display:none;flex-direction:column;gap:6px;padding:8px 10px;'+
-    'background:var(--blue-bg);border-radius:var(--radius-sm);margin-bottom:8px;border:1px solid var(--blue)';
+  toolbar.classList.add('js-parser-toolbar');
+  toolbar.hidden=true;   // ★ Phase 32: 처음엔 숨김 — updateMergeBar가 setShown으로 전환
 
   // 상단 행: 카운트 + 액션 버튼들
   const toolbarTop=document.createElement('div');
-  toolbarTop.style.cssText='display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+  toolbarTop.classList.add('js-parser-toolbarTop');
   toolbarTop.innerHTML=
     '<span id="toc-sel-count" class="u-fs-xs u-blue u-fw-600">0개 선택됨</span>'+
-    '<button class="btn-blue-fill u-p-3-10 u-bd-none btn btn-sm" id="toc-merge-btn">🔗 병합</button>'+
+    '<button class="btn-blue-fill u-p-3-10 u-bd-none btn btn-sm" id="toc-merge-btn">병합</button>'+
     '<button class="btn-blue-line u-pad-btn-xxs btn btn-sm" id="toc-sel-clear">✕ 해제</button>'+
     // ★ 개선 05: 첫 번째 선택 항목으로 스크롤
-    '<button class="btn-blue-line u-p-3-7 btn btn-sm" id="toc-scroll-sel" title="선택한 첫 항목으로 스크롤">📍 위치</button>';
+    '<button class="btn-blue-line u-p-3-7 btn btn-sm" id="toc-scroll-sel" title="선택한 첫 항목으로 스크롤">위치</button>';
   toolbar.appendChild(toolbarTop);
 
   // ★ 개선 05: 미니맵 — 선택된 인덱스 나열
   const minimap=document.createElement('div');
   minimap.id='toc-sel-minimap';
-  minimap.style.cssText='display:none;font-size:var(--fs-xs);color:var(--blue);line-height:1.6;word-break:break-all';
+  minimap.classList.add('js-parser-minimap');
   toolbar.appendChild(minimap);
 
   // ★ 개선 07: 병합 미리보기 패널
   const previewPanel=document.createElement('div');
   previewPanel.id='toc-merge-preview';
-  previewPanel.style.cssText=
-    'display:none;background:var(--bg2);border:1px solid var(--blue);border-radius:var(--radius-xs);'+
-    'padding:8px 10px;font-size:var(--fs-xs);color:var(--text2);line-height:1.7;max-height:120px;overflow-y:auto';
+  previewPanel.classList.add('js-parser-previewPanel');
   toolbar.appendChild(previewPanel);
 
   // ★ 개선 03: 제목 편집 영역 — 병합 직후 표시 (Phase 10: 이전엔 표시하는 코드가 없어 항상 숨겨져 있었음)
   const titleEditArea=document.createElement('div');
   titleEditArea.id='toc-merge-title-edit';
-  titleEditArea.style.cssText='display:none;gap:6px;align-items:center;flex-wrap:wrap';
+  titleEditArea.classList.add('js-parser-titleEditArea');
+  titleEditArea.hidden=true;
   titleEditArea.innerHTML=
-    '<span class="u-fs-xs u-blue u-fw-600 u-shrink-0">📝 제목:</span>'+
+    '<span class="u-fs-xs u-blue u-fw-600 u-shrink-0">제목:</span>'+
     '<input id="toc-merge-title-inp" class="u-flex-1 u-minw-120 u-fs-xs u-p-3-7 inp">'+
     '<div class="u-flex u-gap-4 u-shrink-0">'+
       '<button class="u-fs-xs u-p-2-6 btn btn-sm" id="toc-mtitle-first" title="첫 챕터 제목 사용">첫 제목</button>'+
@@ -3157,7 +3143,7 @@ function renderTocItems(){
     // ★ 개선 08: 검색 필터 중 병합 안전 확인
     if(_tocFilterQ){
       const ok=await Toast.confirm(
-        '🔍 검색 필터가 활성 상태예요.<br>'+
+        '검색 필터가 활성 상태예요.<br>'+
         '필터된 화면에서 선택된 '+idxs.length+'개를 병합할까요?<br>'+
         '<span class="txt-meta-sm">숨겨진 항목은 영향을 받지 않아요.</span>'
       );
@@ -3167,7 +3153,7 @@ function renderTocItems(){
     // ★ 개선 10: 대량(20개+) 병합 시 로딩 표시
     const mergeBtn=toolbar.querySelector('#toc-merge-btn');
     if(idxs.length>20&&mergeBtn){
-      mergeBtn.textContent='⏳ 병합 중...';
+      mergeBtn.textContent='병합 중...';
       mergeBtn.disabled=true;
       await yieldToMain();
     }
@@ -3238,12 +3224,12 @@ function renderTocItems(){
     const n=_selectedIdxs.size;
     const pendingItem=_tocPendingTitleIdx!=null?S.tocItems[_tocPendingTitleIdx]:null;
     if(!pendingItem) _tocPendingTitleIdx=null;
-    toolbar.style.display=(n>0||pendingItem)?'flex':'none';
+    setShown(toolbar,n>0||!!pendingItem);
     const cnt=toolbarTop.querySelector('#toc-sel-count');
     if(cnt) cnt.textContent=n>0?n+'개 선택됨':'병합 완료';
     const mb=toolbarTop.querySelector('#toc-merge-btn');
-    if(mb){ mb.disabled=n<2; mb.textContent='🔗 병합'; mb.style.display=n>0?'':'none'; }
-    ['#toc-sel-clear','#toc-scroll-sel'].forEach(sel=>{ const b=toolbarTop.querySelector(sel); if(b) b.style.display=n>0?'':'none'; });
+    if(mb){ mb.disabled=n<2; mb.textContent='병합'; setShown(mb,n>0); }
+    ['#toc-sel-clear','#toc-scroll-sel'].forEach(sel=>{ const b=toolbarTop.querySelector(sel); setShown(b,n>0); });
 
     // ★ 개선 05: 미니맵 업데이트
     if(n>0){
@@ -3255,9 +3241,9 @@ function renderTocItems(){
       });
       const more=n>8?` <span class="u-blue">+${n-8}개</span>`:'';
       minimap.innerHTML=labels.join('')+more;
-      minimap.style.display='';
+      setShown(minimap,true);
     } else {
-      minimap.style.display='none';
+      setShown(minimap,false);
     }
 
     // ★ 개선 07: 병합 미리보기 업데이트
@@ -3277,13 +3263,13 @@ function renderTocItems(){
       previewPanel.innerHTML=  // safe-html: totalWan은 숫자로 만든 문자열, 제목은 escHtml
         `<div class="u-fw-600 u-blue u-mb-4 u-fs-xs">병합하면 <b>${totalWan}</b> 챕터가 됩니다</div>`+
         previews.join('')+morePreview;
-      previewPanel.style.display='';
+      setShown(previewPanel,true);
     } else {
-      previewPanel.style.display='none';
+      setShown(previewPanel,false);
     }
 
     // ★ 개선 03: 병합 직후에만 제목 편집 영역 표시
-    titleEditArea.style.display=pendingItem?'flex':'none';
+    setShown(titleEditArea,!!pendingItem);
     if(pendingItem&&titleInpEl&&document.activeElement!==titleInpEl) titleInpEl.value=pendingItem.title||'';
   }
 
@@ -3353,7 +3339,7 @@ function renderTocItems(){
         _charPopTimer=setTimeout(()=>{
           const preview=_tocItemText(item,600).split('\n').filter(l=>l.trim()).slice(0,3).join('\n')||'(본문 없음)';
           const pop=document.createElement('div');
-          pop.style.cssText='position:fixed;z-index:9999;background:var(--panel);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;font-size:var(--fs-xs);max-width:280px;box-shadow:var(--shadow-md);pointer-events:none;color:var(--text2);line-height:1.6;white-space:pre-wrap;word-break:break-all';
+          pop.classList.add('js-parser-pop');
           pop.textContent=preview;
           document.body.appendChild(pop);
           const rect=charBadge.getBoundingClientRect();
@@ -3415,24 +3401,16 @@ function renderTocItems(){
     // ★ 개선 04: 병합된 챕터에 🔓 분리 버튼
     if(item._isMerged && item._mergedSources && item._mergedSources.length>=2){
       const splitBadge=document.createElement('span');
-      splitBadge.style.cssText=
-        'font-size:var(--fs-xs);background:var(--blue-bg);color:var(--blue);border-radius:var(--radius-xs);'+
-        'padding:1px 5px;flex-shrink:0;white-space:nowrap;cursor:default;'+
-        'border:1px solid var(--blue);display:inline-flex;align-items:center;gap:3px';
-      splitBadge.textContent='🔗 '+item._mergedSources.length+'개 병합';
+      splitBadge.classList.add('js-parser-splitBadge');
+      splitBadge.textContent=item._mergedSources.length+'개 병합';
       splitBadge.title='이 챕터는 '+item._mergedSources.length+'개 챕터가 병합된 상태입니다';
 
       const unmergeBtn=document.createElement('button');
       unmergeBtn.className='btn btn-sm';
-      unmergeBtn.style.cssText=
-        'font-size:var(--fs-xs);padding:1px 7px;flex-shrink:0;'+
-        'background:var(--blue-bg);color:var(--blue);'+
-        'border:1px solid var(--blue);border-radius:var(--radius-xs);line-height:1.5;'+
-        'white-space:nowrap;transition:all .15s;cursor:pointer';
-      unmergeBtn.innerHTML='🔓&nbsp;분리';
+      unmergeBtn.classList.add('js-parser-unmergeBtn');
+      unmergeBtn.innerHTML='분리';
       unmergeBtn.title='병합 전 상태로 복원합니다 (Undo와 독립적)';
-      unmergeBtn.addEventListener('mouseenter',()=>{unmergeBtn.style.background='var(--blue)';unmergeBtn.style.color='var(--on-accent)';});
-      unmergeBtn.addEventListener('mouseleave',()=>{unmergeBtn.style.background='var(--blue-bg)';unmergeBtn.style.color='var(--blue)';});
+      // ★ Phase 32: hover 색은 style.css :hover가 담당 (mouseenter/leave 인라인 대입 제거)
       unmergeBtn.addEventListener('click',e=>{
         e.stopPropagation();
         _saveTocSnapshot();
@@ -3464,24 +3442,16 @@ function renderTocItems(){
     } else if(item.suspicious){
       // 오감지 배지 + 병합 버튼
       const badge=document.createElement('span');
-      badge.style.cssText=
-        'font-size:var(--fs-xs);background:var(--yellow-bg);color:var(--yellow);border-radius:var(--radius-xs);'+
-        'padding:1px 6px;flex-shrink:0;white-space:nowrap;cursor:default;'+
-        'border:1px solid var(--accent2);display:inline-flex;align-items:center;gap:3px';
-      badge.innerHTML='<span>⚠</span><span>본문 짧음</span>';
+      badge.classList.add('js-parser-badge');
+      badge.innerHTML='<span>'+icon('alert')+'</span><span>본문 짧음</span>';
       badge.title='이 챕터 본문이 '+_suspThresholdCached+'자 미만이에요 — 오감지일 수 있어요';
 
       const removeBtn=document.createElement('button');
       removeBtn.className='btn btn-sm';
-      removeBtn.style.cssText=
-        'font-size:var(--fs-xs);padding:1px 7px;flex-shrink:0;'+
-        'background:var(--accent-bg);color:var(--accent);'+
-        'border:1px solid var(--accent);border-radius:var(--radius-xs);line-height:1.5;'+
-        'white-space:nowrap;transition:all .15s';
-      removeBtn.innerHTML='⤵&nbsp;병합';
+      removeBtn.classList.add('js-parser-removeBtn');
+      removeBtn.innerHTML='병합';
       removeBtn.title='이 짧은 챕터와 다음 챕터를 병합합니다 (본문 이어붙이기)';
-      removeBtn.addEventListener('mouseenter',()=>{removeBtn.style.background='var(--blue)';removeBtn.style.color='var(--on-accent)';removeBtn.style.borderColor='var(--blue)';});
-      removeBtn.addEventListener('mouseleave',()=>{removeBtn.style.background='var(--accent-bg)';removeBtn.style.color='var(--accent)';removeBtn.style.borderColor='var(--accent)';});
+      // ★ Phase 32: hover 색은 style.css :hover가 담당
       removeBtn.addEventListener('click',e=>{
         e.stopPropagation();
         const idx=S.tocItems.indexOf(item);
@@ -3604,7 +3574,7 @@ function renderTocItems(){
 
   const stat=document.createElement('div');
   stat.id='toc-stat';
-  stat.style.cssText='margin-top:8px;display:flex;gap:6px;align-items:center;flex-wrap:wrap';
+  stat.classList.add('js-parser-stat');
   c.appendChild(stat);
   updateMergeBar();
   updateTocStat();
@@ -3716,15 +3686,15 @@ function updateTocStat(){
   const statChips = [
     chip('총 '+totalWanStr, 'blue'),
     chip('평균 '+avgChars.toLocaleString()+'자', 'muted'),
-    shortCount>0 ? chip('⚠ 짧은챕터 '+shortCount+'(기준:'+_suspThr+'자)', 'accent') : '',
-    longCount>0  ? chip('📌 긴챕터 '+longCount,    'blue') : '',
+    shortCount>0 ? chip('짧은챕터 '+shortCount+'(기준:'+_suspThr+'자)', 'accent') : '',
+    longCount>0  ? chip('긴챕터 '+longCount,    'blue') : '',
   ].filter(Boolean).join('');
 
   // ★ I5: 짧은 챕터 배지 클릭 시 스크롤 — 이벤트 위임으로 처리
   const suspBtn=suspCount>0
     ? '<button class="btn btn-sm btn-accent-line" data-action="removeAllSuspicious"'+
       ' title="본문 짧음 항목을 목차에서 모두 제거합니다">'+
-      '<span>⚠</span><span>본문 짧음 '+suspCount+'개 전체 제거</span></button>'
+      '<span>'+icon('alert')+'</span><span>본문 짧음 '+suspCount+'개 전체 제거</span></button>'
     : '';
 
   stat.innerHTML=  // safe-html: 칩·버튼은 숫자와 고정 문구로만 구성
@@ -3744,11 +3714,11 @@ function updateTocStat(){
     if(!badge){
       badge = document.createElement('sup');
       badge.id = badgeId;
-      badge.style.cssText = 'margin-left:3px;font-size:var(--fs-xs);background:var(--accent);color:var(--on-accent);border-radius:99px;padding:0 5px;vertical-align:super;font-weight:700';
+      badge.classList.add('js-parser-badge2');
       convertTab.appendChild(badge);
     }
     badge.textContent = active > 0 ? active.toLocaleString() : total.toLocaleString();
-    badge.style.display = total > 0 ? '' : 'none';
+    setShown(badge, total > 0);
   }
 
   // ★ I7: 미니 차트 갱신 (main.js에 함수 정의)
@@ -3762,8 +3732,8 @@ function updateTocStat(){
     const exportBtn=document.createElement('button');
     exportBtn.id='tocExportBtn';
     exportBtn.className='btn btn-ghost btn-sm';
-    exportBtn.style.cssText='font-size:var(--fs-xs);padding:2px 8px;margin-left:4px';
-    exportBtn.textContent='📋 내보내기';
+    exportBtn.classList.add('js-parser-exportBtn');
+    exportBtn.textContent='내보내기';
     exportBtn.title='목차를 글자수 포함 TXT로 내보내기';
     exportBtn.onclick=()=>{ if(typeof exportTocWithStats==='function') exportTocWithStats(); };
     document.getElementById('toc-stat')?.appendChild(exportBtn);
@@ -3833,7 +3803,7 @@ async function renderTocPreview(){
 
   c.innerHTML='';
   const hint=document.createElement('div');
-  hint.style.cssText='font-size:var(--fs-xs);color:var(--text2);margin-bottom:8px';
+  hint.classList.add('js-parser-hint');
   hint.textContent='챕터를 클릭하면 해당 챕터 본문 앞부분을 미리볼 수 있어요.';
   c.appendChild(hint);
 
@@ -3867,7 +3837,7 @@ async function renderTocPreview(){
 
   // 전체 통계
   const stat=document.createElement('div');
-  stat.style.cssText='margin-top:10px;font-size:var(--fs-xs);color:var(--text2);border-top:1px solid var(--border);padding-top:8px;text-align:center';
+  stat.classList.add('js-parser-stat2');
   stat.textContent='총 '+enabled.length+'개 챕터 · 파일 '+(_fullRawLines.length||'?')+'줄';
   c.appendChild(stat);
 }
@@ -4165,7 +4135,7 @@ function _buildIntervalTitleBar(){
   const hd=document.createElement('div');
   hd.className='split-title-hd';
   const hb=document.createElement('b');
-  hb.textContent='✂️ 간격 분할 목차 · '+splitIdx.length+'화';
+  hb.textContent='간격 분할 목차 · '+splitIdx.length+'화';
   const hs=document.createElement('span');
   hs.className='txt-meta-sm';
   hs.textContent='「N줄」= 그 화가 시작하는 줄 · 「…」= 그 줄의 내용 (그 줄부터 다음 화 앞까지가 본문)';
@@ -4399,7 +4369,7 @@ async function autoSplitByInterval(hybridMode=false){
   // 비하이브리드 + 기존 목차 있을 때만 확인 요청
   if(!hybridMode&&S.tocItems.length>0){
     const ok=await Toast.confirm(
-      '⚠️ 이미 '+S.tocItems.length+'개 챕터가 감지되어 있어요.<br>'+
+      '이미 '+S.tocItems.length+'개 챕터가 감지되어 있어요.<br>'+
       '계속하면 현재 목차가 덮어씌워져요. 계속할까요?'
     );
     if(!ok) return;
@@ -4485,12 +4455,12 @@ async function autoSplitByInterval(hybridMode=false){
   const quality=_calcSplitQuality(finalItems);
   const avgWan=quality.avgLen>=10000?(quality.avgLen/10000).toFixed(1)+'만자':quality.avgLen.toLocaleString()+'자';
   const interval=Math.floor(totalLines/totalChapters);
-  const modeLabel=hybridMode?'🔀 하이브리드':'⚡ 간격 분할';
+  const modeLabel=hybridMode?'하이브리드':'간격 분할';
   document.getElementById('tb0')?.insertAdjacentHTML('afterbegin',  // safe-html: 모드 이름은 고정 문구, 나머지는 숫자
     `<div class="u-fs-xs u-text2 u-mb-8 u-p-0-4">
       <span class="toc-auto-badge">${modeLabel} (${interval}줄 간격, ${finalItems.length}화)</span>
       <span class="u-ml-6 u-fs-xs">균등도 ${quality.score}% · 평균 ${avgWan}/화</span>
-      <br><span class="u-accent u-fs-xs">⚠️ 제목이 부정확할 수 있어요. 목차에서 확인 후 수정하세요.</span>
+      <br><span class="u-accent u-fs-xs">제목이 부정확할 수 있어요. 목차에서 확인 후 수정하세요.</span>
     </div>`
   );
 
@@ -4512,7 +4482,7 @@ async function autoSplitByInterval(hybridMode=false){
       if(lines.length>2000){
         const b2=document.createElement('button');
         b2.className='btn btn-ghost btn-sm';
-        b2.style.cssText='margin:8px 0;width:100%;font-size:var(--fs-xs)';
+        b2.classList.add('js-parser-btn');
         b2.textContent=`▼ 나머지 ${(lines.length-2000).toLocaleString()}줄 더 보기`;
         b2.onclick=()=>{pre2.textContent=lines.map((l,i)=>String(i+1).padStart(5,' ')+' │ '+l).join('\n');b2.remove();};
         tb2b.appendChild(b2);

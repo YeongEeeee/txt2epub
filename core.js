@@ -42,6 +42,17 @@ function _sanitizeHtml(html){
 }
 
 // ─────────────────────────────────────────
+// ★ Phase 32: 아이콘 단일 출처 — index.html 상단 SVG 스프라이트(<symbol id="i-…">)를 참조하는 마크업 문자열
+//   이모지는 OS마다 모양·색이 달라 '빼기' 방향과 맞지 않아 선형 아이콘 하나의 체계로 통일
+//   알 수 없는 이름은 빈 문자열 (오타가 깨진 그림으로 보이지 않게)
+// ─────────────────────────────────────────
+const ICON_NAMES=new Set(['download','upload','file','inbox','book','alert','moon','sun','folder','scissors','image','package','check','check-circle','info','x-circle','pencil','palette']);
+function icon(name, cls=''){
+  if(!ICON_NAMES.has(name)) return '';
+  return '<svg class="ico'+(cls?' '+cls:'')+'" aria-hidden="true" focusable="false"><use href="#i-'+name+'"/></svg>';
+}
+
+// ─────────────────────────────────────────
 // Layer 0 · Toast UI
 // ─────────────────────────────────────────
 const Toast = (() => {
@@ -59,7 +70,9 @@ const Toast = (() => {
 
   function _show(msg, type = 'info', duration = 3200) {
     _ensureContainer();
-    const icons = { info:'ℹ️', success:'✅', error:'❌', warn:'⚠️' };
+    // ★ Phase 32: 종류 아이콘은 선형 SVG — 메시지 앞에 붙어 온 이모지는 아이콘과 겹치므로 한 곳에서 제거
+    const icons = { info:'info', success:'check-circle', error:'x-circle', warn:'alert' };
+    if (typeof msg === 'string') msg = msg.replace(/^\s*\p{Extended_Pictographic}\uFE0F?\s*/u, '');
     const colors = {
       info:    'var(--blue-bg)',
       success: 'var(--green-bg)',
@@ -84,9 +97,7 @@ const Toast = (() => {
       if(!cnt){
         cnt = document.createElement('sup');
         cnt.className = 'toast-cnt';
-        cnt.style.cssText =
-          'background:var(--text2);color:var(--panel);border-radius:99px;'+
-          'font-size:var(--fs-xs);padding:0 4px;margin-left:4px;font-weight:700';
+        cnt.classList.add('js-core-cnt');
         cnt.textContent = '2';
         existing.querySelector('span:nth-child(2)')?.appendChild(cnt);
       } else {
@@ -113,11 +124,11 @@ const Toast = (() => {
 
     // ★ XSS 방지: innerHTML → DOM API
     const iconSpan = document.createElement('span');
-    iconSpan.style.cssText = 'flex-shrink:0;font-size:var(--fs-base)';
-    iconSpan.textContent = icons[type];
+    iconSpan.classList.add('js-core-iconSpan');
+    iconSpan.innerHTML = icon(icons[type] || 'info');   // safe-html: icon()은 고정 SVG 마크업
 
     const msgSpan = document.createElement('span');
-    msgSpan.style.cssText = 'flex:1';
+    msgSpan.classList.add('js-core-msgSpan');
     msgSpan.dataset.toastMsg = plainMsg;
     // ★ XSS 강화: HTML을 허용하는 경우를 내부 마커(__SAFE_HTML__)로 명시적 제한
     // 외부 사용자 입력(파일명, 제목 등)은 반드시 escHtml 처리 후 일반 문자열로 전달
@@ -137,9 +148,7 @@ const Toast = (() => {
     }
 
     const closeBtn = document.createElement('button');
-    closeBtn.style.cssText =
-      'background:none;border:none;cursor:pointer;color:var(--text2);' +
-      'font-size:var(--fs-base);padding:0;line-height:1;margin-left:4px;flex-shrink:0';
+    closeBtn.classList.add('js-core-closeBtn');
     closeBtn.textContent = '✕';
     closeBtn.onclick = () => el.remove();
 
@@ -159,18 +168,13 @@ const Toast = (() => {
     return new Promise(resolve => {
       _ensureContainer();
       const overlay = document.createElement('div');
-      overlay.style.cssText =
-        'position:fixed;inset:0;background:var(--overlay);z-index:9998;' +
-        'display:flex;align-items:center;justify-content:center';
+      overlay.classList.add('js-core-overlay');
 
       const box = document.createElement('div');
-      box.style.cssText =
-        'background:var(--panel);border-radius:var(--radius);padding:24px 28px;' +
-        'max-width:360px;width:90vw;box-shadow:var(--shadow-xl);' +
-        'font-family:inherit;border:1.5px solid var(--border)';
+      box.classList.add('js-core-box');
 
       const p = document.createElement('p');
-      p.style.cssText = 'font-size:var(--fs-base);line-height:1.7;color:var(--text);margin-bottom:18px';
+      p.classList.add('js-core-p');
       // ★ confirm은 내부에서만 호출 (autoSplitByInterval 경고 등) — HTML 허용
       // 단, script/iframe 위험 태그 필터링
       if(typeof msg === 'string' && /<[a-z][\s\S]*>/i.test(msg)){
@@ -180,17 +184,17 @@ const Toast = (() => {
       }
 
       const btnRow = document.createElement('div');
-      btnRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+      btnRow.classList.add('js-core-btnRow');
 
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'btn btn-ghost';
-      cancelBtn.style.cssText = 'font-size:var(--fs-sm);padding:7px 16px';
+      cancelBtn.classList.add('js-core-cancelBtn');
       cancelBtn.textContent = '취소';
       cancelBtn.onclick = () => { overlay.remove(); resolve(false); };
 
       const okBtn = document.createElement('button');
       okBtn.className = 'btn btn-accent';
-      okBtn.style.cssText = 'font-size:var(--fs-sm);padding:7px 18px;border-radius:var(--radius-sm)';
+      okBtn.classList.add('js-core-okBtn');
       okBtn.textContent = '확인';
       okBtn.onclick = () => { overlay.remove(); resolve(true); };
 
@@ -214,18 +218,13 @@ const Toast = (() => {
     return new Promise(resolve => {
       _ensureContainer();
       const overlay = document.createElement('div');
-      overlay.style.cssText =
-        'position:fixed;inset:0;background:var(--overlay);z-index:9998;' +
-        'display:flex;align-items:center;justify-content:center';
+      overlay.classList.add('js-core-overlay');
 
       const box = document.createElement('div');
-      box.style.cssText =
-        'background:var(--panel);border-radius:var(--radius);padding:24px 28px;' +
-        'max-width:380px;width:90vw;box-shadow:var(--shadow-xl);' +
-        'font-family:inherit;border:1.5px solid var(--border)';
+      box.classList.add('js-core-box2');
 
       const p = document.createElement('p');
-      p.style.cssText = 'font-size:var(--fs-base);line-height:1.7;color:var(--text);margin-bottom:12px';
+      p.classList.add('js-core-p2');
       // ★ Phase 28: confirm과 같이 서식 태그 허용 (이전: '<br>'·'<b>'가 글자 그대로 보였음 — 간격 분할 화수 입력창)
       if(typeof msg === 'string' && /<[a-z][\s\S]*>/i.test(msg)){
         p.innerHTML = _sanitizeHtml(msg); // safe-html: _sanitizeHtml이 script·on* 속성 제거 (confirm과 동일 경로)
@@ -235,22 +234,22 @@ const Toast = (() => {
 
       const inp = document.createElement('input');
       inp.className = 'inp';
-      inp.style.cssText = 'width:100%;margin-bottom:16px';
+      inp.classList.add('js-core-inp');
       inp.placeholder = placeholder;
       inp.value = defaultVal;
 
       const btnRow = document.createElement('div');
-      btnRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+      btnRow.classList.add('js-core-btnRow');
 
       const cancelBtn = document.createElement('button');
       cancelBtn.className = 'btn btn-ghost';
-      cancelBtn.style.cssText = 'font-size:var(--fs-sm);padding:7px 16px';
+      cancelBtn.classList.add('js-core-cancelBtn');
       cancelBtn.textContent = '취소';
       cancelBtn.onclick = () => { overlay.remove(); resolve(null); };
 
       const okBtn = document.createElement('button');
       okBtn.className = 'btn btn-accent';
-      okBtn.style.cssText = 'font-size:var(--fs-sm);padding:7px 18px;border-radius:var(--radius-sm)';
+      okBtn.classList.add('js-core-okBtn');
       okBtn.textContent = '확인';
       okBtn.onclick = () => { overlay.remove(); resolve(inp.value); };
 
