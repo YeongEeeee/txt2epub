@@ -693,21 +693,73 @@ function clearChipSelection(helperId){
 }
 
 // ── 단축키 도움말 ──
+// ══════════════════════════════════════════
+// ★ Phase 30: 단축키 단일 출처 — keydown 처리·버튼 title/aria-keyshortcuts·하단 <kbd> 힌트·도움말 표를 모두 이 표에서 만든다
+//   이전: 실제 바인딩은 Ctrl+Space·Ctrl+S인데 목차 힌트 title은 'Ctrl+Enter·Ctrl+D',
+//         다운로드 버튼 aria-label은 'Ctrl+D'로 따로 적혀 있어 서로 달랐음
+// ══════════════════════════════════════════
+const _IS_MAC=/Mac|iPhone|iPad/.test(navigator?.platform||navigator?.userAgent||'');
+const SHORTCUTS=[
+  { id:'convert',  key:'Space', aria:'Space', label:'변환 시작',
+    match:e=>(e.key===' '||e.code==='Space')&&!e.shiftKey,
+    run:()=>typeof startConvert==='function'&&startConvert() },
+  { id:'download', key:'S', aria:'S', label:'EPUB 다운로드',
+    match:e=>e.key==='s'||e.key==='S',
+    run:()=>typeof downloadEpub==='function'&&downloadEpub() },
+  { id:'help',     key:'?', aria:'?', label:'단축키 도움말 열기/닫기',
+    match:e=>e.key==='/'||e.key==='?',
+    run:()=>showShortcutHelp() },
+  // 목차 패널이 열려 있을 때만 — 입력란 안의 Ctrl+Z는 keydown 처리 앞단에서 걸러져 기본 실행취소 유지
+  { id:'undoToc',  key:'Z', aria:'Z', label:'목차 편집 되돌리기 (목차 패널이 열려 있을 때)',
+    match:e=>(e.key==='z'||e.key==='Z')&&!e.shiftKey&&!!document.getElementById('tocPanel')?.classList.contains('show'),
+    run:()=>typeof undoToc==='function'&&undoToc() },
+];
+const _MOD_LABEL=_IS_MAC?'⌘':'Ctrl';
+function _shortcut(id){ return SHORTCUTS.find(s=>s.id===id)||null; }
+function shortcutText(id){ const s=_shortcut(id); return s?`${_MOD_LABEL}+${s.key}`:''; }
+// 화면의 단축키 표기를 표에서 채운다 (initUiState에서 1회)
+//   data-shortcut="id"          → title·aria-keyshortcuts
+//   data-shortcut-kbd="id"      → <kbd>Ctrl</kbd>+<kbd>Space</kbd>
+//   data-shortcut-append="a,b"  → 기존 title 뒤에 ' | Ctrl+Space: 변환 시작 | …' 덧붙임
+function applyShortcutLabels(){
+  document.querySelectorAll('[data-shortcut]')?.forEach(el=>{
+    const s=_shortcut(el.dataset.shortcut); if(!s) return;
+    el.setAttribute('aria-keyshortcuts', `Control+${s.aria} Meta+${s.aria}`);
+    el.title=`단축키 ${shortcutText(s.id)}`;
+  });
+  document.querySelectorAll('[data-shortcut-kbd]')?.forEach(el=>{
+    const s=_shortcut(el.dataset.shortcutKbd); if(!s) return;
+    const mod=document.createElement('kbd'); mod.textContent=_MOD_LABEL;
+    const plus=document.createElement('span'); plus.textContent='+'; plus.setAttribute('aria-hidden','true');
+    const key=document.createElement('kbd'); key.textContent=s.key;
+    el.replaceChildren(mod, plus, key);
+  });
+  document.querySelectorAll('[data-shortcut-append]')?.forEach(el=>{
+    if(el.dataset.shortcutApplied) return;
+    const parts=el.dataset.shortcutAppend.split(',').map(id=>_shortcut(id.trim())).filter(Boolean)
+      .map(s=>`${shortcutText(s.id)}: ${s.label}`);
+    if(parts.length) el.title=[el.title, ...parts].filter(Boolean).join(' | ');
+    el.dataset.shortcutApplied='1';
+  });
+}
+
 function showShortcutHelp(){
   const existing=document.getElementById('shortcutHelp');
   if(existing){existing.remove();return;}
   const el=document.createElement('div');
   el.id='shortcutHelp';
   el.style.cssText='position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--panel);border:2px solid var(--border);border-radius:var(--radius);padding:20px 24px;z-index:9999;box-shadow:var(--shadow-xl);font-size:var(--fs-sm);min-width:280px';
-  el.innerHTML='<div class="u-fs-base u-fw-700 u-mb-12 u-text">⌨️ 단축키</div>'+  // safe-html: kbdStyle은 고정 스타일 문자열
+  // ★ Phase 30: 키보드 행은 SHORTCUTS 표에서 생성 (마우스 조작 행만 고정)
+  const rows=[
+    ...SHORTCUTS.map(s=>[shortcutText(s.id), s.label]),
+    [`${_MOD_LABEL}+클릭`, '목차 다중 선택 (병합용)'],
+    ['Shift+클릭', '목차 범위 선택'],
+    ['드래그 중앙', '두 챕터 드래그 병합'],
+    ['Esc', '모달 닫기'],
+  ];
+  el.innerHTML='<div class="u-fs-base u-fw-700 u-mb-12 u-text">⌨️ 단축키</div>'+  // safe-html: 행 텍스트는 escHtml 처리, 나머지는 고정 마크업
     '<table class="kbd-table"><tbody>'+
-    '<tr><td class="u-text2 u-pr-16"><kbd class="kbd-key">Ctrl+Space</kbd></td><td>✨ 변환 시작</td></tr>'+
-    '<tr><td><kbd class="kbd-key">Ctrl+S</kbd></td><td>⬇ EPUB 다운로드</td></tr>'+
-    '<tr><td><kbd class="kbd-key">Ctrl+클릭</kbd></td><td>목차 다중 선택 (병합용)</td></tr>'+
-    '<tr><td><kbd class="kbd-key">Shift+클릭</kbd></td><td>목차 범위 선택</td></tr>'+
-    '<tr><td><kbd class="kbd-key">드래그 중앙</kbd></td><td>두 챕터 드래그 병합</td></tr>'+
-    '<tr><td><kbd class="kbd-key">Ctrl+?</kbd></td><td>이 도움말 열기/닫기</td></tr>'+
-    '<tr><td><kbd class="kbd-key">Esc</kbd></td><td>모달 닫기</td></tr>'+
+    rows.map(([k,l],i)=>`<tr><td${i===0?' class="u-text2 u-pr-16"':''}><kbd class="kbd-key">${escHtml(k)}</kbd></td><td>${escHtml(l)}</td></tr>`).join('')+
     '</tbody></table>'+
     '<div class="u-ta-right u-mt-12"><button class="btn btn-ghost btn-sm" id="shortcutHelpClose">닫기</button></div>';
   document.body.appendChild(el);
@@ -823,7 +875,7 @@ function _spawnDropConfetti(container){
         const thumb = document.getElementById('coverThumb');
         if(!thumb) return;
         let img = thumb.querySelector('img');
-        if(!img){ img=document.createElement('img'); thumb.innerHTML=''; thumb.appendChild(img); }
+        if(!img){ img=document.createElement('img'); img.alt='표지 미리보기'; thumb.innerHTML=''; thumb.appendChild(img); }
         const old = img.src;
         img.src = url;
         img.onload = ()=>{ if(old&&old.startsWith('blob:')) URL.revokeObjectURL(old); };
@@ -989,23 +1041,9 @@ function setupEventListeners(){
     const tag=(e.target?.tagName||'').toUpperCase();
     if(tag==='INPUT'||tag==='TEXTAREA'||tag==='SELECT'||e.target?.isContentEditable) return;
     if(e.ctrlKey||e.metaKey){
-      if(e.key===' '||e.code==='Space'){
-        if(e.shiftKey) return;
-        e.preventDefault();
-        typeof startConvert==='function'&&startConvert();
-      } else if(e.key==='s'||e.key==='S'){
-        e.preventDefault();
-        typeof downloadEpub==='function'&&downloadEpub();
-      } else if(e.key==='/'||e.key==='?'){
-        e.preventDefault();
-        showShortcutHelp();
-      } else if((e.key==='z'||e.key==='Z')&&!e.shiftKey){
-        // 목차 패널이 열려 있을 때만 — 입력란 안의 Ctrl+Z는 위에서 걸러져 기본 실행취소 유지
-        if(document.getElementById('tocPanel')?.classList.contains('show')){
-          e.preventDefault();
-          typeof undoToc==='function'&&undoToc();
-        }
-      }
+      // ★ Phase 30: SHORTCUTS 표 한 곳에서 판별 (화면 표기와 같은 출처)
+      const sc=SHORTCUTS.find(s=>s.match(e));
+      if(sc){ e.preventDefault(); sc.run(); }
     }
   });
 }
@@ -1329,7 +1367,7 @@ window.initUiState = function initUiState(){
   // ★ UX-PD: Progressive Disclosure — 초기 로드 시 패턴 영역 흐리게 설정
   // 파일 드롭 전에는 패턴 입력이 주 액션이 아님을 시각적으로 표현
   // 파일이 없으면 목차 확인·간격 분할 버튼만 비활성 표시 (영역 전체를 흐리게 하지 않음)
-  if(!S.txtFiles.length) document.getElementById('patSection')?.classList.add('is-idle');
+  if(!S.txtFiles.length) typeof setPatIdle==='function'&&setPatIdle(true);
 
   initTheme();
   loadCssSettings();
@@ -1341,6 +1379,7 @@ window.initUiState = function initUiState(){
   setupDragDrop();
   setupEventListeners();
   setupEventDelegate();
+  applyShortcutLabels();
   updateSettingsSummary();
   renderCssPresetList&&renderCssPresetList();
   typeof renderHistory==='function'&&renderHistory();
