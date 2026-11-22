@@ -784,7 +784,9 @@ function renderTxtFileList(){
   //   style.display='block'이 무시되어 파일 목록(순서 변경·개별 제거·정렬·인코딩 선택)이 한 번도 보이지 않던 문제
   //   (txtInfo 요약은 목록 머리의 'N개 · 드래그로 순서 변경'과 중복이라 숨김 유지)
   setShown(listWrap,true);
-  if(countEl) countEl.textContent=files.length+'개 · 드래그로 순서 변경';
+  // ★ Phase 33: 정렬 단추·순서 안내는 파일이 2개 이상일 때만 (style.css .file-list-wrap.is-single)
+  listWrap?.classList.toggle('is-single',files.length<2);
+  if(countEl) countEl.textContent=files.length>1 ? files.length+'개 · 드래그로 순서 변경' : '1개 파일';
 
   listEl.innerHTML='';
   files.forEach((f,i)=>{
@@ -3579,7 +3581,7 @@ function resetConvertTxt(){
   document.getElementById('tocPanel')?.classList.remove('show');
   ['title','author','series','seriesIdx','pattern'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   setShown(document.getElementById('convertResetBar'),false);
-  setShown(document.getElementById('regexFeed'),false);
+  // ★ Phase 33: 감지 결과 상자는 숨기지 않고 빈 안내로 되돌림 (S.tocItems=[] 구독 → updateFeedFromToc)
   // ★ Phase 16: 하단 바는 S.txtFiles=[] 구독 알림으로 갱신
 }
 function resetConvertCover(){

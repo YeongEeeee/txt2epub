@@ -698,7 +698,7 @@ const SHORTCUTS=[
     run:()=>showShortcutHelp() },
   // 목차 패널이 열려 있을 때만 — 입력란 안의 Ctrl+Z는 keydown 처리 앞단에서 걸러져 기본 실행취소 유지
   { id:'undoToc',  key:'Z', aria:'Z', label:'목차 편집 되돌리기 (목차 패널이 열려 있을 때)',
-    match:e=>(e.key==='z'||e.key==='Z')&&!e.shiftKey&&!!document.getElementById('tocPanel')?.classList.contains('show'),
+    match:e=>(e.key==='z'||e.key==='Z')&&!e.shiftKey&&!!document.getElementById('tocPanel')?.classList.contains('show')&&document.getElementById('tocEditBox')?.open!==false,
     run:()=>typeof undoToc==='function'&&undoToc() },
 ];
 const _MOD_LABEL=_IS_MAC?'⌘':'Ctrl';
@@ -1088,7 +1088,8 @@ function setupEventDelegate(){
     applyInsTocRange: (el) => typeof applyInsTocRange==='function'&&applyInsTocRange(el.dataset.mode),
     toggleAllInsToc: (el) => typeof toggleAllInsToc==='function'&&toggleAllInsToc(el.dataset.val==='true'),
     extractEpubImages: () => typeof extractEpubImages==='function'&&extractEpubImages(),
-    previewToc:    () => typeof previewToc==='function'&&previewToc(),
+    // ★ Phase 33: 사용자가 누른 '목차 확인'·'전체 보기'만 목차 편집 패널을 펼침 (파일 로드 직후 자동 감지는 접힌 채)
+    previewToc:    () => { typeof openTocEditor==='function'&&openTocEditor(); return typeof previewToc==='function'&&previewToc(); },
     // ★ 버튼(data-action)은 있었지만 핸들러 미등록으로 클릭해도 무반응이던 4종 연결
     applySmartPat:      () => typeof applySmartPat==='function'&&applySmartPat(),
     applySelectedChips: () => typeof applySelectedChips==='function'&&applySelectedChips(),
@@ -1545,10 +1546,10 @@ function updateFeedFromToc(tocArray){
       const prev=(typeof _tocItemText==='function'?_tocItemText(ch,120):'').replace(/\n/g,' ').slice(0,60);
       const titleSafe=(ch.title||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
       const prevSafe=prev.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-      return `<div class="feed-item"><span class="feed-item-num">${i+1}</span><div class="feed-item-body"><div class="feed-item-title">${titleSafe}</div>${prevSafe?`<div class="feed-item-preview">${prevSafe}…</div>`:''}</div>${badgeTxt?`<span class="${badgeCls}">${badgeTxt}</span>`:''}</div>`;
+      return `<div class="feed-item"><span class="feed-item-num">${i+1}</span><div class="feed-item-body"><div class="feed-item-title">${titleSafe}</div><div class="feed-item-preview">${prevSafe?prevSafe+'…':'&nbsp;'}</div></div>${badgeTxt?`<span class="${badgeCls}">${badgeTxt}</span>`:''}</div>`;
     }).join('');
   }else if(list){
-    list.innerHTML='<div class="regex-feed-empty"><div class="regex-feed-empty-icon">'+icon('file')+'</div>패턴을 입력하거나 목차 확인을 눌러주세요</div>';
+    list.innerHTML='<div class="regex-feed-empty"><div class="regex-feed-empty-icon">'+icon('file')+'</div>'+((S.txtFiles?.length)?'패턴을 입력하거나 목차 확인을 눌러주세요':'파일을 넣으면 챕터 감지 결과가 여기에 표시돼요')+'</div>';
   }
   if(stat){
     // ★ 총글자수 · 평균 글자수 표시
