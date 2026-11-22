@@ -374,6 +374,9 @@ body{
   background:rgba(255,255,255,.0);
   transition:background var(--dur-fast);
 }
+/* ★ Phase 31: 목차 확인 중 표시 — 원래 글자로 폭을 유지한 채 위에 '감지 중…'을 그림 (레이아웃 이동 없음) */
+.btn[aria-busy="true"][data-action="previewToc"]{-webkit-text-fill-color:transparent;cursor:progress}
+.btn[aria-busy="true"][data-action="previewToc"]::after{content:'감지 중…';display:flex;align-items:center;justify-content:center;-webkit-text-fill-color:currentColor;background:inherit;border-radius:inherit}
 .btn:hover{border-color:var(--border-strong);transform:translateY(-1px);box-shadow:var(--shadow-sm)}
 .btn:hover::after{background:rgba(255,255,255,.08)}
 .btn:active{transform:translateY(1px) scale(.975);box-shadow:none}
