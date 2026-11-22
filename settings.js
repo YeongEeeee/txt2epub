@@ -193,10 +193,22 @@ function loadExtraSettings(){
   }catch(e){}
 }
 
+// ★ Phase 28: '설정 초기화'가 실제로 기본값으로 돌아가도록
+//   이전: epub_css·epub_extra만 지움 → 시작 시 loadUserPrefs가 novelepub_prefs(설정 사본)에서
+//         글꼴·줄간격·여백·정렬을 다시 복원하고, 스킨·커스텀 폰트·리더 미리보기 기기도 그대로 남았음
+//   유지: 변환 기록·즐겨찾기, 저장한 프리셋, API 키, 다크/라이트 테마, 최근 사용 패턴
+const SETTINGS_RESET_KEYS=[
+  'epub_css','epub_extra','novelepub_prefs',
+  'novelepub_css','novelepub_extras',            // 이전 버전 키 (가져오기 호환용)
+  'novelepub_skin','novelepub_reader_device','novelepub_susp_threshold',
+  'novelepub_autosplit_total','novelepub_autosplit_titlemode','novelepub_autosplit_tpl',
+  'idb_fallback_customFontFace','idb_fallback_customFontName',
+];
 async function resetAllSettings(){
-  if(!await Toast.confirm('모든 설정을 초기화할까요?')) return;
-  localStorage.removeItem('epub_css');
-  localStorage.removeItem('epub_extra');
+  if(!await Toast.confirm('모든 설정을 기본값으로 되돌릴까요?<br>'+
+    '<span class="txt-meta-sm">글꼴·스타일·변환 옵션·스킨·커스텀 폰트가 초기화돼요. 변환 기록·프리셋·API 키는 그대로예요.</span>')) return;
+  SETTINGS_RESET_KEYS.forEach(k=>{ try{ localStorage.removeItem(k); }catch(e){} });
+  try{ await Promise.all([SettingsDB.remove('customFontFace'), SettingsDB.remove('customFontName')]); }catch(e){}
   location.reload();
 }
 

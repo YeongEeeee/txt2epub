@@ -226,7 +226,12 @@ const Toast = (() => {
 
       const p = document.createElement('p');
       p.style.cssText = 'font-size:var(--fs-base);line-height:1.7;color:var(--text);margin-bottom:12px';
-      p.textContent = msg;
+      // ★ Phase 28: confirm과 같이 서식 태그 허용 (이전: '<br>'·'<b>'가 글자 그대로 보였음 — 간격 분할 화수 입력창)
+      if(typeof msg === 'string' && /<[a-z][\s\S]*>/i.test(msg)){
+        p.innerHTML = _sanitizeHtml(msg); // safe-html: _sanitizeHtml이 script·on* 속성 제거 (confirm과 동일 경로)
+      } else {
+        p.textContent = String(msg);
+      }
 
       const inp = document.createElement('input');
       inp.className = 'inp';

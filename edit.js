@@ -221,9 +221,15 @@ async function extractEpubImages(){
     const opfText=await E.epubZip.file(opfPath).async('text');
 
     // manifest에서 이미지 항목만 추출
-    const imgManifest={}; // id → href
-    for(const m of opfText.matchAll(/<item[^>]+id="([^"]+)"[^>]+href="([^"]+)"[^>]+media-type="(image\/[^"]+)"/g)){
-      imgManifest[m[1]]={href:opfBase+m[2], mt:m[3]};
+    // ★ Phase 28: 속성 순서와 무관하게 파싱 (이전: id→href→media-type 순서인 항목만 인식) + 표지 표시(cover-image) 기록
+    const imgManifest={}; // id → {href, mt, cover}
+    for(const m of opfText.matchAll(/<item\b[^>]*>/gi)){
+      const tag=m[0];
+      const id  =tag.match(/\bid\s*=\s*["']([^"']+)["']/i)?.[1];
+      const href=tag.match(/\bhref\s*=\s*["']([^"']+)["']/i)?.[1];
+      const mt  =tag.match(/\bmedia-type\s*=\s*["'](image\/[^"']+)["']/i)?.[1];
+      if(!id||!href||!mt) continue;
+      imgManifest[id]={href:opfBase+href, mt, cover:/\bproperties\s*=\s*["'][^"']*\bcover-image\b/i.test(tag)};
     }
     // href를 절대경로 키로 역매핑
     const imgByHref={};
@@ -260,6 +266,19 @@ async function extractEpubImages(){
           chapterImages.push({chTitle:ch.title, imgHref:absHref, ext});
         }
       }
+    }
+
+    // ★ Phase 28: 표지 이미지 포함 — 표지는 본문 챕터가 아닌 cover.xhtml(또는 OPF 메타)에만 걸려 있어 챕터 순회로는 찾지 못했음
+    //   (이전: 표지가 있는 EPUB도 '이미지를 찾지 못했어요 (표지·내부 삽화 없음)'으로 끝남)
+    //   EPUB3 properties="cover-image" → EPUB2 <meta name="cover" content="id"> 순으로 찾음
+    const coverId=Object.keys(imgManifest).find(id=>imgManifest[id].cover)
+      || opfText.match(/<meta\b[^>]*\bname\s*=\s*["']cover["'][^>]*\bcontent\s*=\s*["']([^"']+)["']/i)?.[1]
+      || opfText.match(/<meta\b[^>]*\bcontent\s*=\s*["']([^"']+)["'][^>]*\bname\s*=\s*["']cover["']/i)?.[1];
+    const coverHref=coverId&&imgManifest[coverId]
+      ? imgManifest[coverId].href.replace(/[^/]+\/\.\.\//g,'').replace(/\/\//g,'/')
+      : null;
+    if(coverHref&&E.epubZip.file(coverHref)&&!chapterImages.some(c=>c.imgHref===coverHref)){
+      chapterImages.unshift({chTitle:'표지', imgHref:coverHref, ext:coverHref.split('.').pop().toLowerCase()});
     }
 
     if(!chapterImages.length){

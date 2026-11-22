@@ -23,6 +23,7 @@
  *  16. Phase 21: SW 페이지 이동 ERR_FAILED 수정 — 리디렉트 응답 정리(_plain)·고장 SW 복구·SW 코드 포함 해시
  *  17. Phase 22: 커스텀 폰트 서브셋 — HarfBuzz WebAssembly 실제 실행(TTF·OTF), 제외·실패 경로, EPUB(22_font_subset.epub), 편집 탭 갱신
  *  18. Phase 23: 이미지 형식 바이트 판별(.jpg 이름의 PNG 표지), 커스텀 폰트 선택 복원 경합·미사용 폰트 미포함
+ *  19. Phase 28: 설정 초기화 범위·이미지 추출 표지·일괄 패턴 다중 선택·간격 분할 목차 제목 방식
  */
 'use strict';
 const fs   = require('fs');
@@ -1247,6 +1248,57 @@ async function main(){
       eg.indexOf("skipped:'unused'") < eg.indexOf('fontData = await _subsetCustomFont(fontData, fontTexts());'));
     const msg = G('describeFontSubsetReport')({ skipped: 'unused', family: '교보손글씨', from: 12.5 * 1024 * 1024, to: 0 });
     check('[폰트] 미사용 안내는 경고(⚠)로 표시 — \'폰트:\'로 시작하지 않음, 고를 메뉴 안내', msg.length === 1 && /^커스텀 폰트 "교보손글씨"를 쓰는 글꼴 설정이 없어 EPUB에 넣지 않았어요 \(12\.5MB\) — 변환 탭 '변환 옵션 · 스타일'의 폰트/.test(msg[0]) && !/^폰트:/.test(msg[0]));
+  }
+
+  // ── 19. Phase 28 — 설정 초기화·이미지 추출 표지·일괄 패턴 다중 선택·간격 분할 목차 제목 ──
+  {
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const st = read('settings.js'), ed = read('edit.js'), conv = read('convert.js'), ui = read('ui-state.js'), parser = read('parser.js'), css = read('style.css');
+    // 19-1. 설정 초기화 — novelepub_prefs(시작 시 복원 원본)·스킨·커스텀 폰트까지
+    const keys = (st.match(/const SETTINGS_RESET_KEYS=\[([\s\S]*?)\];/) || [])[1] || '';
+    check('[설정초기화] 시작 시 복원 원본(novelepub_prefs)·스킨·리더 기기까지 삭제',
+      ['epub_css', 'epub_extra', 'novelepub_prefs', 'novelepub_skin', 'novelepub_reader_device'].every(k => keys.includes("'" + k + "'")));
+    check('[설정초기화] 기록·프리셋·API 키는 유지', !/epub_history|novelepub_css_presets|novelepub_api/.test(keys));
+    check('[설정초기화] 커스텀 폰트(IndexedDB) 삭제 후 새로고침',
+      /SettingsDB\.remove\('customFontFace'\), SettingsDB\.remove\('customFontName'\)[\s\S]{0,40}\n  location\.reload\(\);/.test(st));
+    // 19-2. 이미지 추출 — 표지 포함, manifest 속성 순서 무관
+    check('[이미지추출] 표지(cover-image / meta cover)도 추출', /properties\\s\*=\\s\*\["'\]\[\^"'\]\*\\bcover-image/.test(ed) && /chapterImages\.unshift\(\{chTitle:'표지'/.test(ed));
+    check('[이미지추출] manifest 속성 순서와 무관하게 파싱', /for\(const m of opfText\.matchAll\(\/<item\\b\[\^>\]\*>\/gi\)\)/.test(ed));
+    // 19-3. 일괄 변환 패턴 여러 개 — 결합 정규식이 유효하고 각 패턴을 모두 잡음
+    const presets = ['^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$', '^(?:chapter|part|ch)\\.?\\s*\\d+(?:\\s*.+)?$', '^\\d+$', '^\\[\\s*.+\\.txt\\s*\\]\\s*$'];
+    const cU = sandbox('ui-state.js', ['buildCombinedPat']);
+    vm.runInContext(extract(conv, '_combineBatchPresets'), cU);
+    const cF = sandbox('convert.js', ['_combineBatchPresets']);   // buildCombinedPat 없는 경우의 대체 경로
+    for(const [label, ctx] of [['buildCombinedPat', cU], ['대체 경로', cF]]){
+      const comb = vm.runInContext('_combineBatchPresets', ctx)(presets);
+      let rx = null; try{ rx = new RegExp(comb, 'i'); }catch(e){}
+      const hits = ['제3화 시작', 'Chapter 12 The Start', '15', '[ 0001_제목.txt ]'].every(l => rx && rx.test(l));
+      const miss = ['그는 15층에 살았다.', '오늘은 3월 15일이다.', 'chapter와 상관없는 문장'].every(l => rx && !rx.test(l));
+      check('[일괄패턴] 4개 결합 정규식 유효·모두 감지·본문 오탐 없음 (' + label + ')', rx && hits && miss, comb);
+    }
+    check('[일괄패턴] 1개면 그대로, 0개면 빈 값', vm.runInContext('_combineBatchPresets', cU)([presets[2]]) === presets[2] && vm.runInContext('_combineBatchPresets', cU)([]) === '');
+    check('[일괄패턴] 체크박스·직접 입력 구분 (이전: 자동으로 채운 직접 입력값이 두 번째 선택부터 우선)',
+      /applyBatchPreset\(parseInt\(el\.dataset\.idx,10\), el\)/.test(ui) && /if\(srcEl&&srcEl===directEl\)\{/.test(conv) && !/\} else if\(direct&&checks\.length\)\{/.test(conv));
+    check('[일괄패턴] 바깥 괄호를 떼는 깨진 결합 제거', !/\.replace\(\/\^\\\(\\\?:\/,''\)\.replace\(\/\\\)\$\/,''\)/.test(conv));
+    // 19-4. 간격 분할 — 두 제목 후보·분할 줄 보관, 제목 방식 선택
+    const cis = G('computeIntervalSplit');
+    const L = []; for(let i = 0; i < 600; i++){ L.push(i % 50 === 0 ? '' : `문장 ${i}입니다.`); }
+    const num = cis(L, 6, { titleMode: 'number', titleTemplate: '제{N}화' }), near = cis(L, 6, { titleMode: 'nearby' });
+    check('[간격목차] N화 모드도 본문 줄 제목(lineTitle)·분할 줄(splitText) 보관',
+      num.length === 6 && num.every(t => t.lineTitle && typeof t.splitText === 'string') && num[2].title === '제3화');
+    check('[간격목차] 본문 줄 모드 제목 = lineTitle, 경계는 모드와 무관',
+      near.every((t, k) => t.title === t.lineTitle && t.line === num[k].line));
+    check('[간격목차] splitText = 그 화가 시작하는 첫 비어 있지 않은 줄',
+      num.every(t => t.splitText === (L.slice(t.line - 1).find(l => l.trim()) || '').trim()));
+    check('[간격목차] 패널: 제목 방식 저장·목차 다시 그릴 때 유지',
+      /const _SPLIT_TITLE_MODE_KEY='novelepub_autosplit_titlemode';/.test(parser) && /if\(_getAutoSplitActive\(\)\)\{\n    try\{ const bar=_buildIntervalTitleBar\(\);/.test(parser) &&
+      /titleMode:titlePref\.mode==='number'\?'number':'nearby'/.test(parser));
+    check('[간격목차] 제목 일괄 변경 시 챕터 캐시 무효화 (_tocTouch)', /t\.originalTitle=t\.title;\n  \}\);\n  _saveSplitTitlePrefs\(mode, tpl\);[\s\S]{0,160}_tocTouch\(\);/.test(parser));
+    check('[간격목차] 일괄 변환도 제목 방식 선택 (미리보기·변환 공용 옵션)',
+      (conv.match(/computeIntervalSplit\(lines, [a-z]+, _batchSplitOpts\(split\)\)/g) || []).length === 2 && /id='batchIntervalTitleMode'/.test(conv));
+    check('[간격목차] 화수 입력창: 추천값이 입력칸에 채워짐·서식 태그 렌더링',
+      /Toast\.prompt\(promptMsg, '화수', String\(suggestVal\)\)/.test(parser) && /function prompt\(msg, placeholder = '', defaultVal = ''\)[\s\S]{0,1500}p\.innerHTML = _sanitizeHtml\(msg\);/.test(read('core.js')));
+    check('[간격목차] 패널 스타일은 CSS 변수만 사용', /\.split-title-bar\{/.test(css) && !/\.split-title-[a-z-]+\{[^}]*#[0-9a-fA-F]{3,6}/.test(css));
   }
 
   if(UPDATE){

@@ -2469,11 +2469,19 @@ const _BATCH_PRESETS = [
 function _resolveBatchSplit(i){
   const g=B.batchSplit||{};
   const tpl=String(g.template||'').trim()||'{N}화';
+  // ★ Phase 28: 목차 제목 방식 — 'number'(N화 형식, 기본) | 'line'(분할 지점 주변 본문 줄 그대로)
+  const titleMode=g.titleMode==='line'?'line':'number';
   const m=(B.splitModes||{})[i];
-  if(m&&m.mode==='interval') return {total:m.total||0, template:tpl, source:'file'};
+  if(m&&m.mode==='interval') return {total:m.total||0, template:tpl, titleMode, source:'file'};
   if(m&&m.mode==='pattern') return null;
-  if(g.enabled) return {total:0, template:tpl, source:'global'};
+  if(g.enabled) return {total:0, template:tpl, titleMode, source:'global'};
   return null;
+}
+// computeIntervalSplit 옵션으로 변환 (미리보기·실제 변환 공용)
+function _batchSplitOpts(split){
+  return split?.titleMode==='line'
+    ? {titleMode:'nearby'}
+    : {titleMode:'number', titleTemplate:split?.template||'{N}화'};
 }
 
 // 파일명 화수와 정확히 같은 수를 내는 프리셋 (자동 감지가 오차 5%를 넘을 때의 보정 — v3 '100% 일치')
@@ -2520,10 +2528,18 @@ function _ensureBatchSplitControls(){
   tplRow.id='batchSplitTplRow';
   tplRow.style.padding='3px 0';
   const tl=document.createElement('label');
-  tl.className='lbl'; tl.htmlFor='batchIntervalTpl'; tl.style.width='80px'; tl.textContent='제목 형식';
+  tl.className='lbl'; tl.htmlFor='batchIntervalTpl'; tl.style.width='80px'; tl.textContent='목차 제목';
+  // ★ Phase 28: 목차 제목 방식 선택 — N화 형식 / 본문 줄 그대로
+  const tm=document.createElement('select');
+  tm.className='opt-select'; tm.id='batchIntervalTitleMode';
+  tm.setAttribute('aria-label','간격 분할 목차 제목 방식');
+  [['number','N화 형식'],['line','본문 줄 그대로']].forEach(([v,t])=>{
+    const o=document.createElement('option'); o.value=v; o.textContent=t; tm.appendChild(o);
+  });
   const ti=document.createElement('input');
   ti.className='inp'; ti.id='batchIntervalTpl'; ti.placeholder='{N}화  ({N}=화 번호)';
-  tplRow.append(tl, ti);
+  ti.setAttribute('aria-label','N화 제목 형식');
+  tplRow.append(tl, tm, ti);
 
   anchor.insertAdjacentElement('afterend', row);
   row.insertAdjacentElement('afterend', tplRow);
@@ -2540,8 +2556,21 @@ function _ensureBatchSplitControls(){
     const g={...(B.batchSplit||{})};
     g.template=e.target?.value||'';
     _bStore.set({batchSplit:g});
+    _refreshAllBatchIntervalPreviews();
+  });
+  tm.addEventListener('change',e=>{
+    const g={...(B.batchSplit||{})};
+    g.titleMode=e.target?.value==='line'?'line':'number';
+    _bStore.set({batchSplit:g});
+    _syncBatchSplitControls();
+    _refreshAllBatchIntervalPreviews();
   });
   _syncBatchSplitControls();
+}
+
+// ★ Phase 28: 목차 제목 방식·형식이 바뀌면 열려 있는 파일별 간격 분할 미리보기를 다시 그림
+function _refreshAllBatchIntervalPreviews(){
+  (B.txtFiles||[]).forEach((_,i)=>{ if(document.getElementById('bint_preview_'+i)) _renderBatchIntervalPreview(i); });
 }
 
 function _syncBatchSplitControls(){
@@ -2550,6 +2579,9 @@ function _syncBatchSplitControls(){
   if(chk) chk.checked=!!g.enabled;
   const tplInp=document.getElementById('batchIntervalTpl');
   if(tplInp&&document.activeElement!==tplInp) tplInp.value=g.template||'{N}화';
+  const modeSel=document.getElementById('batchIntervalTitleMode');
+  if(modeSel) modeSel.value=g.titleMode==='line'?'line':'number';
+  if(tplInp) setShown(tplInp, g.titleMode!=='line');   // 본문 줄 그대로면 형식 입력 불필요
   const tplRow=document.getElementById('batchSplitTplRow');
   const anyFile=Object.values(B.splitModes||{}).some(m=>m&&m.mode==='interval');
   if(tplRow) tplRow.style.display=(g.enabled||anyFile)?'':'none';
@@ -2608,28 +2640,32 @@ function _renderBatchIntervalPreview(idx){
     const lines=text.split('\n');
     const total=split.total>0?split.total
       :(B.totalChs?.[idx]||estimateIntervalTotal(lines, B.txtFiles?.[idx]?.name||''));
-    const items=computeIntervalSplit(lines, total, {titleMode:'number', titleTemplate:split.template});
+    const items=computeIntervalSplit(lines, total, _batchSplitOpts(split));
     _recalcTocStats(items, lines);
     const q=_calcSplitQuality(items);
     const avg=q.avgLen>=10000?(q.avgLen/10000).toFixed(1)+'만자':q.avgLen.toLocaleString()+'자';
     pv.replaceChildren();
     const head=document.createElement('div');
     head.style.marginBottom='3px';
-    head.textContent=items.length+'화 · 균등도 '+q.score+'% · 평균 '+avg+'/화';
+    head.textContent=items.length+'화 · 균등도 '+q.score+'% · 평균 '+avg+'/화 · 목차 제목: '+(split.titleMode==='line'?'본문 줄 그대로':'N화 형식');
     const box=document.createElement('div');
     box.style.cssText='display:flex;flex-direction:column;gap:1px;padding:4px 6px;background:var(--bg2);border-radius:var(--radius-xs);border:1px solid var(--border)';
     const sample=items.length<=5?items:[...items.slice(0,3),...items.slice(-2)];
+    // ★ Phase 28: 제목 + 분할 지점 줄 번호 + 그 줄 내용 (어느 줄에서 나눴는지 보이게)
     sample.forEach(t=>{
-      const first=(lines.slice(t.line-1, t.line+5).find(l=>String(l).trim())||'').trim();
+      const first=t.splitText||(lines.slice(t.line-1, t.line+5).find(l=>String(l).trim())||'').trim().slice(0,40);
       const r=document.createElement('div');
-      r.style.cssText='display:flex;gap:6px;align-items:baseline;min-width:0';
+      r.className='split-title-item';
       const b=document.createElement('b');
-      b.style.cssText='color:var(--blue);flex-shrink:0';
+      b.className='split-title-name u-trunc';
       b.textContent=t.title;
+      const ln=document.createElement('span');
+      ln.className='toc-num';
+      ln.textContent=t.line+'줄';
       const sp=document.createElement('span');
-      sp.style.cssText='overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0';
-      sp.textContent='← '+first.slice(0,40);
-      r.append(b, sp);
+      sp.className='split-title-src u-trunc';
+      sp.textContent=first?'「'+first+'」':'(빈 줄)';
+      r.append(b, ln, sp);
       box.appendChild(r);
     });
     pv.append(head, box);
@@ -2883,18 +2919,13 @@ function buildPatPresetPanel(idx, sampleText, totalCh){
   const PRESETS = _BATCH_PRESETS;
 
   // 현재 패턴에서 체크 상태 계산
+  // ★ Phase 28: 여러 개를 골라 만든 패턴은 고른 목록을 기억해 두고 복원
+  //   (이전: 결합 패턴을 '|'로 쪼개 비교 → 프리셋 안의 (?:a|b)까지 쪼개져 다시 열면 체크가 풀려 있었음)
   const checkedVals = new Set();
   if(curPat){
-    const orMatch = curPat.match(/^\^\(\?:(.+)\)$/);
-    if(orMatch){
-      const parts = orMatch[1].split('|');
-      PRESETS.forEach(([,val])=>{
-        const stripped = val.replace(/^\^/,'').replace(/\$$/,'');
-        if(parts.some(p=>p===stripped)) checkedVals.add(val);
-      });
-    } else {
-      PRESETS.forEach(([,val])=>{ if(val===curPat) checkedVals.add(val); });
-    }
+    const memo=_batchPresetChecks[idx];
+    if(memo&&memo.pat===curPat) memo.vals.forEach(v=>checkedVals.add(v));
+    else PRESETS.forEach(([,val])=>{ if(val===curPat) checkedVals.add(val); });
   }
 
   let html =
@@ -2978,79 +3009,92 @@ async function batchPresetAuto(idx){
   if(!file) return;
   delete B.patterns[idx];
   delete B.sampleTexts[idx];
+  delete _batchPresetChecks[idx];
   const btn = document.querySelector('#bi_'+idx+' .batch-toc-btn');
   const panel = document.getElementById('btp_'+idx);
-  panel.classList.remove('show');
+  panel?.classList.remove('show');
   if(btn){
     btn.textContent='📋 목차 확인';
     await showBatchToc(idx, btn);
   }
 }
 
-function applyBatchPreset(idx){
-  // 직접 입력 필드 — 사용자가 명시적으로 입력한 경우만 우선
+// ★ Phase 28: 일괄 변환 패턴 여러 개 선택
+//   이전 원인 ① 체크 1개 → 직접 입력칸에 그 패턴을 자동으로 채움 → 다음 체크부터는 '직접 입력 우선' 규칙에 걸려
+//            두 번째 이후 선택이 계속 무시됨 (적용 버튼도 직접 입력칸 값만 사용)
+//          ② 결합 시 각 패턴의 바깥 '(?:'·')'를 떼어 내 '(?:chapter|part|ch)\.?\s*\d+…' 같은 패턴이 괄호가 깨진 정규식이 됨
+//   지금: 체크박스를 바꾸면 체크 목록으로 다시 만들고(직접 입력칸은 그 결과를 보여 줌),
+//         직접 입력칸에 타이핑하면 그 값이 우선 — 마지막으로 손댄 쪽이 기준
+const _batchPresetChecks={};   // idx → {pat, vals} — 패널을 다시 열 때 체크 상태 복원용
+
+function _combineBatchPresets(vals){
+  if(!vals.length) return '';
+  if(vals.length===1) return vals[0];
+  if(typeof buildCombinedPat==='function') return buildCombinedPat(new Set(vals));
+  return '^(?:'+vals.map(v=>'(?:'+String(v).replace(/^\^/,'')+')').join('|')+')';
+}
+
+function applyBatchPreset(idx, srcEl){
   const directEl=document.getElementById('bpat_direct_'+idx);
-  const direct=directEl?.value.trim();
   const checks=[...document.querySelectorAll('.bpck_'+idx+':checked')].map(c=>c.dataset.val);
 
   let combined='';
-  if(direct&&!checks.length){
-    // 직접 입력만 있는 경우
-    combined=direct;
-  } else if(checks.length===1&&!direct){
-    combined=checks[0];
-  } else if(checks.length>1&&!direct){
-    // 체크박스 여러 개 → OR 결합
-    const parts=checks.map(v=>v.replace(/^\^/,'').replace(/\$$/,'').replace(/^\(\?:/,'').replace(/\)$/,''));
-    combined='^(?:'+parts.join('|')+')$';
-  } else if(direct&&checks.length){
-    // 직접 입력 + 체크박스 모두 있으면 직접 입력 우선
-    combined=direct;
+  if(srcEl&&srcEl===directEl){
+    // 직접 입력 — 입력한 정규식을 그대로 사용
+    combined=directEl.value.trim();
+    directEl.dataset.typed=combined?'1':'';
+    _batchPresetChecks[idx]={pat:combined, vals:[]};
+  } else {
+    // 체크박스(·전체 선택/해제) — 체크된 패턴을 OR 결합하고 직접 입력칸에 결과 표시
+    combined=_combineBatchPresets(checks);
+    if(directEl){ directEl.value=combined; directEl.dataset.typed=''; }
+    _batchPresetChecks[idx]={pat:combined, vals:checks};
   }
 
-  // 직접 입력 필드 동기화 (체크박스로만 선택 시)
-  if(!direct&&combined&&directEl) directEl.value=combined;
+  // 정규식 오류 확인 — 잘못된 패턴은 저장하지 않음
+  let rx=null;
+  if(combined){
+    try{ rx=new RegExp(combined,'i'); }
+    catch(e){
+      directEl?.classList.add('inp-error');
+      const prevErr=document.getElementById('bpat_preview_'+idx);
+      if(prevErr) prevErr.textContent='⚠️ 정규식 오류: '+e.message;
+      return;
+    }
+  }
+  directEl?.classList.remove('inp-error');
 
   // 패턴 저장
   if(combined) B.patterns[idx]=combined;
   else delete B.patterns[idx];
 
+  // 미리보기: 선택 개수 + 원문에서 일치하는 줄 수
   const prev=document.getElementById('bpat_preview_'+idx);
-  if(prev) prev.textContent=combined?'현재: '+combined:'(자동 감지)';
-
-  // 총 챕터 수 실시간 업데이트
-  if(combined&&B.sampleTexts[idx]){
-    try{
-      const rx=new RegExp(combined,'i');
-      const lines=B.sampleTexts[idx].split('\n');
-      const cnt=lines.filter(l=>l.trim()&&rx.test(l.trim())).length;
+  if(prev){
+    let txt=combined?'현재: '+combined:'(자동 감지)';
+    if(rx&&B.sampleTexts[idx]){
+      const cnt=B.sampleTexts[idx].split('\n').filter(l=>l.trim()&&rx.test(l.trim())).length;
       const totalCh=B.totalChs[idx]||0;
-      const pct=totalCh>0?(cnt/totalCh*100).toFixed(0)+'%':null;
-      const infoEl=document.querySelector('#btp_'+idx+' b[style*="accent"]');
-      if(infoEl){
-        infoEl.textContent=cnt;
-        const pctSpan=infoEl.nextSibling;
-        if(pctSpan&&pct) pctSpan.textContent=' ('+pct+(parseFloat(pct)>=80?' ⭐':'')+')';
-      }
-    }catch(e){}
+      const pct=totalCh>0?' · '+(cnt/totalCh*100).toFixed(0)+'%'+(cnt/totalCh>=0.8?' ⭐':''):'';
+      txt=(checks.length>1&&!(srcEl&&srcEl===directEl)?'패턴 '+checks.length+'개 결합 · ':'')+'일치 '+cnt+'줄'+pct+' — '+txt;
+    }
+    prev.textContent=txt;
   }
 }
 
 async function confirmBatchPreset(idx){
   const directEl=document.getElementById('bpat_direct_'+idx);
-  const direct=directEl?.value.trim();
   const checks=[...document.querySelectorAll('.bpck_'+idx+':checked')].map(c=>c.dataset.val);
-
-  let pat=direct;
-  if(!pat&&checks.length===1) pat=checks[0];
-  else if(!pat&&checks.length>1){
-    const parts=checks.map(v=>v.replace(/^\^/,'').replace(/\$$/,'').replace(/^\(\?:/,'').replace(/\)$/,''));
-    pat='^(?:'+parts.join('|')+')$';
-  }
+  // 직접 입력칸은 항상 최신 결합 결과(또는 사용자가 입력한 정규식)를 담고 있음
+  let pat=directEl?.value.trim()||'';
+  if(!pat&&checks.length) pat=_combineBatchPresets(checks);
   if(!pat) pat=B.patterns[idx];
   if(!pat){Toast.warn('패턴을 선택하거나 직접 입력해주세요.');return;}
+  try{ new RegExp(pat,'i'); }
+  catch(e){ Toast.warn('정규식 오류: '+e.message); return; }
 
   B.patterns[idx]=pat;
+  if(directEl?.dataset.typed!=='1') _batchPresetChecks[idx]={pat, vals:checks};
   // ★ v3: 패턴을 명시적으로 확정하면 이 파일의 간격 분할은 해제 (전역 토글이 켜져 있으면 이 파일만 패턴 모드로 고정)
   const modes={...(B.splitModes||{})};
   if(modes[idx]?.mode==='interval'||(B.batchSplit||{}).enabled){
@@ -3063,6 +3107,7 @@ async function confirmBatchPreset(idx){
   panel?.classList.remove('show');
   if(btn){btn.textContent='📋 목차 확인';await showBatchToc(idx,btn);}
   _syncBatchModeBadge(idx);
+  if(checks.length>1&&directEl?.dataset.typed!=='1') Toast.success('패턴 '+checks.length+'개를 함께 적용했어요.',2500);
 }
 
 function batchPickCover(idx){
@@ -3111,7 +3156,7 @@ async function startBatch(){
         if(split){
           const lines=raw.replace(/\r\n?/g,'\n').split('\n');
           const n=split.total>0?split.total:(B.totalChs?.[i]||estimateIntervalTotal(lines, f.name));
-          const items=computeIntervalSplit(lines, n, {titleMode:'number', titleTemplate:split.template});
+          const items=computeIntervalSplit(lines, n, _batchSplitOpts(split));
           chapters=intervalItemsToChapters(lines, items);
           const stEl=document.getElementById('bst_'+i);
           if(stEl) stEl.textContent='변환 중... (간격 분할 '+chapters.length+'화)';

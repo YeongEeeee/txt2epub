@@ -873,7 +873,7 @@ function _spawnDropConfetti(container){
     manualIllName:        (el) => typeof onManualIllName==='function'&&onManualIllName(parseInt(el.dataset.id,10)),
     loadIllRange:         (el) => typeof loadIllRange==='function'&&loadIllRange(parseInt(el.dataset.id,10)),
     illKwSearch:          (el) => typeof debounceIllKwSearch==='function'&&debounceIllKwSearch(parseInt(el.dataset.id,10)),
-    applyBatchPreset:     (el) => typeof applyBatchPreset==='function'&&applyBatchPreset(parseInt(el.dataset.idx,10)),
+    applyBatchPreset:     (el) => typeof applyBatchPreset==='function'&&applyBatchPreset(parseInt(el.dataset.idx,10), el),   // ★ Phase 28: 체크박스/직접 입력 구분
     toggleEIM:            (el) => typeof toggleEIM==='function'&&toggleEIM(parseInt(el.dataset.id,10)),
     syncPadTop:           (el) => { const v=document.getElementById('cssPadTop');if(v)v.value=el.value; const d=document.getElementById('cssPadTopVal');if(d)d.textContent=el.value+'em'; updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); },
     syncPadBottom:        (el) => { const v=document.getElementById('cssPadBottom');if(v)v.value=el.value; const d=document.getElementById('cssPadBottomVal');if(d)d.textContent=el.value+'em'; updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); },

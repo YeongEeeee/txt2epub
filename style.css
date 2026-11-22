@@ -1608,3 +1608,21 @@ body.modal-open .page-tabs{
 #toc-search.u-p-5-8{padding:5px 8px}
 #shortcutHelp kbd.kbd-key{background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:2px 6px}
 .mill-row .inp-sm,.mill-row-top .inp-sm{font-size:var(--fs-sm);padding:5px 8px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text)}
+
+/* ── ★ Phase 28: 간격 분할 목차 패널 (parser.js _buildIntervalTitleBar) ── */
+.split-title-bar{display:flex;flex-direction:column;gap:6px;padding:8px 10px;margin:4px 0 8px;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm)}
+.split-title-hd{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:var(--fs-sm)}
+.split-title-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.split-title-lbl{font-size:var(--fs-xs);color:var(--text2);font-weight:600;min-width:52px;flex-shrink:0}
+.split-title-tpl{flex:1;min-width:90px;padding:3px 7px}
+.split-title-list{display:flex;flex-direction:column;gap:1px;padding:4px 6px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-xs)}
+.split-title-item{display:flex;align-items:baseline;gap:6px;min-width:0;width:100%;padding:2px 2px;border:none;background:none;color:var(--text);font:inherit;font-size:var(--fs-xs);text-align:left;cursor:pointer;border-radius:var(--radius-xs)}
+.split-title-item:hover{background:var(--blue-bg)}
+.split-title-item:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.split-title-name{color:var(--blue);flex:0 1 auto;max-width:40%}
+.split-title-src{color:var(--text2);flex:1;min-width:0}
+.split-title-gap{text-align:center;color:var(--text3);font-size:var(--fs-xs);padding:1px 0}
+/* 일괄 변환 패턴 직접 입력 — 정규식 오류 */
+.inp.inp-error{border-color:var(--accent);background:var(--accent-bg)}
+.split-title-list div.split-title-item{cursor:default}
+.split-title-list div.split-title-item:hover{background:none}
