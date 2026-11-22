@@ -25,6 +25,7 @@
  *  18. Phase 23: 이미지 형식 바이트 판별(.jpg 이름의 PNG 표지), 커스텀 폰트 선택 복원 경합·미사용 폰트 미포함
  *  19. Phase 28: 설정 초기화 범위·이미지 추출 표지·일괄 패턴 다중 선택·간격 분할 목차 제목 방식
  *  20. Phase 29: 선택 정규식 3단계 파이프라인(후보 추출·오탐 필터·문맥/번호 연속성)·핵심 5종 프리셋·엄격 검증 토글
+ *  21. Phase 30 (UI 정제 1단계): 미정의 클래스 0 · 단축키 단일 출처 · 토큰 대비 4.5:1 · 라벨·이름·랜드마크·표지 alt
  */
 'use strict';
 const fs   = require('fs');
@@ -1394,6 +1395,51 @@ async function main(){
     check('[파이프라인] 저장·복원 (epub_extra.strictTocCtx)', /strictTocCtx:\(typeof S!=='undefined'/.test(st) && /S\.tocStrictContext=s\.strictTocCtx;/.test(st));
     check('[파이프라인] 변환·일괄·미리보기·캐시 키 모두 같은 옵션',
       (conv.match(/strictContext/g) || []).length >= 5 && /strictContext:getTocStrictContext\(\),\n  \};/.test(parser) && /\$\{getTocStrictContext\(\)\}:\$\{JSON\.stringify\(cleanOpts\)\}/.test(parser));
+  }
+
+  // ── 21. Phase 30 (UI 정제 1단계) — 측정으로 확인한 접근성·표기 버그 회귀 방지 (docs/baseline.md §7) ──
+  {
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const html = read('index.html'), css = read('style.css'), ui = read('ui-state.js'), conv = read('convert.js'), st = read('settings.js'), cs = read('cover-search.js');
+    // 21-1. 디자인 지표 측정기 결과 재사용 (같은 계산을 테스트에 복제하지 않음)
+    const design = JSON.parse(require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'measure-design.js'), '--json'], { encoding: 'utf8' }));
+    check('[정제1] index.html 클래스는 모두 style.css에 정의', design.html.undefinedClasses.length === 0, design.html.undefinedClasses.join(' '));
+    for(const [theme, rows] of Object.entries(design.contrast)){
+      const bad = rows.filter(r => r.ratio !== null && r.ratio < 4.5);
+      check(`[정제1] 토큰 대비 4.5:1 이상 (${theme})`, bad.length === 0, bad.map(r => `${r.label} ${r.ratio}`).join(', '));
+    }
+    // 21-2. 단축키: 표 하나가 keydown·표기를 모두 만든다 (예전 'Ctrl+D'·'Ctrl+Enter' 오표기 재발 방지)
+    check('[정제1] 마크업에 단축키 문자열 하드코딩 없음', !/Ctrl\s*\+\s*(D|Enter|Space|S)\b/.test(html.replace(/<!--[\s\S]*?-->/g, '')));
+    check('[정제1] keydown은 SHORTCUTS 표로 판별', /const sc=SHORTCUTS\.find\(s=>s\.match\(e\)\);/.test(ui) && !/e\.key==='s'\|\|e\.key==='S'\)\{\s*e\.preventDefault\(\);\s*typeof downloadEpub/.test(ui));
+    check('[정제1] 표기 요소가 표를 참조 (convert·download)',
+      /id="convertBtn"[^>]*data-shortcut="convert"/.test(html) && /id="btmDlBtn"[^>]*data-shortcut="download"/.test(html)
+      && (html.match(/data-shortcut-kbd="(convert|download)"/g) || []).length === 2 && /applyShortcutLabels\(\);/.test(ui));
+    // 21-3. 이름·라벨·랜드마크
+    check('[정제1] <main> 랜드마크 1개', (html.match(/<main\b/g) || []).length === 1 && /<main class="wrap">/.test(html));
+    check('[정제1] 드롭존 이름 = 보이는 글자 (aria-label 없음)', /<div class="dz" id="txtDz" tabindex="0" role="button">/.test(html));
+    const needName = ['histSortSel', 'cssLine', 'cssFontSize', 'cssLineSlider', 'cssFontSizeSlider', 'cssIndentSlider',
+      'cssPadTopSlider', 'cssPadTop', 'cssPadBottomSlider', 'cssPadBottom', 'cssPadLeftSlider', 'cssPadLeft', 'cssPadRightSlider', 'cssPadRight'];
+    const unnamed = needName.filter(id => !new RegExp(`id="${id}"[^>]*aria-label="[^"]+"`).test(html));
+    check('[정제1] 설정 입력·선택 상자 이름 있음', unnamed.length === 0, unnamed.join(' '));
+    check('[정제1] 라벨 for 연결 (폰트·JPG 품질)', /<label for="cssFont">/.test(html) && /<label for="optImgQuality">/.test(html));
+    check('[정제1] 스크롤 영역 키보드 접근 (#regexFeedList)', /id="regexFeedList" tabindex="0" role="region" aria-label="[^"]+"/.test(html));
+    check('[정제1] 프리셋 목록 자식 listitem · 이름 키보드 실행', /chip\.setAttribute\('role','listitem'\)/.test(st) && /role="listitem">저장된 프리셋 없음/.test(st) && /nameEl\?\.addEventListener\('keydown'/.test(st));
+    // 21-4. 표지 썸네일 img alt (axe image-alt)
+    const altSites = [
+      /img=document\.createElement\('img'\); img\.alt='표지 미리보기';/.test(ui),
+      /shown\.alt='표지 미리보기'/.test(conv),
+      /img\.src=dataUrl; img\.alt='표지 미리보기';/.test(conv),
+      /img\.src=objUrl; img\.alt='표지 미리보기'; img\.dataset\.blobUrl=objUrl;/.test(conv),
+      /<img id="bthumb_'\+i\+'" src="" alt="표지">/.test(conv),
+      /img\.alt='표지';img\.style\.cssText/.test(conv),
+      /img\.alt = '표지 미리보기';\n\s*img\.dataset\.blobUrl = objUrl;/.test(cs),
+    ];
+    check('[정제1] 표지 썸네일 img 7곳 alt', altSites.every(Boolean), JSON.stringify(altSites));
+    // 21-5. 비활성 패턴 버튼은 실제 disabled (흐림만 하던 이전 방식 금지)
+    check('[정제1] setPatIdle 단일 경로 · 버튼 disabled', /function setPatIdle\(idle\)\{[\s\S]{0,300}b\.disabled=!!idle;/.test(conv)
+      && !/classList\.(add|remove)\('is-idle'\)/.test(conv + ui) && /#patSection\.is-idle \.pat-actions\{pointer-events:none\}/.test(css));
+    // 21-6. 터치 영역 24px
+    check('[정제1] 슬라이더·작은 선택 상자 24px', /\.css-slider\{[^}]*height:24px/.test(css) && /\.pad-slider\{[^}]*height:24px/.test(css) && /\.inp-xs\{[^}]*min-height:24px/.test(css));
   }
 
   if(UPDATE){

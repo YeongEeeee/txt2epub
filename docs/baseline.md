@@ -22,7 +22,7 @@ node tests/measure-design.js
 
 # 3) 런타임 지표 — 측정 도구는 앱 의존성이 아니므로 --no-save로 임시 설치
 npm install --no-save playwright-core axe-core
-node tests/measure-runtime.js
+node tests/measure-runtime.js --runs 5   # INP는 1회 값이 크게 흔들려 5회 중앙값으로 비교
 
 # 4) Lighthouse — 배포 사이트 기준 (실제 사용자 조건, 구글 폰트 포함)
 npx lighthouse https://novel2epub.pages.dev/ --only-categories=performance,accessibility,best-practices --view
@@ -83,7 +83,8 @@ Get-ChildItem tests\out\*.epub | ForEach-Object { java -jar epubcheck-5.1.0\epub
 | CPU 1배 | **192ms** | 목차 확인 | 56ms | 72ms | 0 | 0 |
 | CPU 4배 (중급 모바일 근사) | **560ms** ❌ | 목차 확인 | 112ms | 176ms | 0 | 0 |
 
-- 2회 실행 편차: CPU 1배 192/192ms · CPU 4배 552/560ms → 비교 시 ±10ms는 잡음으로 본다
+- ⚠️ 정정 (Phase 30): 처음 2회 실행이 우연히 비슷했을 뿐, 같은 코드를 다시 재면 1회 값이 CPU 1배 192~360ms로 크게 흔들렸다. 이후 비교는 `--runs 5` 중앙값·범위로 한다
+- 같은 코드 5회 재측정(Phase 30 세션): CPU 1배 중앙값 200ms (200~208) · CPU 4배 584ms (544~656)
 - 목표 INP 200ms 미만 → CPU 4배 조건에서 **미달**. 원인 단계는 2,000화 목차 확인 클릭
 - 두 조건 모두 흐름 끝까지 완료 (결과 카드 표시, "2000개 장 감지됨")
 
@@ -175,3 +176,25 @@ Phase 4 기능 중 이미 있는 것:
 4. axe 나머지 규칙: `label`(12) · `select-name`(4) · `target-size`(4) · `image-alt`(1) · `label-content-name-mismatch`(1) · `scrollable-region-focusable`(1) · `aria-required-children`(1) · `<main>` 랜드마크
 5. (판단 필요) CPU 4배 INP 560ms — 2,000화 목차 확인 클릭. 계획 Phase에 없던 항목
 6. (판단 필요) 모바일 Lighthouse 성능 59 — 렌더 차단 JS 약 1MB. 계획 Phase에 없던 항목
+
+---
+
+## 📈 8. Phase 30 (UI 정제 1단계) 결과 — 같은 세션에서 기준 커밋과 나란히 측정
+
+| 지표 | 기준선 `dfd847b` | Phase 30 | 목표 |
+|---|---|---|---|
+| axe 위반 노드 — 테라코타 라이트 / 다크 | 64 / 56 | 0 / 0 | 0 ✅ |
+| axe 위반 노드 — 인디고 · 포레스트 (라이트 / 다크) | 53 / 45 · 53 / 45 | 0 / 0 · 0 / 0 | 0 ✅ |
+| 토큰 대비 4.5:1 미달 조합 (기본 스킨) | 라이트 6 · 다크 9 | 0 · 0 (스킨 3종 모두 0) | 0 ✅ |
+| style.css 미정의 클래스 | 12 | 0 | 0 ✅ |
+| 단축키 표기 불일치 | 3곳 + README 4개 | 0 (표 하나에서 생성) | 0 ✅ |
+| Lighthouse 접근성 모바일 / 데스크톱 | 95 / 95 | 100 / 100 | — |
+| INP 근사 CPU 1배 (5회 중앙값, 범위) | 200ms (200~208) | 176ms (168~208) | 변화 없음 (범위 겹침) |
+| INP 근사 CPU 4배 (5회 중앙값, 범위) | 584ms (544~656) | 568ms (520~568) | 200ms 미만 → Phase 2 |
+| CLS | 0 | 0 | < 0.1 ✅ |
+| Lighthouse 모바일 성능 (반복 범위) | 60~69 | 59~68 | 80 이상 → Phase 2 |
+| 회귀 테스트 | 479 | 498 | 전부 통과 ✅ |
+
+- Phase 30 테스트 19개는 기준 커밋 코드에 그대로 돌리면 19개 모두 실패 — 수정이 없으면 잡히는 검사임을 확인
+- Lighthouse 모바일 성능은 같은 코드에서도 59~69로 흔들려 단일 값 비교는 의미 없음 → Phase 2에서 3회 이상 중앙값 사용
+- 디자인 지표(무한 애니메이션 11 · 그림자 37종 · 색상 리터럴 36종 · 이모지)는 Phase 3 대상이라 변화 없음

@@ -814,6 +814,7 @@ async function selectSearchedCover(imgUrl) {
           thumb.innerHTML = '';
           const img = document.createElement('img');
           img.src = objUrl;
+          img.alt = '표지 미리보기';
           img.dataset.blobUrl = objUrl;
           thumb.appendChild(img);
         }

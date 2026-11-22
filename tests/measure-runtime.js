@@ -6,6 +6,8 @@
  *     npm install --no-save playwright-core axe-core
  *     node tests/measure-runtime.js            → 표 출력
  *     node tests/measure-runtime.js --json     → JSON 출력
+ *     node tests/measure-runtime.js --runs 5   → 조건마다 5회 반복, INP는 중앙값·최소·최대로 보고 (기본 3회)
+ *       같은 코드에서도 1회 측정값이 크게 흔들려(예: CPU 1배 192~360ms) 1회 값끼리 비교하면 안 된다
  *
  *   Chrome 위치: 환경변수 CHROME_PATH가 있으면 그것을, 없으면 설치된 Chrome(channel: 'chrome')을 사용
  *
@@ -14,7 +16,7 @@
  *      - 각 단계별 최대 지연, 전체 최댓값 = INP 근사치 (상호작용 50회 미만이면 INP = 최악값)
  *      - CPU 제약 없음 / CPU 4배 감속(중급 모바일 근사) 두 조건
  *   2. CLS — 세션 전체 layout-shift 누적 (hadRecentInput 제외)
- *   3. axe-core 접근성 위반 — 5개 탭 × 라이트/다크
+ *   3. axe-core 접근성 위반 — 5개 탭 × 라이트/다크 × 스킨 3종(테라코타·인디고·포레스트), 변환 완료 상태에서 검사
  *   4. 콘솔 오류 / 페이지 예외 수
  *
  * 외부 네트워크(구글 폰트·표지 검색)는 측정 환경마다 달라 결과를 흔들므로 차단하고 로컬 파일만 서빙한다.
@@ -26,6 +28,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..');
 const JSON_OUT = process.argv.includes('--json');
+const RUNS = Math.max(1, parseInt(process.argv[process.argv.indexOf('--runs') + 1], 10) || 3);
 
 let chromium, axeSource;
 try {
@@ -80,7 +83,7 @@ const INSTRUMENT = `
   } catch (e) {}
 `;
 
-async function run(throttle){
+async function run(throttle, withAxe = true){
   const srv = await serve();
   const base = `http://127.0.0.1:${srv.address().port}/index.html`;
   const launchOpts = { headless: true, args: ['--no-sandbox'] };
@@ -140,6 +143,7 @@ async function run(throttle){
   });
 
   const m = await page.evaluate(() => window.__m);
+  const blockedInFlow = blocked.length;   // axe 반복(탭×테마×스킨) 중 생기는 외부 요청과 구분
   // 흐름이 실제로 끝까지 갔는지 확인 (측정이 중간에 멈췄는데 수치만 좋게 나오는 것을 막음)
   const flow = await page.evaluate(() => ({
     resultShown: !!document.getElementById('resultBox') && !document.getElementById('resultBox').hidden,
@@ -150,9 +154,14 @@ async function run(throttle){
   // axe — 탭 × 테마. 숨겨진 탭은 axe가 건너뛰므로 탭을 실제로 연다
   const axe = [];
   // 앱 CSP가 인라인 스크립트를 막으므로 addScriptTag 대신 DevTools 평가로 주입 (페이지 CSP는 그대로 유지)
-  await page.evaluate(axeSource);
+  if (withAxe) await page.evaluate(axeSource);
+  for (const skin of (withAxe ? ['terracotta', 'indigo', 'forest'] : []))
   for (const theme of ['light', 'dark']) {
-    await page.evaluate(th => document.documentElement.setAttribute('data-theme', th), theme);
+    await page.evaluate(([th, sk]) => {
+      const d = document.documentElement;
+      d.setAttribute('data-theme', th);
+      if (sk === 'terracotta') d.removeAttribute('data-skin'); else d.setAttribute('data-skin', sk);
+    }, [theme, skin]);
     for (const t of tabs) {
       await page.click(`#tab-${t}`);
       await page.waitForTimeout(300);
@@ -160,7 +169,7 @@ async function run(throttle){
         const res = await window.axe.run(document, { runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'] } });
         return res.violations.map(v => ({ id: v.id, impact: v.impact, nodes: v.nodes.length }));
       });
-      axe.push({ theme, tab: t, violations: r });
+      axe.push({ skin, theme, tab: t, violations: r });
     }
   }
   await browser.close();
@@ -182,26 +191,44 @@ async function run(throttle){
     layoutShifts: m.shifts,
     axe,
     errors,
-    blockedExternal: blocked.length,
+    blockedExternal: blockedInFlow,
     flow,
   };
 }
 
+const median = a => { const s = [...a].sort((x, y) => x - y); const m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
 (async () => {
   const results = [];
-  for (const t of [1, 4]) results.push(await run(t));
+  for (const t of [1, 4]) {
+    // axe는 첫 회에만 (탭×테마×스킨 30회 검사라 오래 걸림) — INP·CLS는 RUNS회 반복
+    const runs = [];
+    for (let i = 0; i < RUNS; i++) runs.push(await run(t, i === 0));
+    const inps = runs.map(r => r.inpApproxMs);
+    results.push(Object.assign({}, runs[0], {
+      runs: RUNS,
+      inpApproxMs: median(inps), inpMin: Math.min(...inps), inpMax: Math.max(...inps), inpAll: inps,
+      cls: Math.max(...runs.map(r => r.cls)),
+      errors: runs.flatMap(r => r.errors),
+    }));
+  }
   if (JSON_OUT) { process.stdout.write(JSON.stringify({ measuredAt: new Date().toISOString(), results }, null, 2) + '\n'); return; }
   for (const r of results) {
-    console.log(`── CPU ${r.cpuThrottle}배 ──`);
-    console.log(`  INP 근사(최악 상호작용) ${Math.round(r.inpApproxMs)}ms · 16ms 넘는 이벤트 ${r.interactionsOver16ms}개 · CLS ${r.cls} (이동 ${r.layoutShifts}회)`);
+    console.log(`── CPU ${r.cpuThrottle}배 · ${r.runs}회 ──`);
+    console.log(`  INP 근사 중앙값 ${Math.round(r.inpApproxMs)}ms (범위 ${Math.round(r.inpMin)}~${Math.round(r.inpMax)}ms · 각 회 ${r.inpAll.map(Math.round).join('/')}) · CLS 최대 ${r.cls}`);
+    console.log(`  (아래 단계별 수치는 1회차)`);
     for (const [s, v] of Object.entries(r.byStep)) console.log(`    ${s.padEnd(8)} 최대 ${Math.round(v.max)}ms (${v.worst}, ${v.count}건)`);
     console.log(`  흐름 완료: 결과 카드 ${r.flow.resultShown ? '표시' : '미표시'} · 감지 배지 "${r.flow.detectBadge}"`);
     console.log(`  콘솔 오류 ${r.errors.length}건${r.errors.length ? ': ' + r.errors.slice(0, 5).join(' | ') : ''} · 차단한 외부 요청 ${r.blockedExternal}건`);
   }
   const axe = results[0].axe;
-  console.log('── axe 위반 (CPU 1배 실행 기준) ──');
+  console.log('── axe 위반 (CPU 1배 실행 · 변환 완료 상태) ──');
+  const sum = {};
   for (const a of axe) {
     const total = a.violations.reduce((n, v) => n + v.nodes, 0);
-    console.log(`  ${a.theme.padEnd(5)} ${a.tab.padEnd(8)} 규칙 ${a.violations.length}종 · 노드 ${total}개  ${a.violations.map(v => `${v.id}(${v.nodes})`).join(' ')}`);
+    const k = `${a.skin}/${a.theme}`;
+    sum[k] = (sum[k] || 0) + total;
+    if (total) console.log(`  ${a.skin.padEnd(10)} ${a.theme.padEnd(5)} ${a.tab.padEnd(8)} 규칙 ${a.violations.length}종 · 노드 ${total}개  ${a.violations.map(v => `${v.id}(${v.nodes})`).join(' ')}`);
   }
+  console.log('  합계: ' + Object.entries(sum).map(([k, v]) => `${k} ${v}`).join(' · '));
 })().catch(e => { console.error(e); process.exit(1); });

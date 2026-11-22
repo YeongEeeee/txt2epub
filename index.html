@@ -42,13 +42,13 @@
   <button role="tab" class="page-tab" id="tab-settings" data-action="switchPage" data-page="settings" aria-selected="false" aria-controls="page-settings">설정</button>
 </div>
 
-<div class="wrap">
+<main class="wrap">
 <!-- ══ 변환 페이지 ══ -->
 <div id="page-convert" class="page on" role="tabpanel" aria-labelledby="tab-convert" tabindex="0">
 <div class="sec">
   <div class="sec-hdr"><span class="sec-title">파일 설정</span><div class="sec-line"></div></div>
   <div class="card">
-    <div class="dz" id="txtDz" tabindex="0" role="button" aria-label="TXT 파일 업로드 영역. Enter나 Space로 파일 탐색기 열기">
+    <div class="dz" id="txtDz" tabindex="0" role="button">
       <svg class="dz-icon" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="12" y2="17"/></svg>
       <div class="dz-text">TXT 파일을 드래그하거나 클릭</div>
       <div class="dz-sub">여러 파일 가능 · 자동 정렬 병합 · EUC-KR 자동 감지 · 이름이 비슷한 이미지를 함께 넣으면 표지 자동 연결</div>
@@ -178,7 +178,7 @@
         <div class="regex-feed-title">챕터 감지 결과</div>
         <span class="detect-badge zero" id="detectBadge">감지 전</span>
       </div>
-      <div class="regex-feed-list" id="regexFeedList">
+      <div class="regex-feed-list" id="regexFeedList" tabindex="0" role="region" aria-label="챕터 감지 결과 목록">
         <div class="regex-feed-empty">
           <div class="regex-feed-empty-icon">📄</div>
           목차 확인 후 표시됩니다
@@ -205,7 +205,7 @@
         <button class="ttab" data-action="tocTab" data-idx="3">정규식 수정</button>
         <!-- ★ 단축키 힌트 -->
         <span id="tocShortcutHint" class="txt-meta-sm"
-              title="Ctrl+클릭: 다중 선택 | Shift+클릭: 범위 선택 | 드래그 중앙: 병합 | ☑ 선택 모드: 터치 친화 | Ctrl+Enter: 변환 | Ctrl+D: 다운로드">
+              title="Ctrl+클릭: 다중 선택 | Shift+클릭: 범위 선택 | 드래그 중앙: 병합 | ☑ 선택 모드: 터치 친화" data-shortcut-append="convert,download">
           Shift=범위선택 · 드래그중앙=병합
         </span>
       </div>
@@ -778,7 +778,7 @@
     <div class="hist-filter-bar">
       <input class="inp" id="histSearchInp" placeholder="제목 검색...">
       <button class="hist-filter-toggle" id="histFilterHasFile" data-filter="hasFile">파일 있는 것만</button>
-      <select id="histSortSel" data-input-action="renderHistory"><option value="newest">최신순</option><option value="oldest">오래된순</option><option value="size">크기순</option><option value="chapters">챕터순</option></select>
+      <select id="histSortSel" data-input-action="renderHistory" aria-label="정렬 기준"><option value="newest">최신순</option><option value="oldest">오래된순</option><option value="size">크기순</option><option value="chapters">챕터순</option></select>
     </div>
     <div id="histList"></div>
   </div>
@@ -893,7 +893,7 @@
       <label class="sw"><input type="checkbox" id="optImgConvert" checked data-input-action="saveExtraSettingsRenderIll"><span class="sw-slider" aria-hidden="true"></span></label>
     </div>
     <div class="toggle-row" id="optImgQualityRow">
-      <div><label>JPG 변환 품질</label><small>높을수록 화질 좋고 용량 큼 (기본: 92%)</small></div>
+      <div><label for="optImgQuality">JPG 변환 품질</label><small>높을수록 화질 좋고 용량 큼 (기본: 92%)</small></div>
       <div class="flex-row">
         <input type="range" id="optImgQuality" min="60" max="100" step="2" value="92" data-input-action="syncImgQuality">
         <span id="optImgQualityVal">92%</span>
@@ -906,7 +906,7 @@
   <div class="card">
     <div class="css-field-grid">
       <div class="css-field">
-        <label>폰트</label>
+        <label for="cssFont">폰트</label>
         <select id="cssFont" data-input-action="updateCssSave">
           <optgroup label="── 구글 폰트 (사용률 높은 순) ──">
           <option value='"Noto Sans KR",sans-serif'>Noto Sans KR ★ (범용 고딕)</option>
@@ -942,27 +942,27 @@
         <div class="pad-accordion-body" id="padAccordionBody">
         <div class="pad-grid">
           <div class="pad-field">
-            <label class="pad-lbl">위</label>
-            <input type="range" class="pad-slider" id="cssPadTopSlider" min="0" max="4" step="0.1" value="1.5" data-input-action="syncPadTop">
-            <input type="number" class="pad-num" id="cssPadTop" min="0" max="4" step="0.1" value="1.5" data-input-action="updateCssSave">
+            <label class="pad-lbl" for="cssPadTopSlider">위</label>
+            <input type="range" class="pad-slider" id="cssPadTopSlider" aria-label="위 여백" min="0" max="4" step="0.1" value="1.5" data-input-action="syncPadTop">
+            <input type="number" class="pad-num" id="cssPadTop" aria-label="위 여백 (em)" min="0" max="4" step="0.1" value="1.5" data-input-action="updateCssSave">
             <span class="pad-unit">em</span>
           </div>
           <div class="pad-field">
-            <label class="pad-lbl">아래</label>
-            <input type="range" class="pad-slider" id="cssPadBottomSlider" min="0" max="4" step="0.1" value="1.5" data-input-action="syncPadBottom">
-            <input type="number" class="pad-num" id="cssPadBottom" min="0" max="4" step="0.1" value="1.5" data-input-action="updateCssSave">
+            <label class="pad-lbl" for="cssPadBottomSlider">아래</label>
+            <input type="range" class="pad-slider" id="cssPadBottomSlider" aria-label="아래 여백" min="0" max="4" step="0.1" value="1.5" data-input-action="syncPadBottom">
+            <input type="number" class="pad-num" id="cssPadBottom" aria-label="아래 여백 (em)" min="0" max="4" step="0.1" value="1.5" data-input-action="updateCssSave">
             <span class="pad-unit">em</span>
           </div>
           <div class="pad-field">
-            <label class="pad-lbl">왼쪽</label>
-            <input type="range" class="pad-slider" id="cssPadLeftSlider" min="0" max="4" step="0.1" value="1.8" data-input-action="syncPadLeft">
-            <input type="number" class="pad-num" id="cssPadLeft" min="0" max="4" step="0.1" value="1.8" data-input-action="updateCssSave">
+            <label class="pad-lbl" for="cssPadLeftSlider">왼쪽</label>
+            <input type="range" class="pad-slider" id="cssPadLeftSlider" aria-label="왼쪽 여백" min="0" max="4" step="0.1" value="1.8" data-input-action="syncPadLeft">
+            <input type="number" class="pad-num" id="cssPadLeft" aria-label="왼쪽 여백 (em)" min="0" max="4" step="0.1" value="1.8" data-input-action="updateCssSave">
             <span class="pad-unit">em</span>
           </div>
           <div class="pad-field">
-            <label class="pad-lbl">오른쪽</label>
-            <input type="range" class="pad-slider" id="cssPadRightSlider" min="0" max="4" step="0.1" value="1.8" data-input-action="syncPadRight">
-            <input type="number" class="pad-num" id="cssPadRight" min="0" max="4" step="0.1" value="1.8" data-input-action="updateCssSave">
+            <label class="pad-lbl" for="cssPadRightSlider">오른쪽</label>
+            <input type="range" class="pad-slider" id="cssPadRightSlider" aria-label="오른쪽 여백" min="0" max="4" step="0.1" value="1.8" data-input-action="syncPadRight">
+            <input type="number" class="pad-num" id="cssPadRight" aria-label="오른쪽 여백 (em)" min="0" max="4" step="0.1" value="1.8" data-input-action="updateCssSave">
             <span class="pad-unit">em</span>
           </div>
         </div>
@@ -971,8 +971,8 @@
     </div>
     <div class="css-slider-wrap u-mb-10">
       <div class="css-slider-label">줄간격<span id="cssLineVal">1.9</span></div>
-      <input type="range" class="css-slider" id="cssLineSlider" min="1.4" max="2.8" step="0.1" value="1.9" data-input-action="syncCssLineSlider">
-      <select class="inp-xs" id="cssLine" data-input-action="syncCssLine">
+      <input type="range" class="css-slider" id="cssLineSlider" min="1.4" max="2.8" step="0.1" value="1.9" data-input-action="syncCssLineSlider" aria-label="줄간격">
+      <select class="inp-xs" id="cssLine" data-input-action="syncCssLine" aria-label="줄간격 단계 선택">
         <option value="1.4">1.4 (좁게)</option><option value="1.6">1.6</option><option value="1.7">1.7</option>
         <option value="1.9" selected>1.9 (기본)</option><option value="2.1">2.1</option>
         <option value="2.3">2.3</option><option value="2.5">2.5</option><option value="2.8">2.8 (넓게)</option>
@@ -980,8 +980,8 @@
     </div>
     <div class="css-slider-wrap u-mb-10">
       <div class="css-slider-label">글자 크기<span id="cssFontSizeVal">1.0em</span></div>
-      <input type="range" class="css-slider" id="cssFontSizeSlider" min="0.8" max="1.4" step="0.05" value="1.0" data-input-action="syncCssFontSizeSlider">
-      <select class="inp-xs" id="cssFontSize" data-input-action="syncCssFontSize">
+      <input type="range" class="css-slider" id="cssFontSizeSlider" min="0.8" max="1.4" step="0.05" value="1.0" data-input-action="syncCssFontSizeSlider" aria-label="글자 크기">
+      <select class="inp-xs" id="cssFontSize" data-input-action="syncCssFontSize" aria-label="글자 크기 단계 선택">
         <option value="0.8em">0.8em (매우 작게)</option><option value="0.9em">0.9em (작게)</option>
         <option value="1em" selected>1.0em (보통)</option><option value="1.1em">1.1em (크게)</option>
         <option value="1.2em">1.2em (매우 크게)</option><option value="1.4em">1.4em (최대)</option>
@@ -989,7 +989,7 @@
     </div>
     <div class="css-slider-wrap u-mb-12">
       <div class="css-slider-label">들여쓰기<span id="cssIndentVal">1.0em</span></div>
-      <input type="range" class="css-slider" id="cssIndentSlider" min="0" max="2.5" step="0.1" value="1.0" data-input-action="syncIndent">
+      <input type="range" class="css-slider" id="cssIndentSlider" min="0" max="2.5" step="0.1" value="1.0" data-input-action="syncIndent" aria-label="들여쓰기">
     </div>
     <!-- ★ 고급 옵션 — 접기/펴기 -->
     <details class="settings-details">
@@ -1244,7 +1244,7 @@
     <div class="notif-toggle-row">
       <span class="u-fs-sm u-fw-600 u-text u-flex-1">변환 완료 알림</span>
       <span id="notifStatus">미설정</span>
-      <label class="sw"><input type="checkbox" id="optNotification" data-input-action="toggleNotification"><span class="sw-track"><span class="sw-thumb"></span></span></label>
+      <label class="sw"><input type="checkbox" id="optNotification" data-input-action="toggleNotification" aria-label="변환 완료 알림"><span class="sw-track" aria-hidden="true"><span class="sw-thumb"></span></span></label>
     </div>
     <div class="txt-hint-sm u-mt-6">
       브라우저 권한 허용 후 탭이 백그라운드일 때만 알림이 표시돼요.
@@ -1257,7 +1257,7 @@
   <button class="btn btn-ghost" data-action="resetAllSettings">설정 초기화</button>
 </div>
 </div><!-- /page-settings -->
-</div><!-- /wrap — ★ 이전엔 page-edit 뒤에서 닫혀 히스토리·설정이 레이아웃 밖에 있었음 -->
+</main><!-- /wrap — ★ 이전엔 page-edit 뒤에서 닫혀 히스토리·설정이 레이아웃 밖에 있었음 · Phase 30: div → main 랜드마크 -->
 <div class="modal-overlay" id="previewModal" data-action-overlay="closePreview">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="previewModalTitle">
     <div class="modal-hdr">
@@ -1348,10 +1348,10 @@
       <span class="btm-status-val none" id="btmFileStatus">TXT 파일을 추가하세요</span>
     </div>
     <button class="btn btn-accent" id="convertBtn" data-action="startConvert" data-ready="false"
-            aria-disabled="true" aria-describedby="btmConvertHint" title="단축키 Ctrl + Space">
+            aria-disabled="true" aria-describedby="btmConvertHint" data-shortcut="convert">
       EPUB 변환 시작
     </button>
-    <div class="btm-hint" id="btmConvertHint"><kbd>Ctrl</kbd><span aria-hidden="true">+</span><kbd>Space</kbd></div>
+    <div class="btm-hint" id="btmConvertHint" data-shortcut-kbd="convert"></div>
   </div>
 </div>
 <!-- ★ EPUB 다운로드 완료 플로팅 바 (변환 완료 후 상시 노출) -->
@@ -1363,13 +1363,10 @@
       <span class="btm-dl-name" id="btmDlName">output.epub</span>
     </div>
   </div>
-  <button class="btn btn-green btm-dl-btn" id="btmDlBtn" data-action="downloadEpub"
-          aria-label="EPUB 다운로드 (Ctrl+D)">
+  <button class="btn btn-green btm-dl-btn" id="btmDlBtn" data-action="downloadEpub" data-shortcut="download">
     ⬇ EPUB 다운로드
   </button>
-  <div class="btm-hint u-shrink-0">
-    <kbd>Ctrl</kbd>+<kbd>S</kbd>
-  </div>
+  <div class="btm-hint u-shrink-0" data-shortcut-kbd="download"></div>
   <button class="btm-dl-close" id="btmDlClose" aria-label="다운로드 바 닫기" title="닫기 (변환 결과는 위 카드에서 다시 다운로드 가능)">✕</button>
 </div>
 <!-- 일괄변환 탭 -->

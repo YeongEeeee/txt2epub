@@ -11,8 +11,8 @@
   /* ── 기본 팔레트 ── */
   --bg:#f7f4f0;--bg2:#ffffff;--panel:#ffffff;
   --border:#e6ddd4;--border-strong:#cfc4b8;
-  --text:#1a120c;--text2:#7a6a60;--text3:#b0a098;
-  --accent:#c8503c;--accent2:#e0714a;--accent-bg:#fdf0ed;--accent-hover:#b34432;
+  --text:#1a120c;--text2:#564b44;--text3:#726058;   /* Phase 30: 대비 4.5:1↑ (이전 #7a6a60·#b0a098 = 4.02·1.96:1 on --bg-sunken) */
+  --accent:#aa4130;--accent2:#c84d22;--accent-bg:#fdf0ed;--accent-hover:#983a2b;   /* Phase 30: 이전 #c8503c = 4.49:1 on #fff */
   --blue:#3f6fa8;--blue-bg:#eef3fa;
   --green:#257548;--green-bg:#eaf7f0;
   --yellow:#7a5800;--yellow-bg:#fffbea;
@@ -50,7 +50,7 @@
   /* ── 확장 변수 ── */
   --bg-lifted:#ede8e2;
   --bg-sunken:#e8e2db;
-  --inp-focus-ring:0 0 0 3px rgba(200,80,60,.16),0 1px 4px rgba(200,80,60,.10);
+  --inp-focus-ring:0 0 0 3px rgba(170,65,48,.16),0 1px 4px rgba(170,65,48,.10);
   --sec-title-size:var(--fs-md);
   --sec-title-weight:700;
   --chip-cols:repeat(auto-fill,minmax(110px,1fr));
@@ -88,10 +88,10 @@
   --border:#2a2118;--border-strong:#3a2e24;
   --bg-lifted:#090807;--bg-sunken:#110f0d;
   --reader-bg:#191411;--reader-text:#ead8cc;
-  --text:#ead8cc;--text2:#9a8880;--text3:#5a4e48;
-  --accent:#c05848;--accent2:#d06840;--accent-bg:#281a14;--accent-hover:#a84838;
-  --blue:#5282b8;--blue-bg:#131c2a;
-  --green:#329060;--green-bg:#101e16;
+  --text:#ead8cc;--text2:#ad9e97;--text3:#94837a;
+  --accent:#c86c5e;--accent2:#d06840;--accent-bg:#281a14;--accent-hover:#cd7a6d;--on-accent:#140e0b;
+  --blue:#5a88bb;--blue-bg:#131c2a;
+  --green:#349563;--green-bg:#101e16;
   --yellow:#c09830;--yellow-bg:#1c1800;--red:#e06a5a;--purple:#a87cc0;--overlay:rgba(0,0,0,.55);--overlay-strong:rgba(0,0,0,.7);
   --shadow-xs:0 1px 3px rgba(0,0,0,.3);
   --shadow-sm:0 2px 10px rgba(0,0,0,.35);
@@ -108,9 +108,9 @@
     --bg:#0e0c0a;--bg2:#191411;--panel:#191411;--border:#2a2118;--border-strong:#3a2e24;
     --bg-lifted:#090807;--bg-sunken:#110f0d;
     --reader-bg:#191411;--reader-text:#ead8cc;
-    --text:#ead8cc;--text2:#9a8880;--text3:#5a4e48;
-    --accent:#c05848;--accent2:#d06840;--accent-bg:#281a14;--accent-hover:#a84838;
-    --blue:#5282b8;--blue-bg:#131c2a;--green:#329060;--green-bg:#101e16;
+    --text:#ead8cc;--text2:#ad9e97;--text3:#94837a;
+    --accent:#c86c5e;--accent2:#d06840;--accent-bg:#281a14;--accent-hover:#cd7a6d;--on-accent:#140e0b;
+    --blue:#5a88bb;--blue-bg:#131c2a;--green:#349563;--green-bg:#101e16;
     --yellow:#c09830;--yellow-bg:#1c1800;--red:#e06a5a;--purple:#a87cc0;--overlay:rgba(0,0,0,.55);--overlay-strong:rgba(0,0,0,.7);
     --shadow-xs:0 1px 3px rgba(0,0,0,.3);--shadow-sm:0 2px 10px rgba(0,0,0,.35);
     --shadow-md:0 4px 20px rgba(0,0,0,.4);--shadow-lg:0 8px 36px rgba(0,0,0,.48);
@@ -425,6 +425,15 @@ body{
 .txt-meta-sm{font-size:var(--fs-xs);color:var(--text2)}
 .txt-label{font-size:var(--fs-sm);font-weight:600;color:var(--text)}
 .txt-label-shrink{font-size:var(--fs-xs);color:var(--text2);flex-shrink:0;white-space:nowrap}
+/* ★ Phase 30: index.html에서 쓰지만 정의가 없던 클래스 (측정: tests/measure-design.js 미정의 12종) */
+.txt-label-bold{font-size:var(--fs-sm);font-weight:700;color:var(--text)}
+.txt-hint-sm{font-size:var(--fs-sm);color:var(--text2);line-height:1.6;margin-bottom:8px}
+.sec-divider{margin-top:12px;padding-top:10px;border-top:1px solid var(--border)}
+.radio-lbl{display:inline-flex;align-items:center;gap:4px;font-size:var(--fs-sm);color:var(--text);cursor:pointer;min-height:24px}
+.cell-key,.cell-val,.cell-code{padding:4px 8px;border-bottom:1px solid var(--border);vertical-align:top;text-align:left}
+.cell-key{white-space:nowrap;color:var(--text);font-weight:600}
+.cell-val{color:var(--text2)}
+.cell-code{font-family:var(--font-mono);color:var(--accent);white-space:nowrap}
 .search-row{display:flex;align-items:center;gap:6px;margin-bottom:4px}
 .gap-5{gap:5px}
 [hidden]{display:none!important}
@@ -818,6 +827,8 @@ body.modal-open .page-tabs{
 .btm-status-val.ok{color:var(--green)}
 .btm-status-val.none{color:var(--text3)}
 .btm-hint{flex-shrink:0;display:flex;align-items:center;gap:3px;font-size:var(--fs-xs);color:var(--text3)}
+/* ★ Phase 30: 단축키 <kbd>는 JS(SHORTCUTS 표)가 채우므로 첫 화면에서 자리를 미리 확보 — 늦게 채워지며 변환 버튼이 밀리던 레이아웃 이동(CLS) 방지 */
+.btm-hint[data-shortcut-kbd]{min-width:7rem;justify-content:flex-end}
 .btm-hint kbd{font-family:inherit;font-size:var(--fs-xs);background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-xs);padding:1px 5px;color:var(--text2)}
 .btm .btn-accent[data-ready="true"]{opacity:1;cursor:pointer}
 .btm .btn-accent[data-ready="false"]{opacity:.45;cursor:not-allowed;transform:none!important;box-shadow:none!important}
@@ -1076,6 +1087,13 @@ body.modal-open .page-tabs{
 .sw-slider:before{content:'';position:absolute;width:16px;height:16px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:.25s;box-shadow:0 1px 3px rgba(0,0,0,.2)}
 .sw input:checked+.sw-slider{background:var(--accent)}
 .sw input:checked+.sw-slider:before{transform:translateX(18px)}
+/* ★ Phase 30: 알림 토글이 쓰던 sw-track/sw-thumb 마크업 — 정의가 없어 스위치가 보이지 않았음 → sw-slider와 같은 모양 */
+.sw-track{position:absolute;inset:0;background:var(--border);border-radius:99px;cursor:pointer;transition:background .25s}
+.sw-thumb{position:absolute;width:16px;height:16px;left:3px;bottom:3px;background:var(--bg2);border-radius:50%;transition:transform .25s;box-shadow:var(--shadow-xs)}
+.sw input:checked+.sw-track{background:var(--accent)}
+.sw input:checked+.sw-track .sw-thumb{transform:translateX(18px)}
+/* ★ Phase 30: 스위치 키보드 포커스 표시 — input이 opacity:0이라 Tab으로 이동해도 위치가 보이지 않았음 */
+.sw input:focus-visible+.sw-slider,.sw input:focus-visible+.sw-track{outline:2px solid var(--accent);outline-offset:2px}
 
 /* ── 수동 삽화 ── */
 .mill-row{background:var(--bg);border-radius:var(--radius-sm);padding:10px;margin-bottom:7px;display:flex;flex-direction:column;gap:0;align-items:flex-start}
@@ -1123,8 +1141,11 @@ body.modal-open .page-tabs{
 .css-slider-wrap{display:flex;flex-direction:column;gap:2px;margin-top:2px}
 .css-slider-label{font-size:var(--fs-xs);color:var(--text2);font-weight:500;display:flex;justify-content:space-between;align-items:center}
 .css-slider-label span{font-weight:700;color:var(--accent);min-width:38px;text-align:right;font-size:var(--fs-sm)}
-.css-slider{-webkit-appearance:none;appearance:none;width:100%;height:5px;border-radius:99px;background:var(--border);outline:none;cursor:pointer;margin:4px 0}
-.css-slider::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;border-radius:50%;background:var(--accent);cursor:pointer;transition:transform var(--dur-fast);box-shadow:var(--shadow-sm)}
+/* ★ Phase 30: 누르는 영역 24px (WCAG 2.5.8) — 이전엔 input 높이 5px 자체가 터치 영역이었음. 5px 막대는 트랙 의사요소로 그림 */
+.css-slider{-webkit-appearance:none;appearance:none;width:100%;height:24px;background:transparent;outline:none;cursor:pointer;margin:0}
+.css-slider::-webkit-slider-runnable-track{height:5px;border-radius:99px;background:var(--border)}
+.css-slider::-moz-range-track{height:5px;border-radius:99px;background:var(--border)}
+.css-slider::-webkit-slider-thumb{-webkit-appearance:none;width:17px;height:17px;margin-top:-6px;border-radius:50%;background:var(--accent);cursor:pointer;transition:transform var(--dur-fast);box-shadow:var(--shadow-sm)}
 .css-slider::-webkit-slider-thumb:hover{transform:scale(1.2)}
 .css-slider::-moz-range-thumb{width:17px;height:17px;border-radius:50%;background:var(--accent);cursor:pointer;border:none}
 .css-slider:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -1145,7 +1166,7 @@ body.modal-open .page-tabs{
 .pad-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;padding:6px 0}
 .pad-field{display:flex;align-items:center;gap:5px}
 .pad-lbl{font-size:var(--fs-xs);color:var(--text2);width:40px;flex-shrink:0;font-weight:500}
-.pad-slider{flex:1;accent-color:var(--accent);height:3px;cursor:pointer;min-width:0}
+.pad-slider{flex:1;accent-color:var(--accent);height:24px;cursor:pointer;min-width:0}   /* Phase 30: 누르는 영역 24px */
 .pad-num{width:44px;padding:3px 5px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text);font-size:var(--fs-xs);font-family:inherit;text-align:center;-moz-appearance:textfield;flex-shrink:0;transition:border-color var(--dur-fast)}
 .pad-num::-webkit-inner-spin-button,.pad-num::-webkit-outer-spin-button{opacity:1;cursor:pointer}
 .pad-num:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 10%,transparent)}
@@ -1162,6 +1183,8 @@ body.modal-open .page-tabs{
 .error-boundary.show{display:flex;animation:fadeIn .2s ease}
 .error-boundary-box{background:var(--panel);border:2px solid var(--accent);border-radius:var(--radius);padding:28px 32px;max-width:440px;width:90vw;text-align:center;box-shadow:var(--shadow-xl)}
 .error-boundary-box h2{color:var(--accent);font-size:var(--fs-lg);margin-bottom:10px}
+.error-boundary-detail{margin:12px 0 16px;padding:8px 10px;max-height:160px;overflow:auto;text-align:left;font-family:var(--font-mono);font-size:var(--fs-xs);color:var(--text2);background:var(--bg-sunken);border-radius:var(--radius-xs);white-space:pre-wrap;word-break:break-all}
+.error-boundary-detail:empty{display:none}
 
 /* ── 스플릿 그리드 ── */
 .split-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px}
@@ -1174,6 +1197,8 @@ body.modal-open .page-tabs{
 .btn-reset{background:none;border:1.5px solid var(--border);border-radius:var(--radius-xs);padding:3px 9px;font-size:var(--fs-xs);color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:3px;font-family:inherit;white-space:nowrap;transition:all var(--dur-fast)}
 .btn-reset:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg);transform:translateY(-1px)}
 .btn-reset:active{transform:scale(.97)}
+.btn-reset.danger{color:var(--red);border-color:color-mix(in srgb,var(--red) 40%,var(--border))}
+.btn-reset.danger:hover{color:var(--red);border-color:var(--red);background:color-mix(in srgb,var(--red) 8%,transparent)}
 
 /* ── 메타데이터 블록 ── */
 .meta-block{padding:14px 0;border-bottom:1.5px solid var(--border)}
@@ -1269,7 +1294,8 @@ body.modal-open .page-tabs{
 
 /* aria progressbar */
 #progBar[role=progressbar]{transition:width .3s ease}
-#progressSparkline{display:none;margin:8px 0 0}
+/* Phase 30: id 대신 마크업의 클래스로 정의 (JS는 id로 찾아 style.display로 표시) */
+.progress-sparkline{display:none;margin:8px 0 0}
 
 /* ══════════════════════════════════════════════
    [17] Phase 7 디자인 정리 — 신규 컴포넌트 · 스킨 · 반응형
@@ -1277,7 +1303,7 @@ body.modal-open .page-tabs{
 
 /* ── 장/화 분할: 기본 행 액션 + 파일 없을 때 비활성 표시 ── */
 .pat-actions{display:flex;gap:6px;flex-shrink:0}
-#patSection.is-idle .pat-actions{opacity:.45;pointer-events:none}
+#patSection.is-idle .pat-actions{pointer-events:none}   /* Phase 30: 흐림은 .btn:disabled가 담당 (setPatIdle이 disabled 설정) */
 #patSection .row{flex-wrap:wrap}
 .pat-input-wrap{position:relative;flex:1 1 220px;min-width:0}   /* 좁은 화면에선 버튼이 다음 줄로 */
 
@@ -1303,7 +1329,7 @@ body.modal-open .page-tabs{
 
 /* ── 컬러 스킨 토큰 ── (★ 이전: setSkin이 data-skin만 바꾸고 대응 규칙이 없어 색이 바뀌지 않았음) */
 [data-skin=indigo]{--accent:#4855a8;--accent2:#5d6ccf;--accent-bg:#eef0fb;--accent-hover:#3b4790;--inp-focus-ring:0 0 0 3px rgba(72,85,168,.16)}
-[data-skin=forest]{--accent:#2a7a4a;--accent2:#3a9460;--accent-bg:#e9f5ee;--accent-hover:#21633c;--inp-focus-ring:0 0 0 3px rgba(42,122,74,.16)}
+[data-skin=forest]{--accent:#277145;--accent2:#338355;--accent-bg:#e9f5ee;--accent-hover:#21633c;--inp-focus-ring:0 0 0 3px rgba(42,122,74,.16)}
 [data-theme=dark][data-skin=indigo]{--accent:#7684d6;--accent2:#8a96e0;--accent-bg:#171a2c;--accent-hover:#6371c6}
 [data-theme=dark][data-skin=forest]{--accent:#4fa875;--accent2:#62b886;--accent-bg:#102018;--accent-hover:#3f9464}
 @media(prefers-color-scheme:dark){
@@ -1374,7 +1400,7 @@ body.modal-open .page-tabs{
 
 /* ★ Phase 17: 인라인 style 2단계 — 반복 패턴은 클래스, id가 있는 요소의 1회성 style은 id 규칙 (값·토큰 그대로) */
 .note-blue{margin-top:8px;padding:8px 10px;background:var(--blue-bg);border-radius:var(--radius-xs);font-size:var(--fs-xs);color:var(--blue);line-height:1.7}
-.inp-xs{margin-top:4px;font-size:var(--fs-xs);padding:3px 6px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text)}
+.inp-xs{margin-top:4px;min-height:24px;font-size:var(--fs-xs);padding:3px 6px;border:1.5px solid var(--border);border-radius:var(--radius-xs);background:var(--bg);color:var(--text)}
 .u-row-wrap-6{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .u-lh-17{line-height:1.7}
 .hr-fill{height:1px;flex:1;background:var(--border)}

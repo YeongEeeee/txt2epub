@@ -199,6 +199,16 @@ function _countChar(text, ch){
 }
 function _countLines(text){ return text?_countChar(text,'\n'):0; }
 
+// ★ Phase 30: 파일이 없을 때 목차 확인·간격 분할 버튼을 실제로 비활성화하는 단일 경로
+//   이전: #patSection.is-idle의 opacity·pointer-events만 적용 → 마우스로는 막혔지만 키보드로는 눌렸고,
+//         스크린리더에는 활성 버튼으로 읽혔으며 axe가 흐린 글자를 대비 1.82:1로 측정함
+function setPatIdle(idle){
+  const sec=document.getElementById('patSection');
+  if(!sec) return;
+  sec.classList.toggle('is-idle', !!idle);
+  sec.querySelectorAll('.pat-actions button')?.forEach(b=>{ b.disabled=!!idle; });
+}
+
 // ══════════════════════════════════════════
 // ★ Phase 10: 디코딩 결과 캐시 (LRU · 총 글자 수 상한)
 //   미리보기·목차 재확인·간격 분할·변환·삽화 범위 검색이 같은 파일을 매번 다시 읽고 디코딩하던 문제
@@ -603,7 +613,7 @@ function handleTxt(files, append=false){
   const resetBar=document.getElementById('convertResetBar');
   setShown(resetBar,true);
   // ★ UX-PD: Progressive Disclosure — 패턴 영역을 파일 로드 후 선명하게 전환
-  document.getElementById('patSection')?.classList.remove('is-idle');
+  setPatIdle(false);
   _chaptersCache=null; // 캐시 무효화
 
   renderTxtFileList();
@@ -883,7 +893,7 @@ function previewCoverUrl(inpId, thumbId, nameId, mode){
       // ★ Phase 9: URL을 HTML 문자열에 이어붙이지 않고 DOM으로 생성 (따옴표 포함 URL의 속성 주입 방지)
       if(!thumb) return;
       const shown=document.createElement('img');
-      shown.src=url; shown.style.opacity='.6';
+      shown.src=url; shown.alt='표지 미리보기'; shown.style.opacity='.6';
       thumb.replaceChildren(shown);
     };
     img.onerror=()=>{}; // CORS 차단 시 조용히 실패
@@ -922,7 +932,7 @@ async function applyCoverUrl(inpId, thumbId, nameId, mode, btnEl){
       if(thumbEl){
         const dataUrl=await blobToDataUrl(blob);
         const img=document.createElement('img');
-        img.src=dataUrl;
+        img.src=dataUrl; img.alt='표지 미리보기';
         thumbEl.replaceChildren(img);
       }
       const inpEl=document.getElementById(inpId); if(inpEl) inpEl.value='';
@@ -1070,7 +1080,7 @@ function handleCover(files){
   document.getElementById('coverName').textContent='✅ '+f.name;
   document.getElementById('coverDz')?.classList.add('ok');
   const objUrl=URL.createObjectURL(f);
-  if(thumb){ thumb.innerHTML=''; const img=document.createElement('img'); img.src=objUrl; img.dataset.blobUrl=objUrl; thumb.appendChild(img); }
+  if(thumb){ thumb.innerHTML=''; const img=document.createElement('img'); img.src=objUrl; img.alt='표지 미리보기'; img.dataset.blobUrl=objUrl; thumb.appendChild(img); }
 }
 
 // ══════════════════════════════════════════
@@ -2763,7 +2773,7 @@ function renderBatchList(){
     const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
     const d=document.createElement('div');d.className='batch-item';d.id='bi_'+i;
     const thumbHtml=cover
-      ?'<div class="batch-thumb" data-action="batchPickCover" data-idx="'+i+'" title="클릭해서 변경"><img id="bthumb_'+i+'" src=""></div>'
+      ?'<div class="batch-thumb" data-action="batchPickCover" data-idx="'+i+'" title="클릭해서 변경"><img id="bthumb_'+i+'" src="" alt="표지"></div>'
       :'<div class="batch-thumb" data-action="batchPickCover" data-idx="'+i+'" title="표지 지정">+</div>';
     d.innerHTML='<div class="batch-header">'+thumbHtml+  // safe-html: thumbHtml은 고정 마크업(+숫자 id)
       '<div class="u-flex-1 u-minw-0"><div class="batch-title">'+escHtml(title)+'</div>'+
@@ -3119,7 +3129,7 @@ function batchPickCover(idx){
     B.coverMap[B.txtFiles[idx].name.replace(/\.txt$/i,'')]=f;
     const thumb=document.querySelector('#bi_'+idx+' .batch-thumb');
     // ★ Phase 15: 문자열 대신 DOM으로 이미지 생성
-    if(thumb){const r=new FileReader();r.onload=e=>{const img=document.createElement('img');img.src=e.target.result;img.style.cssText='width:100%;height:100%;object-fit:cover';thumb.replaceChildren(img);};r.readAsDataURL(f);}
+    if(thumb){const r=new FileReader();r.onload=e=>{const img=document.createElement('img');img.src=e.target.result;img.alt='표지';img.style.cssText='width:100%;height:100%;object-fit:cover';thumb.replaceChildren(img);};r.readAsDataURL(f);}
   };inp.click();
 }
 
@@ -3557,8 +3567,8 @@ function resetConvertTxt(){
   // ★ splitBtn 원상 복구 — _syncSplitBtn(parser.js)으로 단일 관리 (항상 정의돼 있어 폴백 분기 제거)
   _syncSplitBtn('reset');
   document.getElementById('txtDz').className='dz';
-  // ★ UX-PD: 파일 리셋 → 목차 확인·간격 분할 버튼 비활성 표시 (.is-idle)
-  document.getElementById('patSection')?.classList.add('is-idle');
+  // ★ UX-PD: 파일 리셋 → 목차 확인·간격 분할 버튼 비활성 (.is-idle + disabled)
+  setPatIdle(true);
   setShown(document.getElementById('txtInfo'),false);
   setShown(document.getElementById('txtFileList'),false);
   const sl=document.getElementById('txtSortList'); if(sl) sl.innerHTML='';

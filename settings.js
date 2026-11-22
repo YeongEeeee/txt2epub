@@ -501,18 +501,25 @@ function renderCssPresetList(){
   const all=[...CSS_PRESET_DEFAULTS,...userPresets];
   container.innerHTML='';
   if(!all.length){
-    container.innerHTML='<span class="txt-meta-sm">저장된 프리셋 없음</span>';
+    // ★ Phase 30: role="list" 컨테이너의 자식은 listitem이어야 함 (axe aria-required-children)
+    container.innerHTML='<span class="txt-meta-sm" role="listitem">저장된 프리셋 없음</span>';
     return;
   }
   all.forEach((p,idx)=>{
     const isDefault=idx<CSS_PRESET_DEFAULTS.length;
     const chip=document.createElement('div');
     chip.className='preset-chip';
+    chip.setAttribute('role','listitem');
     chip.title=`폰트: ${p.font}\n줄간격: ${p.line}\n여백: ${p.padTop||'1.5'}/${p.padLeft||'1.8'}em`;
     chip.innerHTML=
       `<span>${escHtml(p.name)}</span>`+
       (isDefault?'':'<button class="preset-del" data-action="deletePreset" data-name="'+escHtml(p.name)+'" title="삭제">✕</button>');
-    chip.querySelector('span').addEventListener('click',()=>applyPreset(p));
+    // ★ Phase 30: 이름 부분이 마우스로만 눌리던 문제 — 버튼 역할·Tab 이동·Enter/Space 실행 추가
+    const nameEl=chip.querySelector('span');
+    nameEl?.setAttribute('role','button');
+    nameEl?.setAttribute('tabindex','0');
+    nameEl?.addEventListener('click',()=>applyPreset(p));
+    nameEl?.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); applyPreset(p); } });
     container.appendChild(chip);
   });
 }

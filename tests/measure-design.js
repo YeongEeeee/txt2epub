@@ -107,6 +107,10 @@ function tokenMap(blockRe){
 }
 const light = tokenMap(/:root\s*\{[^{}]*\}/);
 const dark  = Object.assign({}, light, tokenMap(/\[data-theme=dark\]\s*\{[^{}]*\}/));
+// 스킨: 라이트 = 기본 + [data-skin=x], 다크 = 다크 + [data-theme=dark][data-skin=x]
+const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const skinMap = (base, sel) => Object.assign({}, base, tokenMap(new RegExp('(?:^|\\n)' + esc(sel) + '\\s*\\{[^{}]*\\}')));
+const SKINS = ['indigo', 'forest'];
 
 function hexToRgb(h){
   h = h.replace('#', '');
@@ -139,7 +143,7 @@ const PAIRS = [
   ['accent',    'panel',     '강조 글자 / 카드'],
   ['accent',    'accent-bg', '강조 글자 / 강조 배경'],
   ['on-accent', 'accent',    '버튼 글자 / 강조 버튼'],
-  ['on-accent', 'accent2',   '헤더 글자 / 헤더 그라디언트 끝'],
+  ['on-accent', 'accent2',   '버튼 글자 / 강조 버튼 그라디언트 끝'],
   ['green',     'green-bg',  '성공 글자 / 성공 배경'],
   ['yellow',    'yellow-bg', '경고 글자 / 경고 배경'],
   ['blue',      'blue-bg',   '정보 글자 / 정보 배경'],
@@ -183,7 +187,11 @@ const result = {
     undefinedClasses,
   },
   js: jsStats,
-  contrast: { light: contrastTable(light), dark: contrastTable(dark) },
+  contrast: Object.assign({ light: contrastTable(light), dark: contrastTable(dark) },
+    ...SKINS.map(k => ({
+      [`${k}-light`]: contrastTable(skinMap(light, `[data-skin=${k}]`)),
+      [`${k}-dark`]:  contrastTable(skinMap(dark, `[data-theme=dark][data-skin=${k}]`)),
+    }))),
 };
 
 if(JSON_OUT){
@@ -207,9 +215,11 @@ lines.push(`  인라인 style ${h.inlineStyleAttrs} · 인라인 on* 핸들러 $
 lines.push(`  style.css에 정의 없는 클래스 ${h.undefinedClasses.length}종: ${h.undefinedClasses.join(' ')}`);
 lines.push('── JS ──');
 for(const [f, s] of Object.entries(result.js)) lines.push(`  ${f.padEnd(16)} 마크업 style= ${s.markupStyleAttr} · .style 직접 대입 ${s.styleAssign} · 이모지 ${s.emoji}`);
-for(const theme of ['light', 'dark']){
-  lines.push(`── 명도 대비 (${theme}) ──`);
-  for(const r of result.contrast[theme]){
+for(const theme of Object.keys(result.contrast)){
+  const rows = result.contrast[theme];
+  const fails = rows.filter(r => r.ratio !== null && !r.aa).length;
+  lines.push(`── 명도 대비 (${theme}) — 4.5:1 미달 ${fails}개 ──`);
+  for(const r of rows){
     const mark = r.ratio === null ? '?' : r.aa ? 'AA' : r.aaLarge ? '큰글씨만' : '미달';
     lines.push(`  ${String(r.ratio ?? '-').padStart(5)}:1  ${mark.padEnd(5)} ${r.label} (${r.fg} on ${r.bg})`);
   }
