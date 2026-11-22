@@ -363,6 +363,8 @@
   <!-- ★ 단계별 소요시간 스파크라인 (_renderProgressSparkline) / 변환 경고 리포트 (_renderConvertReport) -->
   <div id="progressSparkline" class="progress-sparkline" hidden></div>
   <div id="convertReport" role="status" aria-live="polite" hidden></div>
+  <!-- ★ Phase 34: 만든 EPUB을 다시 열어 구조 검사 (epub-gen.js validateEpubBlob → convert.js _renderEpubCheck) -->
+  <div id="epubCheckReport" role="status" aria-live="polite" hidden></div>
   <div class="flex-row u-jc-center u-wrap">
     <button class="btn btn-blue" data-action="showPreview">미리보기</button>
     <button class="btn btn-green" data-action="downloadEpub"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-download"/></svg> EPUB 다운로드</button>
@@ -909,6 +911,11 @@
       <label for="optNoiseCustom" class="opt-sub-label">직접 입력 — 정규식, 한 줄에 하나 (150자 이하)</label>
       <textarea id="optNoiseCustom" class="opt-noise-custom" rows="3" spellcheck="false" placeholder="예: ^※.*무단 전재" data-input-action="saveExtraSettings"></textarea>
     </div>
+    <!-- ★ Phase 34: 본문 정리 전후 비교 — 지금 켠 옵션이 불러온 파일에서 실제로 무엇을 바꾸는지 (settings.js renderCleanupDiff) -->
+    <details class="adv-box" id="cleanupDiffBox">
+      <summary>정리 전후 비교 <span class="txt-meta-sm">불러온 파일 기준 · 옵션을 바꾸면 바로 다시 계산</span></summary>
+      <div id="cleanupDiff" class="cdiff" tabindex="0" role="region" aria-label="본문 정리 전후 비교"></div>
+    </details>
     <div class="toggle-row">
       <div><label for="optEmptyLine">빈 줄 보존</label><small>단락 사이 빈 줄을 그대로 유지해요</small></div>
       <label class="sw"><input type="checkbox" id="optEmptyLine" checked data-input-action="saveExtraSettings"><span class="sw-slider" aria-hidden="true"></span></label>
@@ -1303,6 +1310,20 @@
     <div class="modal-hdr">
       <h3 id="previewModalTitle">EPUB 미리보기</h3>
       <button class="modal-close" data-action="closePreview" aria-label="미리보기 닫기">✕</button>
+    </div>
+    <!-- ★ Phase 34: 변환된 EPUB의 실제 XHTML·CSS를 iframe에 그대로 그림 (스크립트 실행 없음 — sandbox에 allow-scripts 없음)
+         기기 단추는 변환 탭 미니 리더와 같은 상태(setReaderDevice) -->
+    <div class="pv-toolbar" id="previewToolbar" hidden>
+      <select id="previewChapterSel" class="opt-select" aria-label="미리볼 문서" data-input-action="previewPickDoc"></select>
+      <div class="reader-device-seg" role="group" aria-label="미리보기 기기">
+        <button type="button" class="reader-device-btn on" data-action="setReaderDevice" data-device="" aria-pressed="true">기본</button>
+        <button type="button" class="reader-device-btn" data-action="setReaderDevice" data-device="phone" aria-pressed="false">폰</button>
+        <button type="button" class="reader-device-btn" data-action="setReaderDevice" data-device="tablet" aria-pressed="false">태블릿</button>
+        <button type="button" class="reader-device-btn" data-action="setReaderDevice" data-device="eink" aria-pressed="false">6″ 리더</button>
+      </div>
+    </div>
+    <div class="pv-stage" id="previewStage" hidden>
+      <div class="pv-device" id="previewDevice"><iframe id="previewFrame" sandbox="allow-same-origin" title="EPUB 본문 미리보기 — 실제 XHTML과 CSS"></iframe></div>
     </div>
     <div class="modal-body" id="previewBody"></div>
     <div class="modal-footer">

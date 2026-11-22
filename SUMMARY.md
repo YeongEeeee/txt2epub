@@ -945,6 +945,41 @@
 - Tab 횟수 감소는 목차 행이 접힌 패널 안으로 들어가 Tab 순서에서 빠진 몫. 펼치면 이전과 같음
 - 사용성 시험(접힌 기능을 찾을 수 있는지)은 하지 않음 — 감지 실패 시 자동 펼침만 테스트로 보장
 
+
+### Phase 34 — 신뢰 기능 3종 (구조 검사 · 실제 미리보기 · 정리 전후 비교)
+
+> 수치는 Phase 33 코드(`827a940`)와 같은 세션에서 나란히 측정 (`docs/baseline.md` §12).
+
+#### 1) EPUB 구조 검사 — `validateEpubZip` / `validateEpubBlob` (epub-gen.js)
+- 변환 직후 만든 EPUB을 다시 열어 9개 항목 확인 → 결과 카드 `#epubCheckReport`에 `구조 검사 9/9 통과 · 문서 N개 · 파일 N개 · 초`
+- 항목: mimetype · container.xml · OPF 필수 메타 · manifest와 실제 파일 · media-type · spine · nav·cover-image · XML 형식 · 내부 참조(이미지·링크·CSS url·목차 조각 id)
+- DOM 비의존(XML 형식은 브라우저 DOMParser, Node 테스트는 `_xmlWellFormedLite`) — 테스트가 생성 EPUB 12개 통과 + 망가뜨린 EPUB 11종이 각각 의도한 항목만 실패함을 확인
+- 결과를 기다리지 않음(스트리밍 저장은 생략), 25문서마다 양보, 새 변환이 시작되면 이전 결과 버림. EPUBCheck 전체를 대신하지 않는다고 화면에 표시
+
+#### 2) 실제 EPUB 미리보기 (convert.js `_pvOpen` · `previewShowDoc`)
+- 변환 후 미리보기 = EPUB 안 XHTML·CSS·이미지·글꼴 그대로 iframe에. 문서 고르기 · 이전/다음(문서 단위) · 기기 틀(기본·폰·태블릿·6″ 리더)은 미니 리더와 같은 `setReaderDevice` 상태
+- `sandbox="allow-same-origin"`(allow-scripts 없음) · script·on* 제거 · CSP 그대로(CSS는 adoptedStyleSheets, style 속성은 CSSOM, 이미지 blob:, 글꼴 data:) · 결과 초기화 때 blob: URL 해제
+- 변환 전 미리보기(텍스트)는 그대로
+
+#### 3) 본문 정리 전후 비교 (parser.js `alignCleanupLines` · `buildCleanupDiff`, settings.js `renderCleanupDiff`)
+- 설정 탭 '본문 정리' 아래 `#cleanupDiffBox` — 펼쳤을 때만 계산, 옵션·목차가 바뀌면 250ms 뒤 다시
+- 챕터별 바뀐 줄(앞뒤 1줄 맥락) · `del`/`ins` · 한 줄 고침은 바뀐 부분 `mark` · 처음 30챕터만, 나머지는 개수
+
+#### 4) 측정
+| 지표 | Phase 33 | Phase 34 |
+|---|---|---|
+| 구조 검사 2,000화 (CPU 1배 / 4배) | — | 0.8~0.9초 / 3.1~3.3초 (검사 중 50ms 넘는 작업 1개) |
+| 미리보기 첫 문서 (1배 / 4배) | — | 134~159 / 336~370ms |
+| 정리 전후 비교 2,000챕터 (1배 / 4배) | — | 78~97 / 200~264ms |
+| INP 근사 CPU 4배 (5회 중앙값) | 104ms | 104ms |
+| CLS 흐름 (1배 / 4배) | 0 / 0.007 | 0 / 0.007 |
+| axe · Lighthouse 접근성 | 0 · 100 | 0 · 100 |
+| Lighthouse 모바일 성능 · FCP — 무압축 / gzip 서버 | 96 · 2.25s / 100 · 1.54s | 95 · 2.40s / 100 · 1.54s |
+| 회귀 테스트 | 540 | **557** (Phase 34 17개 — Phase 33 코드에서 실행되는 13개 모두 실패) |
+
+- 무압축 FCP +0.15초는 HTML·CSS +6KB로 모의 4G 왕복이 하나 늘어난 것으로 보임 — gzip 서버에선 차이 없음. 배포 사이트는 측정 안 함
+- 처음 구현의 CLS(1배) 0.003 — '구조 검사 중…' 자리 표시를 결과와 같은 높이로 맞춰 0
+
 ---
 
 ## 개선 30개 적용 결과 (Phase 13~16)

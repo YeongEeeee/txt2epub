@@ -1817,6 +1817,8 @@ async function startConvert(){
     _renderProgressSparkline();
     // ★ U-17: 변환 경고 리포트 렌더링
     _renderConvertReport(epubWarnings);
+    // ★ Phase 34: 구조 검사 — 결과 표시를 막지 않도록 기다리지 않음 (스트리밍 저장은 메모리에 파일이 없어 생략)
+    _runEpubCheck(streamed?null:blob);
     // ★ ADD-10: 변환 완료 브라우저 알림 (탭 백그라운드 시)
     _sendConvertNotif(title || S.epubName, realChapters.length);
   }catch(e){
@@ -1913,6 +1915,39 @@ function _renderConvertReport(warnings){
       ? `<div class="report-item-info">${icon('info')} ${escHtml(String(w))}</div>`
       : `<div class="report-item-warn">${icon('alert')} ${escHtml(String(w))}</div>`).join('') +
     `</div>`;
+}
+
+// ★ Phase 34: EPUB 구조 검사 결과 — 통과 수·문서 수·걸린 시간, 문제는 항목별 최대 8개
+let _epubCheckSeq=0;
+async function _runEpubCheck(blob){
+  const el=document.getElementById('epubCheckReport');
+  if(!el) return;
+  const seq=++_epubCheckSeq;
+  if(!blob||typeof validateEpubBlob!=='function'){ setShown(el,false); el.replaceChildren(); return; }
+  // 결과(닫힌 summary 한 줄)와 같은 높이의 자리 표시 — 검사가 끝날 때 아래가 밀리지 않게
+  el.innerHTML=`<div class="epub-check-box"><div class="epub-check-wait">${icon('info')} 구조 검사 중…</div></div>`;  // safe-html: 고정 문구
+  setShown(el,true);
+  let r=null;
+  try{ r=await validateEpubBlob(blob); }catch(e){ r=null; console.warn('[epubCheck]',e); }
+  if(seq!==_epubCheckSeq) return;   // 그사이 새 변환이 시작됨
+  _renderEpubCheck(r);
+}
+function _renderEpubCheck(r){
+  const el=document.getElementById('epubCheckReport');
+  if(!el) return;
+  if(!r){ el.textContent='구조 검사를 하지 못했어요 (파일을 다시 열 수 없음)'; setShown(el,true); return; }
+  const bad=r.total-r.passed;
+  const sec=(r.ms/1000).toFixed(1);
+  el.innerHTML=  // safe-html: 고정 문구·숫자·escHtml 처리한 항목 이름과 문제 문구
+    `<details class="epub-check-box${bad?' has-issues':''}"${bad?' open':''}>`+
+    `<summary>${icon(bad?'alert':'check-circle')} 구조 검사 ${r.passed}/${r.total} 통과`+
+    `<span class="txt-meta-sm">문서 ${r.xhtml}개 · 파일 ${r.files}개 · ${sec}초</span></summary>`+
+    `<ul class="epub-check-list">`+
+    r.checks.map(c=>`<li class="${c.ok?'is-ok':'is-bad'}">${icon(c.ok?'check':'x-circle')}<span>${escHtml(c.label)}`+
+      (c.ok?'':`<small>${c.issues.map(escHtml).join('<br>')}${c.count>c.issues.length?'<br>… 외 '+(c.count-c.issues.length)+'건':''}</small>`)+
+      `</span></li>`).join('')+
+    `</ul><div class="txt-meta-sm">패키지 구조·manifest·spine·목차·XML 형식·내부 참조만 확인해요 — EPUBCheck 전체 검사를 대신하지는 않아요</div></details>`;
+  setShown(el,true);
 }
 
 // ★ U-01: 변환 진행 스파크라인 — 단계별 소요시간 시각화
@@ -2036,6 +2071,7 @@ function showPreview(){
   if(S.epubBlob){
     _renderEpubPreview(S.epubBlob);
   } else {
+    _pvTextMode();
     renderPreview();
   }
   document.getElementById('previewModal')?.classList.add('show');
@@ -2043,50 +2079,147 @@ function showPreview(){
   document.body.style.touchAction='none';
 }
 
-// ★ EPUB Blob → JSZip 파싱 → 첫 챕터 HTML 렌더링
+// ══════════════════════════════════════════
+// ★ Phase 34: 실제 EPUB 미리보기 — 만든 EPUB의 XHTML·CSS·이미지·글꼴을 iframe에 그대로
+//   이전: 본문 HTML만 꺼내 class·이미지를 지우고 앱 글꼴로 그림 (EPUB CSS가 반영되지 않아 결과와 달랐음)
+//   · iframe sandbox="allow-same-origin" (allow-scripts 없음) — EPUB 안 스크립트는 실행되지 않고 부모만 문서를 다룸
+//   · CSS는 생성 스타일시트(adoptedStyleSheets)로 — CSP style-src 대상이 아님 · style 속성은 CSSOM(el.style)으로 옮김
+//   · 이미지는 blob: URL(img-src 허용), 글꼴은 data: URL(font-src 허용)
+// ══════════════════════════════════════════
+let _pv=null;   // {blob, zip, opfPath, docs:[{path,label}], urls:[], css:Map(path→text), idx}
+function _pvRelease(){
+  if(!_pv) return;
+  (_pv.urls||[]).forEach(u=>{ try{ URL.revokeObjectURL(u); }catch(e){} });
+  _pv=null;
+}
+async function _pvOpen(blob){
+  if(_pv&&_pv.blob===blob) return _pv;
+  _pvRelease();
+  const zip=await JSZip.loadAsync(blob);
+  const container=await zip.file('META-INF/container.xml')?.async('text');
+  const opfPath=container?.match(/full-path="([^"]+)"/)?.[1];
+  const opf=opfPath?await zip.file(opfPath)?.async('text'):null;
+  if(!opf) throw new Error('OPF 없음');
+  const man=new Map();
+  for(const m of opf.matchAll(/<item\b[^>]*>/g)){
+    const id=m[0].match(/\bid="([^"]+)"/)?.[1], href=m[0].match(/\bhref="([^"]+)"/)?.[1];
+    if(id&&href) man.set(id,{path:_epubResolve(opfPath,href), props:m[0].match(/\bproperties="([^"]+)"/)?.[1]||''});
+  }
+  // 목차 이름: nav 문서의 링크 글자 (없으면 파일 이름)
+  const labels=new Map();
+  const nav=[...man.values()].find(it=>/\bnav\b/.test(it.props));
+  if(nav){
+    const navText=await zip.file(nav.path)?.async('text')||'';
+    const toc=navText.match(/<nav\b[^>]*epub:type="toc"[\s\S]*?<\/nav>/)?.[0]||'';
+    for(const m of toc.matchAll(/<a\b[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)){
+      const p=_epubResolve(nav.path,m[1]);
+      if(!labels.has(p)) labels.set(p, m[2].replace(/<[^>]+>/g,'').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;|&apos;/g,"'").replace(/&amp;/g,'&').trim());
+    }
+  }
+  const docs=[...opf.matchAll(/<itemref\b[^>]*idref="([^"]+)"/g)].map(m=>man.get(m[1])).filter(Boolean)
+    .map(it=>({path:it.path, label:labels.get(it.path)||(/cover\.xhtml$/.test(it.path)?'표지':it.path.replace(/^.*\//,''))}));
+  _pv={blob, zip, opfPath, docs, urls:[], css:new Map(), bin:new Map(), idx:0};
+  return _pv;
+}
+// zip 안 파일 → blob: URL (이미지) / data: URL (글꼴) — 한 번만 만들고 재사용
+async function _pvAssetUrl(path, asData){
+  const key=(asData?'d:':'b:')+path;
+  if(_pv.bin.has(key)) return _pv.bin.get(key);
+  const f=_pv.zip.file(path); if(!f){ _pv.bin.set(key,''); return ''; }
+  const ext=(path.match(/\.([^.]+)$/)?.[1]||'').toLowerCase();
+  const mt={jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',gif:'image/gif',webp:'image/webp',svg:'image/svg+xml',ttf:'font/ttf',otf:'font/otf',woff:'font/woff',woff2:'font/woff2'}[ext]||'application/octet-stream';
+  let url;
+  if(asData) url='data:'+mt+';base64,'+await f.async('base64');
+  else{ url=URL.createObjectURL(new Blob([await f.async('uint8array')],{type:mt})); _pv.urls.push(url); }
+  _pv.bin.set(key,url);
+  return url;
+}
+async function _pvCss(path){
+  if(_pv.css.has(path)) return _pv.css.get(path);
+  let css=await _pv.zip.file(path)?.async('text')||'';
+  // url(...) → 이미지 blob: · 글꼴 data:
+  const refs=[...new Set([...css.matchAll(/url\(\s*['"]?([^'")]+)['"]?\s*\)/g)].map(m=>m[1].trim()).filter(r=>!/^(?:data|https?|blob):/i.test(r)))];
+  for(const r of refs){
+    const p=_epubResolve(path,r);
+    const u=await _pvAssetUrl(p, /\.(?:ttf|otf|woff2?)$/i.test(p));
+    if(u) css=css.split(r).join(u);
+  }
+  _pv.css.set(path,css);
+  return css;
+}
+async function previewShowDoc(i){
+  if(!_pv||!_pv.docs.length) return;
+  const frame=document.getElementById('previewFrame');
+  const fdoc=frame?.contentDocument, fwin=frame?.contentWindow;
+  if(!fdoc||!fwin) return;
+  const idx=Math.max(0,Math.min(_pv.docs.length-1,i|0));
+  _pv.idx=idx;
+  const doc=_pv.docs[idx];
+  const text=await _pv.zip.file(doc.path)?.async('text')||'';
+  const x=new DOMParser().parseFromString(text,'application/xhtml+xml');
+  const info=document.getElementById('previewPageInfo');
+  if(x.getElementsByTagName('parsererror').length){
+    if(info) info.textContent=doc.label+' — XHTML 형식 오류로 그릴 수 없어요';
+    return;
+  }
+  // 스크립트·이벤트 속성 제거 (sandbox가 막지만 문서에서도 뺌), 스타일시트 링크 수집
+  x.querySelectorAll('script').forEach(n=>n.remove());
+  const sheets=[];
+  x.querySelectorAll('link[rel~="stylesheet"]').forEach(l=>{ sheets.push(_epubResolve(doc.path,l.getAttribute('href')||'')); l.remove(); });
+  const inlineStyles=[];
+  x.querySelectorAll('*').forEach(el=>{
+    for(const a of [...el.attributes]) if(/^on/i.test(a.name)) el.removeAttribute(a.name);
+    if(el.hasAttribute('style')){ inlineStyles.push([el, el.getAttribute('style')]); el.removeAttribute('style'); el.setAttribute('data-pv-style', String(inlineStyles.length-1)); }
+  });
+  // 이미지 src → blob:
+  for(const img of x.querySelectorAll('img[src], image')){
+    const attr=img.hasAttribute('src')?'src':(img.hasAttribute('href')?'href':'xlink:href');
+    const v=img.getAttribute(attr)||img.getAttributeNS('http://www.w3.org/1999/xlink','href')||'';
+    if(!v||/^(?:data|blob|https?):/i.test(v)) continue;
+    const u=await _pvAssetUrl(_epubResolve(doc.path,v), false);
+    if(u) img.setAttribute(attr,u);
+  }
+  // <style> 요소 내용도 생성 스타일시트로 (CSP가 <style>을 막음)
+  const styleTexts=[...x.querySelectorAll('style')].map(s=>{ const t=s.textContent||''; s.remove(); return t; });
+  const cssList=[];
+  for(const p of sheets) cssList.push(await _pvCss(p));
+  cssList.push(...styleTexts);
+  if(_pv.idx!==idx) return;   // 그사이 다른 문서를 골랐음
+  fdoc.replaceChild(fdoc.importNode(x.documentElement,true), fdoc.documentElement);
+  fdoc.querySelectorAll('[data-pv-style]').forEach(el=>{ const k=+el.getAttribute('data-pv-style'); el.removeAttribute('data-pv-style'); try{ el.style.cssText=inlineStyles[k]?.[1]||''; }catch(e){} });
+  try{
+    fdoc.adoptedStyleSheets=cssList.map(t=>{ const sh=new fwin.CSSStyleSheet(); sh.replaceSync(t.replace(/@import[^;]+;/g,'')); return sh; });
+  }catch(e){ console.warn('[preview] CSS 적용 실패', e); }
+  fwin.scrollTo?.(0,0);
+  const sel=document.getElementById('previewChapterSel'); if(sel&&sel.value!==String(idx)) sel.value=String(idx);
+  if(info) info.textContent=(idx+1)+' / '+_pv.docs.length+' · EPUB 실제 XHTML·CSS';
+}
 async function _renderEpubPreview(blob){
   const body=document.getElementById('previewBody');
-  body.innerHTML='<div class="u-ta-center u-p-30 u-text2">EPUB 파싱 중...</div>';
+  const stage=document.getElementById('previewStage'), bar=document.getElementById('previewToolbar');
+  if(body) body.textContent='EPUB 여는 중…';
   try{
-    const zip=await JSZip.loadAsync(blob);
-    // OPF 찾기
-    const container=await zip.file('META-INF/container.xml').async('text');
-    const opfPath=container.match(/full-path="([^"]+)"/)?.[1];
-    if(!opfPath){renderPreview();return;}
-    const opfBase=opfPath.replace(/[^/]+$/,'');
-    const opfText=await zip.file(opfPath).async('text');
-    // spine 순서 파싱
-    const idrefs=[...opfText.matchAll(/<itemref[^>]+idref="([^"]+)"/g)].map(m=>m[1]);
-    const manifest={};
-    for(const m of opfText.matchAll(/<item[^>]+id="([^"]+)"[^>]+href="([^"]+)"/g)){
-      manifest[m[1]]=m[2];
+    await _pvOpen(blob);
+    const sel=document.getElementById('previewChapterSel');
+    if(sel){
+      sel.replaceChildren(..._pv.docs.map((d,i)=>{ const o=document.createElement('option'); o.value=String(i); o.textContent=(i+1)+'. '+d.label; return o; }));
     }
-    // 첫 3개 spine 항목 렌더링
-    const previewItems=idrefs.filter(id=>manifest[id]&&!manifest[id].includes('cover')).slice(0,3);
-    let html='';
-    for(const id of previewItems){
-      const href=opfBase+manifest[id];
-      const xhtml=await zip.file(href)?.async('text')||'';
-      // body 추출
-      const bodyMatch=xhtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-      if(bodyMatch){
-        // 이미지 src를 blob URL로 변환
-        let content=bodyMatch[1]
-          .replace(/<img[^>]+>/gi,'') // 이미지 제거 (미리보기에서 불필요)
-          .replace(/class="[^"]*"/g,'') // 클래스 제거
-          .replace(/<(\/?)h[1-6]/gi,'<$1h3'); // 헤딩 통일
-        html+=`<div class="preview-ch">${content}</div>`;
-      }
-    }
-    body.innerHTML=html||'<div class="u-p-20 u-text2">미리보기 내용을 불러올 수 없어요.</div>';
-    body.style.fontFamily=_previewFont;
-    body.style.lineHeight=_previewLine;
-    document.getElementById('previewPageInfo').textContent=
-      `EPUB 직접 렌더링 · 앞 ${previewItems.length}챕터`;
+    setShown(body,false); setShown(stage,true); setShown(bar,true);
+    document.getElementById('previewModal')?.classList.add('is-epub');
+    // 표지가 있으면 그다음 문서(본문 첫 장)부터
+    const first=_pv.docs.length>1&&/cover\.xhtml$/.test(_pv.docs[0].path)?1:0;
+    await previewShowDoc(first);
   }catch(e){
-    // 파싱 실패 시 기존 텍스트 미리보기로 폴백
+    console.warn('[preview] EPUB 미리보기 실패 — 텍스트 미리보기로', e);
+    _pvTextMode();
     renderPreview();
   }
+}
+function _pvTextMode(){
+  setShown(document.getElementById('previewBody'),true);
+  setShown(document.getElementById('previewStage'),false);
+  setShown(document.getElementById('previewToolbar'),false);
+  document.getElementById('previewModal')?.classList.remove('is-epub');
 }
 
 function renderPreview(){
@@ -2120,6 +2253,8 @@ function renderPreview(){
 }
 
 function previewNav(dir){
+  // ★ Phase 34: EPUB 미리보기 중이면 문서 하나씩
+  if(_pv&&!document.getElementById('previewStage')?.hidden){ previewShowDoc(_pv.idx+(dir<0?-1:1)); return; }
   _previewIdx=Math.max(0,Math.min(_previewChapters.length-3,_previewIdx+(dir*3)));
   renderPreview();
 }
@@ -2224,6 +2359,9 @@ function _resetConvertResultUi(){
   _previewChapters=[];
   document.getElementById('resultBox')?.classList.remove('show');
   setShown(document.getElementById('splitSec'),false);
+  _epubCheckSeq++;   // ★ Phase 34: 진행 중인 구조 검사 결과는 버림
+  _pvRelease();      // ★ Phase 34: 미리보기용 blob: URL 해제
+  const ck=document.getElementById('epubCheckReport'); if(ck){ setShown(ck,false); ck.replaceChildren(); }
 }
 
 // ★ Phase 17: 변환 결과가 사라지면(새 파일·초기화) 다운로드 바를 숨기고 변환 바로 복귀 — S.epubBlob 구독에서 호출

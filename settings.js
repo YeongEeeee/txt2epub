@@ -79,6 +79,7 @@ function saveExtraSettings(){
         : document.getElementById('optStrictTocCtx')?.checked!==false,
     }));
   }catch(e){}
+  scheduleCleanupDiff();   // ★ Phase 34: 전후 비교가 펼쳐져 있으면 다시 계산
 }
 
 // ★ Phase 13: 본문 정리 옵션 저장·복원 (체크박스·선택·사용자 정규식)
@@ -106,6 +107,50 @@ function _syncReaderProfileDesc(){
   if(el&&typeof getReaderProfile==='function'&&typeof describeReaderProfile==='function') el.textContent=describeReaderProfile(getReaderProfile());
 }
 // 잡음 줄 필터를 켰을 때만 세부 항목 표시
+// ★ Phase 34: 본문 정리 전후 비교 — 접힌 상자를 펼쳤을 때·펼친 채 옵션을 바꿀 때만 계산
+let _cdiffTimer=0;
+// 펼칠 때 계산 (스크립트는 defer — DOM 준비된 뒤 실행)
+if(typeof document!=='undefined') document.getElementById('cleanupDiffBox')?.addEventListener('toggle',e=>{ if(e.target?.open) renderCleanupDiff(); });
+function scheduleCleanupDiff(){
+  if(!document.getElementById('cleanupDiffBox')?.open) return;
+  clearTimeout(_cdiffTimer);
+  _cdiffTimer=setTimeout(renderCleanupDiff,250);
+}
+function _cdiffLine(r){
+  const t=String(r.text??'');
+  const cut=t.length>300?t.slice(0,300)+'…':t;
+  if(r.t==='+'&&r.pair!=null){
+    // 한 줄 고침: 바뀐 가운데만 표시
+    const [s,ea,eb]=cleanupChangedSpan(r.pair,t);
+    if(eb<=300) return `<ins class="cdiff-row is-add"><span class="cdiff-sign" aria-hidden="true">+</span>${escHtml(t.slice(0,s))}<mark>${escHtml(t.slice(s,eb))}</mark>${escHtml(t.slice(eb))}</ins>`;
+  }
+  if(r.t==='-') return `<del class="cdiff-row is-del"><span class="cdiff-sign" aria-hidden="true">−</span>${escHtml(cut)}</del>`;
+  if(r.t==='+') return `<ins class="cdiff-row is-add"><span class="cdiff-sign" aria-hidden="true">+</span>${escHtml(cut)}</ins>`;
+  return `<div class="cdiff-row"><span class="cdiff-sign" aria-hidden="true"></span>${escHtml(cut)||'&nbsp;'}</div>`;
+}
+function renderCleanupDiff(){
+  const host=document.getElementById('cleanupDiff');
+  if(!host) return;
+  const raw=typeof getRawChaptersForCleanupDiff==='function'?getRawChaptersForCleanupDiff():null;
+  if(!raw||!raw.length){ host.textContent='변환 탭에서 TXT 파일을 넣고 목차가 감지되면 여기서 비교할 수 있어요.'; return; }
+  const opts=getTextCleanupOpts();
+  const t0=performance.now();
+  const d=buildCleanupDiff(raw, opts, {limit:30, ctx:1});
+  const ms=Math.round(performance.now()-t0);
+  const parts=[];
+  if(d.stats.noise) parts.push('잡음 줄 '+d.stats.noise+'줄 제외');
+  if(d.stats.wrap) parts.push('줄바꿈 '+d.stats.wrap+'곳 이음');
+  if(d.stats.symbols) parts.push('기호 '+d.stats.symbols+'줄 정리');
+  const head=d.changed
+    ? `바뀐 챕터 ${d.changed} / ${d.total}`+(parts.length?' · '+parts.join(' · '):'')+` · ${ms}ms`
+    : '켜 둔 정리 옵션으로는 바뀌는 곳이 없어요'+(opts.hardWrap&&!d.stats.wrapInfo?' (고정 폭 줄바꿈이 감지되지 않음)':'');
+  host.innerHTML=  // safe-html: 숫자·고정 문구, 본문·제목은 escHtml
+    `<div class="cdiff-head">${escHtml(head)}</div>`+
+    d.hunks.map(h=>`<section class="cdiff-hunk"><h4>${escHtml(h.title||'(제목 없음)')}</h4>`+
+      h.rows.map(r=>r.t==='gap'?'<div class="cdiff-gap" aria-hidden="true">⋯</div>':_cdiffLine(r)).join('')+`</section>`).join('')+
+    (d.truncated?`<div class="cdiff-more">… 바뀐 챕터 ${d.truncated}개 더 (처음 30개만 표시)</div>`:'');
+}
+
 function _syncNoisePanel(){
   const on=document.getElementById('optNoiseFilter')?.checked===true;
   const panel=document.getElementById('optNoisePanel');

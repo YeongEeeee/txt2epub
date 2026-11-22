@@ -1860,6 +1860,78 @@ function applyTextCleanup(chapters, opts={}){
 }
 
 // ════════════════════════════════════════════════════════════
+// ★ Phase 34: 본문 정리 전후 비교 — 정리 단계가 '무엇을' 바꿨는지 줄 단위로 보여 줌
+//   정리는 줄을 지우거나(잡음) · 여러 줄을 한 줄로 잇거나(줄바꿈 병합·문단 정합) · 한 줄을 고치는(기호) 일만 하므로
+//   일반 LCS 대신 이 세 가지를 가정한 정렬을 쓴다 — O(줄 수 × 창 크기), 긴 챕터에서도 메모리 일정
+//   DOM 비의존 순수 함수 → tests/run-tests.js에서 직접 검사
+// ════════════════════════════════════════════════════════════
+const _CD_WIN=40;
+function _cdNorm(t){ return String(t).replace(/\s+/g,''); }
+// a(정리 전 줄들) → b(정리 후 줄들) : [{t:'=',a,b} | {t:'-',a} | {t:'+',b} | {t:'~',a:[...], b}] (~: 여러 줄→한 줄 또는 고침)
+function alignCleanupLines(a, b){
+  const out=[]; let i=0, j=0;
+  while(i<a.length||j<b.length){
+    if(i<a.length&&j<b.length&&a[i]===b[j]){ out.push({t:'=',a:a[i],b:b[j]}); i++; j++; continue; }
+    if(j>=b.length){ out.push({t:'-',a:a[i++]}); continue; }
+    if(i>=a.length){ out.push({t:'+',b:b[j++]}); continue; }
+    // ① 여러 줄 → 한 줄 (공백 무시 이어 붙이기)
+    const nb=_cdNorm(b[j]);
+    if(nb){
+      let acc='', k=i, hit=-1;
+      while(k<a.length&&k<i+_CD_WIN&&acc.length<nb.length){ acc+=_cdNorm(a[k]); k++; if(acc===nb){ hit=k; break; } }
+      if(hit>i+1){ out.push({t:'~',a:a.slice(i,hit),b:b[j]}); i=hit; j++; continue; }
+    }
+    // ② 지워진 줄 — b[j]가 조금 뒤 a에 그대로 있으면 그 사이는 삭제
+    let del=-1;
+    for(let k=i+1;k<a.length&&k<i+_CD_WIN;k++) if(a[k]===b[j]){ del=k; break; }
+    if(del>0){ while(i<del) out.push({t:'-',a:a[i++]}); continue; }
+    // ③ 정리 단계가 빈 줄 등을 넣은 경우 — a[i]가 조금 뒤 b에 그대로 있으면 그 사이는 추가
+    let ins=-1;
+    for(let k=j+1;k<b.length&&k<j+_CD_WIN;k++) if(b[k]===a[i]){ ins=k; break; }
+    if(ins>0){ while(j<ins) out.push({t:'+',b:b[j++]}); continue; }
+    // ④ 한 줄 고침 (기호 정리 등)
+    out.push({t:'~',a:[a[i]],b:b[j]}); i++; j++;
+  }
+  return out;
+}
+// 챕터 배열 → {stats, chapters, changed, hunks:[{ch,title,rows:[{t:' '|'-'|'+',text}]}], truncated}
+//   변경 앞뒤로 ctx줄씩 맥락, 전체 표시 묶음은 limit개까지 (나머지는 개수만)
+function buildCleanupDiff(chapters, opts={}, {limit=30, ctx=1}={}){
+  const res=applyTextCleanup(chapters, opts);
+  const hunks=[]; let changed=0, truncated=0, removed=0, added=0, edited=0;
+  const after=res.chapters;
+  for(let k=0;k<chapters.length;k++){
+    const A=String(chapters[k][1]||'').replace(/\r\n?/g,'\n'), B=String(after[k]?.[1]||'');
+    if(A===B) continue;
+    changed++;
+    const ops=alignCleanupLines(A.split('\n'), B.split('\n'));
+    const rows=[]; const keep=new Set();
+    ops.forEach((o,x)=>{ if(o.t!=='='){ for(let d=-ctx;d<=ctx;d++) keep.add(x+d); } });
+    let last=-2;
+    ops.forEach((o,x)=>{
+      if(!keep.has(x)) return;
+      if(last>=0&&x>last+1) rows.push({t:'gap'});
+      last=x;
+      if(o.t==='=') rows.push({t:' ',text:o.a});
+      else if(o.t==='-'){ rows.push({t:'-',text:o.a}); removed++; }
+      else if(o.t==='+'){ rows.push({t:'+',text:o.b}); added++; }
+      else { o.a.forEach(l=>rows.push({t:'-',text:l})); rows.push({t:'+',text:o.b, pair:o.a.length===1?o.a[0]:null}); edited++; }
+    });
+    if(hunks.length<limit) hunks.push({ch:k, title:chapters[k][0], rows});
+    else truncated++;
+  }
+  return {stats:res.stats, total:chapters.length, changed, removed, added, edited, hunks, truncated};
+}
+// 한 줄 고침의 바뀐 부분 — 공통 앞·뒤를 뺀 가운데 [start, endA, endB]
+function cleanupChangedSpan(a, b){
+  a=String(a); b=String(b);
+  let s=0; while(s<a.length&&s<b.length&&a[s]===b[s]) s++;
+  let ea=a.length, eb=b.length;
+  while(ea>s&&eb>s&&a[ea-1]===b[eb-1]){ ea--; eb--; }
+  return [s, ea, eb];
+}
+
+// ════════════════════════════════════════════════════════════
 // ★ Phase 13: 변환 전 검수 리포트 — 목차 항목(S.tocItems)에서 누락 화수·중복·짧은/빈/긴 챕터 수집
 //   DOM 비의존 순수 함수 (renderTocReview가 화면에 그림)
 // ════════════════════════════════════════════════════════════
@@ -2167,6 +2239,12 @@ let _chaptersComputePromise=null;
 // ★ Phase 8: assembleChapters 공용 — 이전엔 본문 없는 제목을 버려 '1권' 같은 상위 제목이 사라짐
 //   dropLines: 감지 단계에서 본문에서 뺄 줄(두 줄 제목의 부제·반복 머리줄) — 같은 원문 배열일 때만 적용
 // ★ Phase 10: 줄 범위 모델(assembleTocChapters) — 병합 세그먼트·목차 순서(드래그 이동)를 출력에 반영
+// ★ Phase 34: 정리 전 챕터 (전후 비교용) — 목차가 있을 때만, 없으면 null
+function getRawChaptersForCleanupDiff(){
+  if(!S.txtFiles?.length||!S.tocItems?.length) return null;
+  const src=_tocSourceLines();
+  return src?buildChaptersFromTocItems(src, S.tocItems):null;
+}
 function buildChaptersFromTocItems(lines, tocItems, dropLines=(lines===_fullRawLines?_tocDropLines:null)){
   const enabled=(tocItems||[]).filter(t=>t.enabled&&t.line!=null&&t.line>=1&&t.line<=lines.length);
   if(!enabled.length) return [['본문', lines.join('\n').trim()]];

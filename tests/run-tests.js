@@ -29,6 +29,7 @@
  *  22. Phase 31 (UI 정제 2단계 — 성능): 스크립트 defer·순서 · 테마 선적용(theme-boot.js) · 목차 확인 화면 선반영 · 감지 Worker 기준 · 첫 화면 비활성 상태
  *  23. Phase 32 (UI 정제 3단계 — 디자인 축소): CSS 리터럴 0 · 무한 애니메이션 1 · 화면 이모지 0 → SVG 아이콘 · JS 인라인 스타일 → 클래스·hidden
  *  24. Phase 33 (UI 정제 4단계 — 정보 구조): 기본 경로만 펼침(분할 규칙·목차 편집·삽화 접기) · 데스크톱 2단 · 레이아웃 이동 방지
+ *  25. Phase 34 (신뢰 기능): EPUB 구조 검사(생성 EPUB 통과 · 일부러 망가뜨린 11종 검출) · 실제 XHTML·CSS 미리보기 · 본문 정리 전후 비교
  */
 'use strict';
 const fs   = require('fs');
@@ -1596,6 +1597,98 @@ async function main(){
       /\.regex-feed-list\{max-height:220px;min-height:var\(--feed-min-h\)/.test(css) && /#patSection\.is-idle ~ \.toc-edit-box\{display:none\}/.test(css)
       && /\.cv-side \.opt-summary-grid\{min-height:var\(--summary-min-h\)/.test(mq) && /\.dz\.ok\{[^}]*transition:border-color var\(--dur-fast\),background var\(--dur-fast\)\}/.test(css)
       && /<div class="feed-item-preview">\$\{prevSafe\?prevSafe\+'…':'&nbsp;'\}<\/div>/.test(ui));
+  }
+
+  // ── 25. Phase 34 (신뢰 기능) ──
+  {
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const eg = read('epub-gen.js'), conv = read('convert.js'), html = read('index.html'), css = read('style.css'), ui = read('ui-state.js'), st = read('settings.js'), parser = read('parser.js');
+    // 25-1. 구조 검사기 — epub-gen.js의 검사 부분만 따로 실행 (DOM 없음 → 가벼운 XML 검사 사용)
+    const VC = vm.createContext({ console, JSZip, Uint8Array, decodeURIComponent, Date, Promise, Set, Map, String, Object, JSON, RegExp, Array, Number, Math });
+    const vStart = eg.indexOf('// 가벼운 XML 형식 검사');
+    let validate = null, wf = null, resolve = null;
+    try { vm.runInContext(eg.slice(vStart), VC); validate = VC.validateEpubZip; wf = VC._xmlWellFormedLite; resolve = VC._epubResolve; } catch (e) { validate = null; }
+    check('[신뢰] 구조 검사기 로드 (epub-gen.js validateEpubZip)', vStart > 0 && typeof validate === 'function');
+    if (typeof validate === 'function') {
+      check('[신뢰] 경로 해석: 상대·../·%인코딩·#조각', resolve('OEBPS/Text/a.xhtml', '../Images/%ED%91%9C.jpg#x') === 'OEBPS/Images/표.jpg' && resolve('OEBPS/content.opf', 'Text/a.xhtml') === 'OEBPS/Text/a.xhtml');
+      const wfCases = [['<a><b/></a>', true], ['<a x="1" y=\'2\'>t &amp; &#44; &#x41;</a>', true], ['<?xml version="1.0"?><!DOCTYPE html><a><!-- c --><![CDATA[<x>]]></a>', true],
+        ['<a><b></a>', false], ['<a>&nbsp;</a>', false], ['<a x=1></a>', false], ['<a></a><b></b>', false], ['<a x="1" x="2"></a>', false], ['<a>1 < 2</a>', false], ['<a>', false]];
+      check('[신뢰] 가벼운 XML 형식 검사: 정상 3 · 오류 7', wfCases.every(([t, ok]) => (wf(t) === null) === ok), wfCases.filter(([t, ok]) => (wf(t) === null) !== ok).map(x => x[0]).join(' | '));
+      // 이 테스트가 만든 EPUB 전부 — 9개 항목 모두 통과해야 함
+      const outs = fs.readdirSync(OUT_DIR).filter(f => f.endsWith('.epub'));
+      const bad = [];
+      for (const f of outs) {
+        const buf = fs.readFileSync(path.join(OUT_DIR, f));
+        const r = await validate(await JSZip.loadAsync(buf), new Uint8Array(buf.slice(0, 128)));
+        if (r.passed !== r.total) bad.push(f + ': ' + r.checks.filter(c => !c.ok).map(c => c.id + ' ' + c.issues[0]).join('; '));
+      }
+      check(`[신뢰] 생성한 EPUB ${outs.length}개 모두 구조 검사 9/9 통과`, outs.length >= 10 && !bad.length, bad.slice(0, 3).join(' / '));
+      // 일부러 망가뜨린 EPUB — 각각 의도한 검사 항목만 실패해야 함
+      const base = fs.readFileSync(path.join(OUT_DIR, '14_edited_insert.epub'));
+      const opfP = 'OEBPS/content.opf';
+      const firstText = z => Object.keys(z.files).find(k => /Text\/.*\.xhtml$/.test(k) && !/cover/.test(k));
+      const muts = [
+        ['mimetype 압축', ['mimetype'], async () => { const z = await JSZip.loadAsync(base), n = new JSZip(); for (const k of Object.keys(z.files)) { if (!z.files[k].dir) n.file(k, await z.file(k).async('uint8array'), { compression: 'DEFLATE' }); } return [n, true]; }],
+        ['mimetype 첫 항목 아님', ['mimetype'], async () => { const z = await JSZip.loadAsync(base), n = new JSZip(); for (const k of Object.keys(z.files)) { if (!z.files[k].dir && k !== 'mimetype') n.file(k, await z.file(k).async('uint8array')); } n.file('mimetype', 'application/epub+zip', { compression: 'STORE' }); return [n, true]; }],
+        ['본문 파일 삭제', ['manifest', 'refs'], async z => { z.remove('OEBPS/Text/chapter_0005.xhtml'); return [z]; }],
+        ['manifest 밖 파일', ['manifest'], async z => { z.file('OEBPS/extra.txt', 'x'); return [z]; }],
+        ['XHTML 태그 짝 오류', ['xml'], async z => { const k = firstText(z); z.file(k, (await z.file(k).async('string')).replace('</p>', '</q>')); return [z]; }],
+        ['정의 안 된 엔티티', ['xml'], async z => { const k = firstText(z); z.file(k, (await z.file(k).async('string')).replace('</body>', '<p>a &nbsp; b</p></body>')); return [z]; }],
+        ['media-type 불일치', ['mediatype'], async z => { z.file(opfP, (await z.file(opfP).async('string')).replace('media-type="text/css"', 'media-type="text/plain"')); return [z]; }],
+        ['spine idref 없음', ['spine'], async z => { z.file(opfP, (await z.file(opfP).async('string')).replace('<spine toc="ncx">', '<spine toc="ncx"><itemref idref="nope"/>')); return [z]; }],
+        ['dc:language 없음', ['opf'], async z => { z.file(opfP, (await z.file(opfP).async('string')).replace(/<dc:language>[^<]*<\/dc:language>/, '')); return [z]; }],
+        ['이미지 참조 끊김', ['refs'], async z => { const k = firstText(z); z.file(k, (await z.file(k).async('string')).replace('</body>', '<img src="../Images/none.jpg" alt=""/></body>')); return [z]; }],
+        ['목차 조각 id 없음', ['refs'], async z => { const k = 'OEBPS/nav.xhtml'; z.file(k, (await z.file(k).async('string')).replace(/href="(Text\/[^"#]+)"/, 'href="$1#nope"')); return [z]; }],
+      ];
+      const mutBad = [];
+      for (const [name, expect, fn] of muts) {
+        const [z, keepMime] = await fn(await JSZip.loadAsync(base));
+        if (!keepMime) z.file('mimetype', 'application/epub+zip', { compression: 'STORE' });
+        const buf = await z.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+        const r = await validate(await JSZip.loadAsync(buf), new Uint8Array(buf.slice(0, 128)));
+        const failed = r.checks.filter(c => !c.ok).map(c => c.id).sort().join(',');
+        if (failed !== expect.slice().sort().join(',')) mutBad.push(`${name}: 실패 항목 [${failed}] (기대 [${expect.join(',')}])`);
+      }
+      check(`[신뢰] 일부러 망가뜨린 EPUB ${muts.length}종 — 각각 의도한 항목만 실패`, !mutBad.length, mutBad.slice(0, 3).join(' / '));
+    }
+    check('[신뢰] 변환 직후 구조 검사 (스트리밍 저장은 생략) · 새 변환이면 이전 결과 버림',
+      /_runEpubCheck\(streamed\?null:blob\);/.test(conv) && /if\(seq!==_epubCheckSeq\) return;/.test(conv) && /_epubCheckSeq\+\+;   \/\/ ★ Phase 34/.test(conv) && /<div id="epubCheckReport" role="status" aria-live="polite" hidden><\/div>/.test(html));
+    check('[신뢰] 구조 검사 결과 문구는 escHtml · EPUBCheck 전체가 아님을 표시', /r\.checks\.map\(c=>`<li class="\$\{c\.ok\?'is-ok':'is-bad'\}">\$\{icon\(c\.ok\?'check':'x-circle'\)\}<span>\$\{escHtml\(c\.label\)\}/.test(conv) && /c\.issues\.map\(escHtml\)/.test(conv) && /EPUBCheck 전체 검사를 대신하지는 않아요/.test(conv));
+    // 25-2. 실제 미리보기 — 스크립트 실행 없는 iframe · CSP 안에서 CSS 적용
+    check('[신뢰] 미리보기 iframe: sandbox="allow-same-origin"만 (allow-scripts 없음)', /<iframe id="previewFrame" sandbox="allow-same-origin" title="[^"]+"><\/iframe>/.test(html) && !/<iframe[^>]*allow-scripts/.test(html));
+    check('[신뢰] 미리보기: 생성 스타일시트(adoptedStyleSheets) · style 속성은 CSSOM · script·on* 제거 · 이미지 blob: · 글꼴 data:',
+      /fdoc\.adoptedStyleSheets=cssList\.map/.test(conv) && /new fwin\.CSSStyleSheet\(\)/.test(conv) && /el\.style\.cssText=inlineStyles\[k\]/.test(conv)
+      && /x\.querySelectorAll\('script'\)\.forEach\(n=>n\.remove\(\)\)/.test(conv) && /if\(\/\^on\/i\.test\(a\.name\)\) el\.removeAttribute/.test(conv)
+      && /url='data:'\+mt\+';base64,'/.test(conv) && /URL\.createObjectURL\(new Blob\(\[await f\.async\('uint8array'\)\]/.test(conv) && /\/\\\.\(\?:ttf\|otf\|woff2\?\)\$\/i\.test\(p\)/.test(conv));
+    check('[신뢰] 미리보기 정리: 결과 초기화 때 blob: URL 해제 · 이전/다음은 문서 단위 · 기기 단추는 미니 리더와 같은 상태',
+      /_pvRelease\(\);      \/\/ ★ Phase 34/.test(conv) && /if\(_pv&&!document\.getElementById\('previewStage'\)\?\.hidden\)\{ previewShowDoc\(_pv\.idx\+\(dir<0\?-1:1\)\); return; \}/.test(conv)
+      && /const pvDev=document\.getElementById\('previewDevice'\);/.test(ui) && (html.match(/data-action="setReaderDevice"/g) || []).length === 8
+      && /previewPickDoc: \(el\) => \{ typeof previewShowDoc==='function'&&previewShowDoc/.test(ui));
+    // 25-3. 본문 정리 전후 비교
+    const Gs = e => { try { return G(e); } catch (x) { return null; } };   // 이전 코드에서는 없음 → 실패로 기록 (중단하지 않음)
+    const has3 = ['alignCleanupLines', 'buildCleanupDiff', 'cleanupChangedSpan'].every(n => typeof Gs(n) === 'function');
+    const align = has3 ? G('alignCleanupLines') : () => null, cdiff = has3 ? G('buildCleanupDiff') : () => ({ changed: -1, hunks: [], total: 0, truncated: 0 }), span = has3 ? G('cleanupChangedSpan') : () => null;
+    const j = x => JSON.stringify(x);
+    check('[신뢰] 정렬: 여러 줄→한 줄 · 지운 줄', j(align(['가나다', '다라마바', '사아', '후기'], ['가나다', '다라마바 사아'])) === j([{ t: '=', a: '가나다', b: '가나다' }, { t: '~', a: ['다라마바', '사아'], b: '다라마바 사아' }, { t: '-', a: '후기' }]));
+    check('[신뢰] 정렬: 한 줄 고침 · 중간 삭제', j(align(['"안녕..."', '둘'], ['“안녕…”', '둘'])) === j([{ t: '~', a: ['"안녕..."'], b: '“안녕…”' }, { t: '=', a: '둘', b: '둘' }])
+      && j(align(['a', 'x', 'b'], ['a', 'b'])) === j([{ t: '=', a: 'a', b: 'a' }, { t: '-', a: 'x' }, { t: '=', a: 'b', b: 'b' }]));
+    check('[신뢰] 바뀐 가운데 구간', j(span('그는 "안녕..." 했다', '그는 “안녕…” 했다')) === j([3, 10, 8]));
+    const wrapLine = '가나다라마바사아자차카타파하'.repeat(3);
+    const chs = [['1화', ['가나다라마바사아자차카타파하가나다라마바사', '아자차카타파하가나다라마바사아자차카타파하', '끝.', '', '정말이야...'].join('\n')], ['2화', '바뀌지 않는 줄\n둘째 줄'], ['3화', '보통 문장\n작가의 말\n선작 부탁드려요']];
+    const dOff = cdiff(chs, { noise: false, hardWrap: false, symbols: false, mergeShort: false });
+    const dOn = cdiff(chs, { noise: true, noisePresets: [], noiseCustom: '^작가의 말$', hardWrap: false, symbols: true, mergeShort: false, quoteStyle: 'keep' });
+    check('[신뢰] 전후 비교: 옵션 끔 → 바뀐 챕터 0', dOff.changed === 0 && dOff.hunks.length === 0 && dOff.total === 3, j(dOff).slice(0, 120));
+    check('[신뢰] 전후 비교: 기호 정리·잡음 줄 → 해당 챕터만, 지운 줄은 -, 고친 줄은 + (짝 있음)',
+      dOn.changed === 2 && dOn.hunks.map(h => h.title).join() === '1화,3화'
+      && dOn.hunks[0].rows.some(r => r.t === '+' && r.text === '정말이야…' && r.pair === '정말이야...')
+      && dOn.hunks[1].rows.some(r => r.t === '-' && r.text === '작가의 말'), j(dOn.hunks.map(h => h.rows)).slice(0, 300));
+    const many = Array.from({ length: 50 }, (_, i) => [`${i + 1}화`, '그는...']);
+    const dMany = cdiff(many, { symbols: true, quoteStyle: 'keep' }, { limit: 30 });
+    check('[신뢰] 전후 비교: 표시 30개 제한 · 나머지는 개수', dMany.hunks.length === 30 && dMany.truncated === 20 && dMany.changed === 50);
+    check('[신뢰] 전후 비교 UI: 펼쳤을 때만 계산 · 옵션·목차가 바뀌면 다시 · 본문은 escHtml · del/ins 요소',
+      /<details class="adv-box" id="cleanupDiffBox">/.test(html) && /if\(!document\.getElementById\('cleanupDiffBox'\)\?\.open\) return;/.test(st) && /scheduleCleanupDiff\(\);   \/\/ ★ Phase 34/.test(st)
+      && /typeof scheduleCleanupDiff==='function'&&scheduleCleanupDiff\(\);/.test(ui) && /<del class="cdiff-row is-del">/.test(st) && /<ins class="cdiff-row is-add">/.test(st)
+      && !/\$\{t\}|\$\{cut\}|\$\{r\.text\}/.test(st) && /function getRawChaptersForCleanupDiff\(\)\{\n  if\(!S\.txtFiles\?\.length\|\|!S\.tocItems\?\.length\) return null;/.test(parser));
   }
   if(UPDATE){
     fs.writeFileSync(GOLDEN, JSON.stringify(golden, null, 2) + '\n', 'utf8');
