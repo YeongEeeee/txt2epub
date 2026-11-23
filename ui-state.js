@@ -1115,6 +1115,8 @@ function setupEventDelegate(){
     batchPresetCheckAll: (el) => typeof batchPresetCheckAll==='function'&&batchPresetCheckAll(parseInt(el.dataset.idx,10), el.dataset.val==='true'),
     batchPresetAuto:     (el) => typeof batchPresetAuto==='function'&&batchPresetAuto(parseInt(el.dataset.idx,10)),
     confirmBatchPreset:  (el) => typeof confirmBatchPreset==='function'&&confirmBatchPreset(parseInt(el.dataset.idx,10)),
+    // ★ Phase 35: 일괄 변환 사전 분석 요약 — 확인이 필요한 다음 파일로 이동
+    focusBatchIssue:     () => typeof focusBatchIssue==='function'&&focusBatchIssue(),
     applyBatchInterval:  (el) => typeof applyBatchInterval==='function'&&applyBatchInterval(parseInt(el.dataset.idx,10)),
     clearBatchInterval:  (el) => typeof clearBatchInterval==='function'&&clearBatchInterval(parseInt(el.dataset.idx,10)),
     browseEditIll:       (el) => typeof browseEditIll==='function'&&browseEditIll(parseInt(el.dataset.id,10)),

@@ -1,0 +1,137 @@
+#!/usr/bin/env node
+/**
+ * NovelEPUB 일괄 변환 '파일 상태 파악' 비용 측정기 (Phase 35)
+ *
+ *   측정 도구는 앱 의존성이 아니므로 package.json에 넣지 않는다. 측정할 때만 임시 설치:
+ *     npm install --no-save playwright-core
+ *     node tests/measure-batch.js            → 표 출력
+ *     node tests/measure-batch.js --json     → JSON 출력
+ *     ROOT_DIR=<다른 체크아웃> node tests/measure-batch.js   → 이전 커밋과 비교 (같은 스크립트로 측정)
+ *
+ *   Chrome 위치: 환경변수 CHROME_PATH가 있으면 그것을, 없으면 설치된 Chrome(channel: 'chrome')을 사용
+ *
+ * 조건: 모바일 390×844 · 일괄 변환 탭에 TXT 7개(실전형 5종 + 화수 어긋남 1 + 제목 없음 1)를 한 번에 넣음
+ * 측정 항목
+ *   1. 클릭 수 — 7개 파일 모두의 감지 상태(준비/확인 필요/실패)를 알 때까지 누른 횟수
+ *      · 사전 분석이 있으면(#batchSummary) 0번 — 배지가 다 채워질 때까지 기다리기만 함
+ *      · 없으면(이전 버전) 파일마다 '목차 확인'을 1번씩 눌러 패널이 뜰 때까지 기다림
+ *   2. 상태를 모두 알기까지 걸린 시간 — 파일을 넣은 순간부터 (클릭 방식은 클릭 대기 시간 제외, 순수 처리 시간 합)
+ *   3. 가장 긴 메인 스레드 작업(Long Task) — 분석 중 화면이 멈춘 최대 시간
+ *   4. 확인 필요 파일까지의 클릭 — '확인 필요한 파일 보기' 1번으로 첫 문제 파일 패널이 열리는지
+ *
+ * 외부 네트워크(구글 폰트·표지 검색)는 차단하고 로컬 파일만 서빙한다.
+ */
+'use strict';
+const http = require('http');
+const fs   = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(process.env.ROOT_DIR || path.join(__dirname, '..'));
+const JSON_OUT = process.argv.includes('--json');
+
+let chromium;
+try {
+  ({ chromium } = require('playwright-core'));
+} catch (e) {
+  console.error('측정 도구가 없습니다. 먼저 실행: npm install --no-save playwright-core');
+  process.exit(2);
+}
+
+const MIME = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8',
+  '.json':'application/json', '.webmanifest':'application/manifest+json', '.svg':'image/svg+xml', '.png':'image/png',
+  '.wasm':'application/wasm', '.txt':'text/plain; charset=utf-8' };
+function serve(){
+  return new Promise(resolve => {
+    const srv = http.createServer((req, res) => {
+      let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+      if (p === '/') p = '/index.html';
+      const f = path.join(ROOT, path.normalize(p));
+      if (!f.startsWith(ROOT) || !fs.existsSync(f) || fs.statSync(f).isDirectory()) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'application/octet-stream' });
+      fs.createReadStream(f).pipe(res);
+    });
+    srv.listen(0, '127.0.0.1', () => resolve(srv));
+  });
+}
+
+// 측정용 파일 7개 (결정적) — 생성기는 이 체크아웃의 것을 씀 (비교 대상과 같은 입력)
+function makeFiles(){
+  const { generate, SPECS } = require('./gen-realistic.js');
+  const files = SPECS.map(s => { const g = generate(s); return { name: g.fileName, buffer: Buffer.from(g.text) }; });
+  const ch = n => Array.from({ length: n }, (_, i) => `제${i + 1}화\n\n그는 걸었다.\n\n바람이 불었다.\n`).join('\n');
+  files.push({ name: '화수가 어긋난 소설 1-100 완결.txt', buffer: Buffer.from(ch(40)) });
+  files.push({ name: '제목 없는 원고.txt', buffer: Buffer.from('그는 걸었다.\n바람이 불었다.\n'.repeat(200)) });
+  return files.map(f => ({ ...f, mimeType: 'text/plain' }));
+}
+
+(async () => {
+  const srv = await serve();
+  const base = `http://127.0.0.1:${srv.address().port}/index.html`;
+  const browser = await chromium.launch(process.env.CHROME_PATH
+    ? { executablePath: process.env.CHROME_PATH, args: ['--no-sandbox'] }
+    : { channel: 'chrome' });
+  const files = makeFiles();
+  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+  await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, r => r.abort());
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on('pageerror', e => errors.push(String(e)));
+  await page.goto(base);
+  await page.waitForTimeout(900);
+  await page.click('#tab-batch');
+  await page.waitForTimeout(300);
+  await page.evaluate(() => {
+    window.__long = 0;
+    try { new PerformanceObserver(l => l.getEntries().forEach(e => { window.__long = Math.max(window.__long, e.duration); })).observe({ type: 'longtask', buffered: false }); } catch (e) {}
+  });
+
+  const hasAuto = await page.evaluate(() => !!document.getElementById('batchSummary'));
+  const t0 = Date.now();
+  await page.setInputFiles('#batchTxtIn', files);
+  let clicks = 0, elapsed = 0, states = [], summary = '', issueOpens = null;
+  if (hasAuto) {
+    await page.waitForFunction(n => {
+      const b = [...document.querySelectorAll('.batch-check')];
+      return b.length === n && b.every(x => !x.hidden && ['ok', 'warn', 'fail', 'error'].includes(x.dataset.state));
+    }, files.length, { timeout: 60000 });
+    elapsed = Date.now() - t0;
+    states = await page.evaluate(() => [...document.querySelectorAll('.batch-check')].map(x => x.dataset.state + ':' + x.textContent.trim()));
+    summary = await page.textContent('#batchSummaryText');
+    // 확인 필요한 첫 파일까지 1번
+    await page.click('#batchIssueBtn');
+    await page.waitForTimeout(600);
+    issueOpens = await page.evaluate(() => {
+      const open = [...document.querySelectorAll('.batch-toc-panel.show')].map(p => p.id);
+      const first = [...document.querySelectorAll('.batch-check')].findIndex(x => ['warn', 'fail', 'error'].includes(x.dataset.state));
+      return open.length === 1 && open[0] === 'btp_' + first;
+    });
+    await page.screenshot({ path: path.join(__dirname, 'out', 'batch-auto-analyze-mobile.png'), fullPage: false }).catch(() => {});
+  } else {
+    await page.waitForFunction(n => document.querySelectorAll('.batch-toc-btn').length === n, files.length);
+    elapsed = 0;
+    for (let i = 0; i < files.length; i++) {
+      const s = Date.now();
+      await page.click(`#bi_${i} .batch-toc-btn`);
+      clicks++;
+      await page.waitForFunction(k => document.getElementById('btp_' + k)?.classList.contains('show'), i, { timeout: 60000 });
+      elapsed += Date.now() - s;
+      states.push(await page.evaluate(k => {
+        const t = document.getElementById('btp_' + k)?.innerText || '';
+        return /감지하지 못했어요/.test(t) ? 'fail' : /오차 5% 초과/.test(t) ? 'warn' : 'ok';
+      }, i));
+    }
+  }
+  const longTask = Math.round(await page.evaluate(() => window.__long || 0));
+  await ctx.close();
+  await browser.close();
+  srv.close();
+
+  const r = { root: ROOT, mode: hasAuto ? '자동 사전 분석' : '목차 확인 직접 클릭', files: files.length, clicks, elapsedMs: elapsed, longTaskMs: longTask, states, summary, issueOpens, errors };
+  if (JSON_OUT) { console.log(JSON.stringify(r, null, 2)); return; }
+  console.log('| 방식 | 파일 | 상태 파악까지 클릭 | 상태 파악까지 시간 | 최장 메인 스레드 작업 | 확인 필요 파일 열기 |');
+  console.log('|---|---|---|---|---|---|');
+  console.log(`| ${r.mode} | ${r.files}개 | ${r.clicks}번 | ${r.elapsedMs}ms | ${r.longTaskMs}ms | ${r.issueOpens === null ? '-' : r.issueOpens ? '1번 (첫 문제 파일 패널 열림)' : '실패'} |`);
+  console.log('상태: ' + r.states.join(' / '));
+  if (r.summary) console.log('요약: ' + r.summary);
+  if (r.errors.length) console.log('페이지 오류: ' + r.errors.join(' / '));
+})().catch(e => { console.error(e); process.exit(1); });

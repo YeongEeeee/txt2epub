@@ -1054,6 +1054,13 @@ body.modal-open .page-tabs{
 .batch-toc-row:last-child{border:none}
 .batch-toc-num{color:var(--text2);min-width:32px}
 .batch-toc-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ★ Phase 35: 일괄 변환 자동 사전 분석 — 파일별 감지 배지 · 목록 요약 (색은 보조, 상태는 글자로) */
+.batch-summary{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:var(--fs-sm);color:var(--text2)}
+.batch-summary-text{font-weight:600;color:var(--text)}
+.batch-check{display:inline-flex;align-items:center;gap:3px;font-size:var(--fs-xs);padding:1px 7px;border-radius:var(--radius-sm);white-space:nowrap;border:1px solid var(--border);background:var(--bg2);color:var(--text2)}
+.batch-check[data-state="ok"]{background:var(--green-bg);color:var(--green);border-color:var(--green)}
+.batch-check[data-state="warn"]{background:var(--yellow-bg);color:var(--yellow);border-color:var(--yellow)}
+.batch-check[data-state="fail"],.batch-check[data-state="error"]{background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
 
 /* ── 파일 정렬 리스트 ── */
 .file-list-wrap{margin-top:8px}
