@@ -30,6 +30,7 @@
  *  23. Phase 32 (UI 정제 3단계 — 디자인 축소): CSS 리터럴 0 · 무한 애니메이션 1 · 화면 이모지 0 → SVG 아이콘 · JS 인라인 스타일 → 클래스·hidden
  *  24. Phase 33 (UI 정제 4단계 — 정보 구조): 기본 경로만 펼침(분할 규칙·목차 편집·삽화 접기) · 데스크톱 2단 · 레이아웃 이동 방지
  *  25. Phase 34 (신뢰 기능): EPUB 구조 검사(생성 EPUB 통과 · 일부러 망가뜨린 11종 검출) · 실제 XHTML·CSS 미리보기 · 본문 정리 전후 비교
+ *  28. Phase 37 (확인 패널): 놓친 줄 후보·제목 후보(목록·카운트다운 제외)·본문일 수 있는 줄 · 줄 → 정규식 · 좋아질 때만 적용
  *  27. Phase 36 (일괄 변환 원인 표시): 누락 의심 구간(가운데·앞·뒤)·번호 중복·문구·배지 아래 메모 줄
  *  26. Phase 35 (일괄 변환 사전 분석): 파일을 넣으면 목차 확인 없이 파일별 감지 배지 · 요약 · 대기열(중단·새 목록) · 확인 패널과 같은 판정
  */
@@ -1834,6 +1835,50 @@ async function main(){
       check('[원인] 메모 줄 마크업 · 보이면 배지 aria-label은 상태만 · 색은 토큰',
         /'<div class="batch-check-note" id="bnote_'\+i\+'" hidden><\/div>'/.test(conv) && /el\.setAttribute\('aria-label', note\|\|!a\.reason\?label:label\+' — '\+a\.reason\);/.test(conv)
         && /\.batch-check-note\{font-size:var\(--fs-xs\);color:var\(--text2\)/.test(css) && /noteEl\.textContent=note;/.test(conv));
+    }
+    // ── 28. Phase 37 — 문제 있는 줄 먼저 · 줄을 눌러 패턴 만들기 ──
+    {
+      const stSrc = read('settings.js');
+      const gm = stSrc.match(/function guessPatternFromExample\(ex\)\{[\s\S]*?\n\}\n/);
+      const names37 = ['_findExactPreset', 'collectBatchNotes', 'formatBatchNotes', 'classifyBatchDetection', 'analyzeBatchText', '_SENT_END_RX', 'findBatchLineIssues', 'patternFromLine', 'patternFromLineShape', 'batchVerdictImproves'];
+      const c7 = sandbox('convert.js', names37, { _BATCH_PRESETS, detectToc: G('detectToc'), parseChapterRange: G('parseChapterRange'), buildTocReview: G('buildTocReview') });
+      if (gm) vm.runInContext(gm[0], c7);
+      const R = n => vm.runInContext(n, c7);
+      const A7 = R('analyzeBatchText'), FI = R('findBatchLineIssues'), PL = R('patternFromLine'), IMP = R('batchVerdictImproves');
+      const body = '그는 걸었다.\n\n바람이 불었다.\n\n"괜찮아?"\n\n그녀가 물었다.';
+      const mk7 = (n, f) => Array.from({ length: n }, (_, i) => f(i + 1) + '\n\n' + body).join('\n\n');
+      // 28-1. 줄 → 정규식
+      const cases = [['◈ 7 ◈', '^◈\\s*\\d+\\s*◈\\s*$'], ['S#7 만남', '^S#\\s*\\d+\\s+.+$'], ['47편', '^\\d+\\s*편\\s*$'], ['7 시작의 장', '^\\d+\\s+.+$'], ['47화.', '^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'], ['3년이 지났다.', null], ['어느 날 7번째', null], ['', null]];
+      const bad = cases.filter(([l, e]) => PL(l) !== e).map(([l, e]) => `${l}: ${PL(l)} (기대 ${e})`);
+      check('[줄패턴] 예시 줄 → 정규식 (자주 쓰는 형식은 기존 추론 · 그 밖은 번호 앞뒤 모양) · 본문 같은 줄은 만들지 않음', !bad.length, bad.join(' / '));
+      // 28-2. 감지 실패 형식 → 제목 후보 1개 → 그 모양으로 바꾸면 준비
+      const t1 = mk7(30, n => `◈ ${n} ◈`), r1 = A7(t1, '기호 1-30 완결.txt', '', {});
+      const i1 = FI(r1.lines, r1.det, r1.det.stats.range, { candidates: !r1.isGood });
+      const r1b = i1.candidates[0] ? A7(t1, '기호 1-30 완결.txt', PL(i1.candidates[0].text), {}) : null;
+      check('[줄패턴] 감지 실패 → 제목 후보(같은 모양 30줄) → 바꾸면 30/30화',
+        r1.verdict.state === 'fail' && i1.candidates.length === 1 && i1.candidates[0].why === '같은 모양 30줄' && r1b?.verdict.label === '30/30화' && IMP('fail', r1b.verdict.state, r1b.chapters.length), JSON.stringify(i1));
+      // 28-3. 한 화만 다른 형식 → 놓친 줄 후보(그 화 자리) → 지금 패턴에 더하면 60/60화
+      const t2 = mk7(60, n => n === 47 ? '47편' : `제${n}화 제목`), r2 = A7(t2, '한 화 1-60 완결.txt', '', {});
+      const i2 = FI(r2.lines, r2.det, r2.det.stats.range, { candidates: !r2.isGood });
+      const m2 = i2.misses[0];
+      const r2b = m2 ? A7(t2, '한 화 1-60 완결.txt', '(?:' + r2.det.rx.source + '|' + PL(m2.text) + ')', {}) : null;
+      check('[줄패턴] 누락 의심 47화 → 놓친 줄 후보 \'47편\'(47화 자리) → 더하면 60/60화',
+        r2.verdict.label === '59/60화' && i2.misses.length === 1 && m2.text === '47편' && m2.why === '47화 자리' && r2.lines[m2.line - 1] === '47편' && r2b?.verdict.label === '60/60화', JSON.stringify(i2));
+      // 28-4. 실전형 5종 — 후보를 강제로 켜도 잡음 0 (번호 목록·카운트다운·본문 속 'N화' 제외)
+      const noise = SPECS.map(sp => { const g = generate(sp); const r = A7(g.text, g.fileName, '', {}); const x = FI(r.lines, r.det, r.det.stats.range, { candidates: true }); return x.suspects.length + x.misses.length + x.candidates.length; });
+      check('[줄패턴] 실전형 5종: 후보 계산을 켜도 확인할 줄 0 (목록·카운트다운·본문 언급 제외, 지워진 47·210화는 줄이 없으므로 후보 없음)', noise.every(n => n === 0), noise.join(','));
+      // 28-5. 본문일 수 있는 줄 · 상한
+      const longT = '제12화 ' + '가'.repeat(70);
+      const i5 = FI([], { items: [{ line: 3, title: longT, num: 12, kind: 'ch' }, { line: 9, title: '제13화 그는 결국 문을 열고 들어갔다.', num: 13, kind: 'ch' }, { line: 12, title: '프롤로그', num: null, kind: 'kw' }] }, null, {});
+      check('[줄패턴] 본문일 수 있는 줄: 60자 넘는 제목 · 문장처럼 끝남 (키워드 항목 제외)', i5.suspects.length === 2 && i5.suspects[0].why.startsWith('긴 제목') && i5.suspects[1].why === '문장처럼 끝남', JSON.stringify(i5.suspects));
+      check('[줄패턴] 빈 입력 안전', JSON.stringify(FI(null, null, null, { candidates: true })) === JSON.stringify({ suspects: [], misses: [], candidates: [] }));
+      // 28-6. 적용 조건
+      check('[줄패턴] 바꾸기는 판정이 나아질 때만 (3개 미만·준비→확인 필요는 거절)', IMP('fail', 'warn', 5) && IMP('warn', 'ok', 30) && IMP('ok', 'ok', 30) && !IMP('ok', 'warn', 30) && !IMP('fail', 'ok', 2) && !IMP('warn', 'warn', 40));
+      check('[줄패턴] 연결: 패널은 확인할 줄을 목록보다 먼저 · 더하기는 본편 화수가 늘 때만 · 체크 상자 적용과 같은 경로 · 위임 · 문구 textContent',
+        /const issues=findBatchLineIssues\(r\.lines, r\.det,/.test(conv) && /if\(issueSec\) panel\.insertBefore\(issueSec, panel\.children\[1\]\|\|null\);/.test(conv) && /if\(issueSec\) panel\.appendChild\(issueSec\);\n\n      const list=/.test(conv)
+        && /if\(mode==='add'&&!\(r\.mainCnt>\(ctx\.main\|\|0\)\)\)/.test(conv) && /directEl\.dataset\.typed='1';[^\n]*\n    await confirmBatchPreset\(idx\);/.test(conv)
+        && /batchLinePattern:    \(el\) => typeof batchLinePattern==='function'&&batchLinePattern\(parseInt\(el\.dataset\.idx,10\), parseInt\(el\.dataset\.line,10\), el\.dataset\.mode\),/.test(ui)
+        && /txt\.textContent=r\.text;/.test(conv) && /\.batch-line-tag\{flex-shrink:0;color:var\(--text2\)/.test(css));
     }
   } catch (e) {
     check('[사전분석] 사전 분석 모듈 로드', false, String(e && e.message || e).slice(0, 160));

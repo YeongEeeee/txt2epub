@@ -19,6 +19,8 @@
  *   3. 가장 긴 메인 스레드 작업(Long Task) — 분석 중 화면이 멈춘 최대 시간
  *   4. 확인 필요 파일까지의 클릭 — '확인 필요한 파일 보기' 1번으로 첫 문제 파일 패널이 열리는지
  *   5. 클릭 없이 보이는 원인 — 배지 아래 메모 줄(Phase 36)에 누락 화 번호·다음 행동이 적힌 파일 수
+ *   6. 줄을 눌러 고치기 (Phase 37) — 따로 2개 파일: 자동 감지가 못 잡는 제목 형식('◈ N ◈', 감지 실패)과
+ *      한 화만 다른 형식('47편', 누락 의심). '목차 확인' → '확인할 줄' 한 줄 누르기로 준비(N/N화)가 되는지·몇 번 눌렀는지
  *
  * 외부 네트워크(구글 폰트·표지 검색)는 차단하고 로컬 파일만 서빙한다.
  */
@@ -126,10 +128,49 @@ function makeFiles(){
   }
   const longTask = Math.round(await page.evaluate(() => window.__long || 0));
   await ctx.close();
+
+  // ── 6. 줄을 눌러 고치기 ──
+  const body = '그는 걸었다.\n\n바람이 불었다.\n\n"괜찮아?"\n\n그녀가 물었다.';
+  const mk = (n, f) => Array.from({ length: n }, (_, i) => f(i + 1) + '\n\n' + body).join('\n\n');
+  const fixFiles = [
+    { name: '기호 제목 소설 1-30 완결.txt', buffer: Buffer.from(mk(30, n => `◈ ${n} ◈`)) },
+    { name: '한 화만 다른 소설 1-60 완결.txt', buffer: Buffer.from(mk(60, n => n === 47 ? '47편' : `제${n}화 제목`)) },
+  ].map(f => ({ ...f, mimeType: 'text/plain' }));
+  const fix = [];
+  {
+    const c2 = await browser.newContext({ viewport: { width: 390, height: 844 }, serviceWorkers: 'block' });
+    await c2.route(/^https?:\/\/(?!127\.0\.0\.1)/, r => r.abort());
+    const p2 = await c2.newPage();
+    p2.on('pageerror', e => errors.push(String(e)));
+    await p2.goto(base);
+    await p2.waitForTimeout(900);
+    await p2.click('#tab-batch');
+    await p2.setInputFiles('#batchTxtIn', fixFiles);
+    await p2.waitForFunction(n => document.querySelectorAll('.batch-toc-btn').length === n, fixFiles.length);
+    if (hasAuto) await p2.waitForFunction(() => [...document.querySelectorAll('.batch-check')].every(x => !x.hidden && ['ok', 'warn', 'fail', 'error'].includes(x.dataset.state)), null, { timeout: 30000 });
+    for (let i = 0; i < fixFiles.length; i++) {
+      const before = await p2.evaluate(k => document.getElementById('bchk_' + k)?.textContent.trim() || '-', i);
+      let taps = 0;
+      await p2.click(`#bi_${i} .batch-toc-btn`); taps++;
+      await p2.waitForFunction(k => document.getElementById('btp_' + k)?.classList.contains('show'), i);
+      await p2.locator(`#btp_${i} .batch-issue-sec`).first().screenshot({ path: path.join(__dirname, 'out', `batch-line-issues-${i}.png`) }).catch(() => {});
+      const row = p2.locator(`#btp_${i} button.batch-line-row`).first();
+      const rows = await p2.locator(`#btp_${i} button.batch-line-row`).count();
+      let after = '고칠 줄 없음 (정규식 직접 입력 필요)';
+      if (rows) {
+        const rowText = (await row.textContent()).trim();
+        await row.click(); taps++;
+        await p2.waitForFunction(k => { const b = document.getElementById('bchk_' + k); return b && b.dataset.state === 'ok' && /^\d+\/\d+화$/.test(b.textContent.trim()) && b.textContent.trim().split('/')[0] === b.textContent.trim().split('/')[1].replace('화', ''); }, i, { timeout: 15000 }).catch(() => {});
+        after = (await p2.evaluate(k => document.getElementById('bchk_' + k)?.textContent.trim() || '-', i)) + ` (누른 줄: ${rowText.slice(0, 30)})`;
+      }
+      fix.push({ file: fixFiles[i].name, before, after, taps });
+    }
+    await c2.close();
+  }
   await browser.close();
   srv.close();
 
-  const r = { root: ROOT, mode: hasAuto ? '자동 사전 분석' : '목차 확인 직접 클릭', files: files.length, clicks, elapsedMs: elapsed, longTaskMs: longTask, states, summary, issueOpens, notes, errors };
+  const r = { root: ROOT, mode: hasAuto ? '자동 사전 분석' : '목차 확인 직접 클릭', files: files.length, clicks, elapsedMs: elapsed, longTaskMs: longTask, states, summary, issueOpens, notes, fix, errors };
   if (JSON_OUT) { console.log(JSON.stringify(r, null, 2)); return; }
   console.log('| 방식 | 파일 | 상태 파악까지 클릭 | 상태 파악까지 시간 | 최장 메인 스레드 작업 | 확인 필요 파일 열기 |');
   console.log('|---|---|---|---|---|---|');
@@ -137,5 +178,7 @@ function makeFiles(){
   console.log('상태: ' + r.states.join(' / '));
   if (r.summary) console.log('요약: ' + r.summary);
   console.log(`클릭 없이 보이는 원인: ${r.notes.length}개 파일` + (r.notes.length ? '\n  ' + r.notes.join('\n  ') : ''));
+  console.log('줄을 눌러 고치기:');
+  r.fix.forEach(f => console.log(`  ${f.file}: ${f.before} → ${f.after} · ${f.taps}번`));
   if (r.errors.length) console.log('페이지 오류: ' + r.errors.join(' / '));
 })().catch(e => { console.error(e); process.exit(1); });
