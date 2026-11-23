@@ -1061,6 +1061,8 @@ body.modal-open .page-tabs{
 .batch-check[data-state="ok"]{background:var(--green-bg);color:var(--green);border-color:var(--green)}
 .batch-check[data-state="warn"]{background:var(--yellow-bg);color:var(--yellow);border-color:var(--yellow)}
 .batch-check[data-state="fail"],.batch-check[data-state="error"]{background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
+.batch-check-note{font-size:var(--fs-xs);color:var(--text2);line-height:1.5;margin-top:3px;overflow-wrap:anywhere}
+.batch-check-note[data-state="warn"],.batch-check-note[data-state="fail"],.batch-check-note[data-state="error"]{color:var(--text)}
 
 /* ── 파일 정렬 리스트 ── */
 .file-list-wrap{margin-top:8px}

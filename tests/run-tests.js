@@ -30,6 +30,7 @@
  *  23. Phase 32 (UI 정제 3단계 — 디자인 축소): CSS 리터럴 0 · 무한 애니메이션 1 · 화면 이모지 0 → SVG 아이콘 · JS 인라인 스타일 → 클래스·hidden
  *  24. Phase 33 (UI 정제 4단계 — 정보 구조): 기본 경로만 펼침(분할 규칙·목차 편집·삽화 접기) · 데스크톱 2단 · 레이아웃 이동 방지
  *  25. Phase 34 (신뢰 기능): EPUB 구조 검사(생성 EPUB 통과 · 일부러 망가뜨린 11종 검출) · 실제 XHTML·CSS 미리보기 · 본문 정리 전후 비교
+ *  27. Phase 36 (일괄 변환 원인 표시): 누락 의심 구간(가운데·앞·뒤)·번호 중복·문구·배지 아래 메모 줄
  *  26. Phase 35 (일괄 변환 사전 분석): 파일을 넣으면 목차 확인 없이 파일별 감지 배지 · 요약 · 대기열(중단·새 목록) · 확인 패널과 같은 판정
  */
 'use strict';
@@ -1700,8 +1701,8 @@ async function main(){
     // _BATCH_PRESETS는 배열 리터럴(문자열 안 중괄호) → extract 대신 선언 구간을 그대로 평가해 주입
     const presetSrc = (conv.match(/const _BATCH_PRESETS = (\[[\s\S]*?\n\]);/) || [])[1] || '[]';
     const _BATCH_PRESETS = vm.runInNewContext(presetSrc);
-    const pure = ['_findExactPreset', 'classifyBatchDetection', 'analyzeBatchText', 'summarizeBatchAnalysis', 'batchSummaryText'];
-    const cA = sandbox('convert.js', pure, { _BATCH_PRESETS, detectToc: G('detectToc'), parseChapterRange: G('parseChapterRange') });
+    const pure = ['_findExactPreset', 'collectBatchNotes', 'formatBatchNotes', 'classifyBatchDetection', 'analyzeBatchText', 'summarizeBatchAnalysis', 'batchSummaryText', 'batchNoteText'];
+    const cA = sandbox('convert.js', pure, { _BATCH_PRESETS, detectToc: G('detectToc'), parseChapterRange: G('parseChapterRange'), buildTocReview: G('buildTocReview') });
     const A = vm.runInContext('analyzeBatchText', cA), CL = vm.runInContext('classifyBatchDetection', cA);
     const SUM = vm.runInContext('summarizeBatchAnalysis', cA), TXT = vm.runInContext('batchSummaryText', cA);
     // 26-1. 실전형 5종 — 자동 분석 = 실제 변환과 같은 detectToc 결과 · 모두 '준비'
@@ -1744,7 +1745,7 @@ async function main(){
       const order = [];
       let gate = null;
       const c = sandbox('convert.js', qNames, {
-        _BATCH_PRESETS, detectToc: G('detectToc'), parseChapterRange: G('parseChapterRange'),
+        _BATCH_PRESETS, detectToc: G('detectToc'), parseChapterRange: G('parseChapterRange'), buildTocReview: G('buildTocReview'),
         B: Bst, _bStore: { set: p => Object.assign(Bst, p), get: () => Bst },
         _batchRunning: false, _batchIssueCursor: -1, _batchPatternBound: true,
         _resolveBatchSplit: () => null, setShown: () => {}, icon: () => '', escHtml: x => x, getTocStrictContext: () => true,
@@ -1809,6 +1810,31 @@ async function main(){
       && /focusBatchIssue:     \(\) => typeof focusBatchIssue==='function'&&focusBatchIssue\(\),/.test(ui));
     check('[사전분석] 배지: 상태 글자 + 아이콘(장식) · 색은 토큰만', /'<span id="bchk_'\+i\+'" class="batch-check" hidden><\/span>'/.test(conv)
       && /\.batch-check\[data-state="warn"\]\{background:var\(--yellow-bg\);color:var\(--yellow\);border-color:var\(--yellow\)\}/.test(css) && /el\.setAttribute\('aria-label'/.test(conv));
+    // ── 27. Phase 36 — 원인(누락·중복)을 배지 아래 한 줄로 ──
+    {
+      const CN = vm.runInContext('collectBatchNotes', cA), FN = vm.runInContext('formatBatchNotes', cA), NT = vm.runInContext('batchNoteText', cA);
+      const it = (nums, extra = {}) => nums.map((n, k) => ({ line: k + 1, title: n + '화', num: n, kind: 'ch', part: null, ...extra }));
+      const g1 = generate(SPECS[1]);   // 퇴사 후 … 1-325 — 생성기가 47·210화를 일부러 삭제
+      const r1 = A(g1.text, g1.fileName, '', {});
+      check('[원인] 실전형: 준비 판정이어도 누락 의심 47·210화를 메모로', r1.verdict.state === 'ok' && JSON.stringify(r1.verdict.notes) === JSON.stringify(['누락 의심 2화 (47·210화)']) && /누락 의심 2화 \(47·210화\)/.test(r1.verdict.reason), JSON.stringify(r1.verdict));
+      const clean = SPECS.filter((_, k) => k !== 1).map(sp => { const g = generate(sp); return A(g.text, g.fileName, '', {}).verdict; });
+      check('[원인] 누락 없는 실전형 4종 → 메모 없음', clean.every(v => v.state === 'ok' && !v.notes), JSON.stringify(clean.map(v => v.notes || null)));
+      const w = A(mk(40), '어떤 소설 1-100 완결.txt', '', {});
+      check('[원인] 화수 어긋남 → 뒤쪽 빈 구간 41~100화', w.verdict.state === 'warn' && /· 누락 의심 60화 \(41~100화\)$/.test(w.verdict.reason), w.verdict.reason);
+      check('[원인] 앞쪽 빈 구간 · 가운데 빈 구간 순서대로', JSON.stringify(FN(CN(it([5, 6, 7, 9, 10]), { start: 1, end: 10, total: 10 }))) === JSON.stringify(['누락 의심 5화 (1~4·8화)']));
+      check('[원인] 구간 4개 이상은 3개 + 외 N구간', FN(CN(it([1, 3, 5, 7, 9]), null))[0] === '누락 의심 4화 (2·4·6화 외 1구간)');
+      check('[원인] 번호 중복 (같은 화 분할은 중복 아님) · 키워드 항목은 무시',
+        JSON.stringify(FN(CN([...it([1, 2, 3, 3, 4]), { line: 99, title: '에필로그', num: null, kind: 'kw' }], null))) === JSON.stringify(['번호 중복 1건 (3화)'])
+        && FN(CN([...it([1, 2]), { line: 9, title: '3화 (1)', num: 3, kind: 'ch', part: 1 }, { line: 10, title: '3화 (2)', num: 3, kind: 'ch', part: 2 }], null)).length === 0);
+      check('[원인] 범위 정보 없으면 앞·뒤 구간은 따지지 않음 · 빈 목록 안전', FN(CN(it([5, 6, 7]), null)).length === 0 && FN(CN([], { start: 1, end: 9, total: 9 })).length === 0 && FN(CN(null, null)).length === 0);
+      const f = CL({ count: 0, main: 0, total: 120 });
+      check('[원인] 감지 실패 → 다음 행동(패턴 · 간격 분할 화수)', NT('fail', f) === '챕터를 감지하지 못했어요. — 패턴을 고르거나 간격 분할(120화)을 쓰세요');
+      check('[원인] 메모 줄: 준비는 누락·중복 있을 때만 · 확인 필요는 판정 설명 · 대기 중은 없음',
+        NT('ok', { reason: 'x' }) === '' && NT('ok', { notes: ['a', 'b'] }) === 'a · b' && NT('warn', { reason: 'r' }) === 'r' && NT('pending', { reason: 'r' }) === '');
+      check('[원인] 메모 줄 마크업 · 보이면 배지 aria-label은 상태만 · 색은 토큰',
+        /'<div class="batch-check-note" id="bnote_'\+i\+'" hidden><\/div>'/.test(conv) && /el\.setAttribute\('aria-label', note\|\|!a\.reason\?label:label\+' — '\+a\.reason\);/.test(conv)
+        && /\.batch-check-note\{font-size:var\(--fs-xs\);color:var\(--text2\)/.test(css) && /noteEl\.textContent=note;/.test(conv));
+    }
   } catch (e) {
     check('[사전분석] 사전 분석 모듈 로드', false, String(e && e.message || e).slice(0, 160));
   }

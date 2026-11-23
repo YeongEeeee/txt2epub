@@ -2928,6 +2928,7 @@ function renderBatchList(){
       '<span id="bchk_'+i+'" class="batch-check" hidden></span>'+
       '<span id="bmode_'+i+'" class="badge-blue-line" hidden></span>'+
       '<button class="batch-toc-btn" data-action="showBatchToc" data-idx="'+i+'" title="목차 미리보기">목차 확인</button></div>'+
+      '<div class="batch-check-note" id="bnote_'+i+'" hidden></div>'+
       '</div></div>'+
       '<div class="batch-toc-panel" id="btp_'+i+'"></div>'+
       '<div class="batch-prog"><div class="u-w-0 batch-prog-bar" id="bpb_'+i+'"></div></div>';
@@ -3056,10 +3057,47 @@ function _batchDetectOpts(){
   };
 }
 
+// ★ Phase 36: 감지 결과에서 '왜 확인이 필요한지' 수집 (순수 함수 — DOM·상태 접근 없음)
+//   누락 의심: 본편 화 번호 사슬의 빈 구간 (buildTocReview와 같은 기준) + 파일명 범위의 앞·뒤 빈 구간
+//   번호 중복: 같은 화 번호가 두 번 이상 (같은 화 분할 '(1)/(2)'는 제외 — buildTocReview 기준)
+function collectBatchNotes(items, range){
+  const list=Array.isArray(items)?items:[];
+  const rv=typeof buildTocReview==='function'?buildTocReview(list):{missing:[], dups:[]};
+  const missing=(rv.missing||[]).map(m=>({from:m.from, to:m.to}));
+  let lo=Infinity, hi=-Infinity;
+  for(const it of list){
+    if(!it||(it.kind!=null&&it.kind!=='ch')||!Number.isFinite(it.num)) continue;
+    if(it.num<lo) lo=it.num;
+    if(it.num>hi) hi=it.num;
+  }
+  if(range&&Number.isFinite(range.start)&&Number.isFinite(range.end)&&lo<=hi){
+    if(lo>range.start) missing.unshift({from:range.start, to:Math.min(lo-1, range.end), edge:'head'});
+    if(hi<range.end) missing.push({from:Math.max(hi+1, range.start), to:range.end, edge:'tail'});
+  }
+  const missCount=missing.reduce((n,m)=>n+(m.to-m.from+1),0);
+  const dups=(rv.dups||[]).map(d=>d.num).filter(Number.isFinite).sort((a,b)=>a-b);
+  return {missing, missCount, dups};
+}
+// 원인 → 짧은 문구 배열 ('누락 의심 2화 (47·210화)', '번호 중복 1건 (88화)') — 구간은 앞에서 3개까지
+function formatBatchNotes(n){
+  const out=[];
+  if(n?.missCount>0){
+    const seg=n.missing.slice(0,3).map(m=>m.from===m.to?String(m.from):m.from+'~'+m.to).join('·');
+    const more=n.missing.length>3?` 외 ${n.missing.length-3}구간`:'';
+    out.push(`누락 의심 ${n.missCount}화 (${seg}화${more})`);
+  }
+  if(n?.dups?.length){
+    const more=n.dups.length>3?` 외 ${n.dups.length-3}건`:'';
+    out.push(`번호 중복 ${n.dups.length}건 (${n.dups.slice(0,3).join('·')}화${more})`);
+  }
+  return out;
+}
+
 // 감지 결과 → 배지 판정 (순수 함수) — 기준은 이전 '목차 확인' 성공 조건 그대로
 //   3개 미만 → 감지 실패 · 파일명 화수와 오차 5% 이내(화수 정보 없으면 3개 이상) → 준비 · 그 밖 → 확인 필요
 function classifyBatchDetection({count=0, main=0, total=0, isGood=false}={}){
-  if(count<3) return {state:'fail', label:'감지 실패', reason:'챕터를 감지하지 못했어요.', main, total};
+  if(count<3) return {state:'fail', label:'감지 실패', reason:'챕터를 감지하지 못했어요.', main, total,
+    hint:total>0?`패턴을 고르거나 간격 분할(${total}화)을 쓰세요`:'패턴을 고르거나 간격 분할을 쓰세요'};
   if(!isGood){
     const pct=total>0?main/total*100:100;
     return {state:'warn', label:'확인 필요', reason:`본편 ${main}화 감지 (파일명 ${total}화 기준 ${pct.toFixed(1)}% — 오차 5% 초과)`, main, total};
@@ -3091,6 +3129,11 @@ function analyzeBatchText(text, fileName, pat, opts={}){
   // 파일명 화수와 5% 이내면 성공 (화수 정보가 없으면 3개 이상 감지로 판단)
   const isGood=chapters.length>=3&&(totalCh===0||Math.abs(mainCnt-totalCh)/totalCh<=0.05);
   const verdict=classifyBatchDetection({count:chapters.length, main:mainCnt, total:totalCh, isGood});
+  // ★ Phase 36: 원인(누락·중복)을 판정 설명과 화면 메모에 — 준비 판정이어도 누락이 있으면 알려 줌
+  if(chapters.length>=3){
+    const notes=formatBatchNotes(collectBatchNotes(det.items, det.stats?.range||parseChapterRange(fileName)));
+    if(notes.length){ verdict.notes=notes; verdict.reason+=' · '+notes.join(' · '); }
+  }
   if(exactPreset){
     verdict.autoPat=exactPreset.val;
     verdict.presetLabel=exactPreset.label;
@@ -3210,13 +3253,30 @@ function _renderBatchCheck(i){
   const st=_batchStateOf(i);
   const a=(B.analysis||{})[i]||{};
   const label=st==='pending'?'분석 대기':st==='running'?'분석 중…':(a.label||'');
-  if(st==='idle'||st==='split'||!label){ setShown(el,false); return; }
+  const noteEl=document.getElementById('bnote_'+i);
+  if(st==='idle'||st==='split'||!label){ setShown(el,false); setShown(noteEl,false); return; }
   const ic={ok:'check', warn:'alert', fail:'x-circle', error:'x-circle'}[st]||'';
   el.dataset.state=st;
   el.innerHTML=(ic?icon(ic):'')+'<span>'+escHtml(label)+'</span>';  // safe-html: icon()은 고정 SVG, 문구는 escHtml
   el.title=a.reason||'';
-  el.setAttribute('aria-label', a.reason?label+' — '+a.reason:label);
+  // ★ Phase 36: 이유를 마우스 오버(title) 없이도 보이게 — 배지 아래 한 줄 (모바일 대응)
+  const note=batchNoteText(st, a);
+  if(noteEl){
+    noteEl.textContent=note;
+    noteEl.dataset.state=st;
+    setShown(noteEl, !!note);
+  }
+  // 메모 줄이 보이면 같은 문장을 배지에서 두 번 읽지 않게
+  el.setAttribute('aria-label', note||!a.reason?label:label+' — '+a.reason);
   setShown(el,true);
+}
+// 배지 아래 메모 — 확인 필요·실패·읽기 실패는 항상, 준비는 누락·중복이 있을 때만
+function batchNoteText(st, a){
+  if(!a) return '';
+  if(st==='warn'||st==='error') return a.reason||'';
+  if(st==='fail') return [a.reason, a.hint].filter(Boolean).join(' — ');
+  if(st==='ok'&&a.notes?.length) return a.notes.join(' · ');
+  return '';
 }
 
 // 목록 위 요약 한 줄 + '확인 필요한 파일 보기' (마크업: index.html #batchSummary)

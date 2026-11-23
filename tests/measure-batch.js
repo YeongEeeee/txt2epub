@@ -18,6 +18,7 @@
  *   2. 상태를 모두 알기까지 걸린 시간 — 파일을 넣은 순간부터 (클릭 방식은 클릭 대기 시간 제외, 순수 처리 시간 합)
  *   3. 가장 긴 메인 스레드 작업(Long Task) — 분석 중 화면이 멈춘 최대 시간
  *   4. 확인 필요 파일까지의 클릭 — '확인 필요한 파일 보기' 1번으로 첫 문제 파일 패널이 열리는지
+ *   5. 클릭 없이 보이는 원인 — 배지 아래 메모 줄(Phase 36)에 누락 화 번호·다음 행동이 적힌 파일 수
  *
  * 외부 네트워크(구글 폰트·표지 검색)는 차단하고 로컬 파일만 서빙한다.
  */
@@ -88,7 +89,7 @@ function makeFiles(){
   const hasAuto = await page.evaluate(() => !!document.getElementById('batchSummary'));
   const t0 = Date.now();
   await page.setInputFiles('#batchTxtIn', files);
-  let clicks = 0, elapsed = 0, states = [], summary = '', issueOpens = null;
+  let clicks = 0, elapsed = 0, states = [], summary = '', issueOpens = null, notes = [];
   if (hasAuto) {
     await page.waitForFunction(n => {
       const b = [...document.querySelectorAll('.batch-check')];
@@ -97,6 +98,8 @@ function makeFiles(){
     elapsed = Date.now() - t0;
     states = await page.evaluate(() => [...document.querySelectorAll('.batch-check')].map(x => x.dataset.state + ':' + x.textContent.trim()));
     summary = await page.textContent('#batchSummaryText');
+    notes = await page.evaluate(() => [...document.querySelectorAll('.batch-check-note')].filter(n => !n.hidden && n.textContent.trim()).map(n => n.closest('.batch-item')?.querySelector('.batch-title')?.textContent.slice(0, 12) + ': ' + n.textContent.trim()));
+    await page.locator('#batchListSec').screenshot({ path: path.join(__dirname, 'out', 'batch-auto-analyze-list.png') }).catch(() => {});
     // 확인 필요한 첫 파일까지 1번
     await page.click('#batchIssueBtn');
     await page.waitForTimeout(600);
@@ -126,12 +129,13 @@ function makeFiles(){
   await browser.close();
   srv.close();
 
-  const r = { root: ROOT, mode: hasAuto ? '자동 사전 분석' : '목차 확인 직접 클릭', files: files.length, clicks, elapsedMs: elapsed, longTaskMs: longTask, states, summary, issueOpens, errors };
+  const r = { root: ROOT, mode: hasAuto ? '자동 사전 분석' : '목차 확인 직접 클릭', files: files.length, clicks, elapsedMs: elapsed, longTaskMs: longTask, states, summary, issueOpens, notes, errors };
   if (JSON_OUT) { console.log(JSON.stringify(r, null, 2)); return; }
   console.log('| 방식 | 파일 | 상태 파악까지 클릭 | 상태 파악까지 시간 | 최장 메인 스레드 작업 | 확인 필요 파일 열기 |');
   console.log('|---|---|---|---|---|---|');
   console.log(`| ${r.mode} | ${r.files}개 | ${r.clicks}번 | ${r.elapsedMs}ms | ${r.longTaskMs}ms | ${r.issueOpens === null ? '-' : r.issueOpens ? '1번 (첫 문제 파일 패널 열림)' : '실패'} |`);
   console.log('상태: ' + r.states.join(' / '));
   if (r.summary) console.log('요약: ' + r.summary);
+  console.log(`클릭 없이 보이는 원인: ${r.notes.length}개 파일` + (r.notes.length ? '\n  ' + r.notes.join('\n  ') : ''));
   if (r.errors.length) console.log('페이지 오류: ' + r.errors.join(' / '));
 })().catch(e => { console.error(e); process.exit(1); });
