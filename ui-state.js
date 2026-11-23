@@ -939,6 +939,7 @@ function _spawnDropConfetti(container){
     loadIllRange:         (el) => typeof loadIllRange==='function'&&loadIllRange(parseInt(el.dataset.id,10)),
     illKwSearch:          (el) => typeof debounceIllKwSearch==='function'&&debounceIllKwSearch(parseInt(el.dataset.id,10)),
     applyBatchPreset:     (el) => typeof applyBatchPreset==='function'&&applyBatchPreset(parseInt(el.dataset.idx,10), el),   // ★ Phase 28: 체크박스/직접 입력 구분
+    setBatchMeta:         (el) => typeof setBatchMeta==='function'&&setBatchMeta(el),   // ★ Phase 39: 일괄 변환 제목·작가 직접 고치기
     toggleEIM:            (el) => typeof toggleEIM==='function'&&toggleEIM(parseInt(el.dataset.id,10)),
     syncPadTop:           (el) => { const v=document.getElementById('cssPadTop');if(v)v.value=el.value; const d=document.getElementById('cssPadTopVal');if(d)d.textContent=el.value+'em'; updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); },
     syncPadBottom:        (el) => { const v=document.getElementById('cssPadBottom');if(v)v.value=el.value; const d=document.getElementById('cssPadBottomVal');if(d)d.textContent=el.value+'em'; updateCssPreview(); typeof saveCssSettings==='function'&&saveCssSettings(); },
@@ -1119,6 +1120,9 @@ function setupEventDelegate(){
     focusBatchIssue:     () => typeof focusBatchIssue==='function'&&focusBatchIssue(),
     // ★ Phase 38: 변환 목록 '확인 필요만' 보기 토글
     toggleBatchIssueFilter: () => typeof toggleBatchIssueFilter==='function'&&toggleBatchIssueFilter(),
+    // ★ Phase 39: 표지 없는 파일 차례로 찾기 · 실패한 파일만 다시 변환
+    findMissingBatchCovers: () => typeof findMissingBatchCovers==='function'&&findMissingBatchCovers(),
+    retryFailedBatch:       () => typeof retryFailedBatch==='function'&&retryFailedBatch(),
     // ★ Phase 37: 확인 패널의 줄을 눌러 그 모양으로 패턴 만들기 (add: 지금 패턴에 더하기 · replace: 바꾸기)
     batchLinePattern:    (el) => typeof batchLinePattern==='function'&&batchLinePattern(parseInt(el.dataset.idx,10), parseInt(el.dataset.line,10), el.dataset.mode),
     applyBatchInterval:  (el) => typeof applyBatchInterval==='function'&&applyBatchInterval(parseInt(el.dataset.idx,10)),

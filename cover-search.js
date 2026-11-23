@@ -317,9 +317,12 @@ async function centerCropToBlob(imgUrl) {
 }
 
 // ── 모달 열기 제어 ──
-function openCoverSearchModal(mode='convert') {
+// opts.query: 검색어 지정 · opts.label: 창 제목 (★ Phase 39 일괄 변환 '표지 없는 N개 찾기')
+function openCoverSearchModal(mode='convert', opts={}) {
   try{
     _coverModalMode = mode;
+    const _titleEl = document.getElementById('coverModalTitle');
+    if(_titleEl) _titleEl.textContent = opts?.label || '표지 검색';
     // ★ ID 확정: index.html 실제 모달 ID = 'coverModal'
     const el = document.getElementById('coverModal');
     if(!el){ console.error('[openCoverSearchModal] #coverModal 없음'); return; }
@@ -347,7 +350,12 @@ function openCoverSearchModal(mode='convert') {
       // ★ 이전: 존재하지 않는 S.batch.currentSearchTitle 참조 → 항상 빈 검색어
       //   일괄 변환 첫 TXT 파일명에서 검색어 추출로 대체
       const firstBatch = (typeof B !== 'undefined') ? (B.txtFiles || [])[0] : null;
-      titleInput = manualBatchTitle || (firstBatch ? extractSearchTitle(firstBatch.name) : '');
+      // ★ Phase 39: 파일별 표지 찾기면 그 파일 제목, 공통 '표지 검색'이면 공통 표지 모드로
+      if(!opts?.query && typeof window.clearBatchCoverTarget === 'function') window.clearBatchCoverTarget();
+      //   첫 파일 제목은 일괄 변환 목록과 같은 규칙(_batchMetaFor — '제목@작가'·범위·완결 정리)으로
+      //   (이전: extractSearchTitle이 '@' 앞을 작가로 보아 '제목 @작가.txt'에서 작가 이름으로 검색)
+      const firstTitle = firstBatch ? (typeof _batchMetaFor === 'function' ? _batchMetaFor(0).title : extractSearchTitle(firstBatch.name)) : '';
+      titleInput = opts?.query || manualBatchTitle || firstTitle;
     }
 
     // ★ ID 확정: index.html 실제 입력창 ID = 'coverSearchQ'

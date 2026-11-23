@@ -2845,6 +2845,8 @@ function handleBatchTxt(files){
   B.totalChs={};
   B.splitModes={};   // ★ v3: 파일별 간격 분할 설정은 파일 인덱스 기준이므로 새 목록에서 폐기
   B.analysis={};     // ★ Phase 35: 자동 사전 분석 결과도 파일 인덱스 기준 → 새 목록에서 폐기
+  B.meta={};         // ★ Phase 39: 직접 고친 제목·작가도 파일 인덱스 기준
+  B.failedIdx=[];
   const dz=document.getElementById('batchTxtDrop');
   dz.classList.add('ok','dz-slim');   // ★ Phase 38: 파일이 들어오면 드롭존은 한 줄로
   dz.querySelector('.dz-text').textContent=`TXT ${txts.length}개 · 다른 파일로 바꾸려면 여기에 드롭`;
@@ -2917,18 +2919,20 @@ function renderBatchList(){
   _ensureBatchSplitControls();   // ★ v3: 전역 간격 분할 토글 (1회 삽입)
   B.txtFiles.forEach((f,i)=>{
     const stem=f.name.replace(/\.txt$/i,'');
-    let title=stem,author='';
-    let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
-    if(m){author=m[1].trim();title=m[2].trim();}
-    else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
+    // ★ Phase 39: 제목·작가는 파일명에서 읽되(범위·완결 표기 정리) 그 자리에서 고칠 수 있음
+    const def=batchMetaFromName(f.name);
+    const own=(B.meta||{})[i]||{};
     const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
     const d=document.createElement('div');d.className='batch-item';d.id='bi_'+i;
     const thumbHtml=cover
       ?'<div class="batch-thumb" data-action="batchPickCover" data-idx="'+i+'" title="클릭해서 변경"><img id="bthumb_'+i+'" src="" alt="표지"></div>'
       :'<div class="batch-thumb" data-action="batchPickCover" data-idx="'+i+'" title="표지 지정">+</div>';
     d.innerHTML='<div class="batch-header">'+thumbHtml+  // safe-html: thumbHtml은 고정 마크업(+숫자 id)
-      '<div class="u-flex-1 u-minw-0"><div class="batch-title">'+escHtml(title)+'</div>'+
-      '<div class="u-row-wrap-6"><div class="batch-status" id="bst_'+i+'">'+(author?escHtml(author):'')+'</div>'+
+      '<div class="u-flex-1 u-minw-0"><input class="batch-title-inp" id="btitle_'+i+'" data-input-action="setBatchMeta" data-idx="'+i+'" data-field="title"'+
+        ' value="'+escHtml(own.title??def.title)+'" placeholder="'+escHtml(def.title)+'" aria-label="'+(i+1)+'번째 파일 제목" title="'+escHtml(f.name)+'">'+
+      '<div class="u-row-wrap-6"><input class="batch-author-inp" id="bauthor_'+i+'" data-input-action="setBatchMeta" data-idx="'+i+'" data-field="author"'+
+        ' value="'+escHtml(own.author??def.author)+'" placeholder="작가" aria-label="'+(i+1)+'번째 파일 작가">'+
+      '<div class="batch-status" id="bst_'+i+'"></div>'+
       '<span id="bchk_'+i+'" class="batch-check" hidden></span>'+
       '<span id="bmode_'+i+'" class="badge-blue-line" hidden></span>'+
       '<button class="batch-toc-btn" data-action="showBatchToc" data-idx="'+i+'" title="목차 미리보기">목차 확인</button></div>'+
@@ -3326,6 +3330,13 @@ function _renderBatchSummary(){
   if(!canFilter&&_batchIssueFilter) _setBatchIssueFilter(false);
   setShown(fb, canFilter||_batchIssueFilter);
   _renderBatchBottomBar(s);
+  // ★ Phase 39: 표지 없는 파일이 있으면 '표지 없는 N개 찾기' (공통 표지가 있으면 모두 표지가 있음)
+  const cb=document.getElementById('batchCoverBtn');
+  if(cb){
+    const n=files.length?batchMissingCoverIdx().length:0;
+    if(n){ const t=`표지 없는 ${n}개 찾기`; if(cb.textContent!==t) cb.textContent=t; }
+    setShown(cb, n>0);
+  }
 }
 
 // ★ Phase 38: 하단 바 — 무엇이 변환될지 (파일 수 · 분석 중 · 준비 · 확인 필요)
@@ -3611,6 +3622,109 @@ async function batchLinePattern(idx, line, mode){
   Toast.success(`'${escHtml(short)}' 모양을 ${mode==='add'?'지금 패턴에 더했어요':'이 파일 패턴으로 정했어요'} — ${escHtml(r.verdict.label)}`, 3500);
 }
 
+// ════════════════════════════════════════════════════════
+// ★ Phase 39: 일괄 변환 편의 — 제목·작가 정리·직접 고치기 · 표지 없는 파일 차례로 찾기 · 실패만 다시 · 완료 알림
+// ════════════════════════════════════════════════════════
+
+// 파일명 제목에서 범위·완결 표기만 걷어 냄 ('… 1-325 완결' → '…', '(1~200화)' · '[완]' · '_' → 공백)
+//   글자가 하나도 남지 않으면 원래 값 (제목을 지우지 않음)
+function cleanBatchTitle(t){
+  const before=String(t??'').trim();
+  const s=before
+    .replace(/[[(【]\s*(?:\d+\s*[-~]\s*\d+\s*화?|완결?|完|연재중?|미완)\s*[\])】]/g,' ')
+    .replace(/(^|[\s_])\d+\s*[-~]\s*\d+\s*화?(?=[\s_]|$)/g,'$1')
+    .replace(/(^|[\s_])(?:완결|完|연재중|미완)(?=[\s_]|$)/g,'$1')
+    .replace(/[\s_]완$/,'')
+    .replace(/_/g,' ').replace(/\s{2,}/g,' ')
+    .replace(/^[\s\-·:]+|[\s\-·:]+$/g,'').trim();
+  return s||before;
+}
+// 파일명 → 기본 제목·작가 ('[작가] 제목' · '제목@작가' — 기존 규칙 그대로) + 제목 정리
+function batchMetaFromName(name){
+  const stem=String(name??'').replace(/\.txt$/i,'');
+  let title=stem, author='';
+  let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
+  if(m){ author=m[1].trim(); title=m[2].trim(); }
+  else{ m=stem.match(/^(.+?)\s*@\s*(.+)$/); if(m){ title=m[1].trim(); author=m[2].trim(); } }
+  if(/^(?:완결?|完|연재중?|미완)$/.test(author)) author='';   // '[완결] 제목'은 작가가 아님
+  return {title:cleanBatchTitle(title), author};
+}
+// 실제 변환에 쓸 제목·작가 — 직접 고친 값 우선, 제목을 비우면 기본값 (작가는 비워 둘 수 있음)
+function _batchMetaFor(i){
+  const d=batchMetaFromName((B.txtFiles||[])[i]?.name);
+  const o=(B.meta||{})[i]||{};
+  return {title:String(o.title??'').trim()||d.title, author:o.author!=null?String(o.author).trim():d.author};
+}
+function setBatchMeta(el){
+  const i=parseInt(el?.dataset?.idx,10), key=el?.dataset?.field;
+  if(!(B.txtFiles||[])[i]||(key!=='title'&&key!=='author')) return;
+  const meta={...(B.meta||{})};
+  meta[i]={...(meta[i]||{}), [key]:el.value};
+  _bStore.set({meta});
+}
+// 같은 제목이 둘이면 ZIP 안 파일 이름이 겹치지 않게 ' (2)'
+function batchEpubName(title, idx, results){
+  const base=String(title||'제목 없음').replace(/[\\/:*?"<>|]/g,'_');
+  const taken=new Set((results||[]).filter(r=>r.idx!==idx).map(r=>r.name));
+  let name=base+'.epub', n=2;
+  while(taken.has(name)) name=`${base} (${n++}).epub`;
+  return name;
+}
+function batchResultText(ok, failed, all){
+  return failed?`${ok}개 epub 생성 · 실패 ${failed}개 (파일 ${all}개)`:`${ok}개 epub 생성 완료`;
+}
+
+// ── 표지 ──
+// 표지가 없는 파일 (파일별 지정 · 이름 유사 매핑 · 공통 표지 모두 없음)
+function batchMissingCoverIdx(){
+  return (B.txtFiles||[]).map((_,i)=>i).filter(i=>{
+    const stem=B.txtFiles[i].name.replace(/\.txt$/i,'');
+    return !((B.coverMap||{})[stem]||findFuzzyCover(stem)||B.urlCoverFile);
+  });
+}
+let _batchCoverTarget=null;   // 표지 검색 결과를 받을 파일 인덱스 (null = 공통 표지)
+let _batchCoverQueue=[], _batchCoverTotal=0, _batchCoverLast=-1;
+// '표지 없는 N개 찾기' — 표지 검색 창을 파일 제목으로 차례로 엶. 고르면 그 파일 표지로 넣고 다음 파일로
+//   창을 닫으면 멈춤 — 다시 누르면 마지막으로 본 파일 다음부터
+function findMissingBatchCovers(){
+  const miss=batchMissingCoverIdx();
+  if(!miss.length){ Toast.info('표지가 없는 파일이 없어요.'); return; }
+  _batchCoverQueue=[...miss.filter(i=>i>_batchCoverLast), ...miss.filter(i=>i<=_batchCoverLast)];
+  _batchCoverTotal=miss.length;
+  _openNextBatchCover();
+}
+function _openNextBatchCover(){
+  const i=_batchCoverQueue.shift();
+  if(i==null||!(B.txtFiles||[])[i]){ _batchCoverTarget=null; return; }
+  _batchCoverTarget=i;
+  _batchCoverLast=i;
+  const pos=_batchCoverTotal-_batchCoverQueue.length;
+  const title=_batchMetaFor(i).title;
+  if(typeof openCoverSearchModal==='function'){
+    openCoverSearchModal('batch', {query:title, label:`표지 찾기 ${pos}/${_batchCoverTotal}`});
+  }
+}
+// 공통 '표지 검색' 버튼으로 열면 공통 표지 (cover-search.js가 호출)
+window.clearBatchCoverTarget=function(){ _batchCoverTarget=null; _batchCoverQueue=[]; };
+// 일괄 변환 표지 검색 결과 적용 (cover-search.js selectSearchedCover → window.setBatchSelectedCover)
+//   이전: 이 함수가 없어 S.batch.coverMap['selected']에만 넣고 끝 — 변환은 B.coverMap·urlCoverFile만 보므로 검색 표지가 쓰이지 않았음
+window.setBatchSelectedCover=function(fileObj){
+  if(!fileObj) return;
+  const i=_batchCoverTarget;
+  const f=i!=null?(B.txtFiles||[])[i]:null;
+  if(f){
+    const map={...(B.coverMap||{})};
+    map[f.name.replace(/\.txt$/i,'')]=fileObj;
+    _bStore.set({coverMap:map});
+  } else {
+    B.urlCoverFile=fileObj;
+    document.getElementById('batchCoverDrop')?.classList.add('ok');
+  }
+  renderBatchList();
+  if(f&&_batchCoverQueue.length) setTimeout(_openNextBatchCover, 350);   // 검색 창이 닫힌 뒤 다음 파일
+  else _batchCoverTarget=null;
+};
+
 function toggleBatchPreset(idx){
   const d=document.getElementById('bpreset_'+idx);
   if(!d) return;
@@ -3843,33 +3957,36 @@ function batchPickCover(idx){
   };inp.click();
 }
 
-async function startBatch(){
+// onlyIdx: 이 파일들만 다시 변환 (★ Phase 39 '실패한 N개 다시') — 없으면 전체
+async function startBatch(onlyIdx){
   if(!B.txtFiles.length){Toast.warn('TXT 파일을 선택해주세요.');return;}
   if(_batchRunning){Toast.info('일괄 변환이 이미 진행 중이에요.');return;}
   _batchRunning=true;
   cancelBatchAnalysis();   // ★ Phase 35: 남은 사전 분석은 중단 — 변환 도중 파일 패턴이 바뀌지 않게
-  B.results=[];
+  const retry=Array.isArray(onlyIdx);
+  const idxs=retry?onlyIdx.filter(i=>B.txtFiles[i]):B.txtFiles.map((_,i)=>i);
+  // 다시 변환이면 성공한 결과는 두고 그 파일들 결과만 새로 — 전체면 비우고 시작
+  B.results=retry?(B.results||[]).filter(r=>!idxs.includes(r.idx)):[];
+  const failed=[];
   const _batchStartTime = Date.now();
   document.getElementById('batchProgWrap')?.classList.add('show');
   document.getElementById('batchResultBox')?.classList.remove('show');
-  const total=B.txtFiles.length;
+  const total=idxs.length;
   const globalPat=document.getElementById('batchPattern')?.value.trim();
   const useItalicBatch=document.getElementById('batchItalic')?.checked;
 
   try{
-    for(let i=0;i<total;i++){
+    for(let k=0;k<total;k++){
+      const i=idxs[k];
       const f=B.txtFiles[i];
       const stem=f.name.replace(/\.txt$/i,'');
-      let title=stem,author='';
-      let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
-      if(m){author=m[1].trim();title=m[2].trim();}
-      else{m=stem.match(/^(.+?)\s*@\s*(.+)$/);if(m){title=m[1].trim();author=m[2].trim();}}
+      const {title,author}=_batchMetaFor(i);   // ★ Phase 39: 직접 고친 제목·작가 우선
       const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
       const item=document.getElementById('bi_'+i);
       if(item)item.className='batch-item running';
       document.getElementById('bst_'+i).textContent='변환 중...';
-      document.getElementById('batchProgMsg').textContent='('+(i+1)+'/'+total+') '+title+' 변환 중...';
-      document.getElementById('batchProgBar').style.width=Math.floor(i/total*100)+'%';
+      document.getElementById('batchProgMsg').textContent='('+(k+1)+'/'+total+') '+title+' 변환 중...';
+      document.getElementById('batchProgBar').style.width=Math.floor(k/total*100)+'%';
       try{
         await new Promise(r=>setTimeout(r,0));
         const raw=await fileToText(f);
@@ -3899,7 +4016,7 @@ async function startBatch(){
         const blob=await buildEpub({title,author,chapters,coverFile:cover,illMap:[],useItalic:useItalicBatch,
           series:sm?.series||'',seriesIndex:sm?.index||0},
           pct=>{document.getElementById('bpb_'+i).style.width=(30+pct*0.7)+'%';});
-        B.results.push({name:title+'.epub',blob});
+        B.results.push({name:batchEpubName(title, i, B.results),blob,idx:i});
         if(item)item.className='batch-item done';
         const _doneEl=document.getElementById('bst_'+i);
         if(_doneEl) _doneEl.textContent='완료 · '+chapters.filter(([h])=>h!=='서문').length+'화'+(split?' (간격 분할)':'');
@@ -3908,21 +4025,36 @@ async function startBatch(){
         // ★ 개별 파일 오류: 해당 항목만 실패 표시 후 루프 계속 (전체 중단 없음)
         if(item)item.className='batch-item error';
         document.getElementById('bst_'+i).textContent=e.message;
+        failed.push(i);
       }
     }
+    // ★ Phase 39: 실패한 파일 기억 → '실패한 N개 다시' (이번에 다시 한 파일 중 또 실패한 것 + 이번에 손대지 않은 이전 실패)
+    B.failedIdx=retry?[...new Set([...(B.failedIdx||[]).filter(i=>!idxs.includes(i)), ...failed])].sort((a,b)=>a-b):failed;
+    const okNow=total-failed.length;
+    const all=B.txtFiles.length;
     document.getElementById('batchProgBar').style.width='100%';
-    document.getElementById('batchProgMsg').textContent='완료! '+B.results.length+'/'+total+'개 성공';
-    document.getElementById('batchResultMsg').textContent=B.results.length+'개 epub 생성 완료';
+    document.getElementById('batchProgMsg').textContent='완료! '+okNow+'/'+total+'개 성공';
+    document.getElementById('batchResultMsg').textContent=batchResultText(B.results.length, B.failedIdx.length, all);
+    const retryBtn=document.getElementById('batchRetryBtn');
+    if(retryBtn) retryBtn.textContent=`실패한 ${B.failedIdx.length}개 다시`;
+    setShown(retryBtn, B.failedIdx.length>0);
     document.getElementById('batchResultBox')?.classList.add('show');
     const batchElapsed=((Date.now()-_batchStartTime)/1000).toFixed(1);
     const totalMB=B.results.reduce((s,r)=>s+(r.blob?.size||0),0)/1024/1024;
-    Toast.success(`일괄변환 완료 — ${B.results.length}/${total}개 성공 · ${totalMB.toFixed(1)}MB · ${batchElapsed}초`, 6000);
+    Toast.success(`일괄변환 완료 — ${okNow}/${total}개 성공 · ${totalMB.toFixed(1)}MB · ${batchElapsed}초`, 6000);
+    typeof _sendBatchNotif==='function'&&_sendBatchNotif(okNow, total);   // ★ Phase 39: 탭이 뒤에 있으면 알림
   }finally{
     // ★ Side-Effect 가드: 예기치 않은 예외에도 반드시 batchProgWrap 해제
     // (outer catch 없이 finally만으로 무한 스피너 방지)
     document.getElementById('batchProgWrap')?.classList.remove('show');
     _batchRunning=false;
   }
+}
+
+function retryFailedBatch(){
+  const list=(B.failedIdx||[]).filter(i=>(B.txtFiles||[])[i]);
+  if(!list.length){ Toast.info('다시 변환할 실패 파일이 없어요.'); return; }
+  startBatch(list);
 }
 
 async function downloadBatchZip(){
@@ -4097,7 +4229,7 @@ async function resetAll(){
 // ★ 탭별 렌더링 지연 플래그 (최초 1회만 렌더링)
 function resetBatchTxt(){
   cancelBatchAnalysis();   // ★ Phase 35
-  _bStore.set({txtFiles:[],patterns:{},sampleTexts:{},totalChs:{},splitModes:{},analysis:{}});
+  _bStore.set({txtFiles:[],patterns:{},sampleTexts:{},totalChs:{},splitModes:{},analysis:{},meta:{},failedIdx:[]});
   const dz=document.getElementById('batchTxtDrop');
   dz.className='dz';dz.querySelector('.dz-text').textContent='TXT 파일 여러 개 드래그하거나 클릭';
   // ★ Phase 38: 빈 목록이면 표지·공통 설정을 다시 펼치고, 필터도 풂

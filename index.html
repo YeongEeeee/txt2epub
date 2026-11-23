@@ -449,6 +449,7 @@
       <span class="u-row-wrap-6">
         <button type="button" id="batchFilterBtn" class="btn btn-ghost btn-sm" data-action="toggleBatchIssueFilter" aria-pressed="false" aria-controls="batchList" hidden>확인 필요만</button>
         <button type="button" id="batchIssueBtn" class="btn btn-ghost btn-sm" data-action="focusBatchIssue" hidden>확인 필요한 파일 보기</button>
+        <button type="button" id="batchCoverBtn" class="btn btn-ghost btn-sm" data-action="findMissingBatchCovers" hidden>표지 없는 파일 찾기</button>
       </span>
     </div>
     <div id="batchList"></div>
@@ -461,6 +462,7 @@
 <div class="result" id="batchResultBox">
   <h3>일괄 변환 완료!</h3>
   <p id="batchResultMsg"></p>
+  <button type="button" class="btn btn-ghost" id="batchRetryBtn" data-action="retryFailedBatch" hidden>실패한 파일 다시</button>
   <button class="btn btn-green" data-action="downloadBatchZip"><svg class="ico" aria-hidden="true" focusable="false"><use href="#i-download"/></svg> ZIP 다운로드</button>
 </div>
 <div class="err-box" id="batchErrBox"></div>

@@ -30,6 +30,7 @@
  *  23. Phase 32 (UI 정제 3단계 — 디자인 축소): CSS 리터럴 0 · 무한 애니메이션 1 · 화면 이모지 0 → SVG 아이콘 · JS 인라인 스타일 → 클래스·hidden
  *  24. Phase 33 (UI 정제 4단계 — 정보 구조): 기본 경로만 펼침(분할 규칙·목차 편집·삽화 접기) · 데스크톱 2단 · 레이아웃 이동 방지
  *  25. Phase 34 (신뢰 기능): EPUB 구조 검사(생성 EPUB 통과 · 일부러 망가뜨린 11종 검출) · 실제 XHTML·CSS 미리보기 · 본문 정리 전후 비교
+ *  30. Phase 39 (일괄 변환 편의): 제목 정리·직접 고치기 · 표지 검색 결과가 실제 변환 표지로 · 표지 없는 파일 차례로 · 실패한 파일만 다시 · 완료 알림
  *  29. Phase 38 (일괄 변환 한 화면): 한 줄 드롭존 · 표지·공통 설정 접기(요약 줄) · 진행 막대는 변환 시작 후 · '확인 필요만' · 하단 바 상태
  *  28. Phase 37 (확인 패널): 놓친 줄 후보·제목 후보(목록·카운트다운 제외)·본문일 수 있는 줄 · 줄 → 정규식 · 좋아질 때만 적용
  *  27. Phase 36 (일괄 변환 원인 표시): 누락 의심 구간(가운데·앞·뒤)·번호 중복·문구·배지 아래 메모 줄
@@ -1804,7 +1805,7 @@ async function main(){
     check('[사전분석] 파일을 넣으면 전체 예약(reset) · 표지 추가로 다시 그려도 배지 유지',
       /B\.analysis=\{\};[\s\S]{0,1200}queueBatchAnalysis\(B\.txtFiles\.map\(\(_,i\)=>i\), \{reset:true\}\);\n\}/.test(conv) && /_syncBatchModeBadge\(i\);\n  \}\);\n  _renderBatchSummary\(\);/.test(conv) && /_renderBatchCheck\(i\);\n  _renderBatchSummary\(\);\n\}/.test(conv));
     check('[사전분석] 변환 시작·목록 초기화 → 분석 중단 · 분석 상태도 초기화',
-      /_batchRunning=true;\n  cancelBatchAnalysis\(\);/.test(conv) && /cancelBatchAnalysis\(\);   \/\/ ★ Phase 35\n  _bStore\.set\(\{txtFiles:\[\],patterns:\{\},sampleTexts:\{\},totalChs:\{\},splitModes:\{\},analysis:\{\}\}\);/.test(conv));
+      /_batchRunning=true;\n  cancelBatchAnalysis\(\);/.test(conv) && /cancelBatchAnalysis\(\);   \/\/ ★ Phase 35\n  _bStore\.set\(\{txtFiles:\[\],patterns:\{\},sampleTexts:\{\},totalChs:\{\},splitModes:\{\},analysis:\{\}(?:,meta:\{\},failedIdx:\[\])?\}\);/.test(conv));
     check('[사전분석] 확인 패널도 analyzeBatchText 단일 경로 · 판정을 배지에 반영 · 이전 인라인 감지 제거',
       /const r=analyzeBatchText\(text, file\.name, pat, _batchDetectOpts\(\)\);/.test(conv) && /_setBatchAnalysis\(idx, keepAuto\?/.test(conv) && (conv.match(/_findExactPreset\(allLines, totalCh\)/g) || []).length === 1 && /const failMsg=r\.verdict\.reason;/.test(conv));
     check('[사전분석] 요약 마크업(index.html) · 상태 문구 aria-live · 버튼은 이벤트 위임',
@@ -1905,6 +1906,33 @@ async function main(){
         && /\.batch-list-issues \.batch-item:not\(\[data-issue="1"\]\)\{display:none\}/.test(css));
       check('[한화면] 진행 막대는 변환이 시작된 항목에만 · 한 줄 드롭존은 아이콘·설명 숨김',
         /\.batch-item:not\(\.running\):not\(\.done\):not\(\.error\) \.batch-prog\{display:none\}/.test(css) && /\.dz\.dz-slim \.dz-icon,\.dz\.dz-slim \.dz-sub\{display:none\}/.test(css));
+    }
+    // ── 30. Phase 39 — 편의 ──
+    {
+      const c9 = sandbox('convert.js', ['cleanBatchTitle', 'batchMetaFromName', 'batchEpubName', 'batchResultText'], {});
+      const MF = vm.runInContext('batchMetaFromName', c9), EN = vm.runInContext('batchEpubName', c9), RT = vm.runInContext('batchResultText', c9);
+      const titles = SPECS.map(sp => MF(generate(sp).fileName).title);
+      check('[편의] 실전형 5종 제목에서 범위·완결·연재중 표기 제거 · \'제목 @작가\'는 작가로',
+        titles.every(t => !/\d+\s*[-~]\s*\d+|완결|연재중|_/.test(t)) && JSON.stringify(MF('작은 시골 마을에는 즐길 것이 없다 0-853 @오븐치킨.txt')) === JSON.stringify({ title: '작은 시골 마을에는 즐길 것이 없다', author: '오븐치킨' }), titles.join(' | '));
+      const keep = [['[작가] 제목 (1~200화).txt', '제목', '작가'], ['[완결] 어떤 소설 1-100.txt', '어떤 소설', ''], ['소설 2-3반 이야기.txt', '소설 2-3반 이야기', ''], ['18-19세기 소설.txt', '18-19세기 소설', ''], ['나 혼자만 레벨업 (외전 포함).txt', '나 혼자만 레벨업 (외전 포함)', ''], ['완.txt', '완', ''], ['제목_1-50_완결.txt', '제목', '']];
+      const bad9 = keep.filter(([n, t, a]) => { const m = MF(n); return m.title !== t || m.author !== a; }).map(([n]) => n + '→' + JSON.stringify(MF(n)));
+      check('[편의] 제목 정리는 표기만 — 본제목 숫자 범위·괄호 부제는 그대로 · \'[완결]\'은 작가 아님 · 다 지워지면 원래 값', !bad9.length, bad9.join(' / '));
+      check('[편의] ZIP 안 같은 이름은 (2)·(3) · 자기 자신은 제외 · 결과 문구', EN('a', 2, [{ name: 'a.epub', idx: 0 }, { name: 'a (2).epub', idx: 1 }]) === 'a (3).epub' && EN('a/b', 0, [{ name: 'a_b.epub', idx: 0 }]) === 'a_b.epub'
+        && RT(6, 1, 7) === '6개 epub 생성 · 실패 1개 (파일 7개)' && RT(7, 0, 7) === '7개 epub 생성 완료');
+      const cs = read('cover-search.js'), stt = read('settings.js');
+      check('[편의] 표지 검색 결과 → 실제 변환 표지 (window.setBatchSelectedCover 정의 — 이전엔 없어서 S.batch에만 저장)',
+        /window\.setBatchSelectedCover=function\(fileObj\)\{/.test(conv) && /map\[f\.name\.replace\(\/\\\.txt\$\/i,''\)\]=fileObj;\n    _bStore\.set\(\{coverMap:map\}\);/.test(conv) && /B\.urlCoverFile=fileObj;/.test(conv)
+        && /if\(typeof window\.setBatchSelectedCover === 'function'\) \{\n\s*window\.setBatchSelectedCover\(fileObj, imgUrl\);/.test(cs));
+      check('[편의] 표지 없는 파일 차례로: 파일 제목으로 검색 · 창 제목에 순서 · 공통 검색이면 대상 해제 · 첫 파일 제목은 목록 규칙',
+        /openCoverSearchModal\('batch', \{query:title, label:`표지 찾기 \$\{pos\}\/\$\{_batchCoverTotal\}`\}\);/.test(conv) && /function openCoverSearchModal\(mode='convert', opts=\{\}\) \{/.test(cs)
+        && /if\(!opts\?\.query && typeof window\.clearBatchCoverTarget === 'function'\) window\.clearBatchCoverTarget\(\);/.test(cs) && /_batchMetaFor\(0\)\.title/.test(cs)
+        && /data-action="findMissingBatchCovers" hidden>/.test(html) && /findMissingBatchCovers: \(\) =>/.test(ui));
+      check('[편의] 실패한 파일만 다시: 성공 결과 유지 · 그 파일들만 · 실패 목록 갱신 · 버튼(index.html) · 위임',
+        /async function startBatch\(onlyIdx\)\{/.test(conv) && /B\.results=retry\?\(B\.results\|\|\[\]\)\.filter\(r=>!idxs\.includes\(r\.idx\)\):\[\];/.test(conv)
+        && /failed\.push\(i\);/.test(conv) && /setShown\(retryBtn, B\.failedIdx\.length>0\);/.test(conv) && /id="batchRetryBtn" data-action="retryFailedBatch" hidden>/.test(html) && /retryFailedBatch:       \(\) =>/.test(ui));
+      check('[편의] 제목·작가 직접 고치기: 입력칸(data-input-action) · 변환은 고친 값 우선 · 완료 알림',
+        /data-input-action="setBatchMeta" data-idx="'\+i\+'" data-field="title"/.test(conv) && /const \{title,author\}=_batchMetaFor\(i\);/.test(conv) && /setBatchMeta:         \(el\) =>/.test(ui)
+        && /function _sendBatchNotif\(ok, total\)\{/.test(stt) && /_sendBatchNotif\(okNow, total\);/.test(conv));
     }
   } catch (e) {
     check('[사전분석] 사전 분석 모듈 로드', false, String(e && e.message || e).slice(0, 160));

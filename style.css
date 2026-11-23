@@ -1053,6 +1053,14 @@ body.modal-open .page-tabs{
 .batch-options{margin-top:10px}
 .batch-options .settings-summary{gap:8px;flex-wrap:wrap}
 .batch-options-info{font-size:var(--fs-xs);font-weight:400;color:var(--text2)}
+/* ★ Phase 39: 파일 행 제목·작가 — 평소엔 글자처럼, 누르면 입력칸 */
+.batch-title-inp,.batch-author-inp{font:inherit;line-height:1.4;min-height:24px;color:var(--text);background:transparent;border:1px solid transparent;border-radius:var(--radius-xs);padding:0 4px;margin:0;min-width:0;text-overflow:ellipsis}
+.batch-title-inp{display:block;width:100%;font-size:var(--fs-base);font-weight:600}
+.batch-author-inp{font-size:var(--fs-xs);color:var(--text2);width:6em;field-sizing:content;min-width:3em;max-width:9em;flex-shrink:1}
+.batch-status:empty{display:none}
+.batch-title-inp:hover,.batch-author-inp:hover{border-color:var(--border)}
+.batch-title-inp:focus,.batch-author-inp:focus{outline:none;border-color:var(--accent);background:var(--bg);box-shadow:var(--inp-focus-ring)}
+.batch-title-inp::placeholder,.batch-author-inp::placeholder{color:var(--text3)}
 .batch-prog-bar{height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:var(--radius-pill);transition:width .3s;width:0}
 .batch-toc-btn{font-size:var(--fs-xs);padding:2px 7px;border-radius:var(--radius-xs);border:1px solid var(--border);background:var(--bg2);color:var(--text2);cursor:pointer;margin-left:auto;transition:all var(--dur-fast)}
 .batch-toc-btn:hover{border-color:var(--accent);color:var(--accent)}
