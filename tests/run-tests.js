@@ -30,6 +30,7 @@
  *  23. Phase 32 (UI 정제 3단계 — 디자인 축소): CSS 리터럴 0 · 무한 애니메이션 1 · 화면 이모지 0 → SVG 아이콘 · JS 인라인 스타일 → 클래스·hidden
  *  24. Phase 33 (UI 정제 4단계 — 정보 구조): 기본 경로만 펼침(분할 규칙·목차 편집·삽화 접기) · 데스크톱 2단 · 레이아웃 이동 방지
  *  25. Phase 34 (신뢰 기능): EPUB 구조 검사(생성 EPUB 통과 · 일부러 망가뜨린 11종 검출) · 실제 XHTML·CSS 미리보기 · 본문 정리 전후 비교
+ *  29. Phase 38 (일괄 변환 한 화면): 한 줄 드롭존 · 표지·공통 설정 접기(요약 줄) · 진행 막대는 변환 시작 후 · '확인 필요만' · 하단 바 상태
  *  28. Phase 37 (확인 패널): 놓친 줄 후보·제목 후보(목록·카운트다운 제외)·본문일 수 있는 줄 · 줄 → 정규식 · 좋아질 때만 적용
  *  27. Phase 36 (일괄 변환 원인 표시): 누락 의심 구간(가운데·앞·뒤)·번호 중복·문구·배지 아래 메모 줄
  *  26. Phase 35 (일괄 변환 사전 분석): 파일을 넣으면 목차 확인 없이 파일별 감지 배지 · 요약 · 대기열(중단·새 목록) · 확인 패널과 같은 판정
@@ -1801,13 +1802,13 @@ async function main(){
     }
     // 26-6. 연결 — 파일 넣기·변환·초기화·확인 패널·요약 마크업
     check('[사전분석] 파일을 넣으면 전체 예약(reset) · 표지 추가로 다시 그려도 배지 유지',
-      /B\.analysis=\{\};[\s\S]{0,600}queueBatchAnalysis\(B\.txtFiles\.map\(\(_,i\)=>i\), \{reset:true\}\);\n\}/.test(conv) && /_syncBatchModeBadge\(i\);\n  \}\);\n  _renderBatchSummary\(\);/.test(conv) && /_renderBatchCheck\(i\);\n  _renderBatchSummary\(\);\n\}/.test(conv));
+      /B\.analysis=\{\};[\s\S]{0,1200}queueBatchAnalysis\(B\.txtFiles\.map\(\(_,i\)=>i\), \{reset:true\}\);\n\}/.test(conv) && /_syncBatchModeBadge\(i\);\n  \}\);\n  _renderBatchSummary\(\);/.test(conv) && /_renderBatchCheck\(i\);\n  _renderBatchSummary\(\);\n\}/.test(conv));
     check('[사전분석] 변환 시작·목록 초기화 → 분석 중단 · 분석 상태도 초기화',
       /_batchRunning=true;\n  cancelBatchAnalysis\(\);/.test(conv) && /cancelBatchAnalysis\(\);   \/\/ ★ Phase 35\n  _bStore\.set\(\{txtFiles:\[\],patterns:\{\},sampleTexts:\{\},totalChs:\{\},splitModes:\{\},analysis:\{\}\}\);/.test(conv));
     check('[사전분석] 확인 패널도 analyzeBatchText 단일 경로 · 판정을 배지에 반영 · 이전 인라인 감지 제거',
       /const r=analyzeBatchText\(text, file\.name, pat, _batchDetectOpts\(\)\);/.test(conv) && /_setBatchAnalysis\(idx, keepAuto\?/.test(conv) && (conv.match(/_findExactPreset\(allLines, totalCh\)/g) || []).length === 1 && /const failMsg=r\.verdict\.reason;/.test(conv));
     check('[사전분석] 요약 마크업(index.html) · 상태 문구 aria-live · 버튼은 이벤트 위임',
-      /<div id="batchSummary" class="batch-summary" hidden>\s*<span id="batchSummaryText" class="batch-summary-text" role="status" aria-live="polite"><\/span>\s*<button type="button" id="batchIssueBtn" class="btn btn-ghost btn-sm" data-action="focusBatchIssue" hidden>/.test(html)
+      /<div id="batchSummary" class="batch-summary" hidden>\s*<span id="batchSummaryText" class="batch-summary-text" role="status" aria-live="polite"><\/span>[\s\S]{0,400}<button type="button" id="batchIssueBtn" class="btn btn-ghost btn-sm" data-action="focusBatchIssue" hidden>/.test(html)
       && /focusBatchIssue:     \(\) => typeof focusBatchIssue==='function'&&focusBatchIssue\(\),/.test(ui));
     check('[사전분석] 배지: 상태 글자 + 아이콘(장식) · 색은 토큰만', /'<span id="bchk_'\+i\+'" class="batch-check" hidden><\/span>'/.test(conv)
       && /\.batch-check\[data-state="warn"\]\{background:var\(--yellow-bg\);color:var\(--yellow\);border-color:var\(--yellow\)\}/.test(css) && /el\.setAttribute\('aria-label'/.test(conv));
@@ -1879,6 +1880,31 @@ async function main(){
         && /if\(mode==='add'&&!\(r\.mainCnt>\(ctx\.main\|\|0\)\)\)/.test(conv) && /directEl\.dataset\.typed='1';[^\n]*\n    await confirmBatchPreset\(idx\);/.test(conv)
         && /batchLinePattern:    \(el\) => typeof batchLinePattern==='function'&&batchLinePattern\(parseInt\(el\.dataset\.idx,10\), parseInt\(el\.dataset\.line,10\), el\.dataset\.mode\),/.test(ui)
         && /txt\.textContent=r\.text;/.test(conv) && /\.batch-line-tag\{flex-shrink:0;color:var\(--text2\)/.test(css));
+    }
+    // ── 29. Phase 38 — 한 화면 ──
+    {
+      const c8 = sandbox('convert.js', ['batchBottomStatus', 'batchOptionsInfoText'], {});
+      const BS = vm.runInContext('batchBottomStatus', c8), OI = vm.runInContext('batchOptionsInfoText', c8);
+      check('[한화면] 하단 바: 파일 없음 · 분석 중 · 준비/확인 필요 · 버튼에 파일 수',
+        JSON.stringify(BS({ total: 0 })) === JSON.stringify({ text: '파일 없음', tone: 'none', btn: '일괄 변환 시작' })
+        && JSON.stringify(BS({ total: 7, ready: 3, issue: 1, pending: 3 })) === JSON.stringify({ text: '분석 중 3 · 준비 3 · 확인 필요 1', tone: '', btn: '7개 변환 시작' })
+        && JSON.stringify(BS({ total: 2, ready: 2, issue: 0, pending: 0 })) === JSON.stringify({ text: '준비 2', tone: 'ok', btn: '2개 변환 시작' }));
+      check('[한화면] 접힌 설정 줄 요약: 표지 수 · 정규식(간격 분할 우선) · 이탤릭',
+        OI({ files: 7, covers: 3, pattern: '', italic: true }) === '표지 3/7 · 정규식 자동 · 이탤릭 켬'
+        && OI({ files: 2, covers: 0, pattern: '^x', italic: false, split: true }) === '표지 0/2 · 간격 분할 · 이탤릭 끔' && OI({}) === '정규식 자동 · 이탤릭 켬');
+      check('[한화면] 마크업: 표지·공통 설정 <details open> + 요약 줄 · 필터 버튼 aria-pressed · 하단 바 상태(aria-live) · 시작 버튼 id',
+        /<details class="settings-details batch-options" id="batchOptions" open>\s*<summary class="settings-summary"><span>표지 · 공통 설정<\/span><span id="batchOptionsInfo" class="batch-options-info"><\/span><\/summary>/.test(html)
+        && /id="batchFilterBtn" class="btn btn-ghost btn-sm" data-action="toggleBatchIssueFilter" aria-pressed="false" aria-controls="batchList" hidden>확인 필요만</.test(html)
+        && /<div class="btm-status" aria-live="polite">\s*<span class="btm-status-val none" id="btmBatchStatus">파일 없음<\/span>\s*<\/div>\s*<button class="btn btn-accent" id="batchStartBtn" data-action="startBatch">/.test(html)
+        && /toggleBatchIssueFilter: \(\) => typeof toggleBatchIssueFilter==='function'&&toggleBatchIssueFilter\(\),/.test(ui));
+      check('[한화면] 파일을 넣으면 한 줄 드롭존 · 설정은 처음 한 번만 접음 · 초기화하면 다시 펼침·필터 해제',
+        /dz\.classList\.add\('ok','dz-slim'\);/.test(conv) && /if\(opt&&!_batchOptionsAutoClosed\)\{ opt\.open=false; _batchOptionsAutoClosed=true; \}/.test(conv)
+        && /if\(opt\)\{ opt\.open=true; _batchOptionsAutoClosed=false; \}\n  _setBatchIssueFilter\(false\);/.test(conv));
+      check('[한화면] 필터는 data-issue로 (className은 변환 상태용) · 문제와 준비가 섞일 때만 · 문제가 없어지면 해제',
+        /item\.dataset\.issue=\['warn','fail','error'\]\.includes\(st\)\?'1':'0';/.test(conv) && /const canFilter=s\.issue>0&&s\.ready>0;\n  if\(!canFilter&&_batchIssueFilter\) _setBatchIssueFilter\(false\);/.test(conv)
+        && /\.batch-list-issues \.batch-item:not\(\[data-issue="1"\]\)\{display:none\}/.test(css));
+      check('[한화면] 진행 막대는 변환이 시작된 항목에만 · 한 줄 드롭존은 아이콘·설명 숨김',
+        /\.batch-item:not\(\.running\):not\(\.done\):not\(\.error\) \.batch-prog\{display:none\}/.test(css) && /\.dz\.dz-slim \.dz-icon,\.dz\.dz-slim \.dz-sub\{display:none\}/.test(css));
     }
   } catch (e) {
     check('[사전분석] 사전 분석 모듈 로드', false, String(e && e.message || e).slice(0, 160));

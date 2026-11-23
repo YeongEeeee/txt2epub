@@ -19,6 +19,8 @@
  *   3. 가장 긴 메인 스레드 작업(Long Task) — 분석 중 화면이 멈춘 최대 시간
  *   4. 확인 필요 파일까지의 클릭 — '확인 필요한 파일 보기' 1번으로 첫 문제 파일 패널이 열리는지
  *   5. 클릭 없이 보이는 원인 — 배지 아래 메모 줄(Phase 36)에 누락 화 번호·다음 행동이 적힌 파일 수
+ *   7. 한 화면 (Phase 38) — 7개를 넣고 분석이 끝난 뒤 스크롤하지 않은 첫 화면에서: 첫 파일 행의 위치,
+ *      헤더·탭과 하단 바에 가리지 않고 통째로 보이는 파일 행 수, 파일 행 평균 높이, 탭 문서 높이
  *   6. 줄을 눌러 고치기 (Phase 37) — 따로 2개 파일: 자동 감지가 못 잡는 제목 형식('◈ N ◈', 감지 실패)과
  *      한 화만 다른 형식('47편', 누락 의심). '목차 확인' → '확인할 줄' 한 줄 누르기로 준비(N/N화)가 되는지·몇 번 눌렀는지
  *
@@ -91,7 +93,7 @@ function makeFiles(){
   const hasAuto = await page.evaluate(() => !!document.getElementById('batchSummary'));
   const t0 = Date.now();
   await page.setInputFiles('#batchTxtIn', files);
-  let clicks = 0, elapsed = 0, states = [], summary = '', issueOpens = null, notes = [];
+  let clicks = 0, elapsed = 0, states = [], summary = '', issueOpens = null, notes = [], layout = null;
   if (hasAuto) {
     await page.waitForFunction(n => {
       const b = [...document.querySelectorAll('.batch-check')];
@@ -100,6 +102,22 @@ function makeFiles(){
     elapsed = Date.now() - t0;
     states = await page.evaluate(() => [...document.querySelectorAll('.batch-check')].map(x => x.dataset.state + ':' + x.textContent.trim()));
     summary = await page.textContent('#batchSummaryText');
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(400);
+    layout = await page.evaluate(() => {
+      const vh = innerHeight;
+      const top = Math.max(...[...document.querySelectorAll('.hdr, .page-tabs')].map(e => e.getBoundingClientRect().bottom), 0);
+      const btm = [...document.querySelectorAll('.btm')].find(e => !e.hidden && getComputedStyle(e).display !== 'none');
+      const bottom = btm ? btm.getBoundingClientRect().top : vh;
+      const items = [...document.querySelectorAll('#batchList .batch-item')].filter(e => e.offsetParent);
+      const r = items.map(e => e.getBoundingClientRect());
+      return {
+        firstRowY: r[0] ? Math.round(r[0].top + scrollY) : -1,
+        rowsVisible: r.filter(x => x.top >= top - 1 && x.bottom <= bottom + 1).length,
+        rowH: r.length ? Math.round(r.reduce((s, x) => s + x.height, 0) / r.length) : 0,
+        docH: document.documentElement.scrollHeight,
+      };
+    });
     notes = await page.evaluate(() => [...document.querySelectorAll('.batch-check-note')].filter(n => !n.hidden && n.textContent.trim()).map(n => n.closest('.batch-item')?.querySelector('.batch-title')?.textContent.slice(0, 12) + ': ' + n.textContent.trim()));
     await page.locator('#batchListSec').screenshot({ path: path.join(__dirname, 'out', 'batch-auto-analyze-list.png') }).catch(() => {});
     // 확인 필요한 첫 파일까지 1번
@@ -170,7 +188,7 @@ function makeFiles(){
   await browser.close();
   srv.close();
 
-  const r = { root: ROOT, mode: hasAuto ? '자동 사전 분석' : '목차 확인 직접 클릭', files: files.length, clicks, elapsedMs: elapsed, longTaskMs: longTask, states, summary, issueOpens, notes, fix, errors };
+  const r = { root: ROOT, mode: hasAuto ? '자동 사전 분석' : '목차 확인 직접 클릭', files: files.length, clicks, elapsedMs: elapsed, longTaskMs: longTask, states, summary, issueOpens, notes, layout, fix, errors };
   if (JSON_OUT) { console.log(JSON.stringify(r, null, 2)); return; }
   console.log('| 방식 | 파일 | 상태 파악까지 클릭 | 상태 파악까지 시간 | 최장 메인 스레드 작업 | 확인 필요 파일 열기 |');
   console.log('|---|---|---|---|---|---|');
@@ -178,6 +196,7 @@ function makeFiles(){
   console.log('상태: ' + r.states.join(' / '));
   if (r.summary) console.log('요약: ' + r.summary);
   console.log(`클릭 없이 보이는 원인: ${r.notes.length}개 파일` + (r.notes.length ? '\n  ' + r.notes.join('\n  ') : ''));
+  if (r.layout) console.log(`한 화면: 첫 파일 행 ${r.layout.firstRowY}px · 첫 화면에 통째로 보이는 행 ${r.layout.rowsVisible}/${r.files} · 행 평균 ${r.layout.rowH}px · 탭 높이 ${r.layout.docH}px`);
   console.log('줄을 눌러 고치기:');
   r.fix.forEach(f => console.log(`  ${f.file}: ${f.before} → ${f.after} · ${f.taps}번`));
   if (r.errors.length) console.log('페이지 오류: ' + r.errors.join(' / '));

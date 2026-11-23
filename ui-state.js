@@ -1117,6 +1117,8 @@ function setupEventDelegate(){
     confirmBatchPreset:  (el) => typeof confirmBatchPreset==='function'&&confirmBatchPreset(parseInt(el.dataset.idx,10)),
     // ★ Phase 35: 일괄 변환 사전 분석 요약 — 확인이 필요한 다음 파일로 이동
     focusBatchIssue:     () => typeof focusBatchIssue==='function'&&focusBatchIssue(),
+    // ★ Phase 38: 변환 목록 '확인 필요만' 보기 토글
+    toggleBatchIssueFilter: () => typeof toggleBatchIssueFilter==='function'&&toggleBatchIssueFilter(),
     // ★ Phase 37: 확인 패널의 줄을 눌러 그 모양으로 패턴 만들기 (add: 지금 패턴에 더하기 · replace: 바꾸기)
     batchLinePattern:    (el) => typeof batchLinePattern==='function'&&batchLinePattern(parseInt(el.dataset.idx,10), parseInt(el.dataset.line,10), el.dataset.mode),
     applyBatchInterval:  (el) => typeof applyBatchInterval==='function'&&applyBatchInterval(parseInt(el.dataset.idx,10)),

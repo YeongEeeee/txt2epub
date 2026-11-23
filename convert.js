@@ -2736,6 +2736,7 @@ function _syncBatchSplitControls(){
   const tplRow=document.getElementById('batchSplitTplRow');
   const anyFile=Object.values(B.splitModes||{}).some(m=>m&&m.mode==='interval');
   setShown(tplRow,g.enabled||anyFile);
+  _renderBatchOptionsInfo();   // ★ Phase 38: 접힌 설정 줄 요약
 }
 
 // 배치 목록 항목의 모드 배지 + 파일별 패널의 '패턴 모드로' 버튼 표시 동기화
@@ -2845,9 +2846,12 @@ function handleBatchTxt(files){
   B.splitModes={};   // ★ v3: 파일별 간격 분할 설정은 파일 인덱스 기준이므로 새 목록에서 폐기
   B.analysis={};     // ★ Phase 35: 자동 사전 분석 결과도 파일 인덱스 기준 → 새 목록에서 폐기
   const dz=document.getElementById('batchTxtDrop');
-  dz.classList.add('ok');
-  dz.querySelector('.dz-text').textContent=txts.length+'개 파일 선택됨';
+  dz.classList.add('ok','dz-slim');   // ★ Phase 38: 파일이 들어오면 드롭존은 한 줄로
+  dz.querySelector('.dz-text').textContent=`TXT ${txts.length}개 · 다른 파일로 바꾸려면 여기에 드롭`;
   setShown(document.getElementById('batchResetBar'),true);
+  // ★ Phase 38: 표지·공통 설정은 처음 파일을 넣을 때 한 번 접음 (목록이 첫 화면에) — 사용자가 다시 열면 그대로 둠
+  const opt=document.getElementById('batchOptions');
+  if(opt&&!_batchOptionsAutoClosed){ opt.open=false; _batchOptionsAutoClosed=true; }
   renderBatchList();
   const _listSec=document.getElementById('batchListSec');
   setShown(_listSec,true);
@@ -2937,6 +2941,7 @@ function renderBatchList(){
     _syncBatchModeBadge(i);
   });
   _renderBatchSummary();   // ★ Phase 35
+  _renderBatchOptionsInfo();   // ★ Phase 38
 }
 
 async function showBatchToc(idx, btn){
@@ -3264,6 +3269,9 @@ function _renderBatchCheck(i){
   const a=(B.analysis||{})[i]||{};
   const label=st==='pending'?'분석 대기':st==='running'?'분석 중…':(a.label||'');
   const noteEl=document.getElementById('bnote_'+i);
+  // ★ Phase 38: '확인 필요만' 필터용 — 항목 className은 변환 상태(running/done/error)가 쓰므로 data 속성으로
+  const item=document.getElementById('bi_'+i);
+  if(item) item.dataset.issue=['warn','fail','error'].includes(st)?'1':'0';
   if(st==='idle'||st==='split'||!label){ setShown(el,false); setShown(noteEl,false); return; }
   const ic={ok:'check', warn:'alert', fail:'x-circle', error:'x-circle'}[st]||'';
   el.dataset.state=st;
@@ -3297,6 +3305,8 @@ function _bindBatchPatternChange(){
   if(!inp) return;
   // 공통 정규식이 바뀌면 파일별로 직접 정한 패턴이 없는 파일만 다시 분석
   inp.addEventListener('change', _onBatchPatternChange);
+  inp.addEventListener('input', _renderBatchOptionsInfo);   // ★ Phase 38
+  document.getElementById('batchItalic')?.addEventListener('change', _renderBatchOptionsInfo);
   _batchPatternBound=true;
 }
 function _renderBatchSummary(){
@@ -3310,6 +3320,72 @@ function _renderBatchSummary(){
   if(t&&t.textContent!==text) t.textContent=text;
   setShown(document.getElementById('batchIssueBtn'), s.issue>0);
   setShown(box, !!text&&(s.ready+s.issue+s.pending)>0);
+  // ★ Phase 38: '확인 필요만' — 문제 파일과 준비 파일이 섞여 있을 때만. 문제가 없어지면 필터도 풂
+  const fb=document.getElementById('batchFilterBtn');
+  const canFilter=s.issue>0&&s.ready>0;
+  if(!canFilter&&_batchIssueFilter) _setBatchIssueFilter(false);
+  setShown(fb, canFilter||_batchIssueFilter);
+  _renderBatchBottomBar(s);
+}
+
+// ★ Phase 38: 하단 바 — 무엇이 변환될지 (파일 수 · 분석 중 · 준비 · 확인 필요)
+function batchBottomStatus(s){
+  if(!s?.total) return {text:'파일 없음', tone:'none', btn:'일괄 변환 시작'};
+  const parts=[];
+  if(s.pending) parts.push(`분석 중 ${s.pending}`);
+  if(s.ready) parts.push(`준비 ${s.ready}`);
+  if(s.issue) parts.push(`확인 필요 ${s.issue}`);
+  return {text:parts.join(' · ')||`파일 ${s.total}개`, tone:s.issue?'':s.pending?'':'ok', btn:`${s.total}개 변환 시작`};
+}
+function _renderBatchBottomBar(s){
+  const v=batchBottomStatus(s);
+  const st=document.getElementById('btmBatchStatus');
+  if(st){
+    if(st.textContent!==v.text) st.textContent=v.text;
+    st.classList.toggle('none', v.tone==='none');
+    st.classList.toggle('ok', v.tone==='ok');
+  }
+  const btn=document.getElementById('batchStartBtn');
+  if(btn&&btn.textContent!==v.btn) btn.textContent=v.btn;
+}
+
+// ★ Phase 38: '확인 필요만' 보기 — 목록에서 준비 파일을 잠시 숨김 (변환 대상은 그대로)
+let _batchIssueFilter=false;
+function _setBatchIssueFilter(on){
+  _batchIssueFilter=!!on;
+  document.getElementById('batchList')?.classList.toggle('batch-list-issues', _batchIssueFilter);
+  const fb=document.getElementById('batchFilterBtn');
+  if(fb){
+    fb.setAttribute('aria-pressed', String(_batchIssueFilter));
+    fb.textContent=_batchIssueFilter?'모두 보기':'확인 필요만';
+  }
+}
+function toggleBatchIssueFilter(){
+  _setBatchIssueFilter(!_batchIssueFilter);
+  _renderBatchSummary();
+}
+
+// ★ Phase 38: 접힌 '표지 · 공통 설정' 줄에 지금 상태 요약 — 열지 않아도 무엇이 적용될지
+let _batchOptionsAutoClosed=false;
+function batchOptionsInfoText({files=0, covers=0, pattern='', italic=true, split=false}={}){
+  const parts=[];
+  if(files) parts.push(`표지 ${covers}/${files}`);
+  parts.push(split?'간격 분할':pattern?'정규식 지정':'정규식 자동');
+  parts.push(italic?'이탤릭 켬':'이탤릭 끔');
+  return parts.join(' · ');
+}
+function _renderBatchOptionsInfo(){
+  const el=document.getElementById('batchOptionsInfo');
+  if(!el) return;
+  const files=B.txtFiles||[];
+  const covers=files.filter(f=>{const stem=f.name.replace(/\.txt$/i,''); return !!(B.coverMap?.[stem]||findFuzzyCover(stem)||B.urlCoverFile);}).length;
+  const text=batchOptionsInfoText({
+    files:files.length, covers,
+    pattern:document.getElementById('batchPattern')?.value.trim()||'',
+    italic:document.getElementById('batchItalic')?.checked!==false,
+    split:!!B.batchSplit?.enabled,
+  });
+  if(el.textContent!==text) el.textContent=text;
 }
 
 function _onBatchPatternChange(){
@@ -4024,6 +4100,10 @@ function resetBatchTxt(){
   _bStore.set({txtFiles:[],patterns:{},sampleTexts:{},totalChs:{},splitModes:{},analysis:{}});
   const dz=document.getElementById('batchTxtDrop');
   dz.className='dz';dz.querySelector('.dz-text').textContent='TXT 파일 여러 개 드래그하거나 클릭';
+  // ★ Phase 38: 빈 목록이면 표지·공통 설정을 다시 펼치고, 필터도 풂
+  const opt=document.getElementById('batchOptions');
+  if(opt){ opt.open=true; _batchOptionsAutoClosed=false; }
+  _setBatchIssueFilter(false);
   document.getElementById('batchList').innerHTML='';
   setShown(document.getElementById('batchSummary'),false);
   setShown(document.getElementById('batchListSec'),false);
