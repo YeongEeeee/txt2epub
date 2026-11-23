@@ -21,7 +21,7 @@
  *   5. 클릭 없이 보이는 원인 — 배지 아래 메모 줄(Phase 36)에 누락 화 번호·다음 행동이 적힌 파일 수
  *   7. 한 화면 (Phase 38) — 7개를 넣고 분석이 끝난 뒤 스크롤하지 않은 첫 화면에서: 첫 파일 행의 위치,
  *      헤더·탭과 하단 바에 가리지 않고 통째로 보이는 파일 행 수, 파일 행 평균 높이, 탭 문서 높이
- *   8. 편의 (Phase 39) — 같은 7개로: 제목에 범위·완결 표기가 남은 파일 수 / 표지 검색 결과가 실제 변환 표지로 들어가는지
+ *   8. 편의 (Phase 39) — 같은 7개로: 변환 제목에서 범위·완결 표기가 사라진 파일 수(0이어야 함 — 검색어만 정리) / 표지 검색 결과가 실제 변환 표지로 들어가는지
  *      (cover-search.js의 일괄 변환 경로를 그대로 실행) / 1개를 일부러 실패시킨 뒤 되살리는 데 다시 변환한 파일 수·시간
  *   6. 줄을 눌러 고치기 (Phase 37) — 따로 2개 파일: 자동 감지가 못 잡는 제목 형식('◈ N ◈', 감지 실패)과
  *      한 화만 다른 형식('47편', 누락 의심). '목차 확인' → '확인할 줄' 한 줄 누르기로 준비(N/N화)가 되는지·몇 번 눌렀는지
@@ -202,7 +202,11 @@ function makeFiles(){
     await p3.waitForFunction(n => document.querySelectorAll('#batchList .batch-item').length === n, files.length);
     // 8-1. 제목
     const titles = await p3.evaluate(() => [...document.querySelectorAll('#batchList .batch-item')].map(it => (it.querySelector('.batch-title-inp')?.value ?? it.querySelector('.batch-title')?.textContent ?? '').trim()));
-    conv.noisyTitles = titles.filter(t => /\d+\s*[-~]\s*\d+|완결|연재중|_/.test(t)).length;
+    // ★ 변환 제목은 파일명의 범위·완결·연재중 표기를 그대로 — 표기가 사라진 파일 수 (0이어야 함)
+    const MARK = /\d+\s*[-~]\s*\d+|완결|연재중/;
+    const pairs = await p3.evaluate(() => [...document.querySelectorAll('#batchList .batch-title-inp')].map(el => [el.title, el.value]));   // 목록은 정렬될 수 있어 파일명(title 속성)과 짝지음
+    conv.markedFiles = pairs.filter(([fn]) => MARK.test(fn)).length;
+    conv.lostMarks = pairs.filter(([fn, v]) => MARK.test(fn) && !MARK.test(v)).length;
     conv.titles = titles;
     // 8-2. 표지 검색 결과 → 변환 표지 (cover-search.js selectSearchedCover의 일괄 변환 분기 그대로)
     conv.cover = await p3.evaluate(async () => {
@@ -243,6 +247,7 @@ function makeFiles(){
     conv.recoverConverted = await p3.evaluate(() => window.__conv);
     conv.afterFailed = await p3.evaluate(() => document.querySelectorAll('#batchList .batch-item.error').length);
     conv.results = await p3.evaluate(() => B.results.length);
+    conv.resultNames = await p3.evaluate(() => B.results.map(x => x.name));
     conv.resultMsg = await p3.textContent('#batchResultMsg');
     await c3.close();
   }
@@ -260,7 +265,8 @@ function makeFiles(){
   console.log(`클릭 없이 보이는 원인: ${r.notes.length}개 파일` + (r.notes.length ? '\n  ' + r.notes.join('\n  ') : ''));
   if (r.layout) console.log(`한 화면: 첫 파일 행 ${r.layout.firstRowY}px · 첫 화면에 통째로 보이는 행 ${r.layout.rowsVisible}/${r.files} · 행 평균 ${r.layout.rowH}px · 탭 높이 ${r.layout.docH}px`);
   if (r.conv) {
-    console.log(`제목에 범위·완결 표기가 남은 파일: ${r.conv.noisyTitles}/${r.files}`);
+    console.log(`변환 제목에서 범위·완결 표기가 사라진 파일: ${r.conv.lostMarks}/${r.conv.markedFiles} (표기 있는 파일 기준)`);
+    console.log(`EPUB 이름: ${(r.conv.resultNames || []).join(' | ')}`);
     console.log(`표지 검색 결과 → 변환 표지: 표지 있는 파일 ${r.conv.cover.withCover}/${r.files} (검색어 '${r.conv.cover.query}' · 창 제목 '${r.conv.cover.label}'${r.conv.cover.nextQuery ? ` · 다음 파일 '${r.conv.cover.nextQuery}'` : ''})`);
     console.log(`1개 실패 되살리기: ${r.conv.recoverMode} — 다시 읽은 파일 ${r.conv.recoverConverted}개 · ${r.conv.recoverMs}ms (첫 변환 ${r.conv.firstRunMs}ms, 실패 ${r.conv.firstFailed}) → 실패 ${r.conv.afterFailed} · 결과 ${r.conv.results}개 · '${r.conv.resultMsg}'`);
   }

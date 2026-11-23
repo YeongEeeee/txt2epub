@@ -2919,7 +2919,7 @@ function renderBatchList(){
   _ensureBatchSplitControls();   // ★ v3: 전역 간격 분할 토글 (1회 삽입)
   B.txtFiles.forEach((f,i)=>{
     const stem=f.name.replace(/\.txt$/i,'');
-    // ★ Phase 39: 제목·작가는 파일명에서 읽되(범위·완결 표기 정리) 그 자리에서 고칠 수 있음
+    // ★ Phase 39: 제목·작가는 파일명에서 읽고(범위·완결 표기 그대로) 그 자리에서 고칠 수 있음
     const def=batchMetaFromName(f.name);
     const own=(B.meta||{})[i]||{};
     const cover=B.coverMap[stem]||findFuzzyCover(stem)||B.urlCoverFile||null;
@@ -3639,21 +3639,26 @@ function cleanBatchTitle(t){
     .replace(/^[\s\-·:]+|[\s\-·:]+$/g,'').trim();
   return s||before;
 }
-// 파일명 → 기본 제목·작가 ('[작가] 제목' · '제목@작가' — 기존 규칙 그대로) + 제목 정리
+// 파일명 → 기본 제목·작가 ('[작가] 제목' · '제목@작가' — 기존 규칙 그대로)
+//   ★ 변환 제목(title)은 파일명 그대로 — 범위·완결·연재중 표기를 남겨 몇 화까지인지·완결인지 보이게
+//     (Phase 39는 변환 제목에서도 걷어 냈음 → 되돌림). 정리한 제목은 표지 검색어(searchTitle)에만
 function batchMetaFromName(name){
   const stem=String(name??'').replace(/\.txt$/i,'');
   let title=stem, author='';
   let m=stem.match(/^\[(.+?)\]\s*(.+)$/);
   if(m){ author=m[1].trim(); title=m[2].trim(); }
   else{ m=stem.match(/^(.+?)\s*@\s*(.+)$/); if(m){ title=m[1].trim(); author=m[2].trim(); } }
-  if(/^(?:완결?|完|연재중?|미완)$/.test(author)) author='';   // '[완결] 제목'은 작가가 아님
-  return {title:cleanBatchTitle(title), author};
+  // '[완결] 제목'·'제목@연재중'은 작가가 아님 — 상태 표기를 지우지 않고 제목에 그대로 둠
+  if(/^(?:완결?|完|연재중?|미완)$/.test(author)){ author=''; title=stem.trim(); }
+  return {title, author, searchTitle:cleanBatchTitle(title)};
 }
 // 실제 변환에 쓸 제목·작가 — 직접 고친 값 우선, 제목을 비우면 기본값 (작가는 비워 둘 수 있음)
+//   searchTitle: 표지 검색어 — 지금 제목에서 범위·완결 표기만 걷어 냄
 function _batchMetaFor(i){
   const d=batchMetaFromName((B.txtFiles||[])[i]?.name);
   const o=(B.meta||{})[i]||{};
-  return {title:String(o.title??'').trim()||d.title, author:o.author!=null?String(o.author).trim():d.author};
+  const title=String(o.title??'').trim()||d.title;
+  return {title, author:o.author!=null?String(o.author).trim():d.author, searchTitle:cleanBatchTitle(title)};
 }
 function setBatchMeta(el){
   const i=parseInt(el?.dataset?.idx,10), key=el?.dataset?.field;
@@ -3699,7 +3704,7 @@ function _openNextBatchCover(){
   _batchCoverTarget=i;
   _batchCoverLast=i;
   const pos=_batchCoverTotal-_batchCoverQueue.length;
-  const title=_batchMetaFor(i).title;
+  const title=_batchMetaFor(i).searchTitle;   // 검색어만 범위·완결 표기 없이
   if(typeof openCoverSearchModal==='function'){
     openCoverSearchModal('batch', {query:title, label:`표지 찾기 ${pos}/${_batchCoverTotal}`});
   }

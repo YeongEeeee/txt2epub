@@ -31,7 +31,7 @@
  *  24. Phase 33 (UI 정제 4단계 — 정보 구조): 기본 경로만 펼침(분할 규칙·목차 편집·삽화 접기) · 데스크톱 2단 · 레이아웃 이동 방지
  *  25. Phase 34 (신뢰 기능): EPUB 구조 검사(생성 EPUB 통과 · 일부러 망가뜨린 11종 검출) · 실제 XHTML·CSS 미리보기 · 본문 정리 전후 비교
  *  31. Phase 40 (간격 분할 v2): 글자 수 기준 · 전체 최적화 · 파일 안 제목 찾기(번호 흐름·반복 구분선·머리줄·드문 빈 줄) — 정답을 아는 합성 원고로 정확도 하한
- *  30. Phase 39 (일괄 변환 편의): 제목 정리·직접 고치기 · 표지 검색 결과가 실제 변환 표지로 · 표지 없는 파일 차례로 · 실패한 파일만 다시 · 완료 알림
+ *  30. Phase 39 (일괄 변환 편의): 제목 그대로·검색어만 정리·직접 고치기 · 표지 검색 결과가 실제 변환 표지로 · 표지 없는 파일 차례로 · 실패한 파일만 다시 · 완료 알림
  *  29. Phase 38 (일괄 변환 한 화면): 한 줄 드롭존 · 표지·공통 설정 접기(요약 줄) · 진행 막대는 변환 시작 후 · '확인 필요만' · 하단 바 상태
  *  28. Phase 37 (확인 패널): 놓친 줄 후보·제목 후보(목록·카운트다운 제외)·본문일 수 있는 줄 · 줄 → 정규식 · 좋아질 때만 적용
  *  27. Phase 36 (일괄 변환 원인 표시): 누락 의심 구간(가운데·앞·뒤)·번호 중복·문구·배지 아래 메모 줄
@@ -1912,12 +1912,21 @@ async function main(){
     {
       const c9 = sandbox('convert.js', ['cleanBatchTitle', 'batchMetaFromName', 'batchEpubName', 'batchResultText'], {});
       const MF = vm.runInContext('batchMetaFromName', c9), EN = vm.runInContext('batchEpubName', c9), RT = vm.runInContext('batchResultText', c9);
-      const titles = SPECS.map(sp => MF(generate(sp).fileName).title);
-      check('[편의] 실전형 5종 제목에서 범위·완결·연재중 표기 제거 · \'제목 @작가\'는 작가로',
-        titles.every(t => !/\d+\s*[-~]\s*\d+|완결|연재중|_/.test(t)) && JSON.stringify(MF('작은 시골 마을에는 즐길 것이 없다 0-853 @오븐치킨.txt')) === JSON.stringify({ title: '작은 시골 마을에는 즐길 것이 없다', author: '오븐치킨' }), titles.join(' | '));
-      const keep = [['[작가] 제목 (1~200화).txt', '제목', '작가'], ['[완결] 어떤 소설 1-100.txt', '어떤 소설', ''], ['소설 2-3반 이야기.txt', '소설 2-3반 이야기', ''], ['18-19세기 소설.txt', '18-19세기 소설', ''], ['나 혼자만 레벨업 (외전 포함).txt', '나 혼자만 레벨업 (외전 포함)', ''], ['완.txt', '완', ''], ['제목_1-50_완결.txt', '제목', '']];
-      const bad9 = keep.filter(([n, t, a]) => { const m = MF(n); return m.title !== t || m.author !== a; }).map(([n]) => n + '→' + JSON.stringify(MF(n)));
-      check('[편의] 제목 정리는 표기만 — 본제목 숫자 범위·괄호 부제는 그대로 · \'[완결]\'은 작가 아님 · 다 지워지면 원래 값', !bad9.length, bad9.join(' / '));
+      const CT = vm.runInContext('cleanBatchTitle', c9);
+      const metas = SPECS.map(sp => [generate(sp).fileName, MF(generate(sp).fileName)]);
+      check('[편의] 변환 제목은 파일명 그대로(범위·완결·연재중 유지) · 표지 검색어만 표기 제거 · \'제목 @작가\'는 작가로',
+        metas.every(([fn, m]) => fn.replace(/\.txt$/i, '').startsWith(m.title) && !/\d+\s*[-~]\s*\d+|완결|연재중|_/.test(m.searchTitle))
+        && metas.some(([, m]) => /\d+\s*[-~]\s*\d+|완결|연재중/.test(m.title))
+        && JSON.stringify(MF('작은 시골 마을에는 즐길 것이 없다 0-853 @오븐치킨.txt')) === JSON.stringify({ title: '작은 시골 마을에는 즐길 것이 없다 0-853', author: '오븐치킨', searchTitle: '작은 시골 마을에는 즐길 것이 없다' }),
+        metas.map(([, m]) => m.title + ' → ' + m.searchTitle).join(' | '));
+      const keep = [['[작가] 제목 (1~200화).txt', '제목 (1~200화)', '작가', '제목'], ['[완결] 어떤 소설 1-100.txt', '[완결] 어떤 소설 1-100', '', '어떤 소설'], ['제목@연재중.txt', '제목@연재중', '', '제목@연재중'],
+        ['소설 2-3반 이야기.txt', '소설 2-3반 이야기', '', '소설 2-3반 이야기'], ['18-19세기 소설.txt', '18-19세기 소설', '', '18-19세기 소설'], ['나 혼자만 레벨업 (외전 포함).txt', '나 혼자만 레벨업 (외전 포함)', '', '나 혼자만 레벨업 (외전 포함)'],
+        ['완.txt', '완', '', '완'], ['제목_1-50_완결.txt', '제목_1-50_완결', '', '제목']];
+      const bad9 = keep.filter(([n, t, a, q]) => { const m = MF(n); return m.title !== t || m.author !== a || m.searchTitle !== q; }).map(([n]) => n + '→' + JSON.stringify(MF(n)));
+      check('[편의] 검색어 정리는 표기만 — 본제목 숫자 범위·괄호 부제는 그대로 · \'[완결]\'은 작가 아님(제목에 남김) · 다 지워지면 원래 값', !bad9.length, bad9.join(' / '));
+      check('[편의] 표지 검색어는 searchTitle · 변환은 title (고친 제목에도 검색어 정리)',
+        /const title=_batchMetaFor\(i\)\.searchTitle;/.test(conv) && /_batchMetaFor\(0\)\.searchTitle/.test(read('cover-search.js'))
+        && /return \{title, author:o\.author!=null\?String\(o\.author\)\.trim\(\):d\.author, searchTitle:cleanBatchTitle\(title\)\};/.test(conv) && CT('신작 1-50 완결') === '신작');
       check('[편의] ZIP 안 같은 이름은 (2)·(3) · 자기 자신은 제외 · 결과 문구', EN('a', 2, [{ name: 'a.epub', idx: 0 }, { name: 'a (2).epub', idx: 1 }]) === 'a (3).epub' && EN('a/b', 0, [{ name: 'a_b.epub', idx: 0 }]) === 'a_b.epub'
         && RT(6, 1, 7) === '6개 epub 생성 · 실패 1개 (파일 7개)' && RT(7, 0, 7) === '7개 epub 생성 완료');
       const cs = read('cover-search.js'), stt = read('settings.js');
@@ -1926,7 +1935,7 @@ async function main(){
         && /if\(typeof window\.setBatchSelectedCover === 'function'\) \{\n\s*window\.setBatchSelectedCover\(fileObj, imgUrl\);/.test(cs));
       check('[편의] 표지 없는 파일 차례로: 파일 제목으로 검색 · 창 제목에 순서 · 공통 검색이면 대상 해제 · 첫 파일 제목은 목록 규칙',
         /openCoverSearchModal\('batch', \{query:title, label:`표지 찾기 \$\{pos\}\/\$\{_batchCoverTotal\}`\}\);/.test(conv) && /function openCoverSearchModal\(mode='convert', opts=\{\}\) \{/.test(cs)
-        && /if\(!opts\?\.query && typeof window\.clearBatchCoverTarget === 'function'\) window\.clearBatchCoverTarget\(\);/.test(cs) && /_batchMetaFor\(0\)\.title/.test(cs)
+        && /if\(!opts\?\.query && typeof window\.clearBatchCoverTarget === 'function'\) window\.clearBatchCoverTarget\(\);/.test(cs)
         && /data-action="findMissingBatchCovers" hidden>/.test(html) && /findMissingBatchCovers: \(\) =>/.test(ui));
       check('[편의] 실패한 파일만 다시: 성공 결과 유지 · 그 파일들만 · 실패 목록 갱신 · 버튼(index.html) · 위임',
         /async function startBatch\(onlyIdx\)\{/.test(conv) && /B\.results=retry\?\(B\.results\|\|\[\]\)\.filter\(r=>!idxs\.includes\(r\.idx\)\):\[\];/.test(conv)
