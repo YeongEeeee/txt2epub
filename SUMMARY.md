@@ -946,6 +946,38 @@
 - 사용성 시험(접힌 기능을 찾을 수 있는지)은 하지 않음 — 감지 실패 시 자동 펼침만 테스트로 보장
 
 
+### Phase 39 — 일괄 변환 편의 (제목 정리 · 표지 차례로 찾기 · 실패만 다시 · 알림)
+
+> 수치는 Phase 38 코드(`cb98580`)와 같은 세션에서 나란히 측정 (`docs/baseline.md` §17).
+
+- `batchMetaFromName`·`cleanBatchTitle` + `B.meta`(목록에서 고친 제목·작가) → `_batchMetaFor` · `batchEpubName`(ZIP 같은 이름)
+- `findMissingBatchCovers` → `openCoverSearchModal('batch', {query, label})` → `window.setBatchSelectedCover`(새로 정의 — 이전엔 없어서 검색 표지가 변환에 안 쓰였음)
+- `startBatch(onlyIdx)` + `B.failedIdx` → `retryFailedBatch` · `_sendBatchNotif`
+
+| 지표 | Phase 38 | Phase 39 |
+|---|---|---|
+| 제목 표기 잡음 (7개 중) | 6 | **0** |
+| 표지 검색 결과가 변환 표지로 | 0 | **적용** |
+| 1개 실패 되살리기 | 7개 다시 · 1.1초 | **1개 · 0.28초** |
+| 회귀 테스트 | 602 | **609** |
+
+---
+
+### Phase 38 — 일괄 변환 한 화면
+
+> 수치는 Phase 37 코드(`e74f286`)와 같은 세션에서 나란히 측정 (`docs/baseline.md` §16).
+
+- 한 줄 드롭존(`dz-slim`) · 표지·공통 설정 `<details id="batchOptions">`(처음 한 번 자동 접기 + 요약 `batchOptionsInfoText`) · 진행 막대는 변환 시작 후 · '확인 필요만'(`data-issue` + `.batch-list-issues`) · 하단 바 `batchBottomStatus`
+
+| 지표 | Phase 37 | Phase 38 |
+|---|---|---|
+| 첫 화면에 보이는 파일 행 (7개 중) | 0 | **3** |
+| 첫 파일 행 위치 · 행 높이 | 932 · 97px | 466 · 79px |
+| 탭 문서 높이 | 1,802px | 1,196px |
+| 회귀 테스트 | 596 | **602** |
+
+---
+
 ### Phase 37 — 확인 패널: 문제 있는 줄 먼저 · 줄을 눌러 패턴 만들기
 
 > 수치는 Phase 36 코드(`121f1f9`)와 같은 세션에서 나란히 측정 (`docs/baseline.md` §15).

@@ -1545,6 +1545,19 @@ function _sendConvertNotif(title, chapterCount){
   }catch(e){}
 }
 
+// ★ Phase 39: 일괄 변환 완료 알림 — 단일 변환 알림과 같은 조건(설정 켬 · 권한 · 탭이 뒤에 있을 때)
+function _sendBatchNotif(ok, total){
+  try{
+    if(localStorage.getItem(_notifKey) !== 'true') return;
+    if(typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+    if(document.visibilityState === 'visible' && document.hasFocus()) return;
+    new Notification('NovelEPUB 일괄 변환 완료', {
+      body: ok===total ? `EPUB ${ok}개 생성 완료` : `EPUB ${ok}/${total}개 생성 · 실패 ${total-ok}개`,
+      icon: 'icons/icon-192.png',
+    });
+  }catch(e){}
+}
+
 // ══════════════════════════════════════════
 // 🔤 Module: CustomFont (커스텀 폰트 로드)
 // ══════════════════════════════════════════
