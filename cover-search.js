@@ -352,9 +352,9 @@ function openCoverSearchModal(mode='convert', opts={}) {
       const firstBatch = (typeof B !== 'undefined') ? (B.txtFiles || [])[0] : null;
       // ★ Phase 39: 파일별 표지 찾기면 그 파일 제목, 공통 '표지 검색'이면 공통 표지 모드로
       if(!opts?.query && typeof window.clearBatchCoverTarget === 'function') window.clearBatchCoverTarget();
-      //   첫 파일 제목은 일괄 변환 목록과 같은 규칙(_batchMetaFor — '제목@작가'·범위·완결 정리)으로
+      //   첫 파일 제목은 일괄 변환 목록과 같은 규칙(_batchMetaFor — '제목@작가')에 범위·완결 표기만 뺀 검색어로
       //   (이전: extractSearchTitle이 '@' 앞을 작가로 보아 '제목 @작가.txt'에서 작가 이름으로 검색)
-      const firstTitle = firstBatch ? (typeof _batchMetaFor === 'function' ? _batchMetaFor(0).title : extractSearchTitle(firstBatch.name)) : '';
+      const firstTitle = firstBatch ? (typeof _batchMetaFor === 'function' ? _batchMetaFor(0).searchTitle : extractSearchTitle(firstBatch.name)) : '';
       titleInput = opts?.query || manualBatchTitle || firstTitle;
     }
 

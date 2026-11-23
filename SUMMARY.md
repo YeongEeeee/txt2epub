@@ -971,6 +971,7 @@
 > 수치는 Phase 38 코드(`cb98580`)와 같은 세션에서 나란히 측정 (`docs/baseline.md` §17).
 
 - `batchMetaFromName`·`cleanBatchTitle` + `B.meta`(목록에서 고친 제목·작가) → `_batchMetaFor` · `batchEpubName`(ZIP 같은 이름)
+  - **수정 (이후)**: 변환 제목(EPUB 메타데이터·파일 이름)은 파일명 그대로 — 범위·완결·연재중을 지우면 몇 화까지인지·완결 여부를 알 수 없어서. `cleanBatchTitle`은 표지 검색어(`searchTitle`)에만. `[완결] 제목`은 제목에 그대로 남김
 - `findMissingBatchCovers` → `openCoverSearchModal('batch', {query, label})` → `window.setBatchSelectedCover`(새로 정의 — 이전엔 없어서 검색 표지가 변환에 안 쓰였음)
 - `startBatch(onlyIdx)` + `B.failedIdx` → `retryFailedBatch` · `_sendBatchNotif`
 
