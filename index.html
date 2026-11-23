@@ -437,7 +437,14 @@
 </div>
 <div class="sec" id="batchListSec" hidden>
   <div class="sec-hdr"><span class="sec-title">변환 목록</span><div class="sec-line"></div></div>
-  <div class="card"><div id="batchList"></div></div>
+  <div class="card">
+    <!-- ★ Phase 35: 자동 사전 분석 요약 — 파일을 넣으면 목차 확인 없이 파일별 감지 상태를 집계 -->
+    <div id="batchSummary" class="batch-summary" hidden>
+      <span id="batchSummaryText" class="batch-summary-text" role="status" aria-live="polite"></span>
+      <button type="button" id="batchIssueBtn" class="btn btn-ghost btn-sm" data-action="focusBatchIssue" hidden>확인 필요한 파일 보기</button>
+    </div>
+    <div id="batchList"></div>
+  </div>
 </div>
 <div class="prog-wrap" id="batchProgWrap">
   <div class="prog-bg"><div class="prog-bar" id="batchProgBar"></div></div>

@@ -1054,6 +1054,25 @@ body.modal-open .page-tabs{
 .batch-toc-row:last-child{border:none}
 .batch-toc-num{color:var(--text2);min-width:32px}
 .batch-toc-title{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* ★ Phase 35: 일괄 변환 자동 사전 분석 — 파일별 감지 배지 · 목록 요약 (색은 보조, 상태는 글자로) */
+.batch-summary{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:var(--fs-sm);color:var(--text2)}
+.batch-summary-text{font-weight:600;color:var(--text)}
+.batch-check{display:inline-flex;align-items:center;gap:3px;font-size:var(--fs-xs);padding:1px 7px;border-radius:var(--radius-sm);white-space:nowrap;border:1px solid var(--border);background:var(--bg2);color:var(--text2)}
+.batch-check[data-state="ok"]{background:var(--green-bg);color:var(--green);border-color:var(--green)}
+.batch-check[data-state="warn"]{background:var(--yellow-bg);color:var(--yellow);border-color:var(--yellow)}
+.batch-check[data-state="fail"],.batch-check[data-state="error"]{background:var(--accent-bg);color:var(--accent);border-color:var(--accent)}
+.batch-check-note{font-size:var(--fs-xs);color:var(--text2);line-height:1.5;margin-top:3px;overflow-wrap:anywhere}
+.batch-check-note[data-state="warn"],.batch-check-note[data-state="fail"],.batch-check-note[data-state="error"]{color:var(--text)}
+/* ★ Phase 37: 확인 패널 '확인할 줄' — 누를 수 있는 줄(button)과 정보만 있는 줄(div) */
+.batch-issue-sec{margin:8px 0;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-xs)}
+.batch-issue-head{font-size:var(--fs-xs);font-weight:700;color:var(--text);margin-bottom:4px}
+.batch-issue-hint{font-weight:400;color:var(--text2)}
+.batch-line-row{display:flex;align-items:center;gap:6px;width:100%;padding:4px 2px;font:inherit;font-size:var(--fs-xs);text-align:left;color:var(--text);background:none;border:0;border-bottom:1px solid var(--border)}
+.batch-line-row:last-child{border-bottom:0}
+button.batch-line-row{cursor:pointer;min-height:28px}
+button.batch-line-row:hover,button.batch-line-row:focus-visible{background:var(--accent-bg)}
+.batch-line-tag{flex-shrink:0;color:var(--text2);white-space:nowrap}
+button.batch-line-row .batch-line-tag{color:var(--accent)}
 
 /* ── 파일 정렬 리스트 ── */
 .file-list-wrap{margin-top:8px}

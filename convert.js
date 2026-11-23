@@ -2749,6 +2749,10 @@ function _syncBatchModeBadge(i){
   const clearBtn=document.getElementById('bint_clear_'+i);
   setShown(clearBtn, !!split);
   _syncBatchSplitControls();
+  // ★ Phase 35: 간격 분할 중에는 패턴 감지 배지를 숨기고, 해제되면 아직 분석하지 않은 파일을 분석
+  if(!split&&(B.analysis||{})[i]?.state==='split') queueBatchAnalysis([i]);
+  _renderBatchCheck(i);
+  _renderBatchSummary();
 }
 
 // 파일별 간격 분할 적용
@@ -2839,6 +2843,7 @@ function handleBatchTxt(files){
   B.sampleTexts={};
   B.totalChs={};
   B.splitModes={};   // ★ v3: 파일별 간격 분할 설정은 파일 인덱스 기준이므로 새 목록에서 폐기
+  B.analysis={};     // ★ Phase 35: 자동 사전 분석 결과도 파일 인덱스 기준 → 새 목록에서 폐기
   const dz=document.getElementById('batchTxtDrop');
   dz.classList.add('ok');
   dz.querySelector('.dz-text').textContent=txts.length+'개 파일 선택됨';
@@ -2847,6 +2852,8 @@ function handleBatchTxt(files){
   const _listSec=document.getElementById('batchListSec');
   setShown(_listSec,true);
   if(imgs.length) handleBatchCover(imgs);
+  // ★ Phase 35: '목차 확인'을 누르지 않아도 파일마다 감지 상태 배지 (이전: 파일 N개 = 클릭 N번)
+  queueBatchAnalysis(B.txtFiles.map((_,i)=>i), {reset:true});
 }
 
 function handleBatchCover(files){
@@ -2918,8 +2925,10 @@ function renderBatchList(){
     d.innerHTML='<div class="batch-header">'+thumbHtml+  // safe-html: thumbHtml은 고정 마크업(+숫자 id)
       '<div class="u-flex-1 u-minw-0"><div class="batch-title">'+escHtml(title)+'</div>'+
       '<div class="u-row-wrap-6"><div class="batch-status" id="bst_'+i+'">'+(author?escHtml(author):'')+'</div>'+
+      '<span id="bchk_'+i+'" class="batch-check" hidden></span>'+
       '<span id="bmode_'+i+'" class="badge-blue-line" hidden></span>'+
       '<button class="batch-toc-btn" data-action="showBatchToc" data-idx="'+i+'" title="목차 미리보기">목차 확인</button></div>'+
+      '<div class="batch-check-note" id="bnote_'+i+'" hidden></div>'+
       '</div></div>'+
       '<div class="batch-toc-panel" id="btp_'+i+'"></div>'+
       '<div class="batch-prog"><div class="u-w-0 batch-prog-bar" id="bpb_'+i+'"></div></div>';
@@ -2927,6 +2936,7 @@ function renderBatchList(){
     if(cover){const r=new FileReader();r.onload=e=>{const img=document.getElementById('bthumb_'+i);if(img)img.src=e.target.result;};r.readAsDataURL(cover);}
     _syncBatchModeBadge(i);
   });
+  _renderBatchSummary();   // ★ Phase 35
 }
 
 async function showBatchToc(idx, btn){
@@ -2944,7 +2954,6 @@ async function showBatchToc(idx, btn){
     let text;
     try{ text=await fileToText(file); }
     catch(e){ text=await sampleLines(file); }
-    const allLines=text.split('\n');
 
     // 파일명에서 총 화수 추출 (80% 기준)
     const totalCh=parseChapterRange(file.name)?.total||0;   // 파일명 화수 ('1-201 완결' → 201, '0-853' → 854)
@@ -2953,45 +2962,36 @@ async function showBatchToc(idx, btn){
     B.sampleTexts[idx]=text;
     B.totalChs[idx]=totalCh;
     // 파일별 개별 패턴 우선, 없으면 공통 패턴
-    const pat=(B.patterns[idx]||document.getElementById('batchPattern')?.value||'').trim();
+    const pat=_batchPatternFor(idx);
     // ★ Phase 8: 실제 일괄 변환(splitChapters)과 같은 detectToc 사용 — 확인 패널 = 변환 결과
-    //   이전: bestPat 단일 패턴 + 자동 감지 정규식을 파일별 '지정 패턴'으로 저장 → 변환 때 새 엔진을 우회
-    const mergeParts=document.getElementById('optMergeParts')?.checked===true;
-    const strictContext=typeof getTocStrictContext==='function'?getTocStrictContext():true;
-    let det=detectToc(allLines,{customPat:pat, range:parseChapterRange(file.name), mergeParts, strictContext});
-    // ★ v3 이식: 자동 감지가 파일명 화수와 5% 넘게 어긋나면 화수가 정확히 같은 프리셋을 찾아 이 파일 패턴으로 채택
-    //   (이 패턴은 B.patterns에 저장 → 실제 변환도 같은 결과)
-    let exactPreset=null;
-    if(!pat&&totalCh>0&&Math.abs(det.stats.main-totalCh)/totalCh>0.05){
-      exactPreset=_findExactPreset(allLines, totalCh);
-      if(exactPreset){
-        B.patterns[idx]=exactPreset.val;
-        det=detectToc(allLines,{customPat:exactPreset.val, range:parseChapterRange(file.name), mergeParts, strictContext});
-      }
-    }
-    const exactMatch=totalCh>0&&det.stats.main===totalCh;
-    const chapters=det.items.map(it=>({line:it.line,title:it.title}));
-    const detectedName=exactPreset?exactPreset.label:det.name;
-    const mainCnt=det.stats.main;
-    const detectedPct=totalCh>0?mainCnt/totalCh*100:100;
-
-    // 파일명 화수와 5% 이내면 성공 (화수 정보가 없으면 3개 이상 감지로 판단)
-    const isGood=chapters.length>=3&&(totalCh===0||Math.abs(mainCnt-totalCh)/totalCh<=0.05);
+    // ★ Phase 35: 감지·판정은 analyzeBatchText 단일 경로 — 자동 사전 분석 배지 = 확인 패널 = 변환 결과
+    //   (자동 감지가 파일명 화수와 5% 넘게 어긋나면 화수가 정확히 같은 프리셋을 이 파일 패턴으로 채택 — v3 이식)
+    const r=analyzeBatchText(text, file.name, pat, _batchDetectOpts());
+    const exactPreset=r.exactPreset;
+    if(exactPreset) B.patterns[idx]=exactPreset.val;   // 이 패턴은 B.patterns에 저장 → 실제 변환도 같은 결과
+    const {chapters, mainCnt, detectedPct, exactMatch, isGood}=r;
+    const prevA=(B.analysis||{})[idx];
+    const keepAuto=!exactPreset&&prevA?.autoPat&&prevA.autoPat===pat;   // 자동 분석이 채택해 둔 프리셋으로 다시 확인한 경우
+    const detectedName=keepAuto?prevA.presetLabel:r.detectedName;
+    _setBatchAnalysis(idx, keepAuto?{...r.verdict, autoPat:prevA.autoPat, presetLabel:prevA.presetLabel}:r.verdict);
+    // ★ Phase 37: 앞뒤 5줄 대신 '확인할 줄'(놓친 줄 후보 · 제목 후보 · 본문일 수 있는 줄)을 먼저
+    const issues=findBatchLineIssues(r.lines, r.det, r.det.stats?.range||parseChapterRange(file.name), {candidates:!isGood});
+    _batchPanelCtx[idx]={base:pat||r.det.rx?.source||'', main:mainCnt};
+    const issueSec=_buildBatchIssueSection(idx, issues);
 
     panel.innerHTML='';
     const HEAD=5, TAIL=5;
 
     if(!isGood){
       // 실패: 패턴 패널 표시 + 현황
-      let failMsg='';
-      if(chapters.length<3) failMsg='챕터를 감지하지 못했어요.';
-      else failMsg=`본편 ${mainCnt}화 감지 (파일명 ${totalCh}화 기준 ${detectedPct.toFixed(1)}% — 오차 5% 초과)`;
+      const failMsg=r.verdict.reason;   // 배지 설명과 같은 문구 (classifyBatchDetection)
 
       panel.innerHTML=
         '<div class="u-fs-xs u-accent u-p-4 u-mb-6">'+
           escHtml(failMsg)+' 아래에서 패턴을 선택하거나 간격 분할(N화)을 적용해주세요.'+
         '</div>'+
         buildPatPresetPanel(idx,text,totalCh);
+      if(issueSec) panel.insertBefore(issueSec, panel.children[1]||null);   // 실패 문구 바로 아래 — 프리셋 목록보다 먼저
     } else {
       // 성공: 챕터 목록 + 패턴 변경 버튼
       const pctStr=totalCh>0?` · 본편 ${mainCnt}/${totalCh}화 (${(detectedPct-100>=0?'+':'')+(detectedPct-100).toFixed(1)}%)`:'';
@@ -3011,9 +3011,14 @@ async function showBatchToc(idx, btn){
       setShown(presetDiv,!!_resolveBatchSplit(idx));   // 간격 분할 중이면 설정을 펼쳐 둠
       presetDiv.innerHTML=buildPatPresetPanel(idx,text,totalCh);
       panel.appendChild(presetDiv);
+      if(issueSec) panel.appendChild(issueSec);
 
       const list=document.createElement('div');
       list.className='batch-toc-list';
+      // ★ Phase 37: 스크롤되는 목록은 키보드로도 스크롤 (axe scrollable-region-focusable — 확인 패널을 연 상태에서 드러남)
+      list.tabIndex=0;
+      list.setAttribute('role','region');
+      list.setAttribute('aria-label','감지된 목차 (앞뒤 일부)');
       const show=chapters.length<=HEAD+TAIL
         ? chapters
         : [...chapters.slice(0,HEAD), null, ...chapters.slice(-TAIL)];
@@ -3039,6 +3044,495 @@ async function showBatchToc(idx, btn){
     btn.textContent='목차 확인';
   }
   btn.disabled=false;
+}
+
+// ════════════════════════════════════════════════════════
+// ★ Phase 35: 일괄 변환 자동 사전 분석
+//   파일을 넣으면 '목차 확인'을 누르지 않아도 파일마다 감지 상태 배지(준비 / 확인 필요 / 감지 실패)와 목록 요약
+//   상태: B.analysis = { [idx]: {state, label, reason, main, total, autoPat?, presetLabel?} }  (_bStore 경유)
+//     state: pending(대기) · running(분석 중) · ok · warn · fail · error(읽기 실패) · split(간격 분할) · idle(중단)
+//   판정은 '목차 확인'(showBatchToc)과 같은 analyzeBatchText → 배지 = 확인 패널 = 실제 변환
+//   파일을 하나씩 순서대로 읽고 원문은 보관하지 않음 (파일마다 yieldToMain — 화면 멈춤 방지)
+// ════════════════════════════════════════════════════════
+
+// 파일별 개별 패턴 우선, 없으면 공통 패턴 (startBatch의 B.patterns[i]||globalPat와 같은 우선순위)
+function _batchPatternFor(i){
+  return String((B.patterns||{})[i]||document.getElementById('batchPattern')?.value||'').trim();
+}
+// 실제 변환(startBatch)과 같은 감지 옵션
+function _batchDetectOpts(){
+  return {
+    mergeParts:document.getElementById('optMergeParts')?.checked===true,
+    strictContext:typeof getTocStrictContext==='function'?getTocStrictContext():true,
+  };
+}
+
+// ★ Phase 36: 감지 결과에서 '왜 확인이 필요한지' 수집 (순수 함수 — DOM·상태 접근 없음)
+//   누락 의심: 본편 화 번호 사슬의 빈 구간 (buildTocReview와 같은 기준) + 파일명 범위의 앞·뒤 빈 구간
+//   번호 중복: 같은 화 번호가 두 번 이상 (같은 화 분할 '(1)/(2)'는 제외 — buildTocReview 기준)
+function collectBatchNotes(items, range){
+  const list=Array.isArray(items)?items:[];
+  const rv=typeof buildTocReview==='function'?buildTocReview(list):{missing:[], dups:[]};
+  const missing=(rv.missing||[]).map(m=>({from:m.from, to:m.to}));
+  let lo=Infinity, hi=-Infinity;
+  for(const it of list){
+    if(!it||(it.kind!=null&&it.kind!=='ch')||!Number.isFinite(it.num)) continue;
+    if(it.num<lo) lo=it.num;
+    if(it.num>hi) hi=it.num;
+  }
+  if(range&&Number.isFinite(range.start)&&Number.isFinite(range.end)&&lo<=hi){
+    if(lo>range.start) missing.unshift({from:range.start, to:Math.min(lo-1, range.end), edge:'head'});
+    if(hi<range.end) missing.push({from:Math.max(hi+1, range.start), to:range.end, edge:'tail'});
+  }
+  const missCount=missing.reduce((n,m)=>n+(m.to-m.from+1),0);
+  const dups=(rv.dups||[]).map(d=>d.num).filter(Number.isFinite).sort((a,b)=>a-b);
+  return {missing, missCount, dups};
+}
+// 원인 → 짧은 문구 배열 ('누락 의심 2화 (47·210화)', '번호 중복 1건 (88화)') — 구간은 앞에서 3개까지
+function formatBatchNotes(n){
+  const out=[];
+  if(n?.missCount>0){
+    const seg=n.missing.slice(0,3).map(m=>m.from===m.to?String(m.from):m.from+'~'+m.to).join('·');
+    const more=n.missing.length>3?` 외 ${n.missing.length-3}구간`:'';
+    out.push(`누락 의심 ${n.missCount}화 (${seg}화${more})`);
+  }
+  if(n?.dups?.length){
+    const more=n.dups.length>3?` 외 ${n.dups.length-3}건`:'';
+    out.push(`번호 중복 ${n.dups.length}건 (${n.dups.slice(0,3).join('·')}화${more})`);
+  }
+  return out;
+}
+
+// 감지 결과 → 배지 판정 (순수 함수) — 기준은 이전 '목차 확인' 성공 조건 그대로
+//   3개 미만 → 감지 실패 · 파일명 화수와 오차 5% 이내(화수 정보 없으면 3개 이상) → 준비 · 그 밖 → 확인 필요
+function classifyBatchDetection({count=0, main=0, total=0, isGood=false}={}){
+  if(count<3) return {state:'fail', label:'감지 실패', reason:'챕터를 감지하지 못했어요.', main, total,
+    hint:total>0?`패턴을 고르거나 간격 분할(${total}화)을 쓰세요`:'패턴을 고르거나 간격 분할을 쓰세요'};
+  if(!isGood){
+    const pct=total>0?main/total*100:100;
+    return {state:'warn', label:'확인 필요', reason:`본편 ${main}화 감지 (파일명 ${total}화 기준 ${pct.toFixed(1)}% — 오차 5% 초과)`, main, total};
+  }
+  return total>0
+    ? {state:'ok', label:`${main}/${total}화`, reason:`본편 ${main}화 · 파일명 ${total}화와 오차 5% 이내`, main, total}
+    : {state:'ok', label:`${main}화`, reason:`본편 ${main}화 감지 · 파일명에 화수 정보가 없어 개수만 확인했어요`, main, total};
+}
+
+// 파일 1개 감지·판정 (DOM·상태를 건드리지 않음) — showBatchToc·자동 사전 분석 공용
+//   pat: 파일별 > 공통 정규식 (빈 값 = 자동 감지)
+//   exactPreset이 있으면 호출자가 B.patterns[idx]에 저장해야 실제 변환도 같은 결과
+function analyzeBatchText(text, fileName, pat, opts={}){
+  const allLines=String(text??'').split('\n');
+  const range=parseChapterRange(fileName);
+  const totalCh=range?.total||0;
+  const base={customPat:pat||'', range, mergeParts:opts.mergeParts===true, strictContext:opts.strictContext!==false};
+  let det=detectToc(allLines, base);
+  // ★ v3 이식: 자동 감지가 파일명 화수와 5% 넘게 어긋나면 화수가 정확히 같은 프리셋을 찾아 채택
+  let exactPreset=null;
+  if(!pat&&totalCh>0&&Math.abs(det.stats.main-totalCh)/totalCh>0.05){
+    exactPreset=_findExactPreset(allLines, totalCh);
+    if(exactPreset) det=detectToc(allLines,{...base, customPat:exactPreset.val});
+  }
+  const chapters=det.items.map(it=>({line:it.line,title:it.title}));
+  const mainCnt=det.stats.main;
+  const detectedPct=totalCh>0?mainCnt/totalCh*100:100;
+  const exactMatch=totalCh>0&&mainCnt===totalCh;
+  // 파일명 화수와 5% 이내면 성공 (화수 정보가 없으면 3개 이상 감지로 판단)
+  const isGood=chapters.length>=3&&(totalCh===0||Math.abs(mainCnt-totalCh)/totalCh<=0.05);
+  const verdict=classifyBatchDetection({count:chapters.length, main:mainCnt, total:totalCh, isGood});
+  // ★ Phase 36: 원인(누락·중복)을 판정 설명과 화면 메모에 — 준비 판정이어도 누락이 있으면 알려 줌
+  if(chapters.length>=3){
+    const notes=formatBatchNotes(collectBatchNotes(det.items, det.stats?.range||parseChapterRange(fileName)));
+    if(notes.length){ verdict.notes=notes; verdict.reason+=' · '+notes.join(' · '); }
+  }
+  if(exactPreset){
+    verdict.autoPat=exactPreset.val;
+    verdict.presetLabel=exactPreset.label;
+    verdict.reason+=` · '${exactPreset.label}' 패턴 자동 적용`;
+  }
+  return {lines:allLines, totalCh, det, exactPreset, chapters, mainCnt, detectedPct, exactMatch, isGood,
+    detectedName:exactPreset?exactPreset.label:det.name, verdict};
+}
+
+// 파일별 상태 목록 → 요약 수 (순수 함수) — 간격 분할은 감지가 필요 없으므로 '준비'
+function summarizeBatchAnalysis(states){
+  const s={total:0, ready:0, issue:0, pending:0};
+  (states||[]).forEach(st=>{
+    s.total++;
+    if(st==='ok'||st==='split') s.ready++;
+    else if(st==='warn'||st==='fail'||st==='error') s.issue++;
+    else if(st==='pending'||st==='running') s.pending++;
+  });
+  return s;
+}
+function batchSummaryText(s){
+  if(!s?.total) return '';
+  if(!s.issue&&!s.pending&&s.ready===s.total) return `파일 ${s.total}개 · 모두 준비됐어요`;
+  const parts=[`파일 ${s.total}개`];
+  if(s.pending) parts.push(`분석 중 ${s.pending}`);
+  parts.push(`준비 ${s.ready}`);
+  if(s.issue) parts.push(`확인 필요 ${s.issue}`);
+  return parts.join(' · ');
+}
+
+const _batchQ={seq:0, queue:[], running:false};   // 분석 대기열 — seq가 바뀌면 진행 중이던 결과는 버림
+let _batchIssueCursor=-1;                          // '확인 필요한 파일 보기'를 누를 때마다 다음 파일로
+
+function _batchStateOf(i){
+  if(_resolveBatchSplit(i)) return 'split';
+  return (B.analysis||{})[i]?.state||'idle';
+}
+function _setBatchAnalysis(i, v){
+  const an={...(B.analysis||{})};
+  an[i]=v;
+  _bStore.set({analysis:an});
+  _renderBatchCheck(i);
+  _renderBatchSummary();
+}
+
+// 분석 예약 — reset이면 이전 대기열·진행 결과를 버리고 새로 시작 (새 파일 목록)
+function queueBatchAnalysis(indices, {reset=false}={}){
+  if(reset){ _batchQ.seq++; _batchQ.queue.length=0; _batchIssueCursor=-1; }
+  if(_batchRunning) return;   // 변환 중에는 예약하지 않음 (변환 도중 파일 패턴이 바뀌지 않게)
+  const files=B.txtFiles||[];
+  const an={...(B.analysis||{})};
+  (indices||[]).forEach(i=>{
+    if(!files[i]) return;
+    if(!_batchQ.queue.includes(i)) _batchQ.queue.push(i);
+    an[i]={state:'pending'};
+  });
+  _bStore.set({analysis:an});
+  files.forEach((_,i)=>_renderBatchCheck(i));
+  _renderBatchSummary();
+  _drainBatchAnalysis();
+}
+
+// 남은 분석 중단 — 일괄 변환 시작·목록 초기화 시
+function cancelBatchAnalysis(){
+  _batchQ.seq++;
+  _batchQ.queue.length=0;
+  const an={...(B.analysis||{})};
+  let changed=false;
+  Object.keys(an).forEach(k=>{
+    if(an[k]?.state==='pending'||an[k]?.state==='running'){ an[k]={state:'idle'}; changed=true; }
+  });
+  if(changed){
+    _bStore.set({analysis:an});
+    (B.txtFiles||[]).forEach((_,i)=>_renderBatchCheck(i));
+  }
+  _renderBatchSummary();
+}
+
+// 대기열을 한 번에 하나씩 처리 (실행 루프는 1개만 — 진행 중 새 예약도 같은 루프가 이어서 처리)
+async function _drainBatchAnalysis(){
+  if(_batchQ.running) return;
+  _batchQ.running=true;
+  try{
+    while(_batchQ.queue.length){
+      const i=_batchQ.queue.shift();
+      const seq=_batchQ.seq;
+      const file=(B.txtFiles||[])[i];
+      if(!file) continue;
+      if(_resolveBatchSplit(i)){ _setBatchAnalysis(i,{state:'split'}); continue; }
+      _setBatchAnalysis(i,{state:'running'});
+      await yieldToMain();
+      let v;
+      try{
+        const text=await fileToText(file);
+        if(seq!==_batchQ.seq) continue;
+        const pat=_batchPatternFor(i);
+        const r=analyzeBatchText(text, file.name, pat, _batchDetectOpts());
+        if(seq!==_batchQ.seq) continue;
+        if(r.exactPreset) B.patterns[i]=r.exactPreset.val;   // '목차 확인'과 같은 채택 → 실제 변환도 같은 결과
+        v=r.verdict;
+      }catch(e){
+        v={state:'error', label:'읽기 실패', reason:'파일을 읽지 못했어요: '+(e?.message||String(e))};
+      }
+      if(seq!==_batchQ.seq) continue;
+      _setBatchAnalysis(i,v);
+      await yieldToMain();
+    }
+  }finally{
+    _batchQ.running=false;
+  }
+}
+
+// 파일별 배지 — 글자(상태 이름)로 의미를 전달하고 색은 보조
+function _renderBatchCheck(i){
+  const el=document.getElementById('bchk_'+i);
+  if(!el) return;
+  const st=_batchStateOf(i);
+  const a=(B.analysis||{})[i]||{};
+  const label=st==='pending'?'분석 대기':st==='running'?'분석 중…':(a.label||'');
+  const noteEl=document.getElementById('bnote_'+i);
+  if(st==='idle'||st==='split'||!label){ setShown(el,false); setShown(noteEl,false); return; }
+  const ic={ok:'check', warn:'alert', fail:'x-circle', error:'x-circle'}[st]||'';
+  el.dataset.state=st;
+  el.innerHTML=(ic?icon(ic):'')+'<span>'+escHtml(label)+'</span>';  // safe-html: icon()은 고정 SVG, 문구는 escHtml
+  el.title=a.reason||'';
+  // ★ Phase 36: 이유를 마우스 오버(title) 없이도 보이게 — 배지 아래 한 줄 (모바일 대응)
+  const note=batchNoteText(st, a);
+  if(noteEl){
+    noteEl.textContent=note;
+    noteEl.dataset.state=st;
+    setShown(noteEl, !!note);
+  }
+  // 메모 줄이 보이면 같은 문장을 배지에서 두 번 읽지 않게
+  el.setAttribute('aria-label', note||!a.reason?label:label+' — '+a.reason);
+  setShown(el,true);
+}
+// 배지 아래 메모 — 확인 필요·실패·읽기 실패는 항상, 준비는 누락·중복이 있을 때만
+function batchNoteText(st, a){
+  if(!a) return '';
+  if(st==='warn'||st==='error') return a.reason||'';
+  if(st==='fail') return [a.reason, a.hint].filter(Boolean).join(' — ');
+  if(st==='ok'&&a.notes?.length) return a.notes.join(' · ');
+  return '';
+}
+
+// 목록 위 요약 한 줄 + '확인 필요한 파일 보기' (마크업: index.html #batchSummary)
+let _batchPatternBound=false;
+function _bindBatchPatternChange(){
+  if(_batchPatternBound) return;
+  const inp=document.getElementById('batchPattern');
+  if(!inp) return;
+  // 공통 정규식이 바뀌면 파일별로 직접 정한 패턴이 없는 파일만 다시 분석
+  inp.addEventListener('change', _onBatchPatternChange);
+  _batchPatternBound=true;
+}
+function _renderBatchSummary(){
+  _bindBatchPatternChange();
+  const box=document.getElementById('batchSummary');
+  if(!box) return;
+  const files=B.txtFiles||[];
+  const s=summarizeBatchAnalysis(files.map((_,i)=>_batchStateOf(i)));
+  const text=batchSummaryText(s);
+  const t=document.getElementById('batchSummaryText');
+  if(t&&t.textContent!==text) t.textContent=text;
+  setShown(document.getElementById('batchIssueBtn'), s.issue>0);
+  setShown(box, !!text&&(s.ready+s.issue+s.pending)>0);
+}
+
+function _onBatchPatternChange(){
+  const files=B.txtFiles||[];
+  if(!files.length||_batchRunning) return;
+  const an=B.analysis||{};
+  const idxs=[];
+  files.forEach((_,i)=>{
+    const a=an[i];
+    // 자동으로 채택한 프리셋(사용자가 고른 것 아님)은 공통 정규식에 자리를 내줌
+    if(a?.autoPat&&B.patterns[i]===a.autoPat){ delete B.patterns[i]; delete _batchPresetChecks[i]; }
+    if(B.patterns[i]) return;
+    idxs.push(i);
+    // 열려 있던 확인 패널은 이전 패턴 기준이므로 닫음
+    document.getElementById('btp_'+i)?.classList.remove('show');
+    const b=document.querySelector('#bi_'+i+' .batch-toc-btn');
+    if(b) b.textContent='목차 확인';
+  });
+  queueBatchAnalysis(idxs);
+}
+
+// '확인 필요한 파일 보기' — 다음 문제 파일로 이동해 확인 패널을 펼침 (누를 때마다 다음 파일)
+function focusBatchIssue(){
+  const files=B.txtFiles||[];
+  const issues=files.map((_,i)=>i).filter(i=>['warn','fail','error'].includes(_batchStateOf(i)));
+  if(!issues.length) return;
+  const idx=issues.find(i=>i>_batchIssueCursor)??issues[0];
+  _batchIssueCursor=idx;
+  document.getElementById('bi_'+idx)?.scrollIntoView({behavior:'smooth', block:'center'});
+  const panel=document.getElementById('btp_'+idx);
+  const btn=document.querySelector('#bi_'+idx+' .batch-toc-btn');
+  if(btn&&!panel?.classList.contains('show')) showBatchToc(idx, btn);
+  btn?.focus({preventScroll:true});
+}
+
+// ════════════════════════════════════════════════════════
+// ★ Phase 37: 확인 패널 — 문제 있는 줄 먼저 보여 주기 · 줄을 눌러 패턴 만들기
+//   놓친 줄 후보: 누락 구간(collectBatchNotes) 안의 짧은 줄 중 그 번호가 든 줄 → 누르면 지금 패턴에 '더하기'
+//   제목 후보: 감지가 부족할 때 앞이나 뒤가 빈 줄인 짧은 숫자 줄을 모양별로 묶어 3개 이상 반복되는 것 → 누르면 '바꾸기'
+//   본문일 수 있는 줄: 감지된 제목 중 60자 넘거나 문장처럼 끝나는 줄 (정보만)
+//   적용은 결과가 좋아질 때만 (바꾸기: 3개 이상 · 더하기: 본편 화수 증가) — 아니면 그대로 두고 알려 줌
+// ════════════════════════════════════════════════════════
+const _batchPanelCtx={};   // idx → {base: 지금 쓰는 패턴(직접·공통·자동 감지 정규식), main: 지금 본편 화수}
+
+const _SENT_END_RX=/[다요죠까][.!?…]?["”’]?$|[.!?…]["”’]$/;
+function findBatchLineIssues(lines, det, range, opts={}){
+  const L=Array.isArray(lines)?lines:[];
+  const items=Array.isArray(det?.items)?det.items:[];
+  const max=opts.max||4;
+  const detected=new Set(items.map(it=>it.line));
+  const blank=j=>j<0||j>=L.length||!String(L[j]??'').trim();
+  const out={suspects:[], misses:[], candidates:[]};
+  // 1) 본문일 수 있는 줄 — 감지된 본편 제목 중
+  for(const it of items){
+    if(out.suspects.length>=3) break;
+    if(it.kind!=null&&it.kind!=='ch') continue;
+    const t=String(it.title||'').trim();
+    if(t.length>60) out.suspects.push({line:it.line, text:t, why:'긴 제목 — 본문일 수 있음'});
+    else if(t.length>8&&_SENT_END_RX.test(t)) out.suspects.push({line:it.line, text:t, why:'문장처럼 끝남'});
+  }
+  // 2) 놓친 줄 후보 — 누락 구간 사이(앞 화 제목 줄 ~ 뒤 화 제목 줄)에서 그 번호가 든 짧은 줄
+  const chs=items.filter(it=>(it.kind==null||it.kind==='ch')&&Number.isFinite(it.num)).sort((a,b)=>a.line-b.line);
+  const notes=collectBatchNotes(items, range);
+  for(const seg of notes.missing){
+    if(out.misses.length>=max) break;
+    const want=new Set();
+    for(let n=seg.from;n<=seg.to&&want.size<20;n++) want.add(n);
+    let prevLine=0, nextLine=L.length+1;
+    for(const it of chs){
+      if(it.num<seg.from&&it.line>prevLine) prevLine=it.line;
+      if(it.num>seg.to&&it.line<nextLine) nextLine=it.line;
+    }
+    if(nextLine<=prevLine) nextLine=L.length+1;
+    for(let k=prevLine;k<nextLine-1&&k<L.length&&out.misses.length<max;k++){
+      if(detected.has(k+1)) continue;
+      const t=String(L[k]??'').trim();
+      if(!t||t.length>40||_SENT_END_RX.test(t)) continue;
+      const nm=/(?:^|\D)(\d{1,5})(?!\d)/.exec(t);
+      const n=nm?parseInt(nm[1],10):NaN;
+      if(!want.has(n)) continue;
+      if(!(blank(k-1)||blank(k+1)||/^\D{0,3}\d/.test(t))) continue;
+      out.misses.push({line:k+1, text:t, why:n+'화 자리', num:n});
+      want.delete(n);
+    }
+  }
+  // 3) 제목 후보 — 같은 모양(번호 앞뒤 기호)이 3번 이상, 서로 떨어져 반복되는 짧은 숫자 줄
+  //    붙어 있는 줄(번호 목록 '1. 검'·카운트다운)은 세지 않고, 이미 감지된 제목과 같은 모양도 제외
+  if(opts.candidates){
+    const shapeKey=t=>{
+      const m=/^(\D{0,6})(\d+)(\s*[^\s\dA-Za-z가-힣]{0,3}\s*(?:화|장|편|회|話|章|回|권|부)?[^\s\dA-Za-z가-힣]{0,3})/.exec(t);
+      return m?(m[1]+'0'+m[3]).replace(/\s+/g,' ').trim():'';
+    };
+    const known=new Set(items.map(it=>shapeKey(String(it.title||'').trim())).filter(Boolean));
+    const groups=new Map();
+    for(let k=0;k<L.length;k++){
+      if(detected.has(k+1)) continue;
+      const t=String(L[k]??'').trim();
+      if(!t||t.length>40||!/\d/.test(t)||_SENT_END_RX.test(t)) continue;
+      if(!(blank(k-1)||blank(k+1))) continue;
+      const key=shapeKey(t);
+      if(!key||known.has(key)) continue;
+      // 바로 위·아래(빈 줄 1개 건너)에 같은 모양이 있으면 번호 목록·카운트다운 — 제목 아님
+      let listy=false;
+      for(const j of [k-2,k-1,k+1,k+2]){
+        if(j<0||j>=L.length||j===k) continue;
+        const u=String(L[j]??'').trim();
+        if(u&&shapeKey(u)===key){ listy=true; break; }
+      }
+      if(listy) continue;
+      const g=groups.get(key);
+      if(!g){ groups.set(key,{line:k+1, text:t, count:1, last:k}); continue; }
+      if(k-g.last>5) g.count++;
+      g.last=k;
+    }
+    [...groups.values()].filter(g=>g.count>=3).sort((a,b)=>b.count-a.count||a.line-b.line).slice(0,3)
+      .forEach(g=>out.candidates.push({line:g.line, text:g.text, why:`같은 모양 ${g.count}줄`}));
+  }
+  return out;
+}
+
+// 예시 줄 → 정규식: 자주 쓰는 형식은 기존 추론(guessPatternFromExample), 그 밖은 번호 앞뒤 모양 그대로
+function patternFromLine(line){
+  const t=String(line??'').trim();
+  if(!t) return null;
+  const g=typeof guessPatternFromExample==='function'?guessPatternFromExample(t):null;
+  if(g) return g;
+  return patternFromLineShape(t);
+}
+//   '◈ 7 ◈' → ^◈\s*\d+\s*◈\s*$ · 'S#7 만남' → ^S#\s*\d+(?:\s*.+)?$ · '7 시작의 장' → ^\d+\s+.+$
+//   '3년이 지났다'처럼 숫자 바로 뒤에 글자가 붙는 줄 · 앞에 단어가 있는 줄은 만들지 않음 (본문까지 잡힘)
+function patternFromLineShape(line){
+  const t=String(line??'').trim();
+  if(!t||t.length>60) return null;
+  const m=/\d+/.exec(t);
+  if(!m) return null;
+  const pre=t.slice(0,m.index), post=t.slice(m.index+m[0].length);
+  if(pre.length>8||/[가-힣]{2,}|[A-Za-z]{4,}/.test(pre)) return null;
+  const suf=(/^\s*[^\s\dA-Za-z가-힣]{0,3}\s*(?:화|장|편|회|話|章|回|권|부)?\s*[^\s\dA-Za-z가-힣]{0,3}/.exec(post)||[''])[0];
+  const rest=post.slice(suf.length);
+  if(!pre.trim()&&!suf.trim()&&rest&&!/^\s/.test(post)) return null;
+  const part=x=>x.trim().replace(/[.*+?^${}()|[\]\\]/g,'\\$&').replace(/\s+/g,'\\s*');
+  let rx='^'+(pre.trim()?part(pre)+'\\s*':'')+'\\d+'+(suf.trim()?'\\s*'+part(suf):'');
+  rx+=rest.trim()?(suf.trim()?'(?:\\s*.+)?$':'\\s+.+$'):'\\s*$';
+  try{ new RegExp(rx,'i'); return rx; }catch(e){ return null; }
+}
+
+// '바꾸기' 적용 조건 — 3개 이상 잡히고, 판정이 지금보다 나을 때만 (준비 파일은 준비 유지가 아니면 거절)
+function batchVerdictImproves(prev, next, count){
+  if(count<3) return false;
+  const rank={fail:0, error:0, warn:1, ok:2};
+  return (rank[next]??0)>(rank[prev]??0)||(prev==='ok'&&next==='ok');
+}
+
+// 확인할 줄 구역 (DOM) — 문구는 모두 textContent
+function _buildBatchIssueSection(idx, issues){
+  const rows=[
+    ...(issues?.misses||[]).map(x=>({...x, mode:'add', act:'패턴에 더하기'})),
+    ...(issues?.candidates||[]).map(x=>({...x, mode:'replace', act:'이 모양으로'})),
+    ...(issues?.suspects||[]).map(x=>({...x, mode:'', act:''})),
+  ];
+  if(!rows.length) return null;
+  const sec=document.createElement('div');
+  sec.className='batch-issue-sec';
+  const head=document.createElement('div');
+  head.className='batch-issue-head';
+  head.textContent='확인할 줄';
+  if(rows.some(r=>r.mode)){
+    const hint=document.createElement('span');
+    hint.className='batch-issue-hint';
+    hint.textContent='줄을 누르면 그 모양으로 패턴을 만들어 적용해요';
+    head.append(' ', hint);
+  }
+  sec.appendChild(head);
+  rows.forEach(r=>{
+    const row=document.createElement(r.mode?'button':'div');
+    row.className='batch-line-row';
+    if(r.mode){
+      row.type='button';
+      row.dataset.action='batchLinePattern';
+      row.dataset.idx=String(idx);
+      row.dataset.line=String(r.line);
+      row.dataset.mode=r.mode;
+      row.setAttribute('aria-label', `${r.line}줄 '${r.text}' — ${r.why} · ${r.act}`);
+    }
+    const num=document.createElement('span'); num.className='batch-toc-num'; num.textContent=r.line+'줄';
+    const txt=document.createElement('span'); txt.className='batch-toc-title'; txt.textContent=r.text;
+    const tag=document.createElement('span'); tag.className='batch-line-tag'; tag.textContent=r.act?r.why+' · '+r.act:r.why;
+    row.append(num, txt, tag);
+    sec.appendChild(row);
+  });
+  return sec;
+}
+
+// 줄을 눌러 패턴 만들기 — 결과가 좋아질 때만 이 파일 패턴으로 적용 (체크 상자 '적용'과 같은 경로)
+async function batchLinePattern(idx, line, mode){
+  const text=(B.sampleTexts||{})[idx], file=(B.txtFiles||[])[idx];
+  if(!text||!file) return;
+  const raw=String(text.split('\n')[line-1]??'').trim();
+  const pat=patternFromLine(raw);
+  const short=raw.length>20?raw.slice(0,20)+'…':raw;
+  if(!pat){ Toast.warn(`'${escHtml(short)}' 줄로는 패턴을 만들지 못했어요 — 패턴 변경에서 직접 입력해 주세요.`); return; }
+  const ctx=_batchPanelCtx[idx]||{};
+  const next=mode==='add'&&ctx.base?'(?:'+ctx.base+'|'+pat+')':pat;
+  try{ new RegExp(next,'i'); }catch(e){ Toast.warn('정규식을 합치지 못했어요: '+escHtml(e.message)); return; }
+  const r=analyzeBatchText(text, file.name, next, _batchDetectOpts());
+  if(mode==='add'&&!(r.mainCnt>(ctx.main||0))){
+    Toast.warn(`'${escHtml(short)}' 모양을 더해도 본편 화수가 늘지 않아 적용하지 않았어요.`); return;
+  }
+  if(mode!=='add'&&!batchVerdictImproves((B.analysis||{})[idx]?.state, r.verdict.state, r.chapters.length)){
+    Toast.warn(`'${escHtml(short)}' 모양으로는 ${r.chapters.length<3?'챕터가 '+r.chapters.length+'개만 잡혀':'판정이 나아지지 않아'} 적용하지 않았어요.`); return;
+  }
+  const directEl=document.getElementById('bpat_direct_'+idx);
+  if(directEl){
+    directEl.value=next;
+    directEl.dataset.typed='1';   // 체크 상자 조합이 아님 — 다시 열 때 체크를 복원하지 않음
+    await confirmBatchPreset(idx);
+  } else {
+    B.patterns[idx]=next;
+    const b=document.querySelector('#bi_'+idx+' .batch-toc-btn');
+    document.getElementById('btp_'+idx)?.classList.remove('show');
+    if(b) await showBatchToc(idx, b);
+  }
+  Toast.success(`'${escHtml(short)}' 모양을 ${mode==='add'?'지금 패턴에 더했어요':'이 파일 패턴으로 정했어요'} — ${escHtml(r.verdict.label)}`, 3500);
 }
 
 function toggleBatchPreset(idx){
@@ -3277,6 +3771,7 @@ async function startBatch(){
   if(!B.txtFiles.length){Toast.warn('TXT 파일을 선택해주세요.');return;}
   if(_batchRunning){Toast.info('일괄 변환이 이미 진행 중이에요.');return;}
   _batchRunning=true;
+  cancelBatchAnalysis();   // ★ Phase 35: 남은 사전 분석은 중단 — 변환 도중 파일 패턴이 바뀌지 않게
   B.results=[];
   const _batchStartTime = Date.now();
   document.getElementById('batchProgWrap')?.classList.add('show');
@@ -3525,10 +4020,12 @@ async function resetAll(){
 
 // ★ 탭별 렌더링 지연 플래그 (최초 1회만 렌더링)
 function resetBatchTxt(){
-  _bStore.set({txtFiles:[],patterns:{},sampleTexts:{},totalChs:{},splitModes:{}});
+  cancelBatchAnalysis();   // ★ Phase 35
+  _bStore.set({txtFiles:[],patterns:{},sampleTexts:{},totalChs:{},splitModes:{},analysis:{}});
   const dz=document.getElementById('batchTxtDrop');
   dz.className='dz';dz.querySelector('.dz-text').textContent='TXT 파일 여러 개 드래그하거나 클릭';
   document.getElementById('batchList').innerHTML='';
+  setShown(document.getElementById('batchSummary'),false);
   setShown(document.getElementById('batchListSec'),false);
   if(!Object.keys(B.coverMap).length&&!B.urlCoverFile) setShown(document.getElementById('batchResetBar'),false);
 }

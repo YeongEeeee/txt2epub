@@ -30,6 +30,9 @@
  *  23. Phase 32 (UI 정제 3단계 — 디자인 축소): CSS 리터럴 0 · 무한 애니메이션 1 · 화면 이모지 0 → SVG 아이콘 · JS 인라인 스타일 → 클래스·hidden
  *  24. Phase 33 (UI 정제 4단계 — 정보 구조): 기본 경로만 펼침(분할 규칙·목차 편집·삽화 접기) · 데스크톱 2단 · 레이아웃 이동 방지
  *  25. Phase 34 (신뢰 기능): EPUB 구조 검사(생성 EPUB 통과 · 일부러 망가뜨린 11종 검출) · 실제 XHTML·CSS 미리보기 · 본문 정리 전후 비교
+ *  28. Phase 37 (확인 패널): 놓친 줄 후보·제목 후보(목록·카운트다운 제외)·본문일 수 있는 줄 · 줄 → 정규식 · 좋아질 때만 적용
+ *  27. Phase 36 (일괄 변환 원인 표시): 누락 의심 구간(가운데·앞·뒤)·번호 중복·문구·배지 아래 메모 줄
+ *  26. Phase 35 (일괄 변환 사전 분석): 파일을 넣으면 목차 확인 없이 파일별 감지 배지 · 요약 · 대기열(중단·새 목록) · 확인 패널과 같은 판정
  */
 'use strict';
 const fs   = require('fs');
@@ -1689,6 +1692,196 @@ async function main(){
       /<details class="adv-box" id="cleanupDiffBox">/.test(html) && /if\(!document\.getElementById\('cleanupDiffBox'\)\?\.open\) return;/.test(st) && /scheduleCleanupDiff\(\);   \/\/ ★ Phase 34/.test(st)
       && /typeof scheduleCleanupDiff==='function'&&scheduleCleanupDiff\(\);/.test(ui) && /<del class="cdiff-row is-del">/.test(st) && /<ins class="cdiff-row is-add">/.test(st)
       && !/\$\{t\}|\$\{cut\}|\$\{r\.text\}/.test(st) && /function getRawChaptersForCleanupDiff\(\)\{\n  if\(!S\.txtFiles\?\.length\|\|!S\.tocItems\?\.length\) return null;/.test(parser));
+  }
+  // ── 26. Phase 35 (일괄 변환 자동 사전 분석) ──
+  //   이전 코드에는 사전 분석 함수가 없음 → 중단하지 않고 실패 1건으로 기록
+  try {
+    const read = f => fs.readFileSync(path.join(ROOT, f), 'utf8');
+    const conv = read('convert.js'), html = read('index.html'), ui = read('ui-state.js'), css = read('style.css');
+    const { generate, SPECS } = require('./gen-realistic.js');
+    // _BATCH_PRESETS는 배열 리터럴(문자열 안 중괄호) → extract 대신 선언 구간을 그대로 평가해 주입
+    const presetSrc = (conv.match(/const _BATCH_PRESETS = (\[[\s\S]*?\n\]);/) || [])[1] || '[]';
+    const _BATCH_PRESETS = vm.runInNewContext(presetSrc);
+    const pure = ['_findExactPreset', 'collectBatchNotes', 'formatBatchNotes', 'classifyBatchDetection', 'analyzeBatchText', 'summarizeBatchAnalysis', 'batchSummaryText', 'batchNoteText'];
+    const cA = sandbox('convert.js', pure, { _BATCH_PRESETS, detectToc: G('detectToc'), parseChapterRange: G('parseChapterRange'), buildTocReview: G('buildTocReview') });
+    const A = vm.runInContext('analyzeBatchText', cA), CL = vm.runInContext('classifyBatchDetection', cA);
+    const SUM = vm.runInContext('summarizeBatchAnalysis', cA), TXT = vm.runInContext('batchSummaryText', cA);
+    // 26-1. 실전형 5종 — 자동 분석 = 실제 변환과 같은 detectToc 결과 · 모두 '준비'
+    const parseRange = G('parseChapterRange'), detectToc = G('detectToc');
+    const rows = [];
+    for (const spec of SPECS) {
+      const g = generate(spec);
+      const t0 = Date.now();
+      const r = A(g.text, g.fileName, '', { mergeParts: false, strictContext: true });
+      const ms = Date.now() - t0;
+      const ref = detectToc(g.text.split('\n'), { customPat: '', range: parseRange(g.fileName), mergeParts: false, strictContext: true });
+      rows.push(`${spec.name.slice(0, 12)} ${r.verdict.label} ${ms}ms`);
+      check(`[사전분석] ${spec.name.slice(0, 14)} 판정 '준비' · 변환과 같은 본편 화수`,
+        r.verdict.state === 'ok' && r.mainCnt === ref.stats.main && r.verdict.label === `${ref.stats.main}/${parseRange(g.fileName).total}화`, JSON.stringify(r.verdict));
+    }
+    console.log('  · 사전 분석 ' + rows.join(' · '));
+    // 26-2. 판정 3종 — 기준은 이전 '목차 확인' 성공 조건(3개 이상 · 오차 5% 이내) 그대로
+    const mk = n => Array.from({ length: n }, (_, i) => `제${i + 1}화\n\n그는 걸었다.\n\n바람이 불었다.\n`).join('\n');
+    const warn = A(mk(40), '어떤 소설 1-100 완결.txt', '', {});
+    check('[사전분석] 파일명 화수와 5% 넘게 다름 → 확인 필요 (문구 = 확인 패널)', warn.verdict.state === 'warn' && /본편 40화 감지 \(파일명 100화 기준 40\.0% — 오차 5% 초과\)/.test(warn.verdict.reason), JSON.stringify(warn.verdict));
+    const fail = A('그는 걸었다.\n바람이 불었다.\n끝.\n', '단편.txt', '', {});
+    check('[사전분석] 챕터 3개 미만 → 감지 실패', fail.verdict.state === 'fail' && fail.verdict.reason === '챕터를 감지하지 못했어요.', JSON.stringify(fail.verdict));
+    const noRange = A(mk(12), '제목만.txt', '', {});
+    check('[사전분석] 파일명 화수 없음 → 개수만으로 준비', noRange.verdict.state === 'ok' && noRange.verdict.label === '12화' && /화수 정보가 없어/.test(noRange.verdict.reason), JSON.stringify(noRange.verdict));
+    check('[사전분석] 경계값: 오차 정확히 5%는 준비, 3개 미만은 실패', CL({ count: 95, main: 95, total: 100, isGood: true }).state === 'ok' && CL({ count: 2, main: 2, total: 2, isGood: true }).state === 'fail');
+    // 26-3. 파일명 화수와 정확히 같은 프리셋 채택 → 배지에 '자동 적용' 표시 · 채택한 패턴(autoPat)을 기록
+    const cM = sandbox('convert.js', pure, { _BATCH_PRESETS,
+      parseChapterRange: () => ({ total: 100 }),
+      detectToc: (lines, o) => { const main = o.customPat ? 100 : 50; return { items: Array.from({ length: main }, (_, i) => ({ line: i + 1, title: String(i + 1) })), stats: { main, mode: o.customPat ? 'custom' : 'auto' }, name: o.customPat ? '사용자' : '자동' }; },
+    });
+    const ex = vm.runInContext('analyzeBatchText', cM)(Array.from({ length: 100 }, (_, i) => String(i + 1)).join('\n'), 'x 1-100.txt', '', {});
+    check('[사전분석] 화수가 정확한 프리셋 채택 → 준비 · autoPat · 이유에 자동 적용', ex.exactPreset?.label === '숫자만' && ex.verdict.state === 'ok' && ex.verdict.autoPat === '^\\d+$' && /'숫자만' 패턴 자동 적용/.test(ex.verdict.reason), JSON.stringify(ex.verdict));
+    // 26-4. 요약 문구
+    check('[사전분석] 요약: 분석 중·준비·확인 필요 집계 (간격 분할은 준비)', TXT(SUM(['ok', 'split', 'warn', 'fail', 'running', 'pending'])) === '파일 6개 · 분석 중 2 · 준비 2 · 확인 필요 2');
+    check('[사전분석] 요약: 모두 준비 · 빈 목록은 빈 문자열', TXT(SUM(['ok', 'ok', 'split'])) === '파일 3개 · 모두 준비됐어요' && TXT(SUM([])) === '');
+    // 26-5. 대기열 — 순서대로 분석 · 새 목록(reset)이면 이전 결과 버림 · 중단하면 대기 중이던 파일은 idle, 패턴은 그대로
+    const qNames = ['_batchQ', '_batchStateOf', '_setBatchAnalysis', 'queueBatchAnalysis', 'cancelBatchAnalysis', '_drainBatchAnalysis', '_batchPatternFor', '_batchDetectOpts', '_renderBatchCheck', '_renderBatchSummary', '_bindBatchPatternChange', ...pure];
+    const mkQ = () => {
+      const Bst = { txtFiles: [], patterns: {}, analysis: {} };
+      const order = [];
+      let gate = null;
+      const c = sandbox('convert.js', qNames, {
+        _BATCH_PRESETS, detectToc: G('detectToc'), parseChapterRange: G('parseChapterRange'), buildTocReview: G('buildTocReview'),
+        B: Bst, _bStore: { set: p => Object.assign(Bst, p), get: () => Bst },
+        _batchRunning: false, _batchIssueCursor: -1, _batchPatternBound: true,
+        _resolveBatchSplit: () => null, setShown: () => {}, icon: () => '', escHtml: x => x, getTocStrictContext: () => true,
+        document: { getElementById: () => null, querySelector: () => null },
+        yieldToMain: () => new Promise(r => setImmediate(r)),
+        fileToText: async f => { order.push(f.name); if (gate && f.name === gate.name) await gate.p; return f.text; },
+      });
+      return { c, Bst, order, setGate: g => { gate = g; } };
+    };
+    const until = async (fn, n = 400) => { for (let k = 0; k < n && !fn(); k++) await new Promise(r => setImmediate(r)); return fn(); };
+    {
+      const { c, Bst, order } = mkQ();
+      Bst.txtFiles = [{ name: 'a 1-12.txt', text: mk(12) }, { name: 'b.txt', text: '본문만\n' }, { name: 'c 1-100.txt', text: mk(40) }];
+      vm.runInContext('queueBatchAnalysis([0,1,2],{reset:true})', c);
+      const pendingFirst = Object.values(Bst.analysis).every(a => a.state === 'pending' || a.state === 'running');
+      const done = await until(() => !vm.runInContext('_batchQ', c).running);
+      check('[사전분석] 대기열: 넣자마자 대기 표시 → 순서대로 분석 → 준비·실패·확인 필요',
+        pendingFirst && done && order.join() === 'a 1-12.txt,b.txt,c 1-100.txt' && ['ok', 'fail', 'warn'].every((st, i) => Bst.analysis[i].state === st), JSON.stringify(Bst.analysis));
+    }
+    {
+      const { c, Bst, setGate } = mkQ();
+      let release; const p = new Promise(r => { release = r; });
+      Bst.txtFiles = [{ name: 'old 1-12.txt', text: mk(12) }];
+      setGate({ name: 'old 1-12.txt', p });
+      vm.runInContext('queueBatchAnalysis([0],{reset:true})', c);
+      await until(() => Bst.analysis[0]?.state === 'running');
+      Bst.txtFiles = [{ name: 'new.txt', text: '본문만\n' }];   // 분석 도중 새 목록
+      Bst.analysis = {};
+      vm.runInContext('queueBatchAnalysis([0],{reset:true})', c);
+      release();
+      await until(() => !vm.runInContext('_batchQ', c).running);
+      check('[사전분석] 분석 도중 새 목록 → 이전 파일 결과가 새 목록에 섞이지 않음', Bst.analysis[0]?.state === 'fail', JSON.stringify(Bst.analysis));
+    }
+    {
+      const { c, Bst, setGate } = mkQ();
+      let release; const p = new Promise(r => { release = r; });
+      Bst.txtFiles = [{ name: 'x 1-100.txt', text: mk(40) }, { name: 'y 1-12.txt', text: mk(12) }];
+      setGate({ name: 'x 1-100.txt', p });
+      vm.runInContext('queueBatchAnalysis([0,1],{reset:true})', c);
+      await until(() => Bst.analysis[0]?.state === 'running');
+      vm.runInContext('cancelBatchAnalysis()', c);   // 일괄 변환 시작
+      release();
+      await until(() => !vm.runInContext('_batchQ', c).running);
+      check('[사전분석] 중단 → 대기·분석 중 파일은 idle, 진행 중 결과·패턴 채택은 버림', Bst.analysis[0].state === 'idle' && Bst.analysis[1].state === 'idle' && !Object.keys(Bst.patterns).length, JSON.stringify(Bst.analysis));
+    }
+    {
+      const { c, Bst } = mkQ();
+      c._batchRunning = true;
+      Bst.txtFiles = [{ name: 'z.txt', text: mk(5) }];
+      vm.runInContext('queueBatchAnalysis([0])', c);
+      check('[사전분석] 일괄 변환 중에는 예약하지 않음', !Bst.analysis[0] && !vm.runInContext('_batchQ', c).queue.length);
+    }
+    // 26-6. 연결 — 파일 넣기·변환·초기화·확인 패널·요약 마크업
+    check('[사전분석] 파일을 넣으면 전체 예약(reset) · 표지 추가로 다시 그려도 배지 유지',
+      /B\.analysis=\{\};[\s\S]{0,600}queueBatchAnalysis\(B\.txtFiles\.map\(\(_,i\)=>i\), \{reset:true\}\);\n\}/.test(conv) && /_syncBatchModeBadge\(i\);\n  \}\);\n  _renderBatchSummary\(\);/.test(conv) && /_renderBatchCheck\(i\);\n  _renderBatchSummary\(\);\n\}/.test(conv));
+    check('[사전분석] 변환 시작·목록 초기화 → 분석 중단 · 분석 상태도 초기화',
+      /_batchRunning=true;\n  cancelBatchAnalysis\(\);/.test(conv) && /cancelBatchAnalysis\(\);   \/\/ ★ Phase 35\n  _bStore\.set\(\{txtFiles:\[\],patterns:\{\},sampleTexts:\{\},totalChs:\{\},splitModes:\{\},analysis:\{\}\}\);/.test(conv));
+    check('[사전분석] 확인 패널도 analyzeBatchText 단일 경로 · 판정을 배지에 반영 · 이전 인라인 감지 제거',
+      /const r=analyzeBatchText\(text, file\.name, pat, _batchDetectOpts\(\)\);/.test(conv) && /_setBatchAnalysis\(idx, keepAuto\?/.test(conv) && (conv.match(/_findExactPreset\(allLines, totalCh\)/g) || []).length === 1 && /const failMsg=r\.verdict\.reason;/.test(conv));
+    check('[사전분석] 요약 마크업(index.html) · 상태 문구 aria-live · 버튼은 이벤트 위임',
+      /<div id="batchSummary" class="batch-summary" hidden>\s*<span id="batchSummaryText" class="batch-summary-text" role="status" aria-live="polite"><\/span>\s*<button type="button" id="batchIssueBtn" class="btn btn-ghost btn-sm" data-action="focusBatchIssue" hidden>/.test(html)
+      && /focusBatchIssue:     \(\) => typeof focusBatchIssue==='function'&&focusBatchIssue\(\),/.test(ui));
+    check('[사전분석] 배지: 상태 글자 + 아이콘(장식) · 색은 토큰만', /'<span id="bchk_'\+i\+'" class="batch-check" hidden><\/span>'/.test(conv)
+      && /\.batch-check\[data-state="warn"\]\{background:var\(--yellow-bg\);color:var\(--yellow\);border-color:var\(--yellow\)\}/.test(css) && /el\.setAttribute\('aria-label'/.test(conv));
+    // ── 27. Phase 36 — 원인(누락·중복)을 배지 아래 한 줄로 ──
+    {
+      const CN = vm.runInContext('collectBatchNotes', cA), FN = vm.runInContext('formatBatchNotes', cA), NT = vm.runInContext('batchNoteText', cA);
+      const it = (nums, extra = {}) => nums.map((n, k) => ({ line: k + 1, title: n + '화', num: n, kind: 'ch', part: null, ...extra }));
+      const g1 = generate(SPECS[1]);   // 퇴사 후 … 1-325 — 생성기가 47·210화를 일부러 삭제
+      const r1 = A(g1.text, g1.fileName, '', {});
+      check('[원인] 실전형: 준비 판정이어도 누락 의심 47·210화를 메모로', r1.verdict.state === 'ok' && JSON.stringify(r1.verdict.notes) === JSON.stringify(['누락 의심 2화 (47·210화)']) && /누락 의심 2화 \(47·210화\)/.test(r1.verdict.reason), JSON.stringify(r1.verdict));
+      const clean = SPECS.filter((_, k) => k !== 1).map(sp => { const g = generate(sp); return A(g.text, g.fileName, '', {}).verdict; });
+      check('[원인] 누락 없는 실전형 4종 → 메모 없음', clean.every(v => v.state === 'ok' && !v.notes), JSON.stringify(clean.map(v => v.notes || null)));
+      const w = A(mk(40), '어떤 소설 1-100 완결.txt', '', {});
+      check('[원인] 화수 어긋남 → 뒤쪽 빈 구간 41~100화', w.verdict.state === 'warn' && /· 누락 의심 60화 \(41~100화\)$/.test(w.verdict.reason), w.verdict.reason);
+      check('[원인] 앞쪽 빈 구간 · 가운데 빈 구간 순서대로', JSON.stringify(FN(CN(it([5, 6, 7, 9, 10]), { start: 1, end: 10, total: 10 }))) === JSON.stringify(['누락 의심 5화 (1~4·8화)']));
+      check('[원인] 구간 4개 이상은 3개 + 외 N구간', FN(CN(it([1, 3, 5, 7, 9]), null))[0] === '누락 의심 4화 (2·4·6화 외 1구간)');
+      check('[원인] 번호 중복 (같은 화 분할은 중복 아님) · 키워드 항목은 무시',
+        JSON.stringify(FN(CN([...it([1, 2, 3, 3, 4]), { line: 99, title: '에필로그', num: null, kind: 'kw' }], null))) === JSON.stringify(['번호 중복 1건 (3화)'])
+        && FN(CN([...it([1, 2]), { line: 9, title: '3화 (1)', num: 3, kind: 'ch', part: 1 }, { line: 10, title: '3화 (2)', num: 3, kind: 'ch', part: 2 }], null)).length === 0);
+      check('[원인] 범위 정보 없으면 앞·뒤 구간은 따지지 않음 · 빈 목록 안전', FN(CN(it([5, 6, 7]), null)).length === 0 && FN(CN([], { start: 1, end: 9, total: 9 })).length === 0 && FN(CN(null, null)).length === 0);
+      const f = CL({ count: 0, main: 0, total: 120 });
+      check('[원인] 감지 실패 → 다음 행동(패턴 · 간격 분할 화수)', NT('fail', f) === '챕터를 감지하지 못했어요. — 패턴을 고르거나 간격 분할(120화)을 쓰세요');
+      check('[원인] 메모 줄: 준비는 누락·중복 있을 때만 · 확인 필요는 판정 설명 · 대기 중은 없음',
+        NT('ok', { reason: 'x' }) === '' && NT('ok', { notes: ['a', 'b'] }) === 'a · b' && NT('warn', { reason: 'r' }) === 'r' && NT('pending', { reason: 'r' }) === '');
+      check('[원인] 메모 줄 마크업 · 보이면 배지 aria-label은 상태만 · 색은 토큰',
+        /'<div class="batch-check-note" id="bnote_'\+i\+'" hidden><\/div>'/.test(conv) && /el\.setAttribute\('aria-label', note\|\|!a\.reason\?label:label\+' — '\+a\.reason\);/.test(conv)
+        && /\.batch-check-note\{font-size:var\(--fs-xs\);color:var\(--text2\)/.test(css) && /noteEl\.textContent=note;/.test(conv));
+    }
+    // ── 28. Phase 37 — 문제 있는 줄 먼저 · 줄을 눌러 패턴 만들기 ──
+    {
+      const stSrc = read('settings.js');
+      const gm = stSrc.match(/function guessPatternFromExample\(ex\)\{[\s\S]*?\n\}\n/);
+      const names37 = ['_findExactPreset', 'collectBatchNotes', 'formatBatchNotes', 'classifyBatchDetection', 'analyzeBatchText', '_SENT_END_RX', 'findBatchLineIssues', 'patternFromLine', 'patternFromLineShape', 'batchVerdictImproves'];
+      const c7 = sandbox('convert.js', names37, { _BATCH_PRESETS, detectToc: G('detectToc'), parseChapterRange: G('parseChapterRange'), buildTocReview: G('buildTocReview') });
+      if (gm) vm.runInContext(gm[0], c7);
+      const R = n => vm.runInContext(n, c7);
+      const A7 = R('analyzeBatchText'), FI = R('findBatchLineIssues'), PL = R('patternFromLine'), IMP = R('batchVerdictImproves');
+      const body = '그는 걸었다.\n\n바람이 불었다.\n\n"괜찮아?"\n\n그녀가 물었다.';
+      const mk7 = (n, f) => Array.from({ length: n }, (_, i) => f(i + 1) + '\n\n' + body).join('\n\n');
+      // 28-1. 줄 → 정규식
+      const cases = [['◈ 7 ◈', '^◈\\s*\\d+\\s*◈\\s*$'], ['S#7 만남', '^S#\\s*\\d+\\s+.+$'], ['47편', '^\\d+\\s*편\\s*$'], ['7 시작의 장', '^\\d+\\s+.+$'], ['47화.', '^#?(?:제\\s*)?\\d+\\s*화(?:\\s*.+)?$'], ['3년이 지났다.', null], ['어느 날 7번째', null], ['', null]];
+      const bad = cases.filter(([l, e]) => PL(l) !== e).map(([l, e]) => `${l}: ${PL(l)} (기대 ${e})`);
+      check('[줄패턴] 예시 줄 → 정규식 (자주 쓰는 형식은 기존 추론 · 그 밖은 번호 앞뒤 모양) · 본문 같은 줄은 만들지 않음', !bad.length, bad.join(' / '));
+      // 28-2. 감지 실패 형식 → 제목 후보 1개 → 그 모양으로 바꾸면 준비
+      const t1 = mk7(30, n => `◈ ${n} ◈`), r1 = A7(t1, '기호 1-30 완결.txt', '', {});
+      const i1 = FI(r1.lines, r1.det, r1.det.stats.range, { candidates: !r1.isGood });
+      const r1b = i1.candidates[0] ? A7(t1, '기호 1-30 완결.txt', PL(i1.candidates[0].text), {}) : null;
+      check('[줄패턴] 감지 실패 → 제목 후보(같은 모양 30줄) → 바꾸면 30/30화',
+        r1.verdict.state === 'fail' && i1.candidates.length === 1 && i1.candidates[0].why === '같은 모양 30줄' && r1b?.verdict.label === '30/30화' && IMP('fail', r1b.verdict.state, r1b.chapters.length), JSON.stringify(i1));
+      // 28-3. 한 화만 다른 형식 → 놓친 줄 후보(그 화 자리) → 지금 패턴에 더하면 60/60화
+      const t2 = mk7(60, n => n === 47 ? '47편' : `제${n}화 제목`), r2 = A7(t2, '한 화 1-60 완결.txt', '', {});
+      const i2 = FI(r2.lines, r2.det, r2.det.stats.range, { candidates: !r2.isGood });
+      const m2 = i2.misses[0];
+      const r2b = m2 ? A7(t2, '한 화 1-60 완결.txt', '(?:' + r2.det.rx.source + '|' + PL(m2.text) + ')', {}) : null;
+      check('[줄패턴] 누락 의심 47화 → 놓친 줄 후보 \'47편\'(47화 자리) → 더하면 60/60화',
+        r2.verdict.label === '59/60화' && i2.misses.length === 1 && m2.text === '47편' && m2.why === '47화 자리' && r2.lines[m2.line - 1] === '47편' && r2b?.verdict.label === '60/60화', JSON.stringify(i2));
+      // 28-4. 실전형 5종 — 후보를 강제로 켜도 잡음 0 (번호 목록·카운트다운·본문 속 'N화' 제외)
+      const noise = SPECS.map(sp => { const g = generate(sp); const r = A7(g.text, g.fileName, '', {}); const x = FI(r.lines, r.det, r.det.stats.range, { candidates: true }); return x.suspects.length + x.misses.length + x.candidates.length; });
+      check('[줄패턴] 실전형 5종: 후보 계산을 켜도 확인할 줄 0 (목록·카운트다운·본문 언급 제외, 지워진 47·210화는 줄이 없으므로 후보 없음)', noise.every(n => n === 0), noise.join(','));
+      // 28-5. 본문일 수 있는 줄 · 상한
+      const longT = '제12화 ' + '가'.repeat(70);
+      const i5 = FI([], { items: [{ line: 3, title: longT, num: 12, kind: 'ch' }, { line: 9, title: '제13화 그는 결국 문을 열고 들어갔다.', num: 13, kind: 'ch' }, { line: 12, title: '프롤로그', num: null, kind: 'kw' }] }, null, {});
+      check('[줄패턴] 본문일 수 있는 줄: 60자 넘는 제목 · 문장처럼 끝남 (키워드 항목 제외)', i5.suspects.length === 2 && i5.suspects[0].why.startsWith('긴 제목') && i5.suspects[1].why === '문장처럼 끝남', JSON.stringify(i5.suspects));
+      check('[줄패턴] 빈 입력 안전', JSON.stringify(FI(null, null, null, { candidates: true })) === JSON.stringify({ suspects: [], misses: [], candidates: [] }));
+      // 28-6. 적용 조건
+      check('[줄패턴] 바꾸기는 판정이 나아질 때만 (3개 미만·준비→확인 필요는 거절)', IMP('fail', 'warn', 5) && IMP('warn', 'ok', 30) && IMP('ok', 'ok', 30) && !IMP('ok', 'warn', 30) && !IMP('fail', 'ok', 2) && !IMP('warn', 'warn', 40));
+      check('[줄패턴] 연결: 패널은 확인할 줄을 목록보다 먼저 · 더하기는 본편 화수가 늘 때만 · 체크 상자 적용과 같은 경로 · 위임 · 문구 textContent',
+        /const issues=findBatchLineIssues\(r\.lines, r\.det,/.test(conv) && /if\(issueSec\) panel\.insertBefore\(issueSec, panel\.children\[1\]\|\|null\);/.test(conv) && /if\(issueSec\) panel\.appendChild\(issueSec\);\n\n      const list=/.test(conv)
+        && /if\(mode==='add'&&!\(r\.mainCnt>\(ctx\.main\|\|0\)\)\)/.test(conv) && /directEl\.dataset\.typed='1';[^\n]*\n    await confirmBatchPreset\(idx\);/.test(conv)
+        && /batchLinePattern:    \(el\) => typeof batchLinePattern==='function'&&batchLinePattern\(parseInt\(el\.dataset\.idx,10\), parseInt\(el\.dataset\.line,10\), el\.dataset\.mode\),/.test(ui)
+        && /txt\.textContent=r\.text;/.test(conv) && /\.batch-line-tag\{flex-shrink:0;color:var\(--text2\)/.test(css));
+    }
+  } catch (e) {
+    check('[사전분석] 사전 분석 모듈 로드', false, String(e && e.message || e).slice(0, 160));
   }
   if(UPDATE){
     fs.writeFileSync(GOLDEN, JSON.stringify(golden, null, 2) + '\n', 'utf8');
