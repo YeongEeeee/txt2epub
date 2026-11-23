@@ -4058,6 +4058,294 @@ function _applyTitleTemplate(tpl, n){
 //   · 앵커 배정: 화 제목 줄이 (화수-1)의 80% 이상이면 균등 지점마다 가장 가까운 제목 줄을 순서대로 배정
 //   · 그 외: _snapToBoundary(빈 줄·문장 종결·제목 줄 가산점)로 보정 후 단조 증가 보장
 // ════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════
+// ★ Phase 40: 간격 분할 경계 엔진 v2 — 전체를 한 번에 맞춤 (경계를 하나씩 정하면 앞의 오차가 뒤로 쌓임)
+//   1) 위치 기준은 글자 수 — 대사가 많은 화는 줄이 많고 서술이 많은 화는 줄이 적어, 줄 수로 나누면 시작점부터 어긋남
+//   2) 후보 줄 가운데 '경계 점수 합 − 화 길이가 평균에서 벗어난 정도'가 가장 큰 조합을 동적 계획법으로 고름
+//      화 개수는 경계마다 매기는 비용(λ)을 이분 탐색해 맞추고, 남거나 모자라면 가장 약한 경계를 빼거나 가장 긴 화를 나눔
+//   3) 정규식 목록 밖의 제목을 파일 안에서 찾음
+//      - 번호 흐름: 짧은 숫자 줄이 같은 모양으로 화수만큼 반복되면 제목 가족 — 앞 경계 번호 +1이면 크게 가산
+//      - 반복 구분선: '***'·'◇◇◇' 같은 줄이 화수만큼 있으면 그 다음 줄이 경계
+//      - 빈 줄: 고정 점수가 아니라 이 파일에서 드문 길이(긴 쪽 n개)만 경계 신호
+//   순수 함수 · DOM 비의존 — 실패하면 null (호출자가 기존 방식으로)
+// ════════════════════════════════════════════════════════
+const _IV_SEP_RX=/^(?:[*＊=\-─━~·.◇◆□■☆★♡♥○●◎※#]\s*){3,}$/;
+const _IV_SENT_END_RX=/[.!?…。！？"”’』」)]$/;
+// 번호가 없어도 제목인 줄 — 프롤로그·에필로그·외전·작가의 말·공지·N권 (정규식 감지와 무관하게)
+const _IV_KW_RX=/^(?:[\[(【<〈]\s*)?(?:프롤로그|에필로그|외전|번외|후일담|후기|작가\s*후기|작가의\s*말|공지|서장|종장|막간|특별편|\d{1,3}\s*권|prologue|epilogue)(?:[\s\])】>〉.:]|$)/i;
+function _ivShapeKey(t){
+  const m=/^(\D{0,6})(\d{1,5})(\s*[^\s\dA-Za-z가-힣]{0,3}\s*(?:화|장|편|회|話|章|回|권|부)?[^\s\dA-Za-z가-힣]{0,3})/.exec(t);
+  return m?{key:(m[1]+'0'+m[3]).replace(/\s+/g,' ').trim(), num:parseInt(m[2],10)}:null;
+}
+function _intervalFeatures(lines, n, headSet, kwSet){
+  const L=lines.length;
+  const T=new Array(L), blank=new Uint8Array(L), cum=new Float64Array(L+1);
+  for(let i=0;i<L;i++){
+    const t=String(lines[i]??'').replace(/[\r​﻿ ]/g,'').trim();
+    T[i]=t; blank[i]=t?0:1;
+    cum[i+1]=cum[i]+t.length;
+  }
+  const total=cum[L]||1;
+  // 빈 줄 길이 (점수는 아래 runScore — 이 파일에서 얼마나 드문 길이인지)
+  const runBefore=new Int32Array(L);
+  const runs=[];
+  for(let i=1,r=0;i<L;i++){
+    if(blank[i-1]) r++; else r=0;
+    if(!blank[i]){ runBefore[i]=r; if(r>0) runs.push(r); }
+  }
+  runs.sort((a,b)=>b-a);
+  // 반복 모양 (번호 줄·구분선) — 화수와 비슷한 횟수로 반복되고, 바로 위아래에 같은 모양이 없을 때(번호 목록 제외)
+  const fam=new Map();
+  const shapeAt=new Array(L);
+  const listy=new Uint8Array(L);   // 번호 목록·카운트다운 줄 ('1. 검' '2. 방패' · '3' '2' '1') — 화 경계가 아님
+  for(let i=0;i<L;i++){
+    const t=T[i];
+    if(!t||t.length>40) continue;
+    let sh=null;
+    if(_IV_SEP_RX.test(t)) sh={key:'SEP:'+t.replace(/\s+/g,''), num:null, sep:true};
+    else if(!_IV_SENT_END_RX.test(t)||/\d+\s*[화장편회話章回]/.test(t)) sh=_ivShapeKey(t);
+    if(!sh) continue;
+    let near=false;
+    for(const j of [i-2,i-1,i+1,i+2]){
+      if(j<0||j>=L||!T[j]) continue;
+      const o=_ivShapeKey(T[j]);
+      if(o&&o.key===sh.key){ near=true; break; }
+    }
+    if(near){ listy[i]=1; continue; }
+    shapeAt[i]=sh;
+    fam.set(sh.key,(fam.get(sh.key)||0)+1);
+  }
+  // 번호 가족은 번호가 실제로 흘러야 함 (앞 줄 번호 +1이 절반 이상) — 본문 속 '1화' 언급처럼 같은 번호만 반복되면 제외
+  const famNums=new Map();
+  for(let i=0;i<L;i++){ const sh=shapeAt[i]; if(sh&&!sh.sep){ let a=famNums.get(sh.key); if(!a) famNums.set(sh.key,a=[]); a.push(sh.num); } }
+  // 구분선 가족의 간격 고르기 (화 경계면 화마다 한 번 — 장면 전환이면 들쭉날쭉)
+  const famCV=new Map();
+  { const pos=new Map();
+    for(let i=0;i<L;i++){ const sh=shapeAt[i]; if(sh&&sh.sep){ let a=pos.get(sh.key); if(!a) pos.set(sh.key,a=[]); a.push(cum[i]); } }
+    for(const [k,a] of pos){
+      const g=[]; for(let x=1;x<a.length;x++) g.push(a[x]-a[x-1]);
+      const m=g.reduce((p,q)=>p+q,0)/Math.max(1,g.length);
+      const sd=Math.sqrt(g.reduce((p,q)=>p+(q-m)*(q-m),0)/Math.max(1,g.length));
+      famCV.set(k, m?sd/m:9);
+    } }
+  const famFlow=new Map();
+  for(const [k,a] of famNums){ let up=0; for(let x=1;x<a.length;x++) if(a[x]-a[x-1]===1) up++; famFlow.set(k, a.length>1?up/(a.length-1):0); }
+  let famStrong=false;
+  const famOK=k=>{
+    const c=fam.get(k)||0;
+    if(k.startsWith('SEP:')){
+      // 구분선은 장면 전환에도 쓰임 — 번호 제목 가족이 없고, 개수가 화수와 거의 같을 때만 화 경계로
+      return !famStrong&&c>=0.85*n&&c<=1.15*n&&(famCV.get(k)??9)<=0.6;
+    }
+    if(!(c>=Math.max(3,0.4*n)&&c<=2.2*n)) return false;
+    return (famFlow.get(k)||0)>=0.5;
+  };
+  // 번호가 흐르는 제목 가족이 화수만큼 있으면 경계는 그 가족이 정함 — 빈 줄·구분선 신호는 약하게
+  for(const [k,c] of fam){ if(!k.startsWith('SEP:')&&c>=0.8*n&&c<=1.2*n&&(famFlow.get(k)||0)>=0.6){ famStrong=true; break; } }
+  // 후보 줄과 점수
+  const cands=[];
+  const compact=runs.length<n*0.5;   // 빈 줄이 거의 없는 압축 TXT — 문장 끝 다음 줄을 모두 후보로
+  // 정규식 감지 제목 줄의 무게 — 화수와 비슷하게 잡혔으면 그대로 믿고, 넘치면(본문 숫자 줄·머리줄까지) 낮춤
+  // 빈 줄 길이 r의 점수 — 이 파일에서 r줄 이상 빈 곳이 화 경계 수에 비해 얼마나 드문가
+  //   (경계 수의 1.2배 이하 130 · 2.5배 이하 90 · 5배 이하 40 · 그 밖 10) — 번호 제목 가족이 있으면 30%만
+  const runGe=new Map();
+  { const cnt=new Map(); for(const r of runs) cnt.set(r,(cnt.get(r)||0)+1);
+    const ks=[...cnt.keys()].sort((a,b)=>b-a); let acc=0; for(const k of ks){ acc+=cnt.get(k); runGe.set(k,acc); } }
+  const runScore=r=>{
+    if(r<=0) return 0;
+    const f=(runGe.get(r)||runs.length)/Math.max(1,n-1);
+    return f<=1.2?130:f<=2.5?90:f<=5?40:10;
+  };
+  const runW=famStrong?0.3:1;
+  // 화마다 되풀이되는 같은 줄(작품명 머리줄·사이트 문구) — 개수가 화수와 거의 같으면,
+  //   파일 맨 앞에 처음 나오면 화 시작(머리줄), 맨 끝에 마지막이 나오면 화 끝(꼬리줄 — 다음 줄이 경계)
+  const lineCnt=new Map();
+  for(let i=0;i<L;i++){ const t=T[i]; if(t&&t.length>=2&&t.length<=60&&!_IV_SEP_RX.test(t)&&!_IV_SENT_END_RX.test(t)) lineCnt.set(t,(lineCnt.get(t)||0)+1); }
+  const repHead=new Set(), repTail=new Set();
+  for(const [t,c] of lineCnt){
+    if(c<0.85*n||c>1.15*n||c<3) continue;
+    let first=-1, last=-1;
+    const pos=[];
+    for(let i=0;i<L;i++) if(T[i]===t){ if(first<0) first=i; last=i; pos.push(cum[i]); }
+    // 화마다 한 번씩이면 간격이 고름 — 본문에 우연히 자주 나오는 줄은 간격이 들쭉날쭉(변동계수 0.6 넘음)
+    const gaps=[]; for(let x=1;x<pos.length;x++) gaps.push(pos[x]-pos[x-1]);
+    const gm=gaps.reduce((a,b)=>a+b,0)/Math.max(1,gaps.length);
+    const gsd=Math.sqrt(gaps.reduce((a,b)=>a+(b-gm)*(b-gm),0)/Math.max(1,gaps.length));
+    if(!gm||gsd/gm>0.6||Math.min(...gaps)<0.15*gm) continue;
+    if(cum[first]<=0.3*(total/n)) repHead.add(t);
+    else if(total-cum[last+1]<=0.3*(total/n)) repTail.add(t);
+  }
+  const hsN=headSet?headSet.size:0;
+  //   화수의 85~115%면 그대로(300), 훨씬 적거나(본문 속 몇 줄만 걸림) 넘치면 약하게
+  const headW=!hsN?0:(hsN>=0.85*n&&hsN<=1.15*n?300:(hsN<=1.5*n?100:0));
+  // 첫 화(0줄 쪽) 번호 — 첫 경계의 번호 흐름 판단용
+  //   파일 맨 앞 머리말(작품명 줄 등) 뒤에 바로 첫 번호 제목이 오면 그 줄은 경계가 아니라 1화의 시작 (0줄부터 1화)
+  let firstNum=null, firstSkip=-1;
+  for(let i=0;i<L;i++){
+    if(cum[i]>0.3*(total/n)) break;
+    const sh=shapeAt[i];
+    if(sh&&!sh.sep&&famOK(sh.key)){ firstNum=sh.num; firstSkip=i; break; }
+  }
+  for(let i=1;i<L;i++){
+    if(blank[i]||i===firstSkip) continue;
+    let sc=0, num=null, hit=false;
+    if(headW&&headSet.has(i)){ sc+=headW; hit=true; }
+    else if((kwSet&&kwSet.has(i))||(T[i].length<=30&&_IV_KW_RX.test(T[i]))){ sc+=250; hit=true; }
+    const sh=shapeAt[i];
+    if(sh&&famOK(sh.key)){
+      if(sh.sep){ /* 구분선 자체는 경계가 아님 — 다음 줄에서 가산 */ }
+      else { sc+=140; num=sh.num; hit=true; }
+    }
+    // 바로 앞(빈 줄 건너)이 반복 구분선
+    let j=i-1; while(j>0&&blank[j]) j--;
+    const psh=j>=0?shapeAt[j]:null;
+    if(psh&&psh.sep&&famOK(psh.key)){ sc+=150; hit=true; }
+    const rb=runBefore[i];
+    if(rb>0){
+      hit=true;
+      sc+=Math.round(runScore(rb)*runW);
+    }
+    if(repHead.has(T[i])){ sc+=220; hit=true; }
+    if(j>=0&&repTail.has(T[j])){ sc+=220; hit=true; }
+    if(j>=0&&T[j]&&_IV_SENT_END_RX.test(T[j])){ sc+=20; if(compact) hit=true; }
+    if(T[i].length<=30&&!_IV_SENT_END_RX.test(T[i])) sc+=10;
+    if(listy[i]) sc-=80;
+    if(headW&&headSet.has(i)&&num==null){ const o=_ivShapeKey(T[i]); if(o) num=o.num; }
+    if(hit) cands.push({i, s:sc, c:cum[i], num});
+  }
+  // 후보가 너무 많으면(평범한 문단 빈 줄) 덜어 냄 — 계산량이 후보 수에 비례하므로 화수×8개 안팎으로
+  //   제목급 후보(200점 이상)는 모두 두고, 나머지는 글자 위치를 화수×8 칸으로 나눠 칸마다 가장 센 하나만
+  let out=cands;
+  if(cands.length>8*n){
+    const B=8*n, w=total/B, keep=new Array(B).fill(null), strong=[];
+    for(const c of cands){
+      if(c.s>=200){ strong.push(c); continue; }
+      const b=Math.min(B-1, Math.floor(c.c/w));
+      if(!keep[b]||c.s>keep[b].s) keep[b]=c;
+    }
+    out=[...strong, ...keep.filter(Boolean)].sort((a,b)=>a.i-b.i);
+  }
+  return {cum, total, cands:out, firstNum};
+}
+
+function _intervalStartsDP(lines, n, headSet, kwSet){
+  const L=lines.length;
+  if(n<=1||L<2) return null;
+  // 정규식 감지가 화수보다 훨씬 많이 잡았으면(본문 속 'N화' 언급·숫자 줄 등) 믿지 않음
+  if(headSet&&headSet.size>1.5*n) headSet=null;   // (무게는 _intervalFeatures에서 한 번 더 조절)
+  const F=_intervalFeatures(lines, n, headSet, kwSet);
+  const C=F.cands;
+  if(C.length<n-1) return null;
+  const mu=F.total/n;
+  const loW=0.003*mu, hiW=4.5*mu, ALPHA=55;
+  // 화 길이 비용 — 평균보다 긴 화는 무겁게, 짧은 화(공지·작가의 말·짧은 외전)는 가볍게(상한 150)
+  //   안쪽 반복에서 Math.log를 피하려고 길이/평균 비율을 1/256 단위 표로 (비율 0~4.5)
+  const _lenRaw=l=>{ const r=Math.log(Math.max(l,1)/mu); return r>0?ALPHA*r*r:Math.min(150, 20*r*r); };
+  const LT=new Float64Array(4.5*256+2);
+  for(let q=0;q<LT.length;q++) LT[q]=_lenRaw(Math.max(1, q/256*mu));
+  const lenCost=l=>{ const q=Math.round(l/mu*256); return q<LT.length?LT[q]:_lenRaw(l); };
+  const numBonus=(a,b)=>{
+    if(a==null||b==null) return 0;
+    const d=b-a;
+    return d===1?160:d===0?40:d===2?60:-60;
+  };
+  // 앞쪽 후보 범위 (글자 거리 [loW, hiW]) — 포인터 두 개로
+  const M=C.length;
+  const lo=new Int32Array(M), hi=new Int32Array(M);
+  for(let x=0,a=0,b=0;x<M;x++){
+    while(a<x&&C[x].c-C[a].c>hiW) a++;
+    while(b<x&&C[x].c-C[b].c>=loW) b++;
+    lo[x]=a; hi[x]=b;   // 앞 후보 범위: [a, b)
+  }
+  const best=new Float64Array(M), cnt=new Int32Array(M), from=new Int32Array(M);
+  const lastNum=new Array(M);   // 이 경로에서 마지막으로 번호가 있던 경계의 번호 — 번호 없는 경계(공지·권)를 건너 흐름을 이어 봄
+  function solve(lam){
+    for(let x=0;x<M;x++){
+      // 처음(0줄)에서 바로 오는 경우
+      let bv=-Infinity, bc=0, bf=-1, bn=F.firstNum;
+      const l0=C[x].c;
+      if(l0>=loW&&l0<=hiW){ bv=-lenCost(l0)+numBonus(F.firstNum, C[x].num); bc=1; bf=-1; }
+      for(let y=lo[x];y<hi[x];y++){
+        if(best[y]===-Infinity) continue;
+        const v=best[y]-lenCost(C[x].c-C[y].c)+numBonus(lastNum[y],C[x].num);
+        if(v>bv||(v===bv&&cnt[y]+1<bc)){ bv=v; bc=cnt[y]+1; bf=y; bn=lastNum[y]; }
+      }
+      best[x]=bv===-Infinity?-Infinity:bv+C[x].s-lam;
+      cnt[x]=bc; from[x]=bf;
+      lastNum[x]=C[x].num!=null?C[x].num:bn;
+    }
+    // 끝(전체 글자)으로
+    let ev=-Infinity, ec=0, ef=-1;
+    const lt=F.total;
+    if(lt<=hiW){ ev=-lenCost(lt); ec=1; ef=-1; }
+    for(let y=0;y<M;y++){
+      if(best[y]===-Infinity) continue;
+      const l=lt-C[y].c; if(l<loW||l>hiW) continue;
+      const v=best[y]-lenCost(l);
+      if(v>ev||(v===ev&&cnt[y]+1<ec)){ ev=v; ec=cnt[y]+1; ef=y; }
+    }
+    if(ev===-Infinity) return null;
+    const path=[]; for(let y=ef;y>=0;y=from[y]) path.push(y);
+    path.reverse();
+    return {segments:ec, path};
+  }
+  // λ 이분 탐색 — 화 개수(segments)가 n에 가장 가까운 해
+  let a=-400, b=4000, pick=null;
+  for(let it=0;it<18;it++){
+    const lam=(a+b)/2;
+    const r=solve(lam);
+    if(!r){ b=lam; continue; }
+    if(!pick||Math.abs(r.segments-n)<Math.abs(pick.segments-n)) pick=r;
+    if(r.segments===n) break;
+    if(r.segments>n) a=lam; else b=lam;
+  }
+  if(!pick) return null;
+  // 화 개수 맞추기 — 점수 변화가 가장 작은 경계를 빼거나, 가장 이득인 후보를 넣음 (번호 흐름·화 길이 모두 반영)
+  let sel=pick.path.slice();   // 후보 인덱스 (오름차순)
+  const segVal=(a,b)=>{   // a 뒤 b까지 한 화: 길이 비용 + 번호 흐름 (a=-1: 처음, b=M: 끝)
+    const ca=a<0?0:C[a].c, cb=b>=M?F.total:C[b].c;
+    return -lenCost(cb-ca)+(b<M?numBonus(a<0?F.firstNum:C[a].num, C[b].num):0);
+  };
+  const gainAt=(arr,k)=>{   // arr[k]를 넣었을 때 늘어나는 점수
+    const a=k>0?arr[k-1]:-1, b=k+1<arr.length?arr[k+1]:M;
+    return C[arr[k]].s+segVal(a,arr[k])+segVal(arr[k],b)-segVal(a,b);
+  };
+  let guard=0;
+  while(sel.length+1>n&&guard++<n){
+    let wk=0, wv=Infinity;
+    for(let k=0;k<sel.length;k++){ const g=gainAt(sel,k); if(g<wv){ wv=g; wk=k; } }
+    sel.splice(wk,1);
+  }
+  guard=0;
+  while(sel.length+1<n&&guard++<n){
+    const inSel=new Set(sel);
+    let bx=-1, bk=0, bg=-Infinity;
+    let k=0;
+    for(let x=0;x<M;x++){
+      if(inSel.has(x)) { k++; continue; }
+      const trial=[...sel.slice(Math.max(0,k-1),k), x, ...sel.slice(k,k+1)];
+      const g=gainAt(trial, Math.min(1,k));
+      if(g>bg){ bg=g; bx=x; bk=k; }
+    }
+    if(bx<0) break;
+    sel.splice(bk,0,bx);
+  }
+  let starts=[0, ...sel.map(y=>C[y].i)];
+  // 그래도 모자라면(후보 부족) 가장 긴 화를 글자 가운데에서 나눔
+  while(starts.length<n){
+    const segLen=k=>(k+1<starts.length?F.cum[starts[k+1]]:F.total)-F.cum[starts[k]];
+    let lk=0; for(let k=1;k<starts.length;k++) if(segLen(k)>segLen(lk)) lk=k;
+    const s0=starts[lk], s1=lk+1<starts.length?starts[lk+1]:L;
+    const midC=F.cum[s0]+segLen(lk)/2;
+    let m=s0+1; while(m<s1-1&&F.cum[m]<midC) m++;
+    if(m<=s0||m>=s1) break;
+    starts.splice(lk+1,0,m);
+  }
+  if(starts.length!==n) return null;
+  for(let k=1;k<n;k++) if(starts[k]<=starts[k-1]) return null;
+  return starts;
+}
+
 function computeIntervalSplit(lines, totalChapters, opts={}){
   const totalLines=(lines||[]).length;
   if(!totalLines) return [];
@@ -4068,13 +4356,15 @@ function computeIntervalSplit(lines, totalChapters, opts={}){
   const interval=Math.max(1, Math.floor(totalLines/n));
 
   // 제목 줄 (0-based, 오름차순) — 파일 경계 가짜 제목은 제외
-  let heads=null;
+  let heads=null, kwSet=null;
   if(headingAware&&n>1){
     try{
       const det=opts.detection||detectToc(lines,{});
       heads=(det?.items||[]).filter(it=>it.kind!=='file').map(it=>it.line-1)
         .filter(i=>i>0&&i<totalLines).sort((a,b)=>a-b);
       if(!heads.length) heads=null;
+      // ★ Phase 40: 키워드 제목(프롤로그·외전·작가의 말·공지·N권)은 본편 감지가 넘쳐도 믿을 만함
+      kwSet=new Set((det?.items||[]).filter(it=>it.kind&&it.kind!=='ch'&&it.kind!=='file').map(it=>it.line-1).filter(i=>i>0&&i<totalLines));
     }catch(e){ heads=null; }
   }
   const headSet=heads?new Set(heads):null;
@@ -4082,14 +4372,19 @@ function computeIntervalSplit(lines, totalChapters, opts={}){
   const anchors=(heads&&heads.length>=Math.max(2, Math.floor((n-1)*0.8)))?heads:null;
 
   // STEP 1: 경계 확정
-  const starts=new Array(n);
+  //   ★ Phase 40: 제목 줄 수가 화수와 정확히 맞지 않으면 v2 엔진(글자 수 기준 · 전체 최적화 · 파일 안 제목 찾기)
+  //   opts.engine==='legacy'면 이전 방식 (비교 측정용) · v2가 실패하면 이전 방식으로
+  let starts=new Array(n);
   starts[0]=0;
+  const exactHeads=anchors&&anchors.length===n-1;
+  const v2=(!exactHeads&&opts.engine!=='legacy')?(()=>{ try{ return _intervalStartsDP(lines, n, headSet, kwSet); }catch(e){ return null; } })():null;
+  if(v2) starts=v2;
   // 제목 줄 수가 나눌 화수와 정확히 맞으면(첫 화 제외 n-1개) 균등 지점과 무관하게 제목 줄 전부를 경계로 사용
   //   (화 길이 편차가 커도 '1화=1챕터' 보장 — 최근접 배정은 긴 화 옆에서 이웃 제목을 건너뛸 수 있음)
-  const exactAnchors=anchors&&anchors.length===n-1;
+  const exactAnchors=exactHeads;
   if(exactAnchors) for(let ch=1;ch<n;ch++) starts[ch]=anchors[ch-1];
   let ap=0;
-  for(let ch=exactAnchors?n:1;ch<n;ch++){
+  for(let ch=(exactAnchors||v2)?n:1;ch<n;ch++){
     const mathIdx=Math.floor(ch*totalLines/n);
     if(anchors){
       let best=-1, bestD=Infinity;

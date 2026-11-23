@@ -30,6 +30,7 @@
  *  23. Phase 32 (UI 정제 3단계 — 디자인 축소): CSS 리터럴 0 · 무한 애니메이션 1 · 화면 이모지 0 → SVG 아이콘 · JS 인라인 스타일 → 클래스·hidden
  *  24. Phase 33 (UI 정제 4단계 — 정보 구조): 기본 경로만 펼침(분할 규칙·목차 편집·삽화 접기) · 데스크톱 2단 · 레이아웃 이동 방지
  *  25. Phase 34 (신뢰 기능): EPUB 구조 검사(생성 EPUB 통과 · 일부러 망가뜨린 11종 검출) · 실제 XHTML·CSS 미리보기 · 본문 정리 전후 비교
+ *  31. Phase 40 (간격 분할 v2): 글자 수 기준 · 전체 최적화 · 파일 안 제목 찾기(번호 흐름·반복 구분선·머리줄·드문 빈 줄) — 정답을 아는 합성 원고로 정확도 하한
  *  30. Phase 39 (일괄 변환 편의): 제목 정리·직접 고치기 · 표지 검색 결과가 실제 변환 표지로 · 표지 없는 파일 차례로 · 실패한 파일만 다시 · 완료 알림
  *  29. Phase 38 (일괄 변환 한 화면): 한 줄 드롭존 · 표지·공통 설정 접기(요약 줄) · 진행 막대는 변환 시작 후 · '확인 필요만' · 하단 바 상태
  *  28. Phase 37 (확인 패널): 놓친 줄 후보·제목 후보(목록·카운트다운 제외)·본문일 수 있는 줄 · 줄 → 정규식 · 좋아질 때만 적용
@@ -1936,6 +1937,75 @@ async function main(){
     }
   } catch (e) {
     check('[사전분석] 사전 분석 모듈 로드', false, String(e && e.message || e).slice(0, 160));
+  }
+  // ── 31. Phase 40 — 간격 분할 v2 ──
+  {
+    const { generate, SPECS } = require('./gen-realistic.js');
+    const CIS = G('computeIntervalSplit');
+    const SEP = /^(?:[=\-─━*＊~·.]{3,})$/;
+    const mkCase = (spec, vary, mode) => {
+      const g = generate(vary ? { ...spec, vary: true } : spec);
+      const lines = g.text.split('\n');
+      const heads = new Set(g.truth.map(t => t.line - 1));
+      const tgt = new Map(g.truth.filter(t => t.kind === 'ch' && t.num != null).map(t => [t.line - 1, t.num]));
+      const out = [], gold = [];
+      for (let i = 0; i < lines.length; i++) {
+        if (heads.has(i)) gold.push(out.length);
+        if (mode !== 'keep' && tgt.has(i)) { if (mode === 'odd') out.push(`◈ ${tgt.get(i)} ◈`); continue; }
+        out.push(lines[i]);
+      }
+      const ign = t => { const x = String(t || '').trim(); return !x || SEP.test(x) || (spec.header && x === spec.header); };
+      return { lines: out, gold, ign };
+    };
+    const acc = (c, starts) => {
+      const pre = [0]; for (const l of c.lines) pre.push(pre[pre.length - 1] + (c.ign(l) ? 0 : 1));
+      const sp = starts.slice().sort((a, b) => a - b);
+      let ok = 0;
+      for (let k = 1; k < c.gold.length; k++) {
+        const q = c.gold[k];
+        const d = Math.min(...sp.map(p => Math.abs(pre[Math.max(p, q)] - pre[Math.min(p, q)])));
+        if (d === 0) ok++;
+      }
+      return ok / (c.gold.length - 1);
+    };
+    const run = (c, opts = {}) => CIS(c.lines, c.gold.length, { titleMode: 'number', ...opts }).map(it => it.line - 1);
+    const sp0 = SPECS[0];
+    const rows = [];
+    for (const [mode, vary, min] of [['keep', false, 1], ['odd', false, 0.98], ['odd', true, 0.95], ['none', false, 0.75], ['none', true, 0.65]]) {
+      const c = mkCase(sp0, vary, mode);
+      const t0 = Date.now(); const st = run(c); const ms = Date.now() - t0;
+      const a = acc(c, st), aOld = acc(c, run(c, { engine: 'legacy' }));
+      rows.push(`${mode}${vary ? '·들쭉' : ''} ${(aOld * 100).toFixed(1)}→${(a * 100).toFixed(1)}% ${ms}ms`);
+      check(`[간격v2] ${sp0.title.slice(0, 8)} ${mode}${vary ? '·들쭉' : ''}: 정확 경계 ${(min * 100).toFixed(0)}% 이상 · 화수 그대로 · 이전 방식 이상`, a >= min && st.length === c.gold.length && a >= aOld, `${(a * 100).toFixed(1)}% (이전 ${(aOld * 100).toFixed(1)}%)`);
+    }
+    console.log('  · 간격 분할 v2 (재활만 했는데…, 이전→v2) ' + rows.join(' · '));
+    // 31-2. 파일 안 제목 찾기 — 번호 흐름 · 같은 번호만 반복되는 언급 제외 · 구분선은 간격이 고를 때만 · 목록 감점
+    const FEAT = G('_intervalFeatures');
+    const mkLines = (n, head, extra = () => []) => { const L = []; for (let k = 1; k <= n; k++) { L.push(head(k), ''); for (let j = 0; j < 6; j++) L.push(`그는 ${k}번째 날에도 걸었다.`, ''); L.push(...extra(k)); } return L; };
+    const f1 = FEAT(mkLines(30, k => `◈ ${k} ◈`), 30, null, null);
+    const fam1 = f1.cands.filter(c => c.num != null);
+    check('[간격v2] 번호 흐름: 같은 모양으로 1,2,3…이 화수만큼 → 번호 가족(첫 줄은 1화의 시작이라 경계 후보에서 뺌)', fam1.length === 29 && fam1[0].num === 2 && f1.firstNum === 1, JSON.stringify(fam1.slice(0, 3).map(c => c.num)));
+    const f2 = FEAT(mkLines(30, () => '1화'), 30, null, null);
+    check('[간격v2] 같은 번호만 반복(본문 속 \'1화\' 언급)은 번호 가족 아님', f2.cands.every(c => c.num == null));
+    const f3L = mkLines(30, k => `◈ ${k} ◈`, k => (k % 2 ? ['***', '', '다음 장면이 이어졌다.', ''] : []));
+    const f3 = FEAT(f3L, 30, null, null);
+    const afterSep = f3.cands.filter(c => { let j = c.i - 1; while (j > 0 && !f3L[j].trim()) j--; return f3L[j] === '***'; });
+    check('[간격v2] 장면 전환 구분선(\'***\' — 화수보다 적음)은 화 경계로 보지 않음 (다음 줄 가산 없음)', afterSep.length > 0 && afterSep.every(c => c.s < 150), JSON.stringify(afterSep.slice(0, 3)));
+    const f4L = mkLines(30, () => '작품명 머리줄');
+    const f4 = FEAT(f4L, 30, null, null);
+    const hdr = f4.cands.filter(c => f4L[c.i] === '작품명 머리줄');
+    check('[간격v2] 화마다 맨 앞에 되풀이되는 같은 줄(작품명 머리줄) → 화 시작 후보로 크게 가산', hdr.length === 29 && hdr.every(c => c.s >= 220), JSON.stringify(hdr.slice(0, 2)));
+    const f5L = ['서문', '', '준비물은 다음과 같았다.', '', '1. 검', '2. 방패', '3. 지도', '', ...mkLines(10, k => `◆ ${k} ◆`)];
+    const f5 = FEAT(f5L, 10, null, null);
+    check('[간격v2] 번호 목록(\'1. 검\' \'2. 방패\')은 경계 후보에서 감점', f5.cands.filter(c => /^\d\. /.test(f5L[c.i])).every(c => c.s < 0));
+    const KW = G('_IV_KW_RX');
+    check('[간격v2] 키워드 제목(프롤로그·에필로그·외전·작가의 말·공지·N권)은 감지와 무관하게 제목 · 문장은 아님',
+      ['에필로그', '외전 1화', '작가의 말', '공지) 연재 주기 안내', '2권', '[프롤로그]'].every(t => KW.test(t)) && !['후기가 남았다.', '외전이었다'].some(t => KW.test(t)));
+    // 31-3. 연결 — 제목 줄 수가 화수와 정확히 맞으면 이전처럼 그 줄들 · 아니면 v2 · 실패/legacy면 이전 방식
+    const ps = fs.readFileSync(path.join(ROOT, 'parser.js'), 'utf8');
+    check('[간격v2] 연결: 정확한 제목 줄 → 그대로 · 그 밖 v2 · opts.engine===\'legacy\' 또는 실패 시 이전 방식',
+      /const exactHeads=anchors&&anchors\.length===n-1;\n  const v2=\(!exactHeads&&opts\.engine!=='legacy'\)\?\(\(\)=>\{ try\{ return _intervalStartsDP\(lines, n, headSet, kwSet\); \}catch\(e\)\{ return null; \} \}\)\(\):null;\n  if\(v2\) starts=v2;/.test(ps)
+      && /for\(let ch=\(exactAnchors\|\|v2\)\?n:1;ch<n;ch\+\+\)\{/.test(ps) && G('_intervalStartsDP')(['a', 'b'], 1, null, null) === null);
   }
   if(UPDATE){
     fs.writeFileSync(GOLDEN, JSON.stringify(golden, null, 2) + '\n', 'utf8');

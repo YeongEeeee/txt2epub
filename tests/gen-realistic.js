@@ -27,11 +27,18 @@ const DIGIT=['3년이 지났다.','100미터 앞에서 그가 멈춰 섰다.','2
 const TITLES=['시작','각성','첫 번째 의뢰','드래곤의 둥지','계약','대가','귀환','재회','폭풍 전야','결전','새로운 길','비밀','함정','반격','휴식','축제','배신','진실','여행','선택'];
 
 function body(r, opts={}){
-  const n=opts.lines||(18+Math.floor(r()*16)); const out=[];
+  let n=opts.lines||(18+Math.floor(r()*16)); const out=[];
+  // 측정용 변형 (기존 SPECS는 이 플래그가 없어 난수 소비·결과가 그대로)
+  //   vary: 화 길이 0.3~3배 · 화마다 문체(대사 위주 ↔ 서술 위주) — 줄 수와 글자 수가 따로 놀게
+  let sentP=0.55, dlgP=0.80;
+  if(opts.vary){
+    n=Math.max(4, Math.round(n*(0.3+r()*2.7)));
+    if(r()<0.5){ sentP=0.20; dlgP=0.85; } else { sentP=0.75; dlgP=0.85; }
+  }
   for(let i=0;i<n;i++){
     const x=r();
-    if(x<0.55) out.push(SENT[Math.floor(r()*SENT.length)]);
-    else if(x<0.80) out.push(DIALOG[Math.floor(r()*DIALOG.length)]);
+    if(x<sentP) out.push(SENT[Math.floor(r()*SENT.length)]);
+    else if(x<dlgP) out.push(DIALOG[Math.floor(r()*DIALOG.length)]);
     else if(x<0.88) out.push(DIGIT[Math.floor(r()*DIGIT.length)]);
     else if(x<0.91 && opts.list){ out.push('준비물은 다음과 같았다.','','1. 마나 포션','2. 강철 검','3. 지도',''); }
     else if(x<0.93 && opts.countdown){ out.push('"셋."','','3','','2','','1',''); }
